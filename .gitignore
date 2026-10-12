@@ -12,3 +12,6 @@ config.driver.json
 config.wallet.toml
 wallets/
 handoff/
+
+/MANIFEST.json
+fixture-source/

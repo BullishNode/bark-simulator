@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 """Declare and run the absent-owner hArk regression in an isolated checkout."""
 from pathlib import Path
-import argparse, datetime, fcntl, hashlib, importlib.util, json, os, shutil, subprocess, time
+import argparse, datetime, fcntl, hashlib, json, os, shutil, subprocess, time
+import fixture_runtime as runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 HERE = ROOT / 'runs/integration'
-CLONE = Path('/home/francis/simulator-regtest-src')
-TARGET = Path('/home/francis/abandon-ship-slots/target-3')
 HEAD = 'd47c6a4d115b30bf56219d69251fa9238d13f32d'
-PRODUCTION = Path('/home/francis/bark-integration-2026-10-01/candidate-d47c6a4d1/bins')
-spec = importlib.util.spec_from_file_location('stage4runner', Path('/home/francis/bark-integration-2026-10-01/scale-stage4/run-stage4.py'))
-s4 = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(s4)
 
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -19,15 +14,18 @@ def digest(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('name')
+    parser.add_argument('--sdk-source',type=Path,default=ROOT/'fixture-source',help='isolated compatible SDK fixture checkout')
+    parser.add_argument('--product-bin-dir',type=Path,default=ROOT/'source/target/debug',help='compatible product executable directory')
     parser.add_argument('--independent-target',action='store_true',help='use this simulator own target and lease; never share a suite slot')
     parser.add_argument('--test',choices=['simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_board_absence_restore','simulator_pending_board_absence_restore','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits','simulator_fallback_negative_requests'],default='simulator_board_absence_restore')
     args = parser.parse_args()
+    CLONE=args.sdk_source.resolve();PRODUCTION=args.product_bin_dir.resolve()
     assert args.name.replace('-', '').replace('_', '').isalnum()
     run = HERE / args.name
     HERE.mkdir(parents=True,exist_ok=True)
     run.mkdir(parents=True, exist_ok=False)
-    target=ROOT/'fixture-target' if args.independent_target else TARGET
-    lock=ROOT/'runs/integration/native-fixture.lock' if args.independent_target else Path('/home/francis/bark-integration-2026-10-01/expiry-fallback-evidence/runtime/fixture/slot-3.lock')
+    target=ROOT/'fixture-target'
+    lock=ROOT/'runs/integration/native-fixture.lock'
     with open(lock, 'a') as lease:
         fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
         assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=CLONE, text=True).strip() == HEAD
@@ -35,7 +33,16 @@ def main():
         assert sorted(x[3:] for x in changes) == ['testing/tests/bark_sdk/mod.rs', 'testing/tests/bark_sdk/simulator_vertical.rs']
         harness = CLONE / 'testing/tests/bark_sdk/simulator_vertical.rs'
         assert harness.read_bytes() == (ROOT / 'integration/simulator_vertical.rs').read_bytes()
-        env, _ = s4.build_env(run)
+        env=os.environ.copy()
+        for name in ('TEST_POSTGRES_HOST','LIGHTNINGD_EXEC'):env.pop(name,None)
+        env.setdefault('CARGO_BUILD_JOBS','4')
+        env.setdefault('POSTGRES_BINS','/usr/lib/postgresql/16/bin')
+        env.setdefault('BITCOIND_EXEC',shutil.which('bitcoind') or 'bitcoind')
+        env.setdefault('LIGHTNINGD_DOCKER_IMAGE','sha256:d39a7befb75611a76002a5c2e75c8d9d3be9796c68d0bb1148de98f1dbe7add1')
+        env.setdefault('LIGHTNINGD_PLUGIN_DIR','/plugins')
+        env.update(KEEP_ALL_TEST_DATA='1',CHAIN_SOURCE='bitcoind',TEST_LOG='info,bitcoincore_rpc=warn',
+            DAEMON_INIT_TIMEOUT_MILLIS='30000',TEST_DIRECTORY=str(run/'test-data'),
+            BITCOIND_SNAPSHOT_DIR=str(run/'bitcoind-snapshot'),STAGE4_OUT=str(run/'out'))
         env.update(CARGO_TARGET_DIR=str(target), GIT_HASH=HEAD + '-harkfixture',
                    CAPTAIND_EXEC=str(PRODUCTION / 'captaind'), WATCHMAND_EXEC=str(PRODUCTION / 'watchmand'),
                    BARK_EXEC=str(PRODUCTION / 'bark'), BARKD_EXEC=str(PRODUCTION / 'barkd'),
@@ -59,7 +66,7 @@ def main():
                     'simulator_board_absence_restore': ['actual Python journal and driver', 'no original calls after absence', 'confirmed rightful payout', 'fresh BIP84 seed-only recovery with no txid/index/birthday hints', 'confirmed spend'],
                     'simulator_pending_board_absence_restore': ['actual Python journal and driver', 'confirmed real board funding with fewer than required registration confirmations', 'no registered coin or original calls after absence', 'pending-board payout to independently verified owner', 'fresh BIP84 seed-only recovery with no txid/index/birthday hints', 'confirmed spend'],
                 }[args.test],
-                'simulator_sources':{str(p.relative_to(ROOT)):digest(p) for p in [*ROOT.glob('simulator/*.py'), ROOT/'simulator/bip39-english.txt', ROOT/'integration/regtest-client.py',ROOT/'driver/src/main.rs',ROOT/'driver/src/bin/seed-restore.rs']},
+                'simulator_sources':{str(p.relative_to(ROOT)):digest(p) for p in [*ROOT.glob('simulator/*.py'), ROOT/'simulator/bip39-english.txt', ROOT/'integration/fixture_runtime.py', ROOT/'integration/regtest-client.py',ROOT/'driver/src/main.rs',ROOT/'driver/src/bin/seed-restore.rs']},
                 'driver_sha256':digest(ROOT/'target/debug/bark-sim-driver'), 'restore_sha256':digest(ROOT/'target/debug/seed-restore'),
                 'proof_sha256':digest(ROOT/'target/debug/vtxo-proof')}
         (run / 'predeclared.json').write_text(json.dumps(decl, indent=2) + '\n')
@@ -78,7 +85,7 @@ def main():
             proc = subprocess.Popen(['cargo', 'test', '--locked', '-p', 'ark-testing', '--test', 'bark-sdk',
                                      '--', '--exact', name, '--nocapture'], cwd=CLONE, env=env,
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-            sampler = s4.Sampler(run, {'run_rss_gib': 12, 'run_disk_gib': 20, 'min_free_disk_gib': 40}, proc)
+            sampler = runtime.Sampler(run, {'run_rss_gib': 12, 'run_disk_gib': 20, 'min_free_disk_gib': 40}, proc)
             sampler.start()
             try:
                 while proc.poll() is None:
@@ -87,7 +94,7 @@ def main():
                         break
                     time.sleep(1)
             finally:
-                cleanup = s4.cleanup(proc, run / 'test-data')
+                cleanup = runtime.cleanup(proc, run / 'test-data')
                 sampler.stop.set()
                 sampler.join(timeout=10)
         result_path = run / 'out/result.json'

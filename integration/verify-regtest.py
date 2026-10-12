@@ -5,11 +5,10 @@ No original wallet is opened. Reconstruct a network-disabled private Core from
 raw blocks; inspect actual prevouts/outputs/confirmations and validate public
 VTXO signatures with the pinned independent read-only native verifier.
 """
-import argparse,datetime,hashlib,importlib.util,json,shutil,sqlite3,subprocess
+import argparse,datetime,hashlib,json,os,shutil,sqlite3,subprocess
+import chain_audit as a
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-spec=importlib.util.spec_from_file_location('chain_audit','/home/francis/bark-integration-2026-10-01/scale-stage4/verify-stage4.py')
-a=importlib.util.module_from_spec(spec);spec.loader.exec_module(a)
 
 def verify(run,core,proof_binary,evidence):
     pre=json.loads((run/'predeclared.json').read_text());summary=json.loads((run/'summary.json').read_text())
@@ -128,7 +127,7 @@ def main():
     assert test in ('simulator_board_absence_restore','simulator_pending_board_absence_restore','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear')
     blocks=run/'test-data/bark_sdk'/test/'bitcoind/regtest/blocks'
     shutil.copytree(blocks,private/'regtest/blocks')
-    executable=Path('/home/francis/bark-integration-2026-10-01/expiry-fallback-evidence/tools/bitcoind-31.0')
+    executable=Path(os.environ.get('BITCOIND_EXEC') or shutil.which('bitcoind') or 'bitcoind')
     proof=ROOT/'target/debug/vtxo-proof'
     declaration={'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'verifier_sha256':a.sha(proof),'auditor_sha256':a.sha(Path(__file__)),'core_sha256':a.sha(executable)}
     (evidence/'predeclared.json').write_text(json.dumps(declaration,indent=2)+'\n')
