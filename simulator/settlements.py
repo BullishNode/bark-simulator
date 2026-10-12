@@ -33,7 +33,11 @@ def check_payment(store,rows,tx):
     for row in rows:
         state=pre_state(row);owner=expiry_owner(store,row['id'],state);script=row['spk']
         own=store.db.execute('SELECT 1 FROM owner_record WHERE actor=? AND mailbox=? AND script=?',(owner['actor'],owner['mailbox'],script)).fetchone()
-        if own is None:raise InvariantError('payout script is not in rightful owners verified records')
+        if own is None:
+            competing=store.db.execute('SELECT 1 FROM owner_record WHERE script=? AND (actor!=? OR mailbox!=?)',
+                (script,owner['actor'],owner['mailbox'])).fetchone()
+            if competing is not None:raise InvariantError('payout script belongs to a competing verified owner record')
+            raise EvidenceGap('historical payout destination record is not independently verified')
         h=row.get('htlc')
         if h:
             if h['direction']=='outgoing':

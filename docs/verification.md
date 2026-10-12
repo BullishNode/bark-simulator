@@ -6,7 +6,7 @@ Run the Python suite with:
 python3 -m unittest discover -s tests
 ```
 
-The current supervisor behavior passed 458 Python tests and 16 native unit tests across the driver, public verifier and seed recovery adapter. Tests cover scheduling, affordability, offline-client preservation, unknown outcomes, ownership, payout replay, fee conservation, bounded diagnostics, coverage aggregation, qualified-clock rules and public trace/export integrity.
+The current supervisor behavior passed 460 Python tests and 16 native unit tests across the driver, public verifier and seed recovery adapter. Tests cover scheduling, affordability, offline-client preservation, unknown outcomes, ownership, payout replay, fee conservation, bounded diagnostics, coverage aggregation, qualified-clock rules and public trace/export integrity.
 
 Isolated native regtest fixtures additionally exercised:
 
