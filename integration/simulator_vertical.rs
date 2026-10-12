@@ -733,3 +733,7 @@ async fn simulator_owner_funded_renewal() {
         "confirmed_renewal_board_txid":tx.compute_txid().to_string(),"final_spendable_sat":5000,
         "scope":"actual isolated Core source-only funding PSBT and native actor-owned source-only board, not recycled capital or signet acceptance"}));
 }
+
+mod unilateral_exit {
+    include!(concat!(env!("SIMULATOR_WORKSPACE"), "/integration/unilateral_exit.rs"));
+}

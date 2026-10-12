@@ -255,7 +255,7 @@ async fn exercise(ark: bool) {
     assert_eq!(second["resolved"], false);
     assert_eq!(second["actual_fee_sat"], fee);
     write(
-        &out.join("exit-result.json"),
+        &out.join("result.json"),
         &json!({"result":"PASS","source":if ark {"Ark receipt with CPFP"} else {"confirmed board"},
         "claim":result,"fee_source":source,"original_cap_sat":2000,
         "limits":["available server positively confirmed spendability at start","offline-server exit and interrupted-round exit remain unqualified","permanently absent original wallets were never used"]}),

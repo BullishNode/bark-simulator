@@ -31,9 +31,11 @@ from .proof_import import collect as collect_public_proofs
 from .recovery import RecoveryController
 from .entitlements import record_submitted as record_delegated, collect as collect_delegated
 from .operator_scripts import collect as collect_operator_scripts
+from .unknown_outcomes import collect as collect_unknown
+from .exits import collect as collect_exits
 
 OPERATIONS = {"create", "snapshot", "sync", "address", "board", "send_arkoor", "refresh",
-              "refresh_delegated", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES)
+              "refresh_delegated", "offboard_all", "invoice", "pay_invoice", "exit"} | set(RAW_CASES)
 
 
 def catalog():
@@ -123,9 +125,13 @@ class Engine:
         queued_for_ms=max(0,round((time.time()-action["created_at"])*1000))
         started = time.monotonic()
 
+        boundary_frames=[]
+
         def progress(event):
             if event.get("action_id") != action["id"]:
                 raise ValueError("driver evidence action mismatch")
+            if event.get('event') in {'client_evidence_before','client_evidence_after'} and event.get('data',{}).get('fresh') is True:
+                boundary_frames.append(event['data']['evidence'])
             trace_ref=self.store.trace_capture('driver.event',{**event,'context':context},actor=action['actor_id'],action_id=action['id'])
             if trace_ref is not None and event.get('event') in {'client_evidence_before','client_evidence_after'}:
                 event={**event,'data':{'fresh':event.get('data',{}).get('fresh'),'trace_ref':trace_ref}}
@@ -158,6 +164,21 @@ class Engine:
             self.store.finish(action["id"], "outcome_unknown", {"reason": "driver response identity mismatch"})
         elif response.get("actual_fee_sat") is not None and (type(response["actual_fee_sat"]) is not int or response["actual_fee_sat"] < 0):
             self.store.finish(action["id"], "outcome_unknown", {"reason": "invalid fee evidence"})
+        elif response.get("status") == "ok" and action["operation"] == "exit":
+            # One original action owns all phases and fees. Submission is not
+            # completion; public confirmed whole-exit proofs close it later.
+            self.store.finish(action["id"], "outcome_unknown", response)
+            for evidence in boundary_frames:
+                data={'evidence':evidence}
+                record_candidates(self.store,action['actor_id'],action['id'],data)
+                try:
+                    checked=await verify_client_evidence(self.store,action['actor_id'],'exit',data,self.config.proof_command)
+                    record_verified(self.store,action['actor_id'],action['id'],checked)
+                except InvariantError as error:
+                    self.store.event('ownership_incident',{'action_id':action['id'],'reason':str(error)})
+                    self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','ownership contradiction')")
+                except Exception as error:
+                    self.store.event('ownership_proof_pending',{'action_id':action['id'],'reason':type(error).__name__})
         elif response.get("status") == "ok":
             verified = None
             try:
@@ -278,6 +299,7 @@ class Engine:
                 await self.collect_inventory()
                 await collect_negative_checks(self.store,self.config.inventory_command,self.config.proof_command)
                 await retry_public_candidates(self.store,self.config.proof_command)
+                chain=None
                 if len(self.config.proof_command)==4:
                     chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],self.config.expected_genesis,capture=self.store.trace_sample)
                     chain.consumer='operator-ownership'
@@ -289,6 +311,9 @@ class Engine:
                     await collect_fees(self.store,chain)
                     chain.consumer='recycling'
                     await collect_recycling(self.store,chain)
+                if self.config.active:
+                    if ready:await collect_exits(self.store,self.config,chain)
+                    await collect_unknown(self.store,self.config,chain)
                 collect_delegated(self.store)
             except InvariantError as error:
                 self.store.event("ownership_incident",{"reason":str(error)})

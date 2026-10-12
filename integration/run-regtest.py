@@ -19,7 +19,7 @@ def main():
     parser.add_argument('--sdk-source',type=Path,default=ROOT/'fixture-source',help='isolated compatible SDK fixture checkout')
     parser.add_argument('--product-bin-dir',type=Path,default=ROOT/'source/target/debug',help='compatible product executable directory')
     parser.add_argument('--independent-target',action='store_true',help='use this simulator own target and lease; never share a suite slot')
-    parser.add_argument('--test',choices=['simulator_concurrent_clients','simulator_public_payout_seed_recovery','simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_board_absence_restore','simulator_pending_board_absence_restore','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits','simulator_fallback_negative_requests'],default='simulator_board_absence_restore')
+    parser.add_argument('--test',choices=['unilateral_exit::simulator_explicit_board_exit','unilateral_exit::simulator_explicit_ark_exit_with_cpfp','simulator_concurrent_clients','simulator_public_payout_seed_recovery','simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_board_absence_restore','simulator_pending_board_absence_restore','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits','simulator_fallback_negative_requests'],default='simulator_board_absence_restore')
     args = parser.parse_args()
     CLONE=args.sdk_source.resolve();PRODUCTION=args.product_bin_dir.resolve()
     assert args.name.replace('-', '').replace('_', '').isalnum()
@@ -55,8 +55,10 @@ def main():
                 'test': name, 'harness_sha256': digest(harness), 'runner_sha256': digest(__file__),
                 'binaries': {p.name: digest(p) for p in PRODUCTION.iterdir()},
                 'wall_seconds': 1800 if args.independent_target else 1200, 'target_dir':str(target),'lease':str(lock),'source': 'actual simulator supervisor/native driver; '+args.test,
-                'fixture_customer_fee_budget_sat':100_000 if args.test in ('simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits') else 10_000,
+                'fixture_customer_fee_budget_sat':100_000 if args.test in ('unilateral_exit::simulator_explicit_board_exit','unilateral_exit::simulator_explicit_ark_exit_with_cpfp','simulator_concurrent_clients','simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits') else 10_000,
                 'checks': {
+                    'unilateral_exit::simulator_explicit_board_exit':['one original exit intent/cap/reservation','owned confirmed fee source','explicit native start/advance/inspect with no repeated start','confirmed whole-principal claim and exact mining cost'],
+                    'unilateral_exit::simulator_explicit_ark_exit_with_cpfp':['exact independently owned Ark receipt exit','pre-sign capped CPFP and claim transactions','original action/cap preserved across phases','confirmed signed-path CPFP and full claim conservation'],
                     'simulator_concurrent_clients':['two and three distinct actual native wallets overlap before/after operation boundaries','actual concurrent boards from separately declared fixture funding','confirmed independently signed owned outputs','fee proof preserves action caps and owner conservation'],
                     'simulator_public_payout_seed_recovery':['fresh native public proof import without original client calls','historical operator descriptor anchored in confirmed rounds-wallet output','actual payout amount verdict from raw pre-commit history','seed-only prepare-only BIP84 discovery before frozen signing','source-only recovery to declared funding wallet under2000cap','confirmed separate recovered-capital bucket, no traffic/recycling credit'],
                     'simulator_owner_funded_renewal':['actual separately funded Core owner deposit','source-only funding PSBT <=2k fees','8k confirmed owned client grant','native new source-only board and5k confirmed Ark balance','zero recycling or qualified traffic credit'],
@@ -70,11 +72,13 @@ def main():
                     'simulator_board_absence_restore': ['actual Python journal and driver', 'no original calls after absence', 'confirmed rightful payout', 'fresh BIP84 seed-only recovery with no txid/index/birthday hints', 'confirmed spend'],
                     'simulator_pending_board_absence_restore': ['actual Python journal and driver', 'confirmed real board funding with fewer than required registration confirmations', 'no registered coin or original calls after absence', 'pending-board payout to independently verified owner', 'fresh BIP84 seed-only recovery with no txid/index/birthday hints', 'confirmed spend'],
                 }[args.test],
-                'simulator_sources':{str(p.relative_to(ROOT)):digest(p) for p in [*ROOT.glob('simulator/*.py'), ROOT/'simulator/bip39-english.txt', ROOT/'integration/fixture_runtime.py', ROOT/'integration/regtest-client.py',ROOT/'driver/src/main.rs',ROOT/'driver/src/bin/seed-restore.rs']},
+                'simulator_sources':{str(p.relative_to(ROOT)):digest(p) for p in [*ROOT.glob('simulator/*.py'), ROOT/'simulator/bip39-english.txt', ROOT/'integration/fixture_runtime.py', ROOT/'integration/regtest-client.py',*ROOT.glob('driver/src/**/*.rs'),ROOT/'integration/unilateral-exit-client.py',ROOT/'integration/unilateral_exit.rs']},
                 'driver_sha256':digest(ROOT/'target/debug/bark-sim-driver'), 'restore_sha256':digest(ROOT/'target/debug/seed-restore'),
                 'proof_sha256':digest(ROOT/'target/debug/vtxo-proof')}
         (run / 'predeclared.json').write_text(json.dumps(decl, indent=2) + '\n')
         shutil.copyfile(harness, run / 'simulator_vertical.rs')
+        shutil.copyfile(ROOT/'integration/unilateral_exit.rs',run/'unilateral_exit.rs')
+        shutil.copyfile(ROOT/'integration/unilateral-exit-client.py',run/'unilateral-exit-client.py')
         shutil.copyfile(__file__, run / 'run-regtest.py')
         shutil.copyfile(ROOT / 'integration/regtest-client.py', run / 'regtest-client.py')
         with open(run / 'build.log', 'w') as log:
