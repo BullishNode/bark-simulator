@@ -130,6 +130,21 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(9670, self.store.remaining_fee_budget())
         self.store.verify_event_chain()
 
+    async def test_confirmed_recovery_report_keeps_its_bucket_and_adapter_scope_explicit(self):
+        from simulator.report import generate
+        self.controller_for(); await self.drive()
+        self.rpc.confirmations = 1; await self.drive(2)
+        result = generate(self.store, evaluate=False)
+        capital = result['seed_recovery_capital']
+        self.assertEqual((4661, 330, 4331), (capital['confirmed_gross_sat'],
+            capital['confirmed_fee_sat'], capital['confirmed_recovered_sat']))
+        self.assertEqual(1, capital['confirmed_count'])
+        self.assertEqual(0, capital['recycling_credit_sat'])
+        case = next(c for c in result['coverage'] if c['id'] == 'H26')
+        self.assertEqual(['seed_recovery'], case['supported_operations'])
+        self.assertEqual('not_qualified', case['scenario_verdict'])
+        self.assertFalse(self.store.online('actor-09'))
+
     async def test_intent_and_exact_signed_transaction_are_durable_before_broadcast(self):
         self.controller_for()
         def before():
