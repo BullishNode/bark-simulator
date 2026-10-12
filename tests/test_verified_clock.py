@@ -165,6 +165,69 @@ class VerifiedClockTests(unittest.TestCase):
         self.credit(1000); self.lightning(at=1000)
         self.assertFalse(campaign.traffic_ready(self.store, 201))
 
+    def test_legacy_send_without_actor_label_uses_unique_frozen_address(self):
+        self.send(); self.receipt(); self.lightning()
+        self.store.db.execute("UPDATE action SET args=? WHERE id='send'", (canonical(
+            {'destination': 'destination', 'amount_sat': 1000}),))
+        self.collect()
+        self.assertTrue(campaign.traffic_ready(self.store, 201))
+
+    def test_legacy_send_with_ambiguous_advertising_actors_is_held(self):
+        self.send(); self.receipt(); self.lightning()
+        self.address('competing-address', 'actor-03', 'destination', 'competing-key')
+        self.store.db.execute("UPDATE action SET args=? WHERE id='send'", (canonical(
+            {'destination': 'destination', 'amount_sat': 1000}),))
+        self.collect()
+        self.assertFalse(campaign.traffic_ready(self.store, 201))
+
+    def test_frozen_destination_amount_and_sender_movement_must_match(self):
+        self.send(); self.receipt(); self.lightning()
+        original = self.store.db.execute("SELECT result FROM action WHERE id='send'").fetchone()[0]
+        for field, value in [('amount_sat', 999), ('destination', 'wrong-destination')]:
+            args = {'recipient_actor': 'actor-02', 'destination': 'destination', 'amount_sat': 1000}
+            args[field] = value
+            self.store.db.execute("UPDATE action SET args=? WHERE id='send'", (canonical(args),))
+            self.collect()
+            self.assertFalse(campaign.traffic_ready(self.store, 201))
+        self.store.db.execute("UPDATE action SET args=? WHERE id='send'", (canonical(
+            {'recipient_actor': 'actor-02', 'destination': 'destination', 'amount_sat': 1000}),))
+        for field, value in [('input_vtxos', ['unrelated:0']), ('effective_balance_sat', -999),
+                             ('status', 'pending')]:
+            result = json.loads(original)
+            result['data']['evidence']['movements'][0][field] = value
+            self.store.db.execute("UPDATE action SET result=? WHERE id='send'", (canonical(result),))
+            self.collect()
+            self.assertFalse(campaign.traffic_ready(self.store, 201))
+
+    def test_receipt_without_completed_observation_or_future_observation_is_held(self):
+        self.send(); self.receipt(); self.lightning()
+        self.store.db.execute("UPDATE action SET updated_at=300 WHERE id='receipt-observation'")
+        self.collect()
+        self.assertFalse(campaign.traffic_ready(self.store, 201))
+        self.store.db.execute("DELETE FROM coin_observation WHERE coin_id=?", (self.output_id,))
+        self.collect(now=301)
+        self.assertFalse(campaign.traffic_ready(self.store, 301))
+
+    def test_offline_recipient_public_proofs_do_not_open_wallet_or_dispatch(self):
+        self.send(); self.receipt(); self.lightning()
+        self.store.set_online('actor-02', False)
+        count = self.store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]
+        reserve = self.store.remaining_fee_budget()
+        self.collect()
+        self.assertTrue(campaign.traffic_ready(self.store, 201))
+        self.assertFalse(self.store.online('actor-02'))
+        self.assertEqual(count, self.store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0])
+        self.assertEqual(reserve, self.store.remaining_fee_budget())
+
+    def test_later_different_receive_cannot_reuse_a_frozen_input_as_arbitrary_ancestor(self):
+        self.send(); self.receipt(); self.lightning()
+        row = self.store.db.execute('SELECT proof FROM owned_coin WHERE id=?', (self.output_id,)).fetchone()
+        proof = json.loads(row[0])
+        proof['path'][0]['output_amount_sat'] = 2000
+        self.store.db.execute('UPDATE owned_coin SET proof=? WHERE id=?', (canonical(proof), self.output_id))
+        self.collect()
+        self.assertFalse(campaign.traffic_ready(self.store, 201))
+
     def test_migration_preserves_old_counter_and_history_once(self):
         plan = campaign.RampPlan()
         self.store.db.execute("INSERT INTO meta VALUES ('ramp_plan',?)", (canonical(plan.__dict__),))

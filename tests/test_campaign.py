@@ -54,7 +54,7 @@ class CampaignTests(unittest.TestCase):
         for _ in range(89):self.advance(120)
         with self.assertRaises(ValueError):self.advance(120)
         self.assertIsNone(self.store.get_meta('ramp_applied'))
-        self.assertEqual(float(self.store.get_meta('campaign_active_seconds')),10680)
+        self.assertEqual(float(self.store.get_meta('qualified_campaign_active_seconds')),10680)
 
     def transfer(self, identity, operation, data, at, state='completed'):
         if operation == 'pay_invoice' and data.get('paid') is True:
@@ -62,6 +62,9 @@ class CampaignTests(unittest.TestCase):
         self.store.queue(identity,'actor-01','H07',operation,{},0)
         self.store.db.execute('UPDATE action SET state=?,result=?,updated_at=? WHERE id=?',
             (state,json.dumps({'status':'ok','data':data}),at,identity))
+        if operation == 'send_arkoor':
+            # Clock window unit test: collector linkage is covered separately.
+            self.store.event('ark_transfer_verified', {'action_id': identity, 'verified_at': at})
 
     def test_setup_and_read_only_work_cannot_earn_campaign_time(self):
         self.transfer('setup-ark','send_arkoor',{'submitted':'send_arkoor'},90)
@@ -78,8 +81,8 @@ class CampaignTests(unittest.TestCase):
         self.transfer('pending-ln','pay_invoice',{'paid':False},102)
         self.assertFalse(traffic_ready(self.store,103))
         self.transfer('paid-ln','pay_invoice',{'paid':True},104)
-        self.assertTrue(traffic_ready(self.store,704))
-        self.assertFalse(traffic_ready(self.store,705))
+        self.assertTrue(traffic_ready(self.store,701))
+        self.assertFalse(traffic_ready(self.store,702))
         self.transfer('new-ark','send_arkoor',{'submitted':'send_arkoor'},710)
         self.assertTrue(traffic_ready(self.store,711))
 

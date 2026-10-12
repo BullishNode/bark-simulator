@@ -16,7 +16,7 @@ from .ownership import record_candidates, record_verified, retry_public_candidat
 from .model import InvariantError,canonical
 from .chain import ChainReader
 from .settlements import collect_settlements
-from .campaign import CampaignClock,RampPlan,traffic_ready
+from .campaign import CampaignClock,RampPlan,traffic_ready,collect_ark_receipts
 from .continuous import schedule as schedule_continuous
 from .funding import fund,WalletRpc
 from .topology import ready as lightning_ready
@@ -215,6 +215,7 @@ class Engine:
                 if ready:
                     await self.dispatch_one()
             if self.campaign_clock:
+                collect_ark_receipts(self.store)
                 self.campaign_clock.tick(healthy=ready and lightning_ready(snapshot) and traffic_ready(self.store),real_campaign_started=self.store.get_meta("real_campaign_started") is not None)
             try:
                 if self.config.active:

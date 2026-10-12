@@ -49,6 +49,8 @@ class PaymentOutcomeTests(unittest.TestCase):
         self.store.queue('ark', 'actor-01', 'H07', 'send_arkoor', {}, 0)
         self.store.db.execute("UPDATE action SET state='completed',result=?,updated_at=? WHERE id='ark'",
             (json.dumps({'data': {'submitted': 'send_arkoor'}}), now))
+        # Payment outcome test starts with an already proven Ark receipt.
+        self.store.event('ark_transfer_verified', {'action_id': 'ark', 'verified_at': now})
         self.assertFalse(traffic_ready(self.store))
         remaining = self.store.remaining_fee_budget()
         self.record(self.response())
