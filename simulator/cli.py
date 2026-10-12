@@ -63,6 +63,12 @@ def main():
             child.add_argument("--fee-reserve-sat", type=int, required=True)
         if name in {"offline", "online"}:
             child.add_argument("--actor", required=True)
+    export=sub.add_parser('export',help='read-only public evidence bundle')
+    export.add_argument('--config',type=Path,required=True)
+    selection=export.add_mutually_exclusive_group();selection.add_argument('--actor');selection.add_argument('--payout')
+    from .export_bundle import ReadOnlyCampaign,export_bundle,parse_utc
+    export.add_argument('--from',dest='after',type=parse_utc);export.add_argument('--to',dest='before',type=parse_utc)
+    export.add_argument('--out',type=Path,required=True)
     args = parser.parse_args()
     try:
         if args.command == "demo":
@@ -70,6 +76,11 @@ def main():
             print(json.dumps({"mode": result["mode"], "report": str(args.output / "index.html"), "actors": len(result["actors"]), "catalogue": len(result["coverage"])}))
             return
         config = Config.load(args.config)
+        if args.command=='export':
+            source=ReadOnlyCampaign(config.state_dir)
+            try:result=export_bundle(source,args.out,actor=args.actor,payout=args.payout,after=args.after,before=args.before)
+            finally:source.close()
+            print(json.dumps(result,indent=2));return
         with Lease(config.state_dir):
             store = Store(config.state_dir, "live", config.fee_budget_sat)
             try:

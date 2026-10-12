@@ -278,7 +278,10 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(report["report_scope"]["snapshot_rows"],1440)
         full=generate(self.store,full=True)
         self.assertEqual(len(full["actions"]),2010)
-        self.assertTrue((Path(self.temp.name)/"events.jsonl").exists())
+        exported=list((Path(self.temp.name)/"events").glob("events-*.jsonl"))
+        self.assertTrue(exported)
+        self.assertEqual(self.store.db.execute('SELECT COUNT(*) FROM event').fetchone()[0],
+                         sum(len(path.read_text().splitlines()) for path in exported))
 
     def test_chart_does_not_connect_missing_observations(self):
         for i,value in enumerate((10,None,20)):
@@ -496,7 +499,8 @@ class PilotIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 tick = [time.time()]
                 calls = []
 
-                async def command(argv, request=None, timeout=30, on_event=None, on_stderr=None):
+                async def command(argv, request=None, timeout=30, on_event=None, on_stderr=None,
+                                  on_stdout_raw=None, on_stderr_raw=None):
                     if request is None:
                         return {"observed_at": tick[0], "identity": identity, "complete": False,
                                 "rounds_confirmed_sat": 1000, "timings": {"payout_enabled": True},

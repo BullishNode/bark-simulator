@@ -67,11 +67,17 @@ class Config:
     recovery_fee_rate_sat_vb: int = 3
     recovery_timeout_seconds: int = 86400
     operator_descriptors: tuple[Path, ...] = ()
+    trace_enabled: bool = True
+    trace_retention_days: int = 30
 
     @classmethod
     def load(cls, path: Path):
         data = tomllib.loads(path.read_text())
         target, runtime = data["target"], data["runtime"]
+        trace=data.get('trace',{})
+        if not isinstance(trace,dict) or set(trace)-{'enabled','retention_days'} or type(trace.get('enabled',True)) is not bool:
+            raise ValueError('trace requires enabled boolean and retention_days')
+        trace_retention=integer(trace.get('retention_days',30),'trace retention days',1)
         if target.get("network") != "signet" or target.get("genesis") != SIGNET_GENESIS:
             raise ValueError("live configuration must use the official signet")
         container, image = target["container"], target["image_digest"]
@@ -135,7 +141,7 @@ class Config:
                    proof_bundles=proof_bundles, proof_command=tuple(runtime.get("proof_command",[])), inventory_command=tuple(runtime.get("inventory_command",[])),
                    funding_wallet=data.get("funding",{}).get("wallet",""),funding_credential_file=data.get("funding",{}).get("credential_file",""),
                    board_amount_sat=integer(runtime.get("board_amount_sat", 12000), "board amount", 1),
-                   action_fee_reserve_sat=integer(runtime.get("action_fee_reserve_sat", 2000), "action fee reserve"))
+                   action_fee_reserve_sat=integer(runtime.get("action_fee_reserve_sat", 2000), "action fee reserve"), trace_enabled=trace.get('enabled',True), trace_retention_days=trace_retention)
 
     def validate_identity(self, snapshot: dict):
         identity = snapshot["identity"]

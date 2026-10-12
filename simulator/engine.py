@@ -52,11 +52,24 @@ def initialize(store: Store):
 class Engine:
     def __init__(self, config: Config, store: Store):
         self.config, self.store = config, store
+        if config.trace_enabled:store.attach_trace(config.trace_retention_days)
         self.campaign_clock=CampaignClock(store,RampPlan()) if config.workload=="continuous" else None
         self.recovery=RecoveryController(store,config) if config.recovery_command else None
 
+    def raw_capture(self, kind, *, actor=None, action_id=None, context=None):
+        def capture(record):
+            raw=record['raw'];payload={key:value for key,value in record.items() if key!='raw'}
+            self.store.trace_capture(kind,{**payload,**(context or {})},actor=actor,action_id=action_id,raw=raw)
+        return capture
+
     async def observe(self):
-        snapshot = await json_command(list(self.config.observer_command), timeout=30)
+        def progress(event):
+            if event.get('event')!='observer_trace':raise ValueError('unknown observer progress frame')
+            self.store.trace_sample(event['data'])
+        snapshot = await json_command(list(self.config.observer_command), timeout=30,on_event=progress,
+            on_stdout_raw=self.raw_capture('observer.sample.raw',context={'method':'observer-command'}),
+            on_stderr_raw=self.raw_capture('observer.stderr'))
+        for sample in snapshot.pop('trace_samples',[]):self.store.trace_sample(sample)
         self.config.validate_identity(snapshot)
         self.store.bind_target(snapshot["identity"])
         self.store.add_snapshot(snapshot)
@@ -91,6 +104,8 @@ class Engine:
         snapshot = json.loads(latest["payload"]) if latest else {}
         context = {"snapshot_id":latest["id"] if latest else None, "height":snapshot.get("height"),
                    "tip_hash":snapshot.get("tip_hash"), "mode":self.store.get_meta("mode")}
+        self.store.trace_capture('driver.call',{'phase':'request','request':request,'context':context},
+            actor=action['actor_id'],action_id=action['id'],raw=canonical(request).encode())
         self.store.event("driver_request", {"action_id": action["id"], "request": request, "context":context})
         queued_for_ms=max(0,round((time.time()-action["created_at"])*1000))
         started = time.monotonic()
@@ -98,6 +113,9 @@ class Engine:
         def progress(event):
             if event.get("action_id") != action["id"]:
                 raise ValueError("driver evidence action mismatch")
+            trace_ref=self.store.trace_capture('driver.event',{**event,'context':context},actor=action['actor_id'],action_id=action['id'])
+            if trace_ref is not None and event.get('event') in {'client_evidence_before','client_evidence_after'}:
+                event={**event,'data':{'fresh':event.get('data',{}).get('fresh'),'trace_ref':trace_ref}}
             self.store.event("driver_evidence", {**event,"context":context})
 
         def driver_stderr(log):
@@ -109,8 +127,13 @@ class Engine:
 
         try:
             response = await json_command(list(self.config.driver_command), request,
-                timeout=self.config.action_timeout_seconds, on_event=progress,on_stderr=driver_stderr)
+                timeout=self.config.action_timeout_seconds, on_event=progress,on_stderr=driver_stderr,
+                on_stdout_raw=self.raw_capture('driver.stdout',actor=action['actor_id'],action_id=action['id']),
+                on_stderr_raw=self.raw_capture('driver.stderr',actor=action['actor_id'],action_id=action['id']))
             public_payload(response)
+            self.store.trace_capture('driver.call',{'phase':'response','response':response,
+                'duration_ms':round((time.monotonic()-started)*1000),'queued_for_ms':queued_for_ms,'context':context},
+                actor=action['actor_id'],action_id=action['id'])
             self.store.event("driver_response", {"action_id": action["id"], "response": response,
                              "duration_ms": round((time.monotonic() - started) * 1000),
                              "queued_for_ms":queued_for_ms, "context":context})
@@ -189,7 +212,9 @@ class Engine:
         index=int(self.store.get_meta("inventory_kind_index") or "0")%len(kinds)
         kind=kinds[index];key="inventory_cursor_"+kind
         cursor=self.store.get_meta(key) or ""
-        page=await json_command(list(self.config.inventory_command),{"kind":kind,"after":cursor},timeout=25)
+        page=await json_command(list(self.config.inventory_command),{"kind":kind,"after":cursor},timeout=25,
+            on_stdout_raw=self.raw_capture('inventory.page',context={'request':{'kind':kind,'after':cursor}}),
+            on_stderr_raw=self.raw_capture('inventory.stderr'))
         if page.get("kind")!=kind:raise ValueError("inventory kind mismatch")
         record_server_page(self.store,page)
         self.store.db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)",(key,page.get("next") or ""))
@@ -241,11 +266,15 @@ class Engine:
                 await collect_negative_checks(self.store,self.config.inventory_command,self.config.proof_command)
                 await retry_public_candidates(self.store,self.config.proof_command)
                 if len(self.config.proof_command)==4:
-                    chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],self.config.expected_genesis)
+                    chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],self.config.expected_genesis,capture=self.store.trace_sample)
+                    chain.consumer='operator-ownership'
                     await collect_operator_scripts(self.store,self.config,chain)
+                    chain.consumer='settlements'
                     await collect_settlements(self.store,chain)
                     if self.recovery: await self.recovery.tick()
+                    chain.consumer='fees'
                     await collect_fees(self.store,chain)
+                    chain.consumer='recycling'
                     await collect_recycling(self.store,chain)
                 collect_delegated(self.store)
             except InvariantError as error:
@@ -253,6 +282,7 @@ class Engine:
                 self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','ownership contradiction')")
             except Exception as error:
                 self.store.event("inventory_gap",{"reason":type(error).__name__})
+            if self.store.trace is not None:self.store.trace.archive()
             observe(self.store)
             if once or last_report is None or self.store.get_meta("paused") or time.monotonic() - last_report >= 300:
                 generate(self.store, evaluate=False)

@@ -45,6 +45,7 @@ class Store:
         if root.is_symlink():
             raise ValueError("state directory must not be a symlink")
         self.root = root
+        self.trace = None
         self.db = sqlite3.connect(root / "state.sqlite", isolation_level=None)
         os.chmod(root / "state.sqlite", 0o600)
         self.db.row_factory = sqlite3.Row
@@ -70,7 +71,20 @@ class Store:
                 raise ValueError("fee budget is immutable within an epoch; use a new state directory")
             self.db.execute("INSERT OR IGNORE INTO meta VALUES ('fee_budget_sat',?)", (str(fee_budget_sat),))
 
+    def attach_trace(self, retention_days=30):
+        if self.trace is None:
+            from .trace import TraceStore
+            self.trace=TraceStore(self.root,retention_days=retention_days)
+
+    def trace_capture(self, kind, payload, *, actor=None, action_id=None, raw=None):
+        if self.trace is not None:
+            return self.trace.capture(kind,payload,actor=actor,action_id=action_id,raw=raw)
+
+    def trace_sample(self, record):
+        return self.trace_capture(record['kind'],record['payload'],raw=record.get('raw'))
+
     def close(self):
+        if self.trace is not None:self.trace.close()
         self.db.close()
 
     def get_meta(self, key: str):
@@ -89,6 +103,7 @@ class Store:
     def event(self, kind: str, payload: dict):
         with self.transaction():
             self._event(kind, payload)
+        if kind=='scheduler_tick':self.trace_capture('scheduler.tick',payload)
 
     def transaction(self):
         class Transaction:
@@ -289,6 +304,9 @@ class Store:
                 "validation_scope":"amounts and scripts only; chain inclusion and seed recovery unverified"})
 
     def export_events(self, full: bool = True):
+        if full:
+            from .export_bundle import export_event_days
+            return export_event_days(self)
         name = "events.jsonl" if full else "events-recent.jsonl"
         temp = self.root / (name + ".tmp")
         query = "SELECT * FROM event ORDER BY sequence" if full else "SELECT * FROM (SELECT * FROM event ORDER BY sequence DESC LIMIT 2000) ORDER BY sequence"
