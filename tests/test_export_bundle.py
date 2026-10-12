@@ -84,3 +84,14 @@ class ExportBundleTests(unittest.TestCase):
         self.export(actor='actor-09')
         timeline = [json.loads(line) for line in (self.out / 'timeline.jsonl').read_text().splitlines()]
         self.assertTrue({'action', 'coin_observation', 'checked_settlement'} <= {r['kind'] for r in timeline})
+
+    def test_unlisted_proof_file_is_rejected_before_replay(self):
+        from simulator.export_bundle import audit_bundle
+        self.export(actor='actor-09')
+        (self.out/'proofs/extra.json').write_text('{}')
+        with self.assertRaises(InvariantError):audit_bundle(self.out)
+    def test_replayed_actor_net_uses_rechecked_owner_not_cached_settlement_actor(self):
+        from simulator.export_bundle import audit_bundle
+        self.store.db.execute('UPDATE checked_settlement SET actor=?',('actor-08',))
+        self.export(payout=self.txid)
+        self.assertEqual({'actor-09':4661},audit_bundle(self.out)['payouts'][0]['recipient_net_sat'])
