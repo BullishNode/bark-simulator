@@ -208,6 +208,15 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('abandon', events)
         self.assertEqual('held', self.recoveries()[0]['state'])
 
+    async def test_unvalidated_nested_signer_metadata_cannot_leak_private_values(self):
+        self.prepared['outputs'][0]['comment'] = 'abandon ' * 12
+        self.controller_for(); await self.drive()
+        self.assertEqual(0, self.sends())
+        self.assertIsNone(self.recoveries()[0]['prepared'])
+        self.assertEqual('held', self.recoveries()[0]['state'])
+        events = ' '.join(r[0] for r in self.store.db.execute('SELECT payload FROM event'))
+        self.assertNotIn('abandon', events)
+
     async def test_native_broadcasting_reply_and_fee_above_cap_are_rejected(self):
         self.prepared['broadcast'] = True; self.controller_for(); await self.drive()
         self.assertEqual(0, self.sends())

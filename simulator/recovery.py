@@ -238,6 +238,9 @@ class RecoveryController:
         if not isinstance(result, dict) or set(result) - allowed:
             raise InvariantError('native recovery returned unsupported public fields')
         integer(result.get('fee_sat'), 'native recovery mining fee')
+        if 'tip' in result: integer(result['tip'], 'native recovery chain tip')
+        if result.get('confirmation_verified', False) is not False:
+            raise InvariantError('preparation cannot claim a confirmed recovery spend')
         intent = json.loads(row['intent']); sources = intent['sources']
         if (result.get('network') != self.config.network or result.get('standard') != 'BIP84'
                 or result.get('lookahead') != 20 or result.get('start_height') != 0
@@ -261,6 +264,13 @@ class RecoveryController:
         gross, fee, net = self._validated_transaction(candidate, tx)
         if fee != result.get('fee_sat'):
             raise InvariantError('native recovery fee differs from exact transaction')
+        native_outputs = result.get('outputs', [])
+        if (not isinstance(native_outputs, list) or len(native_outputs) != 1
+                or set(native_outputs[0]) != {'script', 'amount_sat'}
+                or native_outputs[0]['script'] != intent['destination_script']
+                or native_outputs[0]['amount_sat'] != net):
+            raise InvariantError('native recovery output differs from the exact transaction')
+        integer(native_outputs[0]['amount_sat'], 'native recovery destination value', 1)
         with self.store.transaction():
             self.store.db.execute("UPDATE seed_recovery SET state='prepared',txid=?,raw_tx=?,fee_sat=?,prepared=?,updated_at=? WHERE id=?",
                 (txid, raw, fee, canonical(result), time.time(), row['id']))
