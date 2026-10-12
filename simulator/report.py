@@ -11,6 +11,186 @@ from .observations import observe, recorded_observations
 from .store import Store
 from .continuous import absence_report
 from .recycling import report as recycling_report
+from .raw_cases import RAW_CASES
+
+
+# Primitive operations can exercise part of a behavior. Their availability and
+# accounting evidence never imply that its full expected outcome is qualified.
+SCENARIO_OPERATIONS = {
+    'H01': {'board'}, 'H02': {'board'}, 'H03': {'board'},
+    'H04': {'board'}, 'H06': {'board'},
+    **{case:{'send_arkoor'} for case in
+       ('H07','H08','H09','H10','H11','H12','H30','H32','D37')},
+    **{case:{'refresh'} for case in ('H17','H18','H19')},
+    'H20': {'refresh_delegated'},
+    **{case:{'sync'} for case in ('H23','H24','H25','H31')},
+    'H28': {'create'}, 'H33': {'offboard_all'}, 'H34': {'exit'},
+    'H35': {'pay_invoice'}, 'H36': {'pay_invoice'}, 'H37': {'invoice','sync'},
+    'H40': {'invoice','pay_invoice','sync'},
+    **{case:{operation} for operation,case in RAW_CASES.items()},
+}
+
+# One SQL aggregate covers epoch totals; window ranks bound proof IDs and block
+# reasons independently of the bounded action-detail export. Evidence must join
+# its persisted action and the independently recorded ownership/movement/chain
+# records, rather than merely share a scenario or actor.
+COVERAGE_QUERY = """
+WITH relevant_events AS MATERIALIZED (
+ SELECT sequence,kind,payload FROM event WHERE kind IN
+ ('client_fee_reconciled','recycle_confirmed','confirmed_payout_amounts_checked')
+), fee AS MATERIALIZED (
+ SELECT a.id action_id,e.sequence,e.payload FROM relevant_events e JOIN action a
+ ON a.id=json_extract(e.payload,'$.action_id')
+ WHERE e.kind='client_fee_reconciled' AND a.state='completed'
+ AND a.actual_fee_sat=json_extract(e.payload,'$.actual_fee_sat')
+ AND (a.actor_id=json_extract(e.payload,'$.actor') OR
+  (a.operation IN ('board','offboard_all') AND json_type(e.payload,'$.actor') IS NULL)) AND (
+  (a.operation='board' AND json_extract(e.payload,'$.chain_transaction.confirmations')>=1
+   AND json_extract(e.payload,'$.txid')=json_extract(e.payload,'$.chain_transaction.txid')
+   AND EXISTS(SELECT 1 FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey
+    WHERE c.id=json_extract(e.payload,'$.coin_id') AND k.actor=a.actor_id
+    AND substr(json_extract(c.proof,'$.chain_anchor'),1,64)=json_extract(e.payload,'$.txid')))
+  OR (a.operation IN ('refresh','refresh_delegated','pay_invoice')
+   AND EXISTS(SELECT 1 FROM movement_evidence m WHERE m.actor=a.actor_id
+    AND m.movement_id=json_extract(e.payload,'$.movement_id')
+    AND json_extract(m.payload,'$.status')='successful'
+    AND json_extract(m.payload,'$.offchain_fee_sat')=a.actual_fee_sat
+    AND json_extract(m.payload,'$.subsystem')=CASE WHEN a.operation='pay_invoice'
+      THEN 'bark.lightning_send' ELSE 'bark.round' END)
+   AND json_array_length(e.payload,'$.input_coin_ids')>0
+   AND NOT EXISTS(SELECT 1 FROM json_each(e.payload,'$.input_coin_ids') i
+    LEFT JOIN owned_coin c ON c.id=i.value LEFT JOIN owner_key k ON k.pubkey=c.pubkey
+    WHERE k.actor IS NULL OR k.actor<>a.actor_id)
+   AND NOT EXISTS(SELECT 1 FROM json_each(e.payload,'$.output_coin_ids') i
+    LEFT JOIN owned_coin c ON c.id=i.value LEFT JOIN owner_key k ON k.pubkey=c.pubkey
+    WHERE k.actor IS NULL OR k.actor<>a.actor_id))
+  OR (a.operation='offboard_all' AND json_extract(e.payload,'$.chain_transaction.confirmations')>=1
+   AND json_extract(e.payload,'$.txid')=json_extract(e.payload,'$.chain_transaction.txid')
+   AND json_array_length(e.payload,'$.coin_ids')>0
+   AND NOT EXISTS(SELECT 1 FROM json_each(e.payload,'$.coin_ids') i
+    LEFT JOIN owned_coin c ON c.id=i.value LEFT JOIN owner_key k ON k.pubkey=c.pubkey
+    WHERE k.actor IS NULL OR k.actor<>a.actor_id))
+  OR (a.operation='sync' AND json_array_length(e.payload,'$.claims')>0
+   AND NOT EXISTS(SELECT 1 FROM json_each(e.payload,'$.claims') claim
+    WHERE COALESCE(json_array_length(claim.value,'$.output_coin_ids'),0)=0)
+   AND NOT EXISTS(SELECT 1 FROM json_each(e.payload,'$.claims') claim
+    LEFT JOIN movement_evidence m ON m.actor=a.actor_id
+      AND m.movement_id=json_extract(claim.value,'$.movement_id')
+    WHERE m.movement_id IS NULL OR json_extract(m.payload,'$.status')<>'successful'
+      OR json_extract(m.payload,'$.subsystem')<>'bark.lightning_receive')
+   AND NOT EXISTS(SELECT 1 FROM json_each(e.payload,'$.claims') claim
+    JOIN json_each(claim.value,'$.output_coin_ids') output
+    LEFT JOIN owned_coin c ON c.id=output.value LEFT JOIN owner_key k ON k.pubkey=c.pubkey
+    WHERE k.actor IS NULL OR k.actor<>a.actor_id)))
+), evidence AS (
+ SELECT action_id,sequence FROM fee
+ UNION ALL SELECT f.action_id,e.sequence FROM relevant_events e JOIN fee f
+ ON f.action_id=json_extract(e.payload,'$.action_id')
+ WHERE e.kind='recycle_confirmed'
+ AND json_extract(e.payload,'$.board_txid')=json_extract(f.payload,'$.txid')
+ AND json_extract(e.payload,'$.source_credit_count')=1
+ AND json_array_length(f.payload,'$.chain_transaction.inputs')=1
+ AND json_extract(f.payload,'$.chain_transaction.inputs[0].outpoint')=json_extract(e.payload,'$.source.outpoint')
+ UNION ALL SELECT a.id,e.sequence FROM relevant_events e JOIN json_each(e.payload,'$.coins') coin
+ JOIN coin_observation o ON o.coin_id=coin.value JOIN action a ON a.id=o.action_id
+ JOIN checked_settlement s ON s.coin_id=coin.value AND s.actor=a.actor_id
+ JOIN owned_coin c ON c.id=s.coin_id JOIN owner_key k ON k.pubkey=c.pubkey AND k.actor=a.actor_id
+ JOIN chain_payout tx ON tx.txid=s.txid
+ WHERE e.kind='confirmed_payout_amounts_checked' AND a.state='completed'
+ AND s.txid=json_extract(e.payload,'$.txid') AND s.amount_sat=c.amount_sat
+ AND json_extract(tx.payload,'$.confirmations')>=1
+ AND EXISTS(SELECT 1 FROM owner_record r WHERE r.actor=a.actor_id AND r.script=s.script)
+), proof AS (
+ SELECT action_id,MIN(sequence) sequence FROM evidence GROUP BY action_id
+), ranked AS (
+ SELECT a.scenario_id,a.operation,a.state,a.id,p.sequence,e.kind,
+ substr(COALESCE(json_extract(a.result,'$.data.reason'),json_extract(a.result,'$.reason'),''),1,400) reason,
+ ROW_NUMBER() OVER(PARTITION BY a.scenario_id,a.operation,a.state ORDER BY a.created_at DESC,a.id DESC) detail_rank,
+ ROW_NUMBER() OVER(PARTITION BY a.scenario_id,a.operation ORDER BY p.sequence DESC,a.id DESC) proof_rank
+ FROM action a LEFT JOIN proof p ON p.action_id=a.id LEFT JOIN event e ON e.sequence=p.sequence
+)
+SELECT scenario_id,operation,state,COUNT(*) actions,COUNT(sequence) verified_actions,
+ SUM(state='blocked' AND (lower(reason) LIKE '%fund%' OR lower(reason) LIKE '%balance%'
+  OR lower(reason) LIKE '%afford%' OR lower(reason) LIKE '%reserve%'
+  OR lower(reason) LIKE '%dust%' OR lower(reason) LIKE '%minimum%')) funds_blocked,
+ SUM(state='blocked' AND (lower(reason) LIKE '%unsupported%' OR lower(reason) LIKE '%not implemented%'
+  OR lower(reason) LIKE '%adapter%')) adapter_blocked,
+ json_group_array(json_object('action_id',id,'event_sequence',sequence,'kind',kind,'reason',reason))
+ FILTER(WHERE (sequence IS NOT NULL AND proof_rank<=10) OR (state='blocked' AND detail_rank<=10)) details
+FROM ranked GROUP BY scenario_id,operation,state ORDER BY scenario_id,operation,state
+"""
+
+
+def _coverage_status(states, verified, available, funds_blocked=0, adapter_blocked=0):
+    if verified:return 'exercised-verified'
+    if any(states.get(state,0) for state in ('completed','expected_refusal','dispatched','outcome_unknown','failed')):
+        return 'executed-unverified'
+    if funds_blocked:return 'blocked-by-funds'
+    if not available or adapter_blocked:return 'blocked-by-adapter'
+    if states.get('blocked'):return 'executed-unverified'
+    return 'enumerated'
+
+
+def coverage(store):
+    # Engine imports report, so resolve its actual dispatch allowlist only after
+    # module initialization. Catalogue flags alone covered only the raw cases.
+    from .engine import OPERATIONS, catalog
+    catalogue = {case['id']:case for case in catalog()}
+    aggregates = {}
+    for row in store.db.execute(COVERAGE_QUERY):
+        key = (row['scenario_id'],row['operation'])
+        item = aggregates.setdefault(key, {'states':{},'actions':0,'verified':0,
+            'funds_blocked':0,'adapter_blocked':0,'details':[]})
+        item['states'][row['state']] = row['actions']
+        for source,target in [('actions','actions'),('verified_actions','verified'),
+                              ('funds_blocked','funds_blocked'),('adapter_blocked','adapter_blocked')]:
+            item[target] += row[source]
+        item['details'].extend(json.loads(row['details']))
+    result = []
+    for row in store.db.execute('SELECT * FROM scenario ORDER BY id'):
+        case = catalogue.get(row['id'], {})
+        driver = case.get('driver')
+        operations = SCENARIO_OPERATIONS.get(row['id'],set()) if driver in {
+            'SDK','SDK/Peer','Phase','Phase/Peer','Raw','Raw/Phase','Raw/Peer'} else set()
+        supported = operations & OPERATIONS
+        states, breakdown, proofs, reasons = {}, [], [], []
+        excluded = verified = funds_blocked = adapter_blocked = total = 0
+        for (scenario,operation),item in aggregates.items():
+            if scenario != row['id']:continue
+            if scenario == 'H01' and operation in {'snapshot','sync'}:
+                excluded += item['actions']
+                breakdown.append({'operation':operation,'status':'not-applicable','actions':0,
+                    'excluded_actions':item['actions'],'reason':'H01 maintenance does not exercise its confirmed board behavior'})
+                continue
+            available = operation in supported
+            verified_count = item['verified'] if available else 0
+            status = _coverage_status(item['states'],verified_count,available,
+                                      item['funds_blocked'],item['adapter_blocked'])
+            breakdown.append({'operation':operation,'actions':item['actions'],'action_states':item['states'],
+                'status':status,'verified_actions':verified_count,
+                'reason':'Independent action evidence; complete scenario remains unqualified.' if verified_count else
+                    'No matching independent action evidence.' if available else
+                    'Operation is preparatory or has no supported primitive for this catalogue behavior.'})
+            total += item['actions'];verified += verified_count
+            funds_blocked += item['funds_blocked'];adapter_blocked += item['adapter_blocked']
+            for state,count in item['states'].items():states[state] = states.get(state,0)+count
+            for detail in item['details']:
+                if available and detail['event_sequence'] is not None:
+                    proofs.append({k:detail[k] for k in ('action_id','event_sequence','kind')})
+                if detail['reason']:
+                    reasons.append({'action_id':detail['action_id'],'reason':detail['reason']})
+        status = _coverage_status(states,verified,bool(supported),funds_blocked,adapter_blocked)
+        reason = ('Independent evidence verifies these action outcomes; the complete catalogue behavior remains unqualified.'
+            if verified else 'No matching independent action outcome evidence.' if total else
+            'Catalogue behavior has not been exercised.' if supported else
+            f'Catalogue driver {driver or "unknown"} has no supported operation for this behavior.')
+        result.append({'id':row['id'],'behavior':row['description'],'catalogue_driver':driver,
+            'driver_available':bool(supported),'supported_operations':sorted(supported),
+            'actions':total,'action_states':states,'excluded_maintenance_actions':excluded,
+            'status':status,'verified_actions':verified,'reason':reason,'block_reasons':reasons[:10],
+            'evidence_ids':proofs[:10],'operations':breakdown,
+            'scenario_verdict':'not_qualified' if total else 'not_exercised'})
+    return result
 
 
 def atomic_text(path: Path, text: str):
@@ -32,14 +212,7 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
     snapshots = [json.loads(r[0]) for r in store.db.execute(snapshot_query)]
     fields = ("id","actor_id","scenario_id","operation","state","fee_reservation_sat","actual_fee_sat")
     actions = [{key:r[key] for key in fields} for r in store.db.execute(action_query)]
-    counts = {(r[0],r[1]):r[2] for r in store.db.execute("SELECT scenario_id,state,COUNT(*) FROM action GROUP BY scenario_id,state")}
-    coverage = []
-    for row in store.db.execute("SELECT * FROM scenario ORDER BY id"):
-        states = {state:count for (scenario,state),count in counts.items() if scenario == row["id"]}
-        coverage.append({"id": row["id"], "behavior": row["description"],
-                         "driver_available": bool(row["implemented"]), "actions": sum(states.values()),
-                         "action_states": states,
-                         "scenario_verdict": "not_qualified" if states else "not_exercised"})
+    coverage_rows = coverage(store)
     liabilities = [dict(r) for r in store.db.execute("SELECT owner,source,state,SUM(gross_sat) AS amount_sat,COUNT(*) AS coins FROM entitlement GROUP BY owner,source,state")]
     fees = store.db.execute("SELECT COALESCE(SUM(recipient_fee_sat),0),COALESCE(SUM(operator_fee_sat),0) FROM payout").fetchone()
     known_fees, unresolved = store.db.execute("SELECT COALESCE(SUM(actual_fee_sat),0),COALESCE(SUM(CASE WHEN actual_fee_sat IS NULL THEN fee_reservation_sat ELSE 0 END),0) FROM action WHERE state!='canceled'").fetchone()
@@ -49,7 +222,7 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
         "mode": store.get_meta("mode"), "capital": capital_summary(json.loads(r[0]) for r in store.db.execute("SELECT payload FROM snapshot ORDER BY observed_at,id")),
         "target_identity": json.loads(store.get_meta("target_identity") or "null"),
         "paused": store.get_meta("paused"), "actors": [{**dict(r), "details": json.loads(r["details"])} for r in store.db.execute("SELECT id,role,online,details FROM actor ORDER BY id")],
-        "actions": actions, "coverage": coverage, "entitlements": liabilities,
+        "actions": actions, "coverage": coverage_rows, "entitlements": liabilities,
         "permanent_receive_absences":absence_report(store),
         "capital_recycling":recycling_report(store),
         "owner_funded_renewal":{kind:[json.loads(r[0]) for r in store.db.execute('SELECT payload FROM event WHERE kind=? ORDER BY sequence',(kind,))]
@@ -60,7 +233,17 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
              "pending_candidates":store.db.execute("SELECT COUNT(*) FROM client_coin_candidate WHERE verified=0").fetchone()[0],
              "settlement_checks":[dict(r) for r in store.db.execute("SELECT * FROM settlement_check ORDER BY txid")],
              "scope":"public signatures/backing and amount checks; full source/seed recovery qualification remains separate"},
-        "campaign": {"active_seconds":float(store.get_meta("campaign_active_seconds") or "0"),"ramp_applied":store.get_meta("ramp_applied")=="true"},
+        "campaign": {
+            "active_seconds":float(store.get_meta("qualified_campaign_active_seconds")
+                if store.get_meta("qualified_campaign_active_seconds") is not None
+                else store.get_meta("campaign_active_seconds") or "0"),
+            "active_seconds_scope":"qualified dual-rail clock" if store.get_meta("qualified_campaign_active_seconds") is not None
+                else "legacy clock; qualification rule not migrated",
+            "qualified_campaign_active_seconds":float(store.get_meta("qualified_campaign_active_seconds"))
+                if store.get_meta("qualified_campaign_active_seconds") is not None else None,
+            "legacy_clock_seconds":float(store.get_meta("legacy_clock_seconds") or "0"),
+            "campaign_active_seconds":float(store.get_meta("campaign_active_seconds") or "0"),
+            "ramp_applied":store.get_meta("ramp_applied")=="true"},
         "payout_recipient_fees_sat": fees[0], "payout_operator_change_fees_sat": fees[1],
         "fee_budget_sat": int(store.get_meta("fee_budget_sat") or 0),
         "known_action_fees_sat": known_fees, "unreconciled_action_fee_reserves_sat": unresolved,
@@ -83,10 +266,29 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
     markdown += "\n".join(f"- [{o['severity']}, {o['status']}] {o['summary']} Evidence: {json.dumps(o['evidence'],sort_keys=True)}" for o in result["observations"]) + "\n\n"
     markdown += "Permanent receive absences (ordinary users; payout/recovery qualification stays explicit):\n\n"
     markdown += "\n".join(f"- {a['actor']}: {a['rail']} received {a['received_sat']} sat, permanently offline; {a['payout_verdict']}; {len(a['waiting_coin_ids'])} received coins waiting" for a in result["permanent_receive_absences"]) + "\n\n"
-    markdown += "Coverage lists 80 behaviors; available drivers and action results do not certify complete scenarios.\n\n"
-    markdown += "\n".join(f"- {c['id']}: {c['scenario_verdict']}; {c['actions']} action(s)" for c in coverage) + "\n"
+    clock = result['campaign']
+    markdown += f"Campaign active seconds ({clock['active_seconds_scope']}): {clock['active_seconds']}. "
+    markdown += f"Legacy clock seconds: {clock['legacy_clock_seconds']}; original campaign counter: {clock['campaign_active_seconds']}.\n\n"
+    markdown += "Coverage lists 80 behaviors; independently verified action outcomes do not certify complete scenarios.\n\n"
+    markdown += "\n".join(f"- {c['id']}: {c['status']}; {c['actions']} action(s); {c['scenario_verdict']}" for c in coverage_rows) + "\n"
     atomic_text(store.root / "report.md", markdown)
-    rows = "".join(f"<tr><td>{c['id']}</td><td>{html.escape(c['behavior'])}</td><td>{c['actions']}</td><td>{c['scenario_verdict']}</td></tr>" for c in coverage)
+    coverage_md = (f"# Coverage of {len(coverage_rows)} catalogue behaviors\n\n**{mode}**\n\n"
+        "Statuses describe available primitives and independently verified action outcomes. "
+        "Every complete scenario remains unqualified. Epoch counts exclude H01 snapshot/sync maintenance; "
+        "create, address and board attempts remain visible. Maintenance operations are not-applicable "
+        "to H01 board coverage; no catalogue behavior is inferred out of scope.\n\n"
+        "Statuses: exercised-verified, executed-unverified, enumerated, blocked-by-adapter, "
+        "blocked-by-funds, not-applicable. Proof IDs and block reasons are bounded to ten per behavior.\n\n"
+        "| ID | Behavior | Status | Actions | Verified actions | Excluded maintenance | Evidence | Reason |\n"
+        "| --- | --- | --- | ---: | ---: | ---: | --- | --- |\n")
+    for case in coverage_rows:
+        refs = ', '.join(f"{p['action_id']} / event {p['event_sequence']} ({p['kind']})" for p in case['evidence_ids']) or 'none'
+        reason = case['reason'] + ' ' + '; '.join(f"{b['action_id']}: {b['reason']}" for b in case['block_reasons'])
+        cells = [case['id'],case['behavior'],case['status'],str(case['actions']),str(case['verified_actions']),
+                 str(case['excluded_maintenance_actions']),refs,reason.strip()]
+        coverage_md += '| ' + ' | '.join(value.replace('|','\\|').replace('\n',' ') for value in cells) + ' |\n'
+    atomic_text(store.root / 'coverage-80.md', coverage_md)
+    rows = "".join(f"<tr><td>{c['id']}</td><td>{html.escape(c['behavior'])}</td><td>{c['actions']}</td><td>{c['status']}<br>{c['scenario_verdict']}</td></tr>" for c in coverage_rows)
     actor_rows = "".join(f"<tr><td>{html.escape(a['id'])}</td><td>{html.escape(a['role'])}</td><td>{'online' if a['online'] else 'offline'}</td><td>{html.escape(a['details'].get('funding_address', 'not created'))}</td></tr>" for a in result["actors"])
     samples = [s for s in snapshots if s.get("rounds_confirmed_sat") is not None]
     chart = "<p>No confirmed-liquidity observations.</p>"
@@ -125,6 +327,7 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
 <h1>Bark operator observations</h1><p class=banner>{mode}</p><h2>Capital</h2><pre>{html.escape(summary)}</pre>
 {chart}
 <p>Minimum required capital: unknown. A funded successful run does not prove a minimum.</p>
+<p>Campaign active seconds ({html.escape(clock['active_seconds_scope'])}): {clock['active_seconds']}. Legacy clock seconds: {clock['legacy_clock_seconds']}; original campaign counter: {clock['campaign_active_seconds']}.</p>
 <h2>Observations</h2><ul>{observations_html}</ul>
 <p>Capital, fee and behavior counts cover the epoch. Chart, CSV, action and event details may be bounded; use the report command for a full export.</p>
 <h2>Actors</h2><table><tr><th>Owner</th><th>Role</th><th>Status</th><th>Fixture funding address</th></tr>{actor_rows}</table>
