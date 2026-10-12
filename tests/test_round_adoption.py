@@ -171,3 +171,23 @@ class RoundSchedulingGuardTests(RoundSecurityWindowTests):
     def test_diagnostic_rejects_unsolicited_full_stderr(self):
         from simulator.round_adoption import diagnose_stderr,record_sync_diagnostic
         with self.assertRaises(ValueError):record_sync_diagnostic(self.s,'refresh',{**diagnose_stderr(''),'text':'full log'})
+
+class RoundObservationGapTests(unittest.TestCase):
+    setUp=RoundAdoptionTests.setUp
+    tearDown=RoundAdoptionTests.tearDown
+    server=RoundAdoptionTests.server
+    decoder=RoundAdoptionTests.decoder
+    def test_partial_inventory_still_warns_for_exact_unclaimed_frozen_output(self):
+        from simulator.round_adoption import near_expiry_findings
+        other_key='02'+'55'*32
+        proposal={'participation':{'inputs':['aa'],'outputs':[{'policy':'00'+OUTPUT_KEY,'amount':4900},{'policy':'00'+other_key,'amount':5000}]},'committed_fee_sat':100}
+        self.s.db.execute("UPDATE event SET payload=? WHERE kind='driver_evidence' AND json_extract(payload,'$.event')='refresh_proposal'",(canonical({'action_id':'refresh','event':'refresh_proposal','data':proposal}),))
+        self.decoded[self.coin]['amount_sat']=4900
+        findings=near_expiry_findings(self.s,self.c,self.snapshot,decoder=self.decoder)
+        self.assertEqual(1,len(findings));self.assertEqual(4900,findings[0]['amount_sat']);self.assertFalse(findings[0]['client_owner_verified'])
+    def test_warning_cannot_clear_when_decoder_evidence_disappears(self):
+        from simulator.round_adoption import near_expiry_findings,observation_can_clear
+        finding=near_expiry_findings(self.s,self.c,self.snapshot,decoder=self.decoder)[0]
+        self.s.db.execute("INSERT INTO observation VALUES (?,?,'active',?,?,?,?,1)",(finding['key'],'warning','near expiry',canonical(finding),1000,1000))
+        self.s.db.execute('DELETE FROM server_item')
+        self.assertFalse(observation_can_clear(self.s,finding['key'],self.snapshot))
