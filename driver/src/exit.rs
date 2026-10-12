@@ -137,6 +137,27 @@ fn request_ids(req: &Request) -> Result<Vec<String>> {
     }
     Ok(ids)
 }
+fn request_terms(req: &Request) -> Result<(FeeRate, OutPoint)> {
+    let rate = req.args["fee_rate_sat_per_vb"]
+        .as_u64()
+        .context("declare an exit fee rate")?;
+    ensure!(rate > 0, "zero exit fee rate");
+    let rate = FeeRate::from_sat_per_vb(rate).context("exit fee rate overflow")?;
+    let source = OutPoint::from_str(
+        req.args["fee_funding_outpoint"]
+            .as_str()
+            .context("declare an owned confirmed exit fee source")?,
+    )?;
+    Ok((rate, source))
+}
+fn verify_terms(intent: &Intent, req: &Request) -> Result<()> {
+    let (rate, source) = request_terms(req)?;
+    ensure!(
+        rate.to_sat_per_kwu() == intent.fee_rate_kwu && source == intent.fee_source,
+        "exit frozen fee rate or funding source changed"
+    );
+    Ok(())
+}
 fn verify_psbt(
     psbt: &Psbt,
     expected: &[(OutPoint, TxOut)],
@@ -270,6 +291,7 @@ pub(super) async fn execute(
                     && intent.network == network.to_string(),
                 "exit frozen identity changed"
             );
+            verify_terms(&intent, req)?;
             verify_exit_budget(
                 intent.fee_cap_sat,
                 req.maximum_fee_sat,
@@ -292,16 +314,8 @@ pub(super) async fn execute(
                 req.maximum_fee_sat > 0,
                 "exit needs a positive explicit lifetime fee budget"
             );
-            let rate = req.args["fee_rate_sat_per_vb"]
-                .as_u64()
-                .context("declare an exit fee rate")?;
-            ensure!(rate > 0, "zero exit fee rate");
-            let rate = FeeRate::from_sat_per_vb(rate).context("exit fee rate overflow")?;
-            let source = OutPoint::from_str(
-                req.args["fee_funding_outpoint"]
-                    .as_str()
-                    .context("declare an owned confirmed exit fee source")?,
-            )?;
+            let (rate, source) = request_terms(req)?;
+            wallet.sync_onchain().await?;
             let onchain = wallet
                 .onchain()
                 .context("exit requires an onchain wallet")?;
@@ -798,6 +812,24 @@ mod tests {
         };
         persist(&path, &intent).unwrap();
         let loaded = load(&path, &intent.action_id).unwrap().unwrap();
+        let mut continuation = request(json!([point(1).to_string()]));
+        continuation.args["fee_rate_sat_per_vb"] = json!(1);
+        continuation.args["fee_funding_outpoint"] = json!(point(1).to_string());
+        verify_terms(&loaded, &continuation).unwrap();
+        continuation.args["fee_rate_sat_per_vb"] = json!(2);
+        assert!(verify_terms(&loaded, &continuation).is_err());
+        continuation.args["fee_rate_sat_per_vb"] = json!(1);
+        continuation.args["fee_funding_outpoint"] = json!(point(2).to_string());
+        assert!(verify_terms(&loaded, &continuation).is_err());
+        continuation.args["fee_funding_outpoint"] = Value::Null;
+        assert!(verify_terms(&loaded, &continuation).is_err());
+        let native = serde_json::to_value(&loaded.steps[0].inputs).unwrap();
+        assert!(native[0][0].is_string());
+        assert_eq!(native[0][1]["value"], json!(5000));
+        assert_eq!(
+            native[0][1]["script_pubkey"],
+            json!(hex(script(4).as_bytes()))
+        );
         assert_eq!(loaded.fee_cap_sat, 100);
         assert_eq!(loaded.steps[0].fee_sat, 100);
         assert!(loaded.steps[0].signed_tx.is_none());
