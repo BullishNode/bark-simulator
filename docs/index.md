@@ -50,3 +50,6 @@ WHERE c.id='TXID:0' ORDER BY o.observed_at;
 ```
 
 See [the analysis cookbook](cookbook.md) and [export and audit](observability.md).
+
+[Round padding](tree-padding.md) explains why protocol padding is excluded from
+customer candidates and how its operator backing attribution stays separate.

@@ -263,3 +263,34 @@ class TreePaddingTests(unittest.TestCase):
         self.raw['signed_vtxo'] = 'ac'
         record_server_page(self.store, {'kind': 'coins', 'rows': [self.raw], 'next': None, 'inventory_consistent': False})
         self.assertEqual(1, len(self.store.db.execute(query, {'tip': 100}).fetchall()))
+
+    def test_backing_row_spend_hint_is_checked_without_rewriting_padding_leaf(self):
+        from simulator.padding import collect_backing
+        from simulator.bundle_audit import decode_transaction
+        raw_parent = '02000000' + '01' + '11' * 32 + '00000000' + '00' + 'ffffffff' + '01' + (1000).to_bytes(8, 'little').hex() + '22' + '5120' + '22' * 32 + '00000000'
+        parent = decode_transaction(raw_parent)
+        self.anchor = parent['txid'] + ':0'
+        self.classify(); self.backing()
+        raw = '02000000' + '01' + bytes.fromhex(parent['txid'])[::-1].hex() + '00000000' + '00' + 'ffffffff' + '01' + (900).to_bytes(8, 'little').hex() + '16' + '0014' + '33' * 20 + '00000000'
+        sweep = decode_transaction(raw)
+        executable = Path(self.tmp.name) / 'decoder'; executable.write_bytes(b'pinned decoder')
+        verifier_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
+        self.store.db.execute('UPDATE server_coin_classification SET verifier_hash=?', (verifier_hash,))
+        self.store.db.execute('UPDATE tree_padding_contract SET verifier_hash=?', (verifier_hash,))
+        backing = {'vtxo_id': self.anchor, 'policy_type': 'expiry', 'spend_state': 'spent',
+                   'onchain_spent_txid': sweep['txid'], 'expiry': 99}
+        record_server_page(self.store, {'kind': 'coins', 'rows': [backing], 'next': None, 'inventory_consistent': False})
+        self.store.db.execute('INSERT INTO operator_script VALUES (?,?)', ('0014' + '33' * 20, '{}'))
+        calls = []
+        class Core:
+            def identity(inner): return {'blocks': 100, 'bestblockhash': 'd' * 64, 'initialblockdownload': False}
+            def tx(inner, txid):
+                calls.append(txid)
+                return {'txid': txid, 'hex': raw_parent if txid == parent['txid'] else raw,
+                        'confirmations': 1, 'blockhash': 'd' * 64}
+            def call(inner, method, *args): return None if method == 'gettxout' else 'd' * 64
+        asyncio.run(collect_backing(self.store, Core(), [str(executable)], self.server, limit=1))
+        self.assertIn(sweep['txid'], calls)
+        self.assertEqual(1, self.store.db.execute('SELECT count(*) FROM tree_padding_sweep').fetchone()[0])
+        leaf = json.loads(self.store.db.execute("SELECT payload FROM server_item WHERE kind='coins' AND id=?", (self.coin,)).fetchone()[0])
+        self.assertEqual(self.raw, leaf)

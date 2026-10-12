@@ -344,6 +344,13 @@ async def collect_backing(store, chain, command, server_pubkey, *, limit=2):
                 utxo = None
             record_anchor_observation(store, anchor, closing, utxo)
             hint = row.get('onchain_spent_txid')
+            if not isinstance(hint, str):
+                backing_row = store.db.execute("SELECT payload FROM server_item WHERE kind='coins' AND id=?", (anchor,)).fetchone()
+                if backing_row:
+                    hint = json.loads(backing_row['payload']).get('onchain_spent_txid')
+            # A leaf or exact backing-row hint only selects a read-only query.
+            # Exact raw inputs, confirmation and declared return ownership still
+            # decide whether this is a sweep; neither server state nor null UTXO does.
             if isinstance(hint, str):
                 spent = await asyncio.to_thread(chain.tx, hint)
                 raw = decode_transaction(spent['hex'])
