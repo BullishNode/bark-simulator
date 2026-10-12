@@ -81,6 +81,14 @@ def observe(store: Store):
                 add("below_minimum:"+group["script"], "warning", "Known gross entitlement is below the configured net payout minimum; automatic payment cannot be qualified.",
                     script=group["script"], gross_sat=group["gross"], min_payout_sat=minimum)
 
+    from .round_adoption import observation_findings,observation_can_clear
+    for finding in observation_findings(store,snapshot):
+        key=finding.pop('key')
+        summary=('Confirmed refresh cannot be adopted within the SDK exit safety window.'
+            if key.startswith('round_adoption_security_window:') else
+            'A frozen refresh replacement remains unclaimed close to its expiry.')
+        add(key,'warning',summary,**finding)
+
     # Only lifecycle transitions add events. Repeated checks update last_seen and
     # retain the latest evidence without flooding the log with the same warning.
     now = time.time()
@@ -107,6 +115,8 @@ def observe(store: Store):
                     "confirmed_inventory_gap":snapshot.get("rounds_confirmed_sat") is not None,
                     "dispatch_readiness":ready,
                 }
+                if existing['key'].startswith(('round_unclaimed_near_expiry:','round_adoption_security_window:')) and not observation_can_clear(store,existing['key'],snapshot):
+                    continue
                 if can_clear.get(existing["key"]) is False:
                     continue # Missing evidence cannot establish that a problem was fixed.
                 if existing["key"].startswith("below_minimum:") and type(minimum) is not int:

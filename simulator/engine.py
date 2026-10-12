@@ -136,7 +136,11 @@ class Engine:
                 public_payload(log)
             except ValueError:
                 log={"redacted":True,"bytes":log["bytes"],"truncated":log["truncated"]}
-            self.store.event("driver_stderr",{"action_id":action["id"],**log})
+            from .round_adoption import diagnose_stderr,record_sync_diagnostic
+            record_sync_diagnostic(self.store,action['id'],diagnose_stderr(log.get('text',''),
+                redacted=bool(log.get('redacted')),truncated=bool(log.get('truncated'))))
+            self.store.event("driver_stderr",{'action_id':action['id'],
+                'bytes':log['bytes'],'truncated':log['truncated'],'redacted':bool(log.get('redacted'))})
 
         try:
             response = await json_command(list(self.config.driver_command), request,
@@ -276,6 +280,8 @@ class Engine:
                     collect_renewal(self.store,self.config)
                     await collect_payments(self.store,self.config.driver_command,self.config.expected_server_pubkey)
                 await self.collect_inventory()
+                from .round_adoption import collect_input_params
+                await collect_input_params(self.store,self.config)
                 await collect_negative_checks(self.store,self.config.inventory_command,self.config.proof_command)
                 await retry_public_candidates(self.store,self.config.proof_command)
                 if len(self.config.proof_command)==4:

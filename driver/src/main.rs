@@ -392,6 +392,11 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         "wallet_opened",
         json!({"actor":actor, "network":network.to_string(), "daemon":false}),
     )?;
+    evidence(req,"wallet_runtime_parameters",json!({
+        "actor":actor,"round_tx_required_confirmations":wallet.config().round_tx_required_confirmations.to_u32(),
+        "vtxo_exit_margin":wallet.config().vtxo_exit_margin.to_u32(),
+        "daemon_manual_sync":wallet.config().daemon_manual_sync,"run_daemon":false
+    }))?;
     ensure!(
         wallet
             .require_ark_info()
