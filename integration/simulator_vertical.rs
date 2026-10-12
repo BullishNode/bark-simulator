@@ -224,7 +224,7 @@ async fn simulator_zero_spendable_scheduled_refresh() {
     let core=ctx.bitcoind().sync_client();
     let srv=ctx.captaind("server").bitcoind(ctx.bitcoind_arc()).funded(sat(1_000_000)).watchmand().no_vtxo_pool().cfg(|c| {
         c.vtxo_lifetime=BlockDelta::new(432);c.min_board_amount=sat(330);
-        c.max_vtxo_exit_depth=1;c.required_board_confirmations=6;c.round_interval=Duration::from_secs(3);
+        c.max_vtxo_exit_depth=2;c.required_board_confirmations=6;c.round_interval=Duration::from_secs(3);
     }).create().await;
     super::fallback_lightning::train_fee_estimator(&ctx).await;
     let endpoint=srv.ark_url().replace("://0.0.0.0:","://127.0.0.1:");
@@ -268,7 +268,7 @@ async fn simulator_zero_spendable_scheduled_refresh() {
     };
     let fees=command(&root,"fee_audit",&manifest,&out,"actor-07",json!({}));
     assert!(fees.as_array().unwrap().iter().any(|f|f["operation"]=="refresh_delegated" && f["actual_fee_sat"]==0));
-    write(&out.join("result.json"),&json!({"result":"PASS","actor":"actor-07","max_exit_depth":1,"send":sent,"before":before,"scheduled_refresh":refreshed,"after":after,"fees":fees,
+    write(&out.join("result.json"),&json!({"result":"PASS","actor":"actor-07","max_exit_depth":2,"send":sent,"before":before,"scheduled_refresh":refreshed,"after":after,"fees":fees,
         "coverage_limits":["actual continuous scheduler and depth-triggered needs-refresh balance; live expiry convergence still separate"]}));
 }
 
