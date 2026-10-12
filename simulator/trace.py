@@ -75,6 +75,8 @@ def record_hash(record):
 
 def partition_paths(root):
     root = Path(root)
+    if any(path.is_symlink() for path in [root,root/'trace-archive',*root.parents]):
+        raise ValueError('trace root and archive must not contain symlinks')
     paths = [*root.glob('trace-*.sqlite'), *(root / 'trace-archive').glob('trace-*.sqlite')]
     names = set()
     for path in paths:
@@ -87,6 +89,8 @@ def partition_paths(root):
 
 
 def readonly(path):
+    path=Path(path)
+    if any(item.is_symlink() for item in [path,*path.parents]):raise ValueError('evidence paths must not contain symlinks')
     connection = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
     connection.row_factory = sqlite3.Row
     return connection

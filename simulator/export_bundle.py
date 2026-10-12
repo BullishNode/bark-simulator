@@ -129,7 +129,7 @@ def actor_timeline(store, actors, trace_root=None, *, after=None,before=None,tra
 def export_bundle(store, out, *, actor=None, payout=None, after=None, before=None, trace_root=None):
     """Build an immutable, self-describing selection from a consistent SQL backup."""
     out = Path(out)
-    if out.exists(): raise FileExistsError('export destination already exists')
+    if out.exists() or out.is_symlink(): raise FileExistsError('export destination already exists')
     if actor is not None and payout is not None: raise ValueError('select actor or payout, not both')
     if after is not None: timestamp(after, 'export beginning')
     if before is not None: timestamp(before, 'export ending')
@@ -262,6 +262,7 @@ def export_bundle(store, out, *, actor=None, payout=None, after=None, before=Non
 
 def _verified_files(root):
     root = Path(root)
+    if any(path.is_symlink() for path in [root,root/'manifest.json',*root.parents]):raise InvariantError('unsafe bundle manifest path')
     manifest = json.loads((root / 'manifest.json').read_text())
     if manifest.get('schema_version') != 1: raise InvariantError('unsupported export schema')
     actual={str(path.relative_to(root)) for path in root.rglob('*') if path.is_file()}
