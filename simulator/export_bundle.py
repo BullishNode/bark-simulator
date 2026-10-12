@@ -264,6 +264,8 @@ def _verified_files(root):
     root = Path(root)
     manifest = json.loads((root / 'manifest.json').read_text())
     if manifest.get('schema_version') != 1: raise InvariantError('unsupported export schema')
+    actual={str(path.relative_to(root)) for path in root.rglob('*') if path.is_file()}
+    if actual!=set(manifest['files'])|{'manifest.json'}:raise InvariantError('bundle contains unlisted or missing evidence')
     for name, expected in manifest['files'].items():
         relative = Path(name)
         if relative.is_absolute() or '..' in relative.parts: raise InvariantError('unsafe bundle manifest path')
@@ -273,16 +275,21 @@ def _verified_files(root):
     return manifest
 
 
+def json_lines(path):
+    with Path(path).open() as stream:
+        yield from stream
+
+
 def audit_bundle(root, *, proof_binary=None):
     """Replay grouped amounts from the bundle, with no RPC or client access."""
     root = Path(root); manifest = _verified_files(root)
-    for line in (root / 'trace.jsonl').read_text().splitlines():
+    for line in json_lines(root/'trace.jsonl'):
         row = json.loads(line)
         if row.get('redacted'): continue
         row['raw'] = base64.b64decode(row.pop('raw_base64')) if row.get('raw_base64') is not None else None
         row['payload'] = canonical(row['payload'])
         if record_hash(row) != row['hash']: raise InvariantError('exported trace record hash differs')
-    for line in (root / 'events.jsonl').read_text().splitlines():
+    for line in json_lines(root/'events.jsonl'):
         row = json.loads(line)
         if row.get('redacted'): continue
         serialized = canonical(row['payload'])
@@ -310,6 +317,8 @@ def audit_bundle(root, *, proof_binary=None):
             db.execute('INSERT INTO operator_script VALUES (?,?)', (row['script'], canonical(row['evidence'])))
         for row in evidence['server_coins']:
             db.execute('INSERT INTO server_item VALUES (?,?,?,?)', (row['kind'], row['id'], canonical(row['payload']), row['observed_at']))
+        for row in evidence['checked_settlements']:
+            db.execute('INSERT INTO checked_settlement VALUES (?,?,?,?,?,?)',(row['coin_id'],row['txid'],row['actor'],row['script'],row['amount_sat'],canonical(row['evidence'])))
         replay = type('EvidenceStore', (), {'db': db})()
         payouts = []
         for entry in evidence['chain_payouts']:
@@ -317,11 +326,14 @@ def audit_bundle(root, *, proof_binary=None):
             rows = [r for r in evidence['settlements'] if r['txid'] == tx['txid']]
             try:
                 result = check_payment(replay, rows, tx)
-                net = {}
-                for settlement, owner in result['owners']:
-                    if owner['actor'] not in net:
-                        scripts = {row['script'] for row in evidence['checked_settlements'] if row['actor'] == owner['actor'] and row['txid'] == tx['txid']}
-                        net[owner['actor']] = sum(o['amount_sat'] for o in tx['outputs'] if o['script'] in scripts)
+                destinations={}
+                for settlement,owner in result['owners']:
+                    destinations.setdefault(settlement['spk'],set()).add(owner['actor'])
+                if any(len(owners)!=1 for owners in destinations.values()):
+                    raise ValueError('payout destination belongs to multiple exported actors')
+                net={}
+                for script,owners in destinations.items():
+                    owner=next(iter(owners));net[owner]=net.get(owner,0)+sum(output['amount_sat'] for output in tx['outputs'] if output['script']==script)
                 payouts.append({'txid': tx['txid'], 'state': 'amounts_checked', 'recipient_net_sat': net,
                     'recipient_fee_sat': result['recipient_fee_sat'], 'operator_fee_sat': result['operator_fee_sat'],
                     'raw_chain_reverified':raw_audit['raw_chain_reverified']})

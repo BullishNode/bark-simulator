@@ -4,7 +4,6 @@ The replay RPC serves only exported public evidence. Missing anchors remain
 missing; it has no forwarding path, wallet operations, or Core credentials.
 """
 from __future__ import annotations
-import base64
 import hashlib
 import json
 import subprocess
@@ -163,6 +162,8 @@ def verify_native_proofs(proofs,transactions,binary):
         cached=coin['proof'];anchor=cached.get('chain_anchor','').split(':')[0]
         if anchor not in transactions:
             gaps.append({'kind':'missing_raw_backing_anchor','coin_id':coin['id']});continue
+        if transactions[anchor]['info'].get('confirmations',0)<1:
+            gaps.append({'kind':'missing_anchor_confirmation_metadata','coin_id':coin['id']});continue
         request=requests[0];public_payload(request)
         with tempfile.TemporaryDirectory(prefix='public-proof-replay-') as temporary:
             cookie=Path(temporary)/'rpc-cookie';cookie.write_text('public-replay:unused');cookie.chmod(0o600)
@@ -171,6 +172,8 @@ def verify_native_proofs(proofs,transactions,binary):
                 result=subprocess.run(command,input=canonical(request).encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
         if result.returncode or len(result.stdout)>2097152:raise InvariantError('exported native signature proof failed')
         proof=json.loads(result.stdout);public_payload(proof)
+        if (proof.get('id'),proof.get('user_pubkey'),proof.get('amount_sat'))!=(coin['id'],coin['pubkey'],coin['amount_sat']):
+            raise InvariantError('fresh native proof differs from exported coin columns')
         if any(proof.get(key)!=cached.get(key) for key in ('id','user_pubkey','amount_sat','chain_anchor','genesis','server_pubkey','path')):
             raise InvariantError('fresh native proof differs from exported ownership')
         if proof.get('signed_path_valid') is not True or proof.get('anchor_confirmations',0)<1:
