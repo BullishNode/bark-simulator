@@ -33,6 +33,9 @@ class RoundAdoptionTests(unittest.TestCase):
         self.decoded={self.coin:{'schema_version':1,'id':self.coin,'candidate_user_pubkey':OUTPUT_KEY,'amount_sat':9900,'expiry_height':106,
             'server_pubkey':SERVER,'chain_anchor':TXID+':0','arkoor_transition_count':0,'tree_padding':False,
             'client_owner_verified':False,'chain_contract_verified':False,'signed_hash':hashlib.sha256(bytes.fromhex('bb')).hexdigest(),'verifier_hash':'cc'*32}}
+        self.s.event('driver_evidence',{'action_id':'refresh','event':'wallet_runtime_parameters','data':{'actor':self.actor,'round_tx_required_confirmations':2,'vtxo_exit_margin':12,'daemon_manual_sync':True,'run_daemon':False}})
+        from simulator.round_adoption import record_input_params
+        record_input_params(self.s,'aa',{'schema_version':1,'id':'input:0','candidate_user_pubkey':INPUT_KEY,'amount_sat':10000,'expiry_height':100,'exit_delta':12,'server_pubkey':SERVER,'client_owner_verified':False,'chain_contract_verified':False},SERVER,'cc'*32)
     def tearDown(self):self.s.close();self.tmp.cleanup()
     def server(self,kind,identity,value,at):
         self.s.db.execute('INSERT OR REPLACE INTO server_item VALUES (?,?,?,?)',(kind,identity,canonical(value),at))
@@ -103,6 +106,7 @@ class RoundSecurityWindowTests(unittest.TestCase):
         from simulator.round_adoption import record_input_params
         proof={'schema_version':1,'id':'input:0','candidate_user_pubkey':INPUT_KEY,'amount_sat':10000,'expiry_height':expiry,
             'exit_delta':12,'server_pubkey':SERVER,'client_owner_verified':False,'chain_contract_verified':False}
+        self.s.db.execute('DELETE FROM round_input_params')
         record_input_params(self.s,'aa',proof,SERVER,'cc'*32)
     def test_confirmed_but_unsafe_output_window_is_explicit_hold_without_sdk_calls(self):
         self.input_parameters();decision=self.queue()
@@ -137,3 +141,33 @@ class StructuredRoundDiagnosticTests(unittest.TestCase):
             self.assertEqual(137,diagnostic['exit_window_rejections'][0]['minimum_expiry_height'])
             events=store.db.execute("SELECT payload FROM event WHERE kind='round_sync_diagnostic'").fetchall()
             self.assertEqual(1,len(events));self.assertNotIn('text',json.loads(events[0][0]));self.assertNotIn(text,events[0][0]);store.verify_event_chain();store.close()
+
+class RoundSchedulingGuardTests(RoundSecurityWindowTests):
+    def test_unsafe_first_does_not_starve_ready_second_actor(self):
+        from unittest.mock import patch
+        from simulator.round_adoption import candidate_rounds,queue_confirmed
+        self.input_parameters()
+        first=candidate_rounds(self.s,self.c,decoder=self.decoder)[0]
+        self.s.db.execute('UPDATE actor SET details=? WHERE id=?',(canonical({'created':True,'ark_address':'public'}),'actor-05'))
+        self.s.queue('refresh-second','actor-05','H17','refresh',{},2000)
+        self.s.db.execute("UPDATE action SET state='completed' WHERE id='refresh-second'")
+        self.s.event('driver_evidence',{'action_id':'refresh-second','event':'wallet_runtime_parameters','data':{'actor':'actor-05','round_tx_required_confirmations':2,'vtxo_exit_margin':12,'daemon_manual_sync':True,'run_daemon':False}})
+        second={**first,'actor':'actor-05','refresh_action_id':'refresh-second','replacement_outputs':[{**first['replacement_outputs'][0],'expiry_height':160}]}
+        decisions=[]
+        with patch('simulator.round_adoption.candidate_rounds',return_value=[first,second]):
+            result=queue_confirmed(self.s,self.c,self.snapshot,now=1000,decoder=self.decoder,decisions=decisions)
+        self.assertEqual(('actor-05','queued'),(result['actor'],result['outcome']))
+        self.assertEqual(['held','queued'],[d['outcome'] for d in decisions])
+        self.assertEqual('actor-05',self.queued()[0]['actor_id'])
+    def test_missing_actual_sdk_parameters_holds_without_guessing_defaults(self):
+        self.s.db.execute("DELETE FROM event WHERE kind='driver_evidence' AND json_extract(payload,'$.event')='wallet_runtime_parameters'")
+        decision=self.queue();self.assertEqual('held',decision['outcome']);self.assertEqual('sdk_parameters_unknown',decision['reason']);self.assertEqual([],self.queued())
+    def test_declared_depth_cannot_override_actual_sdk_depth(self):
+        self.c.round_sync_required_confirmations=1
+        decision=self.queue();self.assertEqual('held',decision['outcome']);self.assertEqual('sdk_parameters_mismatch',decision['reason']);self.assertEqual([],self.queued())
+    def test_missing_exact_input_params_holds_without_wallet_read(self):
+        self.s.db.execute('DELETE FROM round_input_params')
+        decision=self.queue();self.assertEqual('held',decision['outcome']);self.assertEqual('sdk_input_parameters_unknown',decision['reason'])
+    def test_diagnostic_rejects_unsolicited_full_stderr(self):
+        from simulator.round_adoption import diagnose_stderr,record_sync_diagnostic
+        with self.assertRaises(ValueError):record_sync_diagnostic(self.s,'refresh',{**diagnose_stderr(''),'text':'full log'})
