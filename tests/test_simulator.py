@@ -496,7 +496,7 @@ class PilotIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 tick = [time.time()]
                 calls = []
 
-                async def command(argv, request=None, timeout=30, on_event=None):
+                async def command(argv, request=None, timeout=30, on_event=None, on_stderr=None):
                     if request is None:
                         return {"observed_at": tick[0], "identity": identity, "complete": False,
                                 "rounds_confirmed_sat": 1000, "timings": {"payout_enabled": True},
