@@ -130,7 +130,9 @@ def _schedule(store,config,snapshot,decisions,rng=None):
     from .round_adoption import queue_confirmed
     round_decisions=[]
     round_decision=queue_confirmed(store,config,snapshot,decisions=round_decisions)
-    for decision in round_decisions:decisions[decision['actor']]=decision
+    for decision in round_decisions:
+        key=('round-held:'+decision['inputs']['refresh_action_id']) if decision['outcome']=='held' else decision['actor']
+        decisions[key]=decision
     if round_decision and round_decision['outcome']=='queued':return
     actors=store.db.execute("SELECT a.* FROM actor a WHERE online=1 ORDER BY COALESCE((SELECT MAX(updated_at) FROM action WHERE actor_id=a.id),0),a.id").fetchall()
     for actor in actors:
@@ -138,7 +140,7 @@ def _schedule(store,config,snapshot,decisions,rng=None):
         if rng and store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('queued','dispatched','outcome_unknown')",(name,)).fetchone():continue
         latest={row['operation']:row['latest'] for row in store.db.execute(
             "SELECT operation,MAX(updated_at) AS latest FROM action WHERE actor_id=? AND state='completed' GROUP BY operation",(name,))}
-        if name in decisions and decisions[name].get('rule_id')=='round_confirmed_sync':continue
+        if any(d.get('actor')==name and d.get('reason') in {'sdk_exitability_window','sdk_input_parameters_unknown','sdk_parameters_mismatch'} for d in decisions.values()):continue
         decisions[name]={'actor':name,'rule_id':'cadence','outcome':'held','inputs':{
             'spendable':d.get('registered_spendable_sat',0),'needs_refresh':d.get('needs_refresh_sat',0),
             'onchain':d.get('onchain_confirmed_sat',0),'needs_sync':bool(d.get('needs_sync')),
