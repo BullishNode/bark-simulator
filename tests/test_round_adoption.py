@@ -191,3 +191,21 @@ class RoundObservationGapTests(unittest.TestCase):
         self.s.db.execute("INSERT INTO observation VALUES (?,?,'active',?,?,?,?,1)",(finding['key'],'warning','near expiry',canonical(finding),1000,1000))
         self.s.db.execute('DELETE FROM server_item')
         self.assertFalse(observation_can_clear(self.s,finding['key'],self.snapshot))
+
+class RoundSchedulerCycleTests(unittest.TestCase):
+    setUp=RoundAdoptionTests.setUp
+    tearDown=RoundAdoptionTests.tearDown
+    server=RoundAdoptionTests.server
+    decoder=RoundAdoptionTests.decoder
+    def test_normal_scheduler_prioritizes_confirmed_round_in_one_cycle(self):
+        from unittest.mock import patch
+        from simulator import continuous
+        from simulator.round_adoption import queue_confirmed
+        actual=queue_confirmed
+        def decoded(*args,**kwargs):return actual(*args,**kwargs,decoder=self.decoder)
+        with patch('simulator.round_adoption.queue_confirmed',side_effect=decoded),patch('simulator.round_adoption.time.time',return_value=1000):
+            continuous.schedule(self.s,self.c,self.snapshot)
+        queued=list(self.s.db.execute("SELECT * FROM action WHERE state='queued'"))
+        self.assertEqual(1,len(queued));self.assertEqual(('actor-02','sync'),(queued[0]['actor_id'],queued[0]['operation']))
+        tick=json.loads(self.s.db.execute("SELECT payload FROM event WHERE kind='scheduler_tick' ORDER BY sequence DESC LIMIT 1").fetchone()[0])
+        self.assertEqual('round_confirmed_sync',tick['actors'][0]['rule_id']);self.assertEqual('queued',tick['actors'][0]['outcome'])
