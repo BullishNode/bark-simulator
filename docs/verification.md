@@ -6,7 +6,7 @@ Run the Python suite with:
 python3 -m unittest discover -s tests
 ```
 
-The current supervisor behavior passed 458 Python tests and 16 native unit tests across the driver, public verifier and seed recovery adapter. Tests cover scheduling, affordability, offline-client preservation, unknown outcomes, ownership, payout replay, fee conservation, bounded diagnostics, coverage aggregation, qualified-clock rules and public trace/export integrity.
+The current supervisor behavior passed 483 Python tests and 16 native unit tests across the driver, public verifier and seed recovery adapter. Tests cover scheduling, affordability, offline-client preservation, unknown outcomes, ownership, payout replay, fee conservation, bounded diagnostics, coverage aggregation, qualified-clock rules and public trace/export integrity.
 
 Isolated native regtest fixtures additionally exercised:
 
@@ -18,6 +18,7 @@ Isolated native regtest fixtures additionally exercised:
 | Payments and reservations | Ark and internal/external Lightning payments succeed; a pending-sync reservation closes once after later signed receive evidence. |
 | Public payout and automatic seed recovery | Fresh native coin/link/record checks and anchored public operator derivation verify a 10,000-sat entitlement and 9,703-sat payout. A seed-only spend recovers the payout under the 2,000-sat cap, preserving absence and separate capital accounting. |
 | Delegated entitlement and native boundaries | The frozen 5,000-sat delegated intent becomes a signed replacement tied to the actual round; the fee closes once. Fresh before/after evidence accompanies online native operations. |
+| Concurrent clients | Two and three distinct native wallets overlap between their before/after boundaries. Five boards produce 50,000 sats of confirmed signed principal with 3,815 sats total mining fees, each under its 2,000-sat cap. |
 | Public evidence export | A payout bundle replays serialized payout/input transactions and real protocol, link and record signatures through a public archive-only RPC server, with no upstream connection. |
 
 Independent audits reconstruct isolated raw blocks in a network-disabled Bitcoin Core instance and rerun signature and ownership verification. They check frozen inputs and proposals, confirmed outputs, fees, replacement coins, and receipt reuse.
@@ -52,4 +53,15 @@ python3 integration/verify-recovery.py runs/integration/recovery-check \
 python3 integration/verify-export-bundle.py \
   runs/integration/recovery-check/out/confirmed-payout-export \
   --proof-binary target/debug/vtxo-proof
+```
+
+To verify concurrent native clients and independently audit their confirmed coins and fees:
+
+```sh
+python3 integration/run-regtest.py concurrent-check \
+  --sdk-source fixture-source \
+  --product-bin-dir source/target/debug \
+  --test simulator_concurrent_clients
+python3 integration/verify-concurrency.py runs/integration/concurrent-check \
+  --bitcoind /path/to/bitcoind
 ```
