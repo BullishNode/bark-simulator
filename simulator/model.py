@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from decimal import Decimal
 from typing import Any
 
@@ -50,6 +51,9 @@ def public_payload(value: Any) -> None:
     elif isinstance(value, list):
         for item in value:
             public_payload(item)
+    elif isinstance(value, str):
+        if re.search(r'(?i)\b(mnemonic|private[_ -]?key|password|auth[_ -]?token)\b|__cookie__:|\b[xt]prv[1-9A-HJ-NP-Za-km-z]+\b|\bseed\s*[:=]\s*[0-9a-f]{64}\b', value):
+            raise ValueError('secret-shaped text is forbidden in public evidence')
 
 
 def fee_allocation(gross: dict[str, int], recipient_fee_sat: int) -> dict[str, int]:

@@ -7,6 +7,7 @@ import signal
 from collections.abc import Callable
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+MAX_STDERR_BYTES = 256 * 1024
 
 
 class CommandError(RuntimeError):
@@ -33,13 +34,28 @@ def decode_object(output: str) -> dict:
 
 
 async def text_command(argv: list[str], request: dict | None = None, timeout: int = 120,
-                       on_line: Callable[[str], None] | None = None) -> str:
+                       on_line: Callable[[str], None] | None = None,
+                       on_stderr: Callable[[dict], None] | None = None) -> str:
     """No shell, bounded output/time, and cleanup only of this child's session."""
     if not argv:
         raise ValueError("empty command")
     proc = await asyncio.create_subprocess_exec(*argv, stdin=asyncio.subprocess.PIPE,
                                                stdout=asyncio.subprocess.PIPE,
-                                               stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+                                               stderr=asyncio.subprocess.PIPE, start_new_session=True)
+
+    async def drain_stderr():
+        captured=bytearray();size=0
+        while True:
+            chunk=await proc.stderr.read(65536)
+            if not chunk:break
+            size+=len(chunk)
+            if on_stderr is not None:
+                captured.extend(chunk[:max(0,MAX_STDERR_BYTES-len(captured))])
+        if on_stderr is not None and size:
+            on_stderr({'text':captured.decode('utf-8',errors='replace'),
+                       'bytes':size,'truncated':size>MAX_STDERR_BYTES})
+
+    stderr_task=asyncio.create_task(drain_stderr())
 
     async def exchange():
         if request is not None:
@@ -65,6 +81,7 @@ async def text_command(argv: list[str], request: dict | None = None, timeout: in
         if pending.strip() and on_line is not None:
             on_line(pending.decode("utf-8"))
         await proc.wait()
+        await stderr_task
         if proc.returncode:
             # Do not copy untrusted stderr/command text containing credentials to the ledger.
             raise CommandError(f"command exited with status {proc.returncode}")
@@ -82,12 +99,17 @@ async def text_command(argv: list[str], request: dict | None = None, timeout: in
             except ProcessLookupError:
                 pass
             await proc.wait()
+        if not stderr_task.done():
+            # Drain the remaining pipe after stopping our child; capture any
+            # diagnostic already emitted without leaving a task behind.
+            await stderr_task
 
 
 async def json_command(argv: list[str], request: dict | None = None, timeout: int = 120,
-                       on_event: Callable[[dict], None] | None = None) -> dict:
+                       on_event: Callable[[dict], None] | None = None,
+                       on_stderr: Callable[[dict], None] | None = None) -> dict:
     if on_event is None:
-        return decode_object(await text_command(argv, request, timeout))
+        return decode_object(await text_command(argv, request, timeout,on_stderr=on_stderr))
     final = None
 
     def line(output):
@@ -100,7 +122,7 @@ async def json_command(argv: list[str], request: dict | None = None, timeout: in
         else:
             final = value
 
-    await text_command(argv, request, timeout, on_line=line)
+    await text_command(argv, request, timeout, on_line=line,on_stderr=on_stderr)
     if final is None:
         raise CommandError("driver produced no final result")
     return final

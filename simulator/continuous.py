@@ -103,25 +103,47 @@ def lightning_recipient(store):
     return None,{}
 
 def schedule(store,config,snapshot):
+    decisions={}
+    try:
+        _schedule(store,config,snapshot,decisions)
+    finally:
+        store.event('scheduler_tick',{'actors':list(decisions.values()),
+            'pause':store.get_meta('paused'),
+            'runnable_queue':store.has_runnable_queue(),
+            'scope':'scheduling decisions only; a queued operation is not a verified outcome'})
+
+
+def _schedule(store,config,snapshot,decisions):
     if store.get_meta('paused') or store.has_runnable_queue():return
     if store.db.execute("SELECT 1 FROM action WHERE state='dispatched'").fetchone():return
     actors=store.db.execute("SELECT a.* FROM actor a WHERE online=1 ORDER BY COALESCE((SELECT MAX(updated_at) FROM action WHERE actor_id=a.id),0),a.id").fetchall()
     for actor in actors:
         name=actor['id'];d=json.loads(actor['details'])
+        latest={row['operation']:row['latest'] for row in store.db.execute(
+            "SELECT operation,MAX(updated_at) AS latest FROM action WHERE actor_id=? AND state='completed' GROUP BY operation",(name,))}
+        decisions[name]={'actor':name,'rule_id':'cadence','outcome':'held','inputs':{
+            'spendable':d.get('registered_spendable_sat',0),'needs_refresh':d.get('needs_refresh_sat',0),
+            'onchain':d.get('onchain_confirmed_sat',0),'needs_sync':bool(d.get('needs_sync')),
+            'pending_in_round':d.get('pending_in_round_sat',0),'last_sync':latest.get('sync'),
+            'last_board':latest.get('board'),'budget':store.remaining_fee_budget()}}
+        def decide(rule,outcome='held'):
+            decisions[name]['rule_id']=rule;decisions[name]['outcome']=outcome
         rail=RECEIVE_ABSENCE.get(name)
-        if rail and arm_receive_absence(store,name,rail):continue
+        if rail and arm_receive_absence(store,name,rail):decide('receive_absence','offline');continue
         history=store.db.execute('SELECT * FROM action WHERE actor_id=? ORDER BY created_at DESC',(name,)).fetchall()
-        if any(x['state']=='outcome_unknown' for x in history):continue
+        if any(x['state']=='outcome_unknown' for x in history):decide('unknown_outcome');continue
         def last(operation):return max((x['updated_at'] for x in history if x['operation']==operation and x['state']=='completed'),default=0)
         def queue(scenario,operation,args=None,fee=0):
             sequence=store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]+1
-            if store.remaining_fee_budget()<fee:return False
+            if store.remaining_fee_budget()<fee:decide('fee_budget');return False
             store.queue(f'continuous-{sequence:08}',name,scenario,operation,args or {},fee)
+            decisions[name]['outcome']='queued';decisions[name]['operation']=operation
             return True
         if not d.get('created'):
+            decide('create_wallet')
             if not history or all(x['state'] not in {'failed','blocked'} for x in history):queue('H01','create')
             return
-        if not d.get('ark_address'):queue('H07','address');return
+        if not d.get('ark_address'):decide('advertise_address');queue('H07','address');return
         # Leave one real broadcast board unregistered. Its frozen public coin
         # candidate can be verified after confirmation without reopening Bark.
         # An accepted SDK request alone never certifies the H04 payout outcome.
@@ -140,6 +162,7 @@ def schedule(store,config,snapshot):
                         and x['created_at']>pending_snapshots[0]['created_at'] for x in history):
                     pending=False # A later sync could have registered the board.
                 if candidates and pending:
+                    decide('pending_board_absence','offline')
                     with store.transaction():
                         store.db.execute('UPDATE actor SET online=0 WHERE id=?',(name,))
                         store._event('continuous_absence_armed',{'actor':name,'scenario':'H04','board_action_id':board['id'],
@@ -149,23 +172,27 @@ def schedule(store,config,snapshot):
                     continue
         # Consume only already declared, externally journaled funding. No implicit top-up.
         if d.get('needs_sync'):
+            decide('sync_debt')
             if time.time()-last('sync')>120 and queue('H01','sync',fee=config.action_fee_reserve_sat):return
             continue
         # Always read after a mutation/sync, but don't let twelve serial
         # clients' periodic reads preempt every affordable money operation.
         # The native SDK rechecks inputs and fees before any submission.
         if not d.get('snapshot_at',0):
+            decide('read_after_mutation')
             queue('H01','snapshot');return
         balance=d.get('registered_spendable_sat',0)
         if name in {'actor-09','actor-10','actor-21','actor-22'} and balance>0:
-            store.set_online(name,False);store.event('continuous_absence_armed',{'actor':name,'scenario':'H03','coins':d.get('coin_ids',[])})
+            decide('registered_absence','offline');store.set_online(name,False);store.event('continuous_absence_armed',{'actor':name,'scenario':'H03','coins':d.get('coin_ids',[])})
             continue
-        if queue_owner_renewal(store,name,d,config):return
+        if queue_owner_renewal(store,name,d,config):decide('declared_owner_renewal','queued');return
         if not d.get('board_submitted') and d.get('onchain_confirmed_sat',0)>=config.board_amount_sat+config.action_fee_reserve_sat:
+            decide('initial_board')
             if queue('H01','board',{'amount_sat':config.board_amount_sat},config.action_fee_reserve_sat):return
             continue
         recycle=recycle_plan(store,name,d,config)
         if recycle and store.remaining_fee_budget()>=config.action_fee_reserve_sat:
+            decide('recycle_owned_source','queued')
             # One database transaction freezes source ownership and the fresh
             # action ID. Lost replies cannot release or reuse this source.
             sequence=store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]+1
@@ -177,11 +204,13 @@ def schedule(store,config,snapshot):
                     'new_external_funding_sat':0,'grant_reused':False,'outcome':'pending confirmed input/fee proof'})
             return
         if d.get('board_submitted') and time.time()-last('sync')>600:
+            decide('periodic_sync')
             if queue('H01','sync',fee=config.action_fee_reserve_sat):return
             continue
         # Receiving needs no existing Ark principal: its fee comes from the
         # incoming payment. Native invoice/sync checks retain the same ceilings.
         if name==lightning_recipient(store)[0] and snapshot.get('capabilities',{}).get('lightning_configured') and time.time()-last('invoice')>1800:
+            decide('invoice_cadence')
             if queue('H40','invoice',{'amount_sat':2000},config.action_fee_reserve_sat):return
             continue
         # Refreshable coins cannot fund a send yet. Keep their native state as
@@ -191,19 +220,23 @@ def schedule(store,config,snapshot):
         refreshed_at=max(last('board'),last('refresh'),last('refresh_delegated'))
         if refreshable>0 or (last('board') and time.time()-refreshed_at>3600
                              and balance>=1000+config.action_fee_reserve_sat):
+            decide('refreshable_balance' if refreshable>0 else 'hourly_refresh')
             operation='refresh_delegated' if name in {'actor-07','actor-08'} else 'refresh'
             if queue('H20' if operation.endswith('delegated') else 'H17',operation,fee=config.action_fee_reserve_sat):return
             continue
         # A dry wallet continues observation; it is not silently topped up.
         if balance<1000+config.action_fee_reserve_sat:
+            decide('dry_wallet')
             if time.time()-d.get('snapshot_at',0)>180:queue('H01','snapshot');return
             continue
         if name in {'actor-11','actor-12'} and time.time()-max((x['updated_at'] for x in history if x['operation'].startswith('raw_')),default=0)>900:
+            decide('negative_probe_cadence')
             count=sum(x['operation'].startswith('raw_') for x in history)
             scenario,operation,args=next_case(store,name,count);queue(scenario,operation,args);return
         # Cooperative offboard is deliberately one-shot; reboarding needs a
         # separate new principal allocation/recipe rather than an endless fee loop.
         if name=='actor-04' and not last('offboard_all'):
+            decide('one_shot_offboard')
             if queue('H33','offboard_all',fee=10000):return
             continue
         if name=='actor-05' and snapshot.get('capabilities',{}).get('lightning_configured'):
@@ -211,7 +244,9 @@ def schedule(store,config,snapshot):
             invoice=recipient.get('latest_invoice');invoice_id=recipient.get('invoice_action_id')
             attempted={json.loads(x['args']).get('recipient_invoice_action') for x in history if x['operation']=='pay_invoice'}
             if invoice and invoice_id not in attempted:
+                decide('lightning_payment')
                 if balance<2000+config.action_fee_reserve_sat:
+                    decide('payer_affordability')
                     if time.time()-d.get('snapshot_at',0)>180:queue('H01','snapshot');return
                     continue
                 if queue('H40','pay_invoice',{'invoice':invoice,'amount_sat':2000,'recipient_actor':recipient_actor,'recipient_invoice_action':invoice_id},config.action_fee_reserve_sat):return
@@ -225,12 +260,13 @@ def schedule(store,config,snapshot):
         # Diverse amounts/peers are deterministic from durable action history.
         sends=sum(x['operation']=='send_arkoor' for x in history)
         if time.time()-last('send_arkoor')>600:
+            decide('ark_payment_cadence')
             # Rotate through every advertised peer, including the Lightning
             # sender and new cohort. Otherwise its balance only falls and LN
             # traffic stops permanently even while other clients circulate funds.
             targets=[r['id'] for r in store.db.execute('SELECT id,details FROM actor ORDER BY id')
                      if r['id']!=name and json.loads(r['details']).get('ark_address')]
-            if not targets:continue
+            if not targets:decide('no_advertised_peer');continue
             target=targets[(int(name[-2:])+sends)%len(targets)]
             row=store.db.execute('SELECT details FROM actor WHERE id=?',(target,)).fetchone();to=json.loads(row[0]) if row else {}
             if to.get('ark_address'):
@@ -238,4 +274,5 @@ def schedule(store,config,snapshot):
                 if balance>=amount+config.action_fee_reserve_sat:
                     if queue('H08' if target in {'actor-09','actor-10'} else 'H07','send_arkoor',{'destination':to['ark_address'],'amount_sat':amount,'recipient_actor':target},config.action_fee_reserve_sat):return
         if time.time()-d.get('snapshot_at',0)>180:
+            decide('periodic_snapshot')
             queue('H01','snapshot');return
