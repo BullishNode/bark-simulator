@@ -165,6 +165,18 @@ class VerifiedClockTests(unittest.TestCase):
         self.credit(1000); self.lightning(at=1000)
         self.assertFalse(campaign.traffic_ready(self.store, 201))
 
+    def test_exact_spend_without_sender_change_can_qualify(self):
+        proof = json.loads(self.store.db.execute('SELECT proof FROM owned_coin WHERE id=?',
+            (self.input_id,)).fetchone()[0])
+        proof['amount_sat'] = 1000
+        self.store.db.execute('UPDATE owned_coin SET amount_sat=1000,proof=? WHERE id=?',
+            (canonical(proof), self.input_id))
+        self.send(); self.receipt(); self.lightning(); self.collect()
+        self.assertTrue(campaign.traffic_ready(self.store, 201))
+        credit = json.loads(self.store.db.execute("SELECT payload FROM event WHERE kind='ark_transfer_verified'").fetchone()[0])
+        self.assertEqual([self.input_id], credit['input_coin_ids'])
+        self.assertEqual(self.output_id, credit['receipts'][0]['coin_id'])
+
     def test_legacy_send_without_actor_label_uses_unique_frozen_address(self):
         self.send(); self.receipt(); self.lightning()
         self.store.db.execute("UPDATE action SET args=? WHERE id='send'", (canonical(
