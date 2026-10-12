@@ -4,7 +4,7 @@ Stored signed proofs were independently validated by the ownership collector.
 Chain transactions passed to resolve must come from an identity-checked reader.
 Reconciliation preserves the original activity time and client online state.
 """
-import asyncio,hashlib,json
+import asyncio,base64,datetime,hashlib,json,re,sqlite3
 from .model import InvariantError,canonical,integer,public_payload,transaction_fee
 from .ownership import EvidenceGap
 from .fees import movement_fee,board_fee,offboard_fee,_proposal
@@ -53,13 +53,51 @@ def _reply(store,action):
     return response,rows[0]['sequence']
 
 
+def boundary_evidence(store,action,phase,data):
+    """Load one exact fresh boundary, including a journal-pinned trace record."""
+    if data.get('fresh') is not True:raise EvidenceGap('unknown read evidence is not a current wallet capture')
+    if 'trace_ref' not in data:return data['evidence']
+    reference=data['trace_ref']
+    if not isinstance(reference,dict) or set(reference)!={'partition','seq','hash'}:raise EvidenceGap('incomplete native boundary trace reference')
+    name=reference['partition'];sequence=integer(reference['seq'],'trace reference sequence',1);digest=reference['hash']
+    if not isinstance(name,str) or re.fullmatch(r'trace-\d{4}-\d{2}-\d{2}\.sqlite',name) is None:raise EvidenceGap('invalid boundary trace partition')
+    datetime.date.fromisoformat(name[6:16])
+    if not isinstance(digest,str) or re.fullmatch(r'[0-9a-f]{64}',digest) is None:raise EvidenceGap('invalid boundary trace hash')
+    root=store.root;paths=[root/name,root/'trace-archive'/name]
+    if any(p.is_symlink() for path in paths for p in [path,*path.parents]):raise InvariantError('boundary trace path is a symlink')
+    present=[path for path in paths if path.is_file()]
+    if not present:raise EvidenceGap('native boundary trace partition is unavailable')
+    if len(present)!=1:raise InvariantError('native boundary trace partition is duplicated')
+    connection=sqlite3.connect(present[0].resolve().as_uri()+'?mode=ro',uri=True);connection.row_factory=sqlite3.Row
+    try:
+        row=connection.execute('SELECT * FROM trace WHERE seq=? AND length(CAST(payload AS BLOB))+COALESCE(length(raw),0)<=?',(sequence,16*1024*1024)).fetchone()
+    except sqlite3.Error:raise EvidenceGap('native boundary trace record is unavailable') from None
+    finally:connection.close()
+    if row is None:raise EvidenceGap('native boundary trace record is missing or oversized')
+    raw=row['raw']
+    if raw is not None and not isinstance(raw,bytes):raise InvariantError('native boundary trace raw bytes changed')
+    calculated=hashlib.sha256(canonical([row['seq'],row['utc'],row['schema_version'],row['kind'],row['actor'],row['action_id'],row['payload'],
+        base64.b64encode(raw).decode() if raw is not None else None,row['previous_hash']]).encode()).hexdigest()
+    if row['seq']!=sequence or row['schema_version']!=1 or row['hash']!=digest or calculated!=digest:raise InvariantError('native boundary trace reference/hash changed')
+    if datetime.datetime.fromtimestamp(row['utc'],datetime.timezone.utc).date().isoformat()!=name[6:16]:raise InvariantError('native boundary trace record changed its UTC partition')
+    payload=json.loads(row['payload']);public_payload(payload)
+    if raw is not None:public_payload(raw.decode('utf-8'))
+    if ((row['kind'],row['actor'],row['action_id'])!=('driver.event',action['actor_id'],action['id'])
+            or (payload.get('kind'),payload.get('action_id'),payload.get('operation'),payload.get('event'))!=
+                ('driver_event',action['id'],action['operation'],'client_evidence_'+phase)):
+        raise InvariantError('native boundary trace was rebound to another actor, action, operation or phase')
+    full=payload['data']
+    if full.get('fresh') is not True:raise EvidenceGap('native boundary trace is not fresh')
+    if 'evidence' in data and canonical(data['evidence'])!=canonical(full['evidence']):raise InvariantError('inline and referenced native boundaries differ')
+    return full['evidence']
+
+
 def _frame(store,action,phase):
     rows=store.db.execute("SELECT sequence,payload FROM event WHERE kind='driver_evidence' AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.event')=?",
         (action['id'],'client_evidence_'+phase)).fetchall()
     if len(rows)!=1:raise EvidenceGap('unknown read lacks unique fresh native evidence boundaries')
     data=json.loads(rows[0]['payload'])['data']
-    if data.get('fresh') is not True:raise EvidenceGap('unknown read evidence is not a current wallet capture')
-    evidence=data['evidence'];binding=evidence['binding']
+    evidence=boundary_evidence(store,action,phase,data);binding=evidence['binding']
     if not store.db.execute('SELECT 1 FROM owner_record WHERE actor=? AND mailbox=? AND seq=? AND script=?',
         (action['actor_id'],binding['mailbox_pk'],binding['seq'],binding['spk'])).fetchone():raise EvidenceGap('unknown native boundary lacks verified actor binding')
     ids=[c['id'] for c in evidence['coins']]
