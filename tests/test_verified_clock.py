@@ -1,10 +1,8 @@
 """Clock tests use explicit synthetic public proofs, never client wallet reads."""
-import copy
 import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from simulator import campaign
 from simulator.engine import initialize
@@ -29,7 +27,8 @@ class VerifiedClockTests(unittest.TestCase):
         self.temp.cleanup()
 
     def action(self, identity, actor, operation, args, data, at, state='completed'):
-        self.store.queue(identity, actor, 'H07', operation, args, 0)
+        if self.store.db.execute('SELECT 1 FROM action WHERE id=?', (identity,)).fetchone() is None:
+            self.store.queue(identity, actor, 'H07', operation, args, 0)
         self.store.db.execute('UPDATE action SET state=?,result=?,updated_at=? WHERE id=?',
             (state, canonical({'data': data}), at, identity))
 
