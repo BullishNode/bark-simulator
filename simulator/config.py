@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import tomllib
 import hashlib
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
-from .model import SIGNET_GENESIS, integer
+from .model import SIGNET_GENESIS, integer, public_payload
 
 def verify_executables(runtime: dict, pins: dict) -> None:
     """Verify the commands actually invoked, not a different build directory."""
@@ -69,6 +70,19 @@ class Config:
     operator_descriptors: tuple[Path, ...] = ()
     trace_enabled: bool = True
     trace_retention_days: int = 30
+    campaign_seed: str = ""
+    absence_hazard_per_day: float = 0.005
+    absent_payment_probability: float = 0.05
+    dispatch_per_tick: int = 1
+
+    def __post_init__(self):
+        integer(self.dispatch_per_tick,"dispatch per tick",1)
+        if self.dispatch_per_tick>3:raise ValueError("dispatch per tick must not exceed 3")
+        if not isinstance(self.campaign_seed,str) or len(self.campaign_seed)>128:raise ValueError("campaign seed must be public text of at most 128 characters")
+        public_payload(self.campaign_seed)
+        for value in (self.absence_hazard_per_day,self.absent_payment_probability):
+            if type(value) not in (int,float) or not math.isfinite(value) or not 0<=value<=1:
+                raise ValueError("realism probabilities must be finite values in [0,1]")
 
     @classmethod
     def load(cls, path: Path):
@@ -141,7 +155,12 @@ class Config:
                    proof_bundles=proof_bundles, proof_command=tuple(runtime.get("proof_command",[])), inventory_command=tuple(runtime.get("inventory_command",[])),
                    funding_wallet=data.get("funding",{}).get("wallet",""),funding_credential_file=data.get("funding",{}).get("credential_file",""),
                    board_amount_sat=integer(runtime.get("board_amount_sat", 12000), "board amount", 1),
-                   action_fee_reserve_sat=integer(runtime.get("action_fee_reserve_sat", 2000), "action fee reserve"), trace_enabled=trace.get('enabled',True), trace_retention_days=trace_retention)
+                   action_fee_reserve_sat=integer(runtime.get("action_fee_reserve_sat", 2000), "action fee reserve"),
+                   trace_enabled=trace.get('enabled',True), trace_retention_days=trace_retention,
+                   campaign_seed=runtime.get("campaign_seed",""),
+                   absence_hazard_per_day=runtime.get("absence_hazard_per_day",0.005),
+                   absent_payment_probability=runtime.get("absent_payment_probability",0.05),
+                   dispatch_per_tick=integer(runtime.get("dispatch_per_tick",2 if runtime.get("campaign_seed") else 1),"dispatch per tick",1))
 
     def validate_identity(self, snapshot: dict):
         identity = snapshot["identity"]

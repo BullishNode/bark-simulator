@@ -8,6 +8,7 @@ from .model import InvariantError,canonical,integer
 from .raw_cases import next_case
 from .recycling import plan as recycle_plan
 from .renewal import queue_board as queue_owner_renewal
+from .realism import Rng,hazard,_transaction
 
 # These are ordinary users becoming permanently silent, separate from protocol
 # attackers. The next cohort repeats the same independently seeded profiles.
@@ -24,7 +25,7 @@ def online_lightning_candidates(store):
                 candidates.append((actor,detail))
     return candidates
 
-def arm_receive_absence(store,actor,rail):
+def arm_receive_absence(store,actor,rail,random_context=None):
     """Stop only after a real successful receive and independent signed outputs.
 
     A submitted payer request, invoice, HTLC grant or positive stale balance is
@@ -39,7 +40,8 @@ def arm_receive_absence(store,actor,rail):
     subsystem={'ark':'bark.arkoor','lightning':'bark.lightning_receive'}[rail]
     # Live rollout freezes already observed movements. Existing receipts do
     # not retroactively become a receive-once experiment after deployment.
-    seen=json.loads(store.get_meta('receive_absence_seen_movements') or '{}').get(actor,[])
+    seen_key='random_absence_seen_movements' if random_context else 'receive_absence_seen_movements'
+    seen=json.loads(store.get_meta(seen_key) or '{}').get(actor,[])
     for row in store.db.execute('SELECT payload FROM movement_evidence WHERE actor=? ORDER BY movement_id',(actor,)):
         movement=json.loads(row['payload'])
         if movement.get('id') in seen:continue
@@ -71,10 +73,11 @@ def arm_receive_absence(store,actor,rail):
         profile={'rail':rail,'movement_id':movement['id'],'coin_ids':ids,'received_sat':received,
             'invoice_action_id':invoice_id,'armed_at':time.time(),'original_wallet_must_stay_closed':True,
             'trigger':'independently verified spendable outputs of successful receive','payout_verdict':'pending'}
-        with store.transaction():
+        if random_context:profile.update(random_context)
+        with _transaction(store):
             detail['permanent_absence']=profile
             store.db.execute('UPDATE actor SET online=0,details=? WHERE id=?',(canonical(detail),actor))
-            store._event('receive_then_disappear_armed',{'actor':actor,**profile,
+            store._event('random_absence_armed' if random_context else 'receive_then_disappear_armed',{'actor':actor,**profile,
                 'scenario_verdict':'not_qualified','no_client_calls_after_boundary':True})
         return True
     return False
@@ -91,7 +94,7 @@ def absence_report(store):
                 if settlement['actor']!=row['id']:raise InvariantError('absent recipient was paid as another owner')
                 paid.append(dict(settlement))
         result.append({'actor':row['id'],'online':bool(row['online']),**profile,
-            'payout_verdict':'confirmed_amounts_checked' if len(paid)==len(ids) else 'pending',
+            'payout_verdict':'confirmed_amounts_checked' if ids and len(paid)==len(ids) else 'pending',
             'checked_settlements':paid,'waiting_coin_ids':[coin for coin in ids if coin not in {p['coin_id'] for p in paid}],
             'security_qualification':'exact sweep path, whole source arbitration and seed-only recovery are separate required gates'})
     return result
@@ -105,7 +108,15 @@ def lightning_recipient(store):
 def schedule(store,config,snapshot):
     decisions={}
     try:
-        _schedule(store,config,snapshot,decisions)
+        rng=Rng.configured(store,config)
+        if store.get_meta('paused'):return
+        hazard(store,config,rng,arm_receive_absence,online_lightning_candidates)
+        slots=getattr(config,'dispatch_per_tick',1) if rng else 1
+        if type(slots) is not int or not 1<=slots<=3:raise ValueError('dispatch_per_tick must be 1–3')
+        if rng:
+            queued=store.db.execute("SELECT count(DISTINCT a.actor_id) FROM action a JOIN actor u ON u.id=a.actor_id WHERE a.state='queued' AND u.online=1 AND a.due_at<=? AND NOT EXISTS(SELECT 1 FROM action busy WHERE busy.actor_id=a.actor_id AND busy.state IN ('dispatched','outcome_unknown'))",(time.time(),)).fetchone()[0]
+            slots=max(0,slots-queued)
+        for _ in range(slots):_schedule(store,config,snapshot,decisions,rng)
     finally:
         store.event('scheduler_tick',{'actors':list(decisions.values()),
             'pause':store.get_meta('paused'),
@@ -113,12 +124,13 @@ def schedule(store,config,snapshot):
             'scope':'scheduling decisions only; a queued operation is not a verified outcome'})
 
 
-def _schedule(store,config,snapshot,decisions):
-    if store.get_meta('paused') or store.has_runnable_queue():return
-    if store.db.execute("SELECT 1 FROM action WHERE state='dispatched'").fetchone():return
+def _schedule(store,config,snapshot,decisions,rng=None):
+    if store.get_meta('paused'):return
+    if rng is None and (store.has_runnable_queue() or store.db.execute("SELECT 1 FROM action WHERE state='dispatched'").fetchone()):return
     actors=store.db.execute("SELECT a.* FROM actor a WHERE online=1 ORDER BY COALESCE((SELECT MAX(updated_at) FROM action WHERE actor_id=a.id),0),a.id").fetchall()
     for actor in actors:
         name=actor['id'];d=json.loads(actor['details'])
+        if rng and store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('queued','dispatched','outcome_unknown')",(name,)).fetchone():continue
         latest={row['operation']:row['latest'] for row in store.db.execute(
             "SELECT operation,MAX(updated_at) AS latest FROM action WHERE actor_id=? AND state='completed' GROUP BY operation",(name,))}
         decisions[name]={'actor':name,'rule_id':'cadence','outcome':'held','inputs':{
@@ -133,6 +145,8 @@ def _schedule(store,config,snapshot,decisions):
         history=store.db.execute('SELECT * FROM action WHERE actor_id=? ORDER BY created_at DESC',(name,)).fetchall()
         if any(x['state']=='outcome_unknown' for x in history):decide('unknown_outcome');continue
         def last(operation):return max((x['updated_at'] for x in history if x['operation']==operation and x['state']=='completed'),default=0)
+        def due(rule,interval,anchor):
+            return rng.due(name,rule,interval,anchor,time.time()) if rng else time.time()-anchor>interval
         def queue(scenario,operation,args=None,fee=0):
             sequence=store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]+1
             if store.remaining_fee_budget()<fee:decide('fee_budget');return False
@@ -203,13 +217,13 @@ def _schedule(store,config,snapshot,decisions):
                     'board_amount_sat':recycle['amount_sat'],'fee_reserve_sat':config.action_fee_reserve_sat,
                     'new_external_funding_sat':0,'grant_reused':False,'outcome':'pending confirmed input/fee proof'})
             return
-        if d.get('board_submitted') and time.time()-last('sync')>600:
+        if d.get('board_submitted') and due('periodic_sync',600,last('sync')):
             decide('periodic_sync')
             if queue('H01','sync',fee=config.action_fee_reserve_sat):return
             continue
         # Receiving needs no existing Ark principal: its fee comes from the
         # incoming payment. Native invoice/sync checks retain the same ceilings.
-        if name==lightning_recipient(store)[0] and snapshot.get('capabilities',{}).get('lightning_configured') and time.time()-last('invoice')>1800:
+        if name==lightning_recipient(store)[0] and snapshot.get('capabilities',{}).get('lightning_configured') and due('invoice',1800,last('invoice')):
             decide('invoice_cadence')
             if queue('H40','invoice',{'amount_sat':2000},config.action_fee_reserve_sat):return
             continue
@@ -218,16 +232,16 @@ def _schedule(store,config,snapshot,decisions):
         # Sync debt and the read after a mutation were handled above.
         refreshable=d.get('needs_refresh_sat',0)
         refreshed_at=max(last('board'),last('refresh'),last('refresh_delegated'))
-        if refreshable>0 or (last('board') and time.time()-refreshed_at>3600
+        if refreshable>0 or (last('board') and due('refresh',3600,refreshed_at)
                              and balance>=1000+config.action_fee_reserve_sat):
             decide('refreshable_balance' if refreshable>0 else 'hourly_refresh')
             operation='refresh_delegated' if name in {'actor-07','actor-08'} else 'refresh'
             if queue('H20' if operation.endswith('delegated') else 'H17',operation,fee=config.action_fee_reserve_sat):return
             continue
         # A dry wallet continues observation; it is not silently topped up.
-        if balance<1000+config.action_fee_reserve_sat:
+        if balance<(1 if rng else 1000)+config.action_fee_reserve_sat:
             decide('dry_wallet')
-            if time.time()-d.get('snapshot_at',0)>180:queue('H01','snapshot');return
+            if due('snapshot',180,d.get('snapshot_at',0)):queue('H01','snapshot');return
             continue
         if name in {'actor-11','actor-12'} and time.time()-max((x['updated_at'] for x in history if x['operation'].startswith('raw_')),default=0)>900:
             decide('negative_probe_cadence')
@@ -247,7 +261,7 @@ def _schedule(store,config,snapshot,decisions):
                 decide('lightning_payment')
                 if balance<2000+config.action_fee_reserve_sat:
                     decide('payer_affordability')
-                    if time.time()-d.get('snapshot_at',0)>180:queue('H01','snapshot');return
+                    if due('snapshot',180,d.get('snapshot_at',0)):queue('H01','snapshot');return
                     continue
                 if queue('H40','pay_invoice',{'invoice':invoice,'amount_sat':2000,'recipient_actor':recipient_actor,'recipient_invoice_action':invoice_id},config.action_fee_reserve_sat):return
                 continue
@@ -259,20 +273,22 @@ def _schedule(store,config,snapshot,decisions):
         # latest board or refresh, including an explicitly journaled reboard.
         # Diverse amounts/peers are deterministic from durable action history.
         sends=sum(x['operation']=='send_arkoor' for x in history)
-        if time.time()-last('send_arkoor')>600:
+        if due('send_arkoor',600,last('send_arkoor')):
             decide('ark_payment_cadence')
             # Rotate through every advertised peer, including the Lightning
             # sender and new cohort. Otherwise its balance only falls and LN
             # traffic stops permanently even while other clients circulate funds.
-            targets=[r['id'] for r in store.db.execute('SELECT id,details FROM actor ORDER BY id')
-                     if r['id']!=name and json.loads(r['details']).get('ark_address')]
+            targets=[r['id'] for r in store.db.execute('SELECT id,online,details FROM actor ORDER BY id')
+                     if r['id']!=name and json.loads(r['details']).get('ark_address')
+                     and (not rng or r['online'] or r['id'] in {'actor-09','actor-10'})]
             if not targets:decide('no_advertised_peer');continue
-            target=targets[(int(name[-2:])+sends)%len(targets)]
+            target=rng.recipient(name,targets) if rng else targets[(int(name[-2:])+sends)%len(targets)]
+            if target is None:decide('no_selected_advertised_peer');continue
             row=store.db.execute('SELECT details FROM actor WHERE id=?',(target,)).fetchone();to=json.loads(row[0]) if row else {}
             if to.get('ark_address'):
-                amount=[500,1000,1500][sends%3]
+                amount=rng.amount(name,balance,config.action_fee_reserve_sat) if rng else [500,1000,1500][sends%3]
                 if balance>=amount+config.action_fee_reserve_sat:
                     if queue('H08' if target in {'actor-09','actor-10'} else 'H07','send_arkoor',{'destination':to['ark_address'],'amount_sat':amount,'recipient_actor':target},config.action_fee_reserve_sat):return
-        if time.time()-d.get('snapshot_at',0)>180:
+        if due('snapshot',180,d.get('snapshot_at',0)):
             decide('periodic_snapshot')
             queue('H01','snapshot');return
