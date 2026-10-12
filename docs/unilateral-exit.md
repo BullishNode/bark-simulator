@@ -45,8 +45,22 @@ ambiguous, or contradictory evidence cannot authorize a monetary retry.
 
 The adapter currently requires a responding server to positively attest that
 each input is spendable at `start`. Offline-server exits and interrupted-round
-exits remain unqualified. Unit tests and SDK compilation establish the guards;
-the separate board and Ark-receipt regtest fixtures require execution before
-their complete native lifecycles can be claimed as verified. Permanently absent
+exits remain unqualified. The board fixture completed one CPFP and one whole-principal claim for
+10,000 sats with 393 sats in fees. The Ark-receipt fixture exercised production
+continuation and completed three CPFPs and one 5,000-sat claim with 1,029 sats
+in fees. Independent audits rebuilt their raw chains with networking disabled,
+rechecked signed owner proofs, and matched every fee to its pre-sign proposal.
+These outcomes qualify the stated available-server fixtures. Permanently absent
 original wallets must stay closed; returning-device tests require separately
 authorized fixture wallets.
+
+Run a declared fixture and reconstruct its chain with:
+
+```sh
+python3 integration/run-regtest.py ark-exit-check \
+  --sdk-source fixture-source \
+  --product-bin-dir source/target/debug \
+  --test unilateral_exit::simulator_explicit_ark_exit_with_cpfp
+python3 integration/verify-unilateral-exit.py runs/integration/ark-exit-check \
+  --bitcoind /path/to/bitcoind
+```
