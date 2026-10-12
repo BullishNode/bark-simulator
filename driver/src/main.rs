@@ -206,6 +206,13 @@ fn evidence(req: &Request, event: &str, data: Value) -> Result<()> {
     Ok(())
 }
 
+async fn observed_wallet_operation<F, C, CF, E>(operation:F, _capture:C, _emit:E) -> Result<Value>
+where F:std::future::Future<Output=Result<Value>>,
+      C:FnMut()->CF, CF:std::future::Future<Output=Result<Value>>,
+      E:FnMut(&str,Value)->Result<()> {
+    operation.await
+}
+
 async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
     let network = allowed_network(&cfg.network, &cfg.ark_endpoint)?;
     let chain_hash = ChainHash::using_genesis_block(network);
@@ -1187,6 +1194,32 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[tokio::test]
+    async fn operation_evidence_observes_fresh_before_and_after_without_replacing_errors() {
+        use std::cell::{Cell,RefCell};
+        let current=Cell::new(7);
+        let events=RefCell::new(Vec::new());
+        let operation=async {current.set(8);bail!("original operation failure")};
+        let result=observed_wallet_operation(operation,
+            ||async {Ok(json!({"coins":[current.get()]}))},
+            |name,value|{events.borrow_mut().push((name.to_owned(),value));Ok(())}).await;
+        assert_eq!(result.unwrap_err().to_string(),"original operation failure");
+        let events=events.borrow();
+        assert_eq!(events.len(),2,"wallet operation has no fresh evidence boundaries");
+        assert_eq!(events[0].0,"client_evidence_before");
+        assert_eq!(events[0].1["evidence"]["coins"],json!([7]));
+        assert_eq!(events[1].0,"client_evidence_after");
+        assert_eq!(events[1].1["evidence"]["coins"],json!([8]));
+    }
+
+    #[tokio::test]
+    async fn observation_failure_cannot_replace_a_successful_operation() {
+        let result=observed_wallet_operation(async {Ok(json!({"accepted":true}))},
+            ||async {bail!("capture failed")},|_,_|bail!("journal unavailable")).await;
+        assert_eq!(result.unwrap()["accepted"],true);
+    }
 
     #[test]
     fn recycle_psbt_requires_exact_receipt_value_script_and_only_one_input() {
