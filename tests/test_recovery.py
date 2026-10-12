@@ -170,6 +170,19 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, self.sends())
         self.store.verify_event_chain()
 
+    async def test_different_broadcast_transaction_is_durable_unknown_and_raises_incident(self):
+        original = self.rpc.call
+        def conflicting(method, *args, **kwargs):
+            result = original(method, *args, **kwargs)
+            return 'f' * 64 if method == 'sendrawtransaction' else result
+        self.rpc.call = conflicting
+        self.controller_for()
+        with self.assertRaises(InvariantError): await self.drive()
+        self.assertEqual('outcome_unknown', self.recoveries()[0]['state'])
+        self.assertEqual(1, self.sends())
+        self.assertEqual(self.rpc.txid, self.recoveries()[0]['txid'])
+        self.store.verify_event_chain()
+
     async def test_restart_reconciles_frozen_transaction_without_signing_or_funding(self):
         self.controller_for(); await self.drive()
         await self.controller.close()
