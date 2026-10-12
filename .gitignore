@@ -1,7 +1,7 @@
 source/
 target/
 fixture-target/
-bin/
+/bin/
 runs/
 *.egg-info/
 __pycache__/
