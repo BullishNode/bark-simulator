@@ -14,6 +14,18 @@ from pathlib import Path
 from .model import InvariantError, canonical, public_payload, transaction_fee
 
 
+def rpc_json(value):
+    """Encode exact BTC decimal tokens for Core clients, without float rounding."""
+    from decimal import Decimal
+    if isinstance(value,Decimal):
+        if not value.is_finite():raise ValueError('nonfinite archived RPC decimal')
+        return format(value,'f')
+    if isinstance(value,dict):
+        return '{'+','.join(canonical(key)+':'+rpc_json(item) for key,item in value.items())+'}'
+    if isinstance(value,list):return '['+','.join(rpc_json(item) for item in value)+']'
+    return canonical(value)
+
+
 def decode_transaction(encoded):
     """Decode canonical Bitcoin wire bytes and recompute the non-witness txid."""
     if not isinstance(encoded,str) or len(encoded)>32*1024*1024:
@@ -125,11 +137,18 @@ class ReplayCore:
         if method=='getrawtransaction' and 1<=len(params)<=2:
             archived=self.transactions.get(params[0])
             if archived is None:raise ValueError('unarchived anchor')
-            return archived['info'] if len(params)==2 and params[1] else archived['hex']
+            if len(params)==2 and params[1]:
+                from decimal import Decimal
+                result={**archived['info']}
+                if 'vout' in result:
+                    result['vout']=[{**output,'value':Decimal(str(output['value']))} for output in result['vout']]
+                return result
+            return archived['hex']
         raise ValueError('public archive RPC only')
     def __enter__(self):
         owner=self
         class Handler(BaseHTTPRequestHandler):
+            protocol_version='HTTP/1.1'
             def log_message(self,*args):pass
             def do_POST(self):
                 try:
@@ -139,7 +158,7 @@ class ReplayCore:
                     response={'id':request.get('id'),'result':result,'error':None}
                 except (ValueError,KeyError,TypeError):
                     response={'id':None,'result':None,'error':{'code':-32600,'message':'public archive evidence unavailable'}}
-                encoded=canonical(response).encode();self.send_response(200)
+                encoded=rpc_json(response).encode();self.send_response(200)
                 self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(encoded)))
                 self.end_headers();self.wfile.write(encoded)
         self.server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
