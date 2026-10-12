@@ -113,7 +113,7 @@ fn verify() -> Result<()> {
     let output = serde_json::to_string(
         &json!({"id":coin.id().to_string(),"amount_sat":coin.amount().to_sat(),"user_pubkey":coin.user_pubkey().to_string(),
       "server_pubkey":coin.server_pubkey().to_string(),"expiry_height":coin.expiry_height().to_u32(),"chain_anchor":anchor.to_string(),
-      "anchor_confirmations":confirmations,"signed_path_valid":true,"genesis":genesis.to_string(),"binding":bound,
+      "anchor_confirmations":confirmations,"signed_path_valid":true,"arkoor_transition_count":coin.past_arkoor_pubkeys().len(),"genesis":genesis.to_string(),"binding":bound,
       "ancestor_ids":coin.ancestor_ids().iter().map(|id|id.to_string()).collect::<Vec<_>>(),"path":path,
       "validation_scope":"protocol/optional link+record signatures and confirmed backing path; spend arbitration and seed recovery require separate evidence"}),
     )?;

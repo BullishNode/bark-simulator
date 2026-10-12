@@ -291,10 +291,14 @@ class RecoveryController:
             self.store.db.execute("UPDATE seed_recovery SET state='broadcasting',updated_at=? WHERE id=?", (time.time(), row['id']))
             self.store.db.execute("UPDATE action SET state='dispatched',updated_at=? WHERE id=?", (time.time(), row['id']))
             self.store._event('seed_recovery_broadcast_intent', {'recovery_id': row['id'], 'action_id': row['id'], 'txid': row['txid']})
+        contradiction = None
         try:
             actual = self.rpc.call('sendrawtransaction', row['raw_tx'])
             if actual != row['txid']: raise InvariantError('recovery broadcast returned a different transaction')
             state = 'broadcast'
+        except InvariantError as error:
+            contradiction = error
+            state = 'outcome_unknown'
         except Exception:
             state = 'outcome_unknown'
         with self.store.transaction():
@@ -302,6 +306,7 @@ class RecoveryController:
             if state == 'outcome_unknown': self.store.db.execute("UPDATE action SET state='outcome_unknown' WHERE id=?", (row['id'],))
             self.store._event('seed_recovery_spend', {'recovery_id': row['id'], 'action_id': row['id'], 'actor': row['actor'],
                 'txid': row['txid'], 'state': state, 'retry_allowed': False})
+        if contradiction: raise contradiction
 
     def _reconcile(self, row):
         try: tx = self.rpc.call('getrawtransaction', row['txid'], True)
