@@ -28,6 +28,7 @@ from .raw_cases import RAW_CASES
 from .negative_checks import collect as collect_negative_checks
 from .payments import collect as collect_payments
 from .proof_import import collect as collect_public_proofs
+from .recovery import RecoveryController
 
 OPERATIONS = {"create", "snapshot", "sync", "address", "board", "send_arkoor", "refresh",
               "refresh_delegated", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES)
@@ -50,6 +51,7 @@ class Engine:
     def __init__(self, config: Config, store: Store):
         self.config, self.store = config, store
         self.campaign_clock=CampaignClock(store,RampPlan()) if config.workload=="continuous" else None
+        self.recovery=RecoveryController(store,config) if config.recovery_command else None
 
     async def observe(self):
         snapshot = await json_command(list(self.config.observer_command), timeout=30)
@@ -238,6 +240,7 @@ class Engine:
                 if len(self.config.proof_command)==4:
                     chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],self.config.expected_genesis)
                     await collect_settlements(self.store,chain)
+                    if self.recovery: await self.recovery.tick()
                     await collect_fees(self.store,chain)
                     await collect_recycling(self.store,chain)
             except InvariantError as error:

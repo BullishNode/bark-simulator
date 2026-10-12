@@ -12,7 +12,7 @@ def verify_executables(runtime: dict, pins: dict) -> None:
     if runtime.get('active') is not True and not pins:
         return
     required = []
-    for name in ('driver_command', 'proof_command'):
+    for name in ('driver_command', 'proof_command', 'recovery_command'):
         if runtime.get(name):
             required.append(runtime[name][0])
     observer = runtime.get('observer_command', [])
@@ -60,6 +60,12 @@ class Config:
     funding_wallet: str = ""
     funding_credential_file: str = ""
     proof_bundles: tuple[Path, ...] = ()
+    recovery_command: tuple[str, ...] = ()
+    recovery_destination: str = ""
+    recovery_seeds: tuple[tuple[str, Path], ...] = ()
+    recovery_maximum_fee_sat: int = 2000
+    recovery_fee_rate_sat_vb: int = 3
+    recovery_timeout_seconds: int = 86400
 
     @classmethod
     def load(cls, path: Path):
@@ -81,7 +87,27 @@ class Config:
         workload = runtime.get("workload", "none")
         if workload not in {"none", "pilot", "continuous"}:
             raise ValueError("only none/pilot/continuous workloads are implemented")
-        verify_executables(runtime, data.get('executables', {}))
+        recovery = data.get('recovery', {})
+        if not isinstance(recovery, dict) or set(recovery) - {'command', 'seeds', 'maximum_fee_sat', 'fee_rate_sat_vb', 'timeout_seconds'}:
+            raise ValueError('unsupported recovery declaration')
+        recovery_command = recovery.get('command', [])
+        if (not isinstance(recovery_command, list) or any(not isinstance(x, str) for x in recovery_command)
+                or (recovery_command and len(recovery_command) != 3)):
+            raise ValueError('recovery command must be adapter, loopback RPC and private credential path')
+        from .recovery import declared_seeds
+        recovery_seeds = declared_seeds(recovery.get('seeds', {}), paths[1])
+        recovery_destination = data.get('funding', {}).get('recovery_address', '')
+        recovery_maximum_fee_sat = integer(recovery.get('maximum_fee_sat', 2000), 'recovery cap', 1)
+        reserve = integer(runtime.get('action_fee_reserve_sat', 2000), 'action fee reserve', 1)
+        if recovery_command and recovery_maximum_fee_sat > min(2000, reserve):
+            raise ValueError('recovery cap exceeds the action reservation or 2000 sats')
+        if recovery_command and (not recovery_seeds or not isinstance(recovery_destination, str)
+                or not recovery_destination or not data.get('funding', {}).get('wallet')
+                or not recovery_command[1].startswith('http://127.0.0.1:')):
+            raise ValueError('recovery requires declared backups and funding-wallet destination')
+        if recovery_seeds and not recovery_command:
+            raise ValueError('recovery seed sources require a pinned prepare-only adapter')
+        verify_executables({**runtime, 'recovery_command': recovery_command}, data.get('executables', {}))
         from .proof_import import declared_paths
         proofs = data.get('proofs', {})
         if not isinstance(proofs, dict) or set(proofs) - {'bundles'}:
@@ -95,6 +121,10 @@ class Config:
                    interval_seconds=integer(runtime.get("interval_seconds", 30), "interval", 1),
                    action_timeout_seconds=integer(runtime.get("action_timeout_seconds", 120), "action timeout", 1),
                    active=runtime.get("active", False) is True, workload=workload,
+                   recovery_command=tuple(recovery_command), recovery_seeds=recovery_seeds,
+                   recovery_destination=recovery_destination, recovery_maximum_fee_sat=recovery_maximum_fee_sat,
+                   recovery_fee_rate_sat_vb=integer(recovery.get('fee_rate_sat_vb', 3), 'recovery fee rate', 1),
+                   recovery_timeout_seconds=integer(recovery.get('timeout_seconds', 86400), 'recovery timeout', 1),
                    proof_bundles=proof_bundles, proof_command=tuple(runtime.get("proof_command",[])), inventory_command=tuple(runtime.get("inventory_command",[])),
                    funding_wallet=data.get("funding",{}).get("wallet",""),funding_credential_file=data.get("funding",{}).get("credential_file",""),
                    board_amount_sat=integer(runtime.get("board_amount_sat", 12000), "board amount", 1),

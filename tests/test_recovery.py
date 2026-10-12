@@ -1,6 +1,5 @@
 """Seed-recovery state machine using synthetic Core and signer evidence only."""
 import asyncio
-import copy
 import json
 import tempfile
 import unittest
@@ -183,6 +182,32 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(0, self.sends())
         self.assertEqual('held', self.recoveries()[0]['state'])
 
+    async def test_wrong_destination_and_fee_above_cap_are_held_without_broadcast(self):
+        self.rpc.wrong_destination = True; self.controller_for(); await self.drive()
+        self.assertEqual(0, self.sends())
+        self.assertEqual('held', self.recoveries()[0]['state'])
+
+    async def test_fee_above_native_and_campaign_cap_never_broadcasts(self):
+        self.rpc.fee = 2001; self.prepared['fee_sat'] = 2001
+        self.controller_for(); await self.drive()
+        self.assertEqual(0, self.sends())
+        self.assertEqual('held', self.recoveries()[0]['state'])
+
+    async def test_unverified_extra_seed_utxo_cannot_be_spent_with_verified_payout(self):
+        self.prepared['inputs'].append({'outpoint': 'f' * 64 + ':0', 'amount_sat': 8000,
+                                       'keychain': 'External', 'index': 1})
+        self.controller_for(); await self.drive()
+        self.assertEqual(0, self.sends())
+        self.assertEqual('held', self.recoveries()[0]['state'])
+
+    async def test_secret_shaped_signer_output_is_held_without_journaling_seed(self):
+        self.prepared['mnemonic'] = 'abandon ' * 12
+        self.controller_for(); await self.drive()
+        self.assertEqual(0, self.sends())
+        events = ' '.join(r[0] for r in self.store.db.execute('SELECT payload FROM event'))
+        self.assertNotIn('abandon', events)
+        self.assertEqual('held', self.recoveries()[0]['state'])
+
     async def test_native_broadcasting_reply_and_fee_above_cap_are_rejected(self):
         self.prepared['broadcast'] = True; self.controller_for(); await self.drive()
         self.assertEqual(0, self.sends())
@@ -228,3 +253,84 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.controller_for(); await self.drive(2)
         self.assertEqual('prepare_unknown', self.recoveries()[0]['state'])
         self.assertEqual(1, self.prepare.await_count); self.assertEqual(0, self.sends())
+
+
+class RecoveryPrivacyTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
+        self.wallets = self.root / 'original-wallets'; self.backup = self.root / 'backup.seed'
+        self.backup.write_text('abandon ' * 12); self.backup.chmod(0o600)
+    def tearDown(self): self.temp.cleanup()
+    def test_private_backup_requires_owned_permissions_and_refuses_symlinks(self):
+        from simulator.recovery import _private_seed
+        self.assertEqual(12, len(_private_seed(self.backup, self.wallets).split()))
+        self.backup.chmod(0o644)
+        with self.assertRaises(ValueError): _private_seed(self.backup, self.wallets)
+        self.backup.chmod(0o600)
+        alias = self.root / 'alias.seed'; alias.symlink_to(self.backup)
+        with self.assertRaises(OSError): _private_seed(alias, self.wallets)
+    def test_original_wallet_and_relative_seed_paths_are_never_read(self):
+        from simulator.recovery import declared_seeds
+        for path in (self.wallets / 'actor-09' / 'mnemonic', Path('../backup.seed')):
+            with self.assertRaises(ValueError): declared_seeds({'actor-09': str(path)}, self.wallets)
+    def test_same_backup_cannot_be_declared_for_two_actor_identities(self):
+        from simulator.recovery import declared_seeds
+        with self.assertRaises(ValueError): declared_seeds({'actor-09': str(self.backup),
+            'actor-10': str(self.backup)}, self.wallets)
+
+
+class RecoveryConfigTests(unittest.TestCase):
+    def setUp(self):
+        import hashlib
+        self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
+        self.path = self.root / 'config.toml'; self.native = self.root / 'seed-restore'
+        self.native.write_bytes(b'synthetic adapter pin; never executed')
+        self.pin = hashlib.sha256(self.native.read_bytes()).hexdigest()
+        self.base = f'''[target]
+network="signet"
+genesis="{SIGNET_GENESIS}"
+container="abandon-signet-fallback-test"
+image_digest="sha256:{'a' * 64}"
+server_pubkey="02{'b' * 64}"
+[runtime]
+state_dir="{self.root / 'state'}"
+wallet_root="{self.root / 'original-wallets'}"
+fee_budget_sat=10000
+active=false
+observer_command=[]
+'''
+        self.settings = {'command': [str(self.native), 'http://127.0.0.1:38332', str(self.root / 'private-core-auth')],
+                         'maximum_fee_sat': 2000}
+        self.seed = str(self.root / 'private-backup.seed')
+    def tearDown(self): self.temp.cleanup()
+    def write(self):
+        text = self.base + '\n[funding]\nwallet="campaign-funding"\nrecovery_address="tb1p-declared"\n[recovery]\n'
+        text += 'command=' + json.dumps(self.settings['command']) + '\n'
+        text += 'maximum_fee_sat=' + str(self.settings['maximum_fee_sat']) + '\n'
+        text += '[recovery.seeds]\nactor-09=' + json.dumps(self.seed) + '\n'
+        text += '[executables]\n' + json.dumps(str(self.native)) + '=' + json.dumps(self.pin) + '\n'
+        self.path.write_text(text)
+    def test_private_backup_and_funding_destination_are_explicit_and_adapter_is_pinned(self):
+        from simulator.config import Config
+        self.write(); config = Config.load(self.path)
+        self.assertEqual('tb1p-declared', config.recovery_destination)
+        self.assertEqual((('actor-09', Path(self.seed)),), config.recovery_seeds)
+        self.assertEqual(2000, config.recovery_maximum_fee_sat)
+        self.assertEqual(tuple(self.settings['command']), config.recovery_command)
+    def test_unsafe_backups_remote_core_and_large_fee_cap_are_rejected(self):
+        from simulator.config import Config
+        self.seed = str(self.root / 'original-wallets' / 'actor-09' / 'mnemonic')
+        self.write()
+        with self.assertRaises(ValueError): Config.load(self.path)
+        self.seed = str(self.root / 'private-backup.seed'); self.settings['command'][1] = 'http://remote:38332'
+        self.write()
+        with self.assertRaises(ValueError): Config.load(self.path)
+        self.settings['command'][1] = 'http://127.0.0.1:38332'; self.settings['maximum_fee_sat'] = 2001
+        self.write()
+        with self.assertRaises(ValueError): Config.load(self.path)
+    def test_disabled_recovery_does_not_restrict_existing_small_action_reserve(self):
+        from simulator.config import Config
+        self.path.write_text(self.base + 'action_fee_reserve_sat=500\n')
+        config = Config.load(self.path)
+        self.assertEqual((), config.recovery_command)
+        self.assertEqual(500, config.action_fee_reserve_sat)
