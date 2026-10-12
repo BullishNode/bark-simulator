@@ -116,3 +116,32 @@ class OwnerAllocationTrancheTests(unittest.TestCase):
         row=self.s.db.execute('SELECT state FROM funding_batch WHERE id=?',(TRANCHE,)).fetchone()
         self.assertEqual('confirmed',row[0])
         self.assertEqual(1,self.s.db.execute("SELECT count(*) FROM event WHERE kind='owner_renewal_confirmed' AND json_extract(payload,'$.tranche')=?",(TRANCHE,)).fetchone()[0])
+    def test_disappearance_during_preparation_cannot_broadcast_signed_grants(self):
+        self.prepare();original=self.rpc.call
+        def call(method,*args,**kw):
+            result=original(method,*args,**kw)
+            if method=='walletprocesspsbt':self.s.set_online('actor-01',False)
+            return result
+        self.rpc.call=call
+        self.assertEqual('held_recipient_change',self.fund()['state'])
+        self.assertFalse(any(m=='sendrawtransaction' for m,_ in self.rpc.calls))
+        self.assertEqual('prepared',self.s.db.execute('SELECT state FROM funding_batch WHERE id=?',(TRANCHE,)).fetchone()[0])
+    def test_restarted_prepared_bytes_drift_never_broadcasts_or_regenerates(self):
+        self.prepare();original=self.rpc.call
+        class PowerFailure(BaseException):pass
+        def call(method,*args,**kw):
+            if method=='sendrawtransaction':raise PowerFailure()
+            return original(method,*args,**kw)
+        self.rpc.call=call
+        with self.assertRaises(PowerFailure):self.fund()
+        self.s.db.execute("UPDATE funding_batch SET state='prepared',raw_tx='different-signed-bytes' WHERE id=?",(TRANCHE,))
+        self.rpc.call=original
+        with self.assertRaises(InvariantError):self.fund()
+        self.assertEqual(1,sum(m=='walletcreatefundedpsbt' for m,_ in self.rpc.calls));self.assertFalse(any(m=='sendrawtransaction' for m,_ in self.rpc.calls))
+    def test_offline_permanent_or_disappearing_grant_never_queues_a_board(self):
+        self.prepare();self.fund();self.fund()
+        detail=json.loads(self.s.db.execute("SELECT details FROM actor WHERE id='actor-05'").fetchone()[0]);detail.update(needs_sync=False,snapshot_at=time.time(),onchain_confirmed_sat=13200)
+        self.s.db.execute("UPDATE actor SET details=? WHERE id='actor-05'",(canonical(detail),))
+        self.s.set_online('actor-05',False);self.assertFalse(renewal.queue_board(self.s,'actor-05',detail,self.c));self.s.set_online('actor-05',True)
+        detail['permanent_absence']={'original_wallet_must_stay_closed':True};self.s.db.execute("UPDATE actor SET details=? WHERE id='actor-05'",(canonical(detail),))
+        self.assertFalse(renewal.queue_board(self.s,'actor-05',detail,self.c));self.assertFalse(self.s.db.execute("SELECT 1 FROM action WHERE operation='board'").fetchone())
