@@ -36,7 +36,7 @@ class RoundAdoptionTests(unittest.TestCase):
     def tearDown(self):self.s.close();self.tmp.cleanup()
     def server(self,kind,identity,value,at):
         self.s.db.execute('INSERT OR REPLACE INTO server_item VALUES (?,?,?,?)',(kind,identity,canonical(value),at))
-    def decoder(self,store,row,**kwargs):return self.decoded.get(row['id'])
+    def decoder(self,store,row,**kwargs):return self.decoded.get(row['vtxo_id'])
     def queue(self,now=1000):
         from simulator.round_adoption import queue_confirmed
         return queue_confirmed(self.s,self.c,self.snapshot,now=now,decoder=self.decoder)
@@ -91,3 +91,49 @@ class RoundStderrTests(unittest.TestCase):
         for fields in [{'redacted':True},{'truncated':True}]:
             value=diagnose_stderr('Waiting for confirmations for round funding tx '+TXID,**fields)
             self.assertFalse(value['complete']);self.assertEqual([],value['waiting_funding_txids'])
+
+class RoundSecurityWindowTests(unittest.TestCase):
+    setUp=RoundAdoptionTests.setUp
+    tearDown=RoundAdoptionTests.tearDown
+    server=RoundAdoptionTests.server
+    decoder=RoundAdoptionTests.decoder
+    queue=RoundAdoptionTests.queue
+    queued=RoundAdoptionTests.queued
+    def input_parameters(self,expiry=130):
+        from simulator.round_adoption import record_input_params
+        proof={'schema_version':1,'id':'input:0','candidate_user_pubkey':INPUT_KEY,'amount_sat':10000,'expiry_height':expiry,
+            'exit_delta':12,'server_pubkey':SERVER,'client_owner_verified':False,'chain_contract_verified':False}
+        record_input_params(self.s,'aa',proof,SERVER,'cc'*32)
+    def test_confirmed_but_unsafe_output_window_is_explicit_hold_without_sdk_calls(self):
+        self.input_parameters();decision=self.queue()
+        self.assertEqual('held',decision['outcome']);self.assertEqual('sdk_exitability_window',decision['reason']);self.assertEqual([],self.queued())
+        security=decision['inputs']['security_window'];self.assertEqual(137,security['minimum_output_expiry_height']);self.assertEqual(106,security['minimum_observed_output_expiry_height'])
+        self.assertEqual(12,security['exit_margin_blocks']);self.assertEqual(12,security['maximum_input_exit_delta_blocks'])
+    def test_original_inputs_expired_uses_existing_sdk_branch_without_lowering_margin(self):
+        self.input_parameters(expiry=100);decision=self.queue()
+        self.assertEqual('queued',decision['outcome']);self.assertTrue(decision['inputs']['security_window']['all_inputs_expired'])
+        self.assertEqual(12,decision['inputs']['security_window']['exit_margin_blocks'])
+    def test_safe_output_window_queues_with_original_depth_and_fee_ceiling(self):
+        self.input_parameters();self.decoded[self.coin]['expiry_height']=160
+        self.server('coins',self.coin,{'vtxo_id':self.coin,'signed_vtxo':'bb','expiry':160,'policy_type':'pubkey','spend_state':'unclaimed'},900)
+        self.assertEqual('queued',self.queue()['outcome']);self.assertEqual(2000,self.queued()[0]['fee_reservation_sat'])
+    def test_decoder_security_parameters_cannot_claim_another_frozen_input(self):
+        from simulator.round_adoption import record_input_params
+        proof={'schema_version':1,'id':'other:0','candidate_user_pubkey':INPUT_KEY,'amount_sat':10000,'expiry_height':130,
+            'exit_delta':12,'server_pubkey':SERVER,'client_owner_verified':False,'chain_contract_verified':False}
+        with self.assertRaises(InvariantError):record_input_params(self.s,'aa',proof,SERVER,'cc'*32)
+    def test_sdk_security_window_is_reported_even_before_near_expiry_warning(self):
+        from simulator.round_adoption import security_findings
+        self.input_parameters();findings=security_findings(self.s,self.c,self.snapshot,decoder=self.decoder)
+        self.assertEqual(1,len(findings));self.assertEqual('sdk_exitability_window',findings[0]['reason']);self.assertFalse(findings[0]['traffic_credit'])
+
+class StructuredRoundDiagnosticTests(unittest.TestCase):
+    def test_compact_public_diagnostic_preserves_refusal_without_copying_stderr(self):
+        from simulator.round_adoption import diagnose_stderr,record_sync_diagnostic
+        with tempfile.TemporaryDirectory() as tmp:
+            store=Store(Path(tmp),'synthetic',10000);initialize(store);store.queue('sync','actor-02','H01','sync',{},2000)
+            text='Syncing 1 pending round states...\nError syncing round #1: round VTXO tree expiry height 106 is below the required minimum 137; server may be trying to sweep before we can exit\n'
+            diagnostic=diagnose_stderr(text);record_sync_diagnostic(store,'sync',diagnostic);record_sync_diagnostic(store,'sync',diagnostic)
+            self.assertEqual(137,diagnostic['exit_window_rejections'][0]['minimum_expiry_height'])
+            events=store.db.execute("SELECT payload FROM event WHERE kind='round_sync_diagnostic'").fetchall()
+            self.assertEqual(1,len(events));self.assertNotIn('text',json.loads(events[0][0]));self.assertNotIn(text,events[0][0]);store.verify_event_chain();store.close()
