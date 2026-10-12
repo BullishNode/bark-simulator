@@ -14,6 +14,24 @@ def transaction():
 
 
 class BundleRawAuditTests(unittest.TestCase):
+    def test_replay_http_and_btc_json_match_native_core_rpc_contract(self):
+        import http.client
+        from decimal import Decimal
+        from simulator.bundle_audit import ReplayCore
+        raw, txid = transaction()
+        transactions={txid:{'hex':raw,'info':{'txid':txid,'hex':raw,'confirmations':1,
+            'vout':[{'n':0,'value':'0.00004661'}]}}}
+        with ReplayCore('genesis',transactions) as core:
+            request=http.client.HTTPConnection('127.0.0.1',core.server.server_port,timeout=5)
+            try:
+                request.request('POST','/',body=json.dumps({'id':7,'method':'getrawtransaction','params':[txid,True]}),headers={'Content-Type':'application/json'})
+                response=request.getresponse()
+                data=json.loads(response.read(),parse_float=Decimal)
+                self.assertEqual(11,response.version,'the native HTTP client requires HTTP/1.1')
+                self.assertEqual(Decimal('0.00004661'),data['result']['vout'][0]['value'])
+                self.assertEqual(7,data['id'])
+            finally:request.close()
+
     def test_decode_recomputes_identity_and_exact_satoshis(self):
         from simulator.bundle_audit import decode_transaction
         raw,txid=transaction();decoded=decode_transaction(raw)
