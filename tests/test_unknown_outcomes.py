@@ -203,6 +203,50 @@ class ReadUnknownTests(unittest.TestCase):
             old=self.row()[field];self.s.db.execute('UPDATE action SET '+field+'=? WHERE id=?',(value,'lost'))
             with self.subTest(field=field),self.assertRaises(InvariantError):unknown_outcomes.resolve(self.s,'lost')
             self.s.db.execute('UPDATE action SET '+field+'=? WHERE id=?',(old,'lost'))
+    def trace_reply(self):
+        import sqlite3
+        records=json.loads(Path(__file__).with_name('data').joinpath('native_boundaries.json').read_text())
+        path=self.s.root/'trace-2023-11-14.sqlite';db=sqlite3.connect(path)
+        db.execute('CREATE TABLE trace(seq INTEGER PRIMARY KEY,utc REAL,schema_version INTEGER,kind TEXT,actor TEXT,action_id TEXT,payload TEXT,raw BLOB,previous_hash TEXT,hash TEXT)')
+        for row in records:db.execute('INSERT INTO trace VALUES (?,?,?,?,?,?,?,?,?,?)',tuple(row[k] for k in ['seq','utc','schema_version','kind','actor','action_id','payload','raw','previous_hash','hash']))
+        db.commit();db.close()
+        for phase,row in zip(['before','after'],records):
+            self.s.event('driver_evidence',{'action_id':'lost','event':'client_evidence_'+phase,'data':{'fresh':True,'trace_ref':{'partition':path.name,'seq':row['seq'],'hash':row['hash']}}})
+        self.s.event('driver_response',{'action_id':'lost','response':{'action_id':'lost','status':'ok','actual_fee_sat':0,'data':{'balance':{'spendable_sat':0}}}})
+        return path,records
+    def test_exact_hash_checked_native_trace_boundaries_resolve_read(self):
+        self.trace_reply();self.assertTrue(unknown_outcomes.resolve(self.s,'lost'))
+        self.assertEqual(0,self.row()['actual_fee_sat'])
+    def test_archived_exact_trace_is_supported_without_opening_any_wallet(self):
+        path,_=self.trace_reply();archive=self.s.root/'trace-archive';archive.mkdir();path.rename(archive/path.name)
+        self.s.set_online(self.actor,False);self.assertTrue(unknown_outcomes.resolve(self.s,'lost'));self.assertFalse(self.s.online(self.actor))
+    def test_missing_or_unsafe_reference_stays_unknown(self):
+        path,_=self.trace_reply();path.unlink()
+        self.assertFalse(unknown_outcomes.resolve(self.s,'lost'));self.assertIsNone(self.row()['actual_fee_sat'])
+        row=self.s.db.execute("SELECT sequence,payload FROM event WHERE json_extract(payload,'$.event')='client_evidence_before'").fetchone()
+        payload=json.loads(row['payload']);payload['data']['trace_ref']['partition']='../../state.sqlite'
+        self.s.db.execute('UPDATE event SET payload=? WHERE sequence=?',(canonical(payload),row['sequence']))
+        self.assertFalse(unknown_outcomes.resolve(self.s,'lost'))
+    def test_changed_trace_record_hash_or_payload_is_an_incident(self):
+        import sqlite3
+        from simulator.model import InvariantError
+        path,_=self.trace_reply();db=sqlite3.connect(path)
+        db.execute("UPDATE trace SET payload='{}' WHERE seq=1");db.commit();db.close()
+        with self.assertRaises(InvariantError):unknown_outcomes.resolve(self.s,'lost')
+        self.assertEqual('outcome_unknown',self.row()['state'])
+    def test_trace_reference_cannot_rebind_actor_action_operation_or_phase(self):
+        from simulator.model import InvariantError
+        _,records=self.trace_reply();data={'fresh':True,'trace_ref':{'partition':'trace-2023-11-14.sqlite','seq':1,'hash':records[0]['hash']}}
+        for action,phase in [({**dict(self.row()),'actor_id':'actor-02'},'before'),({**dict(self.row()),'id':'other'},'before'),
+                ({**dict(self.row()),'operation':'invoice'},'before'),(dict(self.row()),'after')]:
+            with self.subTest(action=action['id'],phase=phase),self.assertRaises(InvariantError):unknown_outcomes.boundary_evidence(self.s,action,phase,data)
+    def test_duplicate_or_symlinked_trace_partition_never_resolves(self):
+        from simulator.model import InvariantError
+        path,_=self.trace_reply();archive=self.s.root/'trace-archive';archive.mkdir();(archive/path.name).write_bytes(path.read_bytes())
+        with self.assertRaises(InvariantError):unknown_outcomes.resolve(self.s,'lost')
+        (archive/path.name).unlink();saved=path.with_suffix('.saved');path.rename(saved);path.symlink_to(saved)
+        with self.assertRaises(InvariantError):unknown_outcomes.resolve(self.s,'lost')
+        self.assertEqual('outcome_unknown',self.row()['state'])
 
 class ArkUnknownTests(unittest.TestCase):
     coin=UnknownOutcomeTests.coin
