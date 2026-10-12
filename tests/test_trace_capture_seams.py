@@ -84,3 +84,28 @@ class FixtureLogCaptureTests(unittest.TestCase):
             rows = list(iter_records(root))
             self.assertEqual(2, len(rows))
             self.assertTrue(any(row['payload'].get('redacted') for row in rows))
+
+class CaptureFailureTests(unittest.TestCase):
+    def test_observer_failed_command_preserves_public_raw_stdout(self):
+        from simulator.remote_observer import public_command
+        import sys
+        samples=[]
+        with self.assertRaises(process.CommandError):
+            asyncio.run(public_command([sys.executable,'-c','print("public partial");raise SystemExit(1)'],
+                node='target',method='snapshot',capture=samples.append))
+        self.assertEqual('public partial\n',samples[0]['raw'])
+        self.assertEqual('CommandError',samples[0]['payload']['error'])
+    def test_invalid_core_json_records_a_gap_without_exception_text_or_credentials(self):
+        from simulator.chain import ChainReader
+        class Reply:
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def read(self,bound=-1):return b'public non-JSON response'
+        with tempfile.TemporaryDirectory() as tmp:
+            credential=Path(tmp)/'auth';credential.write_text('user:private-token')
+            samples=[];reader=ChainReader('http://127.0.0.1:1234',credential,'genesis',capture=samples.append)
+            with patch('simulator.chain.urllib.request.urlopen',return_value=Reply()):
+                with self.assertRaises(ValueError):reader.call('getblockhash',0)
+            self.assertEqual('JSONDecodeError',samples[0]['payload']['error'])
+            self.assertEqual(b'public non-JSON response',samples[0]['raw'])
+            self.assertNotIn('private-token',json.dumps(samples,default=str))
