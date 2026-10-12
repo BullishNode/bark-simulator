@@ -24,7 +24,7 @@ for phase in ('before','after'):
  print(json.dumps({'kind':'driver_event','action_id':r['action_id'],'operation':r['operation'],
   'event':'client_evidence_'+phase,'data':{'fresh':True,'evidence':{'coins':[{'id':'public-test-coin'}]}}}),flush=True)
 print('public SDK diagnostic',file=sys.stderr)
-print(json.dumps({'action_id':r['action_id'],'status':'ok','actual_fee_sat':0,'data':{'balance':{'spendable_sat':0},'onchain':{'total_sat':0}}}),flush=True)
+print(json.dumps({'action_id':r['action_id'],'status':'ok','actual_fee_sat':0,'data':{'balance':{'spendable_sat':0},'onchain':{'total_sat':0,'confirmed_sat':0},'vtxos':[]}}),flush=True)
 '''
             config = Config(root, (), (sys.executable, '-c', code), root/'wallets', SIGNET_GENESIS,
                             'container', 'image', 'server', 10000, 1, 10, True)
