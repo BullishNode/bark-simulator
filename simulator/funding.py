@@ -14,7 +14,7 @@ class WalletRpc:
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',wallet):raise ValueError('invalid fixture funding wallet name')
         self.token_file=token_file;self.wallet=wallet;self.capture=capture
     def call(self,method,*params,root=False):
-        if method not in {'getblockhash','getblockchaininfo','getwalletinfo','getbalances','getaddressinfo','gettxout','walletcreatefundedpsbt','walletprocesspsbt','finalizepsbt','decoderawtransaction','sendrawtransaction','getrawtransaction'}:raise ValueError('unsupported funding RPC')
+        if method not in {'getblockhash','getblockchaininfo','getwalletinfo','getbalances','getaddressinfo','gettxout','walletcreatefundedpsbt','walletprocesspsbt','finalizepsbt','decoderawtransaction','sendrawtransaction','getrawtransaction','listunspent','decodepsbt'}:raise ValueError('unsupported funding RPC')
         token=base64.b64encode(Path(self.token_file).read_text().strip().encode()).decode()
         url='http://127.0.0.1:38332'+('' if root else '/wallet/'+self.wallet)
         req=urllib.request.Request(url,json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode(),{'Authorization':'Basic '+token,'Content-Type':'application/json'})
