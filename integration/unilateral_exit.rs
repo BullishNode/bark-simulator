@@ -233,7 +233,7 @@ async fn exercise(ark: bool) {
             "explicit capped exit did not settle"
         );
         ctx.generate_blocks(1).await;
-        exit_phase(&root, "advance", &manifest, &out, &request);
+        exit_phase(&root, "automatic", &manifest, &out, &request);
         let result = exit_phase(&root, "audit", &manifest, &out, &request);
         if result["state"] == "completed" {
             break result;

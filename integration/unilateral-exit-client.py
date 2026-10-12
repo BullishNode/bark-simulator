@@ -5,6 +5,7 @@ This controller cannot fund or mine. Only start/advance/inspect opens an online
 fixture wallet; audit consumes public signed proofs and read-only Core evidence.
 """
 import asyncio,json,os,sys
+from types import SimpleNamespace
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -21,7 +22,7 @@ async def run(phase,manifest,command):
     m=json.loads(Path(manifest).read_text())
     assert m.get('exit_fixture') is True and m['network']=='regtest'
     assert m['core_url'].startswith('http://127.0.0.1:')
-    assert phase in {'start','advance','inspect','probe_cap','audit'}
+    assert phase in {'start','advance','automatic','inspect','probe_cap','audit'}
     os.environ['SIM_DRIVER_CONFIG']=m['driver_config']
     store=Store(Path(m['state_dir']),'live',m.get('fee_budget_sat',100000))
     try:
@@ -44,6 +45,19 @@ async def run(phase,manifest,command):
             row=store.db.execute('SELECT * FROM action WHERE id=?',(action_id,)).fetchone()
             assert row is not None and row['actor_id']==actor and row['operation']=='exit'
             action=dict(row);action['args']=json.loads(row['args'])
+        if phase=='automatic':
+            from simulator.exits import collect as advance
+            from simulator.unknown_outcomes import collect as reconcile
+            store.attach_trace(30)
+            cfg=SimpleNamespace(active=True,wallet_root=Path(m['wallet_root']),driver_command=(m['driver'],),
+                proof_command=(m['proof'],m['core_url'],m['core_cookie'],m['server_pubkey']),
+                expected_server_pubkey=m['server_pubkey'],action_timeout_seconds=120)
+            chain.capture=store.trace_sample
+            await advance(store,cfg,chain)
+            await reconcile(store,cfg,chain)
+            row=store.db.execute('SELECT state,actual_fee_sat FROM action WHERE id=?',(action_id,)).fetchone()
+            print(canonical({'production_continuation':True,'state':row['state'],'actual_fee_sat':row['actual_fee_sat']}))
+            return
         if phase=='audit':
             rows=store.db.execute("SELECT payload FROM event WHERE kind='driver_evidence' AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.event')='exit_proposal' AND json_extract(payload,'$.data.stage') IN ('cpfp','claim')",(action_id,)).fetchall()
             transactions={}
