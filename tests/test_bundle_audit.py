@@ -46,3 +46,19 @@ class BundleRawAuditTests(unittest.TestCase):
             self.assertEqual('genesis',core.call('getblockhash',[0]))
             with self.assertRaises(ValueError):core.call('sendrawtransaction',['00'])
             with self.assertRaises(ValueError):core.call('getrawtransaction',['a'*64,False])
+    def test_native_result_must_match_top_level_coin_value_and_identity(self):
+        from simulator.bundle_audit import verify_native_proofs
+        from simulator.model import InvariantError
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        raw,txid=transaction()
+        bound={'mailbox_pk':'mailbox','seq':1,'spk':'0014','record_signature_valid':True,'key_link_signature_valid':True}
+        validated={'id':'coin','user_pubkey':'public-key','amount_sat':5000,'chain_anchor':txid+':0',
+            'genesis':'genesis','server_pubkey':'server','path':[],'binding':bound,
+            'signed_path_valid':True,'anchor_confirmations':1}
+        request={'signed_vtxo':'aa','key_link_attestation':'link',
+                 'binding':{**bound,'record_attestation':'record'}}
+        coin={'id':'coin','pubkey':'public-key','amount_sat':6000,'signed_vtxo':'aa',
+              'proof':validated,'requests':[request]}
+        with patch('simulator.bundle_audit.subprocess.run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(validated).encode())):
+            with self.assertRaises(InvariantError):verify_native_proofs([coin],{txid:{'hex':raw,'info':{'confirmations':1}}},'public-verifier')
