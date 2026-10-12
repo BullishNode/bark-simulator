@@ -20,29 +20,34 @@ fn client(root: &Path, mode: &str, manifest: &Path, out: &Path) -> Value {
 
 #[tokio::test(flavor="multi_thread",worker_threads=4)]
 async fn simulator_board_absence_restore() {
-    board_absence_restore(false,None).await;
+    board_absence_restore(false,None,false).await;
 }
 
 #[tokio::test(flavor="multi_thread",worker_threads=4)]
 async fn simulator_pending_board_absence_restore() {
-    board_absence_restore(true,None).await;
+    board_absence_restore(true,None,false).await;
 }
 
 #[tokio::test(flavor="multi_thread",worker_threads=4)]
 async fn simulator_ark_receive_then_disappear() {
-    board_absence_restore(false,Some("ark")).await;
+    board_absence_restore(false,Some("ark"),false).await;
 }
 
 #[tokio::test(flavor="multi_thread",worker_threads=4)]
 async fn simulator_lightning_receive_then_disappear() {
-    board_absence_restore(false,Some("lightning")).await;
+    board_absence_restore(false,Some("lightning"),false).await;
 }
 
-async fn board_absence_restore(pending: bool,rail: Option<&'static str>) {
+#[tokio::test(flavor="multi_thread",worker_threads=4)]
+async fn simulator_public_payout_seed_recovery() {
+    board_absence_restore(false,None,true).await;
+}
+
+async fn board_absence_restore(pending: bool,rail: Option<&'static str>,automated: bool) {
     let root=std::path::PathBuf::from(std::env::var("SIMULATOR_WORKSPACE").unwrap());
     let out=std::path::PathBuf::from(std::env::var("SIMULATOR_OUT").unwrap());
     std::fs::create_dir_all(&out).unwrap();
-    let test_name=match rail {Some("ark")=>"simulator_ark_receive_then_disappear",Some("lightning")=>"simulator_lightning_receive_then_disappear",_=>if pending {"simulator_pending_board_absence_restore"} else {"simulator_board_absence_restore"}};
+    let test_name=if automated {"simulator_public_payout_seed_recovery"} else {match rail {Some("ark")=>"simulator_ark_receive_then_disappear",Some("lightning")=>"simulator_lightning_receive_then_disappear",_=>if pending {"simulator_pending_board_absence_restore"} else {"simulator_board_absence_restore"}}};
     let ctx=TestContext::new(&format!("bark_sdk/{test_name}")).await;
     let core=ctx.bitcoind().sync_client();
     let lightning=if rail==Some("lightning") {Some(ctx.new_lightning_setup("lightningd").await)} else {None};
@@ -55,6 +60,7 @@ async fn board_absence_restore(pending: bool,rail: Option<&'static str>) {
     }).create().await;
     if lightning.is_some() {srv.wait_for_vtxopool(&ctx).await;}
     let db=Db::connect(&srv.config().postgres).await.unwrap();
+    let operator_anchor=if automated {srv.wallet_status().await.rounds.confirmed_utxos.first().copied()} else {None};
     super::fallback_lightning::train_fee_estimator(&ctx).await;
     let endpoint=srv.ark_url().replace("://0.0.0.0:", "://127.0.0.1:");
     let cfg=ctx.bark_default_cfg(&endpoint,Some(ctx.bitcoind()));
@@ -106,6 +112,7 @@ async fn board_absence_restore(pending: bool,rail: Option<&'static str>) {
         "anchor_confirmations":core.get_raw_transaction_info(&board_tx,None).unwrap().confirmations.unwrap_or(0),
         "required_board_confirmations":6,"client_registered_before_absence":!pending}));
     let mut coins=vec![coin.clone()];
+    if automated {client(&root,"fixture_backup",&manifest,&out);}
     if let Some(rail)=rail {
         if rail=="ark" {
             let sender=command(&root,"create",&manifest,&out,"actor-02",json!({}));
@@ -153,6 +160,15 @@ async fn board_absence_restore(pending: bool,rail: Option<&'static str>) {
     super::fallback_lightning::expire_and_confirm_sweeps(&ctx,&db,&coins).await;
     super::fallback_lightning::train_fee_estimator(&ctx).await;
     srv.stop().await.unwrap();
+    // Freeze the real registered source while payout is disabled and the
+    // server is stopped. This is a pre-commit inventory barrier; timestamp
+    // equality between separate history/payout inserts is not assumed.
+    let frozen_precommit=if automated {
+        db.read(async |t| {
+            let r=t.query_one("SELECT jsonb_build_object('spend_state',spend_state,'policy_type',policy_type,'confirmed_height',confirmed_height,'oor_spent_txid',oor_spent_txid,'spent_in_round',spent_in_round,'onchain_spent_txid',onchain_spent_txid)::text FROM vtxo WHERE vtxo_id=$1",&[&id.to_string()]).await?;
+            Ok(serde_json::from_str::<Value>(&r.get::<_,String>(0)).unwrap())
+        }).await.unwrap()
+    } else {json!(null)};
     {
         let mut config=srv.config_mut();
         config.expiry_payout.enabled=true;config.expiry_payout.interval=Duration::from_secs(1);
@@ -189,10 +205,40 @@ async fn board_absence_restore(pending: bool,rail: Option<&'static str>) {
         "confirmations":core.get_raw_transaction_info(&payout,None).unwrap().confirmations.unwrap_or(0),
         "original_client_silent":true,"funding_txid":funding.to_string()});
     write(&out.join("payout-proof.json"),&proof);
-    let restored=client(&root,"recover",&manifest,&out);
+    if automated {
+        let cs=db.read(async |t| {t.read_aggregate_changeset(server::wallet::WalletKind::Rounds).await}).await.unwrap().unwrap();
+        let descriptor=cs.descriptor.unwrap().to_string();
+        let last_index=cs.indexer.last_revealed.values().copied().max().unwrap_or(0);
+        let anchor=operator_anchor.expect("confirmed independently observed rounds-wallet anchor");
+        let anchor_tx=core.get_raw_transaction(&anchor.txid,None).unwrap();
+        let anchor_script=anchor_tx.output[anchor.vout as usize].script_pubkey.to_hex_string();
+        let raw_coins=db.read(async |t| {
+            let rows=t.query("SELECT encode(l.sig,'hex') AS sig FROM key_link l WHERE l.user_pubkey=$1",
+                &[&coin.user_pubkey().serialize().to_vec()]).await?;
+            Ok(rows[0].get::<_,String>(0))
+        }).await.unwrap();
+        let states=db.read(async |t| {
+            let row=t.query_one("SELECT coalesce((SELECT jsonb_agg(jsonb_build_object('spend_state',h.spend_state)) FROM vtxo_history h WHERE h.vtxo_id=s.id AND h.history_created_at=s.created_at),'[]'::jsonb)::text FROM expiry_settlement s WHERE s.id=$1",&[&id.to_string()]).await?;
+            Ok(row.get::<_,String>(0))
+        }).await.unwrap();
+        let identity=json!({"network":"regtest","genesis":core.get_block_hash(0).unwrap().to_string(),"server_pubkey":info.server_pubkey.to_string()});
+        let advertised=&created["data"]["binding"];
+        let binding=json!({"mailbox_pk":advertised["mailbox_pk"],"seq":advertised["seq"],
+            "spk":advertised["spk"],"record_attestation":advertised["record_attestation"]});
+        let serialized=coin.serialize().iter().map(|byte|format!("{byte:02x}")).collect::<String>();
+        write(&out.join("public-proof-bundle.json"),&json!({"schema_version":1,"actor":"actor-01","identity":identity,
+            "coins":[{"id":id.to_string(),"user_pubkey":coin.user_pubkey().to_string(),"amount_sat":coin.amount().to_sat(),
+                "expiry_height":coin.expiry_height().to_u32(),"signed_vtxo":serialized,"key_link_attestation":raw_coins,"binding":binding}]}));
+        write(&out.join("public-operator-descriptor.json"),&json!({"schema_version":1,"identity":identity,"descriptor":descriptor,"first_index":0,"last_index":last_index}));
+        write(&out.join("public-payout-inventory.json"),&json!({"binding":binding,"operator_anchor":{"script":anchor_script,"outpoint":anchor.to_string(),"confirmations":core.get_raw_transaction_info(&anchor.txid,None).unwrap().confirmations.unwrap_or(0)},
+            "pre_commit_source":{"scope":"actual server inventory frozen with payout disabled and captaind stopped; no original client calls after absence","history_at_settlement_timestamp":serde_json::from_str::<Value>(&states).unwrap()},
+            "settlements":[{"id":id.to_string(),"txid":payout.to_string(),"fee_sat":recipient_fee,"spk":proof["spk"],"tx_settlement_count":1,"pre_commit_rows":[frozen_precommit],"htlc":null}]}));
+    }
+    let restored=client(&root,if automated {"verified_recovery"} else {"recover"},&manifest,&out);
     let spend:Txid=restored["spend_txid"].as_str().unwrap().parse().unwrap();
     ctx.generate_blocks(2).await;
     assert!(core.get_raw_transaction_info(&spend,None).unwrap().confirmations.unwrap_or(0)>0);
+    let recovery_confirmation=if automated {client(&root,"verified_recovery_confirm",&manifest,&out)} else {json!(null)};
     let spendtx=core.get_raw_transaction(&spend,None).unwrap();
     assert!(spendtx.input.iter().any(|i|i.previous_output==bitcoin::OutPoint::new(payout,vout as u32)));
     let fee=restored["fee_sat"].as_u64().unwrap();
@@ -201,6 +247,7 @@ async fn board_absence_restore(pending: bool,rail: Option<&'static str>) {
     write(&out.join("result.json"),&json!({"result":"PASS","owners":1,
         "source":rail.unwrap_or(if pending {"pending board"} else {"registered board"}),"scenario":if pending {"H04"} else {"H03"},
         "receive_rail":rail,"payout":proof,"seed_restore":restored,"confirmed_seed_spend":spend.to_string(),
+        "automated_recovery":automated,"recovery_confirmation":recovery_confirmation,
         "coverage_limits":["one source vertical slice; other sources and full campaign unqualified","capital is not a minimum-capital model"]}));
 }
 

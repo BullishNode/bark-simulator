@@ -6,7 +6,7 @@ those events remain separately declared fixture/operator actions. Recovery runs
 only after the fixture proves a confirmed rightful payout, in another process
 without opening the absent Bark DB.
 """
-import asyncio,base64,hashlib,json,os,subprocess,sys,time,urllib.request
+import asyncio,base64,hashlib,json,os,shutil,subprocess,sys,time,urllib.request
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
@@ -54,6 +54,78 @@ if mode=='observer':
         'tip_hash':after['bestblockhash'],'stable_tip':before['bestblockhash']==after['bestblockhash'],
         'initial_block_download':after['initialblockdownload'],'server_status':{'status':'running'},
         'complete':False,'rounds_confirmed_sat':None,'validation_scope':'isolated fixture; full capital is separately audited'}))
+elif mode=='fixture_backup':
+    # The explicit fixture saves its private recovery backup while online.
+    store=Store(Path(m['state_dir']),'live',m.get('fee_budget_sat',10000))
+    try: assert store.online(actor)
+    finally: store.close()
+    backup=Path(m['wallet_root']).parent/'fixture-recovery-backup.seed'
+    assert not backup.exists()
+    shutil.copyfile(Path(m['wallet_root'])/actor/'mnemonic',backup)
+    backup.chmod(0o600)
+    print(json.dumps({'backup_created_while_online':True}))
+elif mode in {'verified_recovery','verified_recovery_confirm'}:
+    from simulator.chain import ChainReader
+    from simulator.model import canonical
+    from simulator.operator_scripts import collect as collect_operator
+    from simulator.ownership import record_server_page
+    from simulator.proof_import import collect as collect_proofs
+    from simulator.recovery import RecoveryController
+    from simulator.settlements import collect_settlements
+    out=Path(m['out_dir'])
+    cfg=replace(config(),state_dir=Path(m['state_dir']).parent/'public-payout-oracle',
+        proof_bundles=(out/'public-proof-bundle.json',),operator_descriptors=(out/'public-operator-descriptor.json',),
+        recovery_command=(m['restore'],m['core_url'],m['core_cookie']),recovery_destination=m['recovery_destination'],
+        recovery_seeds=((actor,Path(m['wallet_root']).parent/'fixture-recovery-backup.seed'),),
+        recovery_maximum_fee_sat=2000,recovery_timeout_seconds=240,funding_wallet=rpc('listwallets')[0])
+    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    initialize(store)
+    controller=RecoveryController(store,cfg)
+    chain=ChainReader(m['core_url'],m['core_cookie'],m['genesis'])
+    async def verify_and_recover():
+        if mode=='verified_recovery':
+            inventory=json.loads((out/'public-payout-inventory.json').read_text())
+            store.bind_target({'network':'regtest','genesis':m['genesis'],'server_pubkey':m['server_pubkey'],
+                'container':cfg.expected_container,'image_digest':cfg.expected_image})
+            store.set_online(actor,False)
+            store.db.execute('UPDATE actor SET details=? WHERE id=?',
+                (canonical({'binding':inventory['binding'],'permanent_absence':{'fixture':True}}),actor))
+            store.db.execute('INSERT INTO operator_script VALUES (?,?)',
+                (inventory['operator_anchor']['script'],canonical(inventory['operator_anchor'])))
+            record_server_page(store,{'kind':'settlements','rows':inventory['settlements'],'next':None,'inventory_consistent':False})
+            assert store.db.execute('SELECT COUNT(*) FROM owned_coin').fetchone()[0]==0
+            await collect_settlements(store,chain)
+            assert store.db.execute('SELECT state FROM settlement_check').fetchone()[0]=='pending'
+            assert await collect_proofs(store,cfg)==1
+            await collect_settlements(store,chain)
+            assert store.db.execute('SELECT reason FROM settlement_check').fetchone()[0]=='operator change ownership is unverified'
+            await collect_operator(store,cfg,chain)
+            await collect_settlements(store,chain)
+            assert store.db.execute('SELECT state FROM settlement_check').fetchone()[0]=='amounts_checked'
+        deadline=time.monotonic()+240
+        while True:
+            await controller.tick()
+            row=store.db.execute('SELECT * FROM seed_recovery').fetchone()
+            if row and row['state'] in ({'broadcast'} if mode=='verified_recovery' else {'confirmed'}):break
+            assert time.monotonic()<deadline,'automated recovery did not reach its proven boundary'
+            assert row is None or row['state'] not in {'held','prepare_unknown','outcome_unknown'},'automated recovery held for missing or contradictory evidence'
+            await asyncio.sleep(0.1)
+        assert not store.online(actor)
+        assert store.db.execute("SELECT COUNT(*) FROM event WHERE kind IN ('driver_request','ark_transfer_verified','recycle_confirmed')").fetchone()[0]==0
+        assert store.db.execute("SELECT COUNT(*) FROM event WHERE kind='seed_recovery_spend'").fetchone()[0]==1
+        if mode=='verified_recovery_confirm':
+            capital=dict(store.db.execute('SELECT * FROM recovered_capital').fetchone())
+            assert capital['recovered_sat']==capital['gross_sat']-capital['fee_sat'] and capital['fee_sat']<=2000
+            return {'state':'confirmed','capital':capital,'original_wallet_calls':0,'traffic_credit':0,'recycling_credit':0}
+        return json.loads(row['prepared'])
+    try:
+        result=asyncio.run(verify_and_recover())
+        store.verify_event_chain()
+        (out/(mode+'.json')).write_text(json.dumps(result,indent=2)+'\n')
+        print(json.dumps(result))
+    finally:
+        asyncio.run(controller.close())
+        store.close()
 elif mode=='recover':
     # The verifier does not receive a txid/address-index/birthday hint.
     payout=json.loads(Path(m['payout_proof']).read_text())
