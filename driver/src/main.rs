@@ -206,11 +206,28 @@ fn evidence(req: &Request, event: &str, data: Value) -> Result<()> {
     Ok(())
 }
 
-async fn observed_wallet_operation<F, C, CF, E>(operation:F, _capture:C, _emit:E) -> Result<Value>
+async fn observed_wallet_operation<F, C, CF, E>(operation:F, mut capture:C, mut emit:E) -> Result<Value>
 where F:std::future::Future<Output=Result<Value>>,
       C:FnMut()->CF, CF:std::future::Future<Output=Result<Value>>,
       E:FnMut(&str,Value)->Result<()> {
-    operation.await
+    let captured=capture().await;
+    let emitted=match captured {
+        Ok(evidence)=>emit("client_evidence_before",json!({"evidence":evidence,"fresh":true})),
+        Err(_)=>Err(anyhow::anyhow!("capture failed")),
+    };
+    if emitted.is_err() {
+        let _=emit("client_evidence_gap",json!({"phase":"before","reason":"capture_or_emission_failed"}));
+    }
+    let result=operation.await;
+    let captured=capture().await;
+    let emitted=match captured {
+        Ok(evidence)=>emit("client_evidence_after",json!({"evidence":evidence,"fresh":true})),
+        Err(_)=>Err(anyhow::anyhow!("capture failed")),
+    };
+    if emitted.is_err() {
+        let _=emit("client_evidence_gap",json!({"phase":"after","reason":"capture_or_emission_failed"}));
+    }
+    result
 }
 
 async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
@@ -385,6 +402,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             == info.server_pubkey,
         "wallet server identity mismatch"
     );
+    observed_wallet_operation(async {
     match req.operation.as_str() {
         "create" => {
             let fallback = wallet.fallback_destination().await?;
@@ -1123,6 +1141,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         }
         _ => bail!("unsupported operation"),
     }
+    }, ||coin_evidence(&wallet), |name,data|evidence(req,name,data)).await
 }
 
 #[tokio::main]
@@ -1219,6 +1238,31 @@ mod tests {
         let result=observed_wallet_operation(async {Ok(json!({"accepted":true}))},
             ||async {bail!("capture failed")},|_,_|bail!("journal unavailable")).await;
         assert_eq!(result.unwrap()["accepted"],true);
+    }
+
+
+    #[tokio::test]
+    async fn missing_before_capture_records_a_gap_and_still_attempts_fresh_after() {
+        use std::cell::{Cell,RefCell};
+        let count=Cell::new(0);
+        let events=RefCell::new(Vec::new());
+        let result=observed_wallet_operation(async {Ok(json!({"accepted":true}))},
+            ||async {count.set(count.get()+1);if count.get()==1 {bail!("capture failed")};Ok(json!({"coins":["fresh"]}))},
+            |name,value|{events.borrow_mut().push((name.to_owned(),value));Ok(())}).await;
+        assert_eq!(result.unwrap()["accepted"],true);
+        assert_eq!(count.get(),2);
+        let events=events.borrow();
+        assert_eq!(events[0].0,"client_evidence_gap");
+        assert_eq!(events[0].1["phase"],"before");
+        assert_eq!(events[1].0,"client_evidence_after");
+        assert_eq!(events[1].1["evidence"]["coins"],json!(["fresh"]));
+    }
+
+    #[tokio::test]
+    async fn failed_logging_preserves_the_original_operation_error() {
+        let result=observed_wallet_operation(async {bail!("original operation failure")},
+            ||async {Ok(json!({"coins":[]}))},|_,_|bail!("journal unavailable")).await;
+        assert_eq!(result.unwrap_err().to_string(),"original operation failure");
     }
 
     #[test]
