@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
+mod exit;
 use ark::attestations::{FallbackRecordAttestation, KeyLinkAttestation};
 use ark::lightning::Bolt11InvoiceExt;
 use ark::{ProtocolEncoding, SECP};
@@ -160,7 +161,11 @@ fn verify_recycle_input(psbt:&bitcoin::Psbt,source:&Value)->Result<()> {
     Ok(())
 }
 
-fn verify_exit_budget(_frozen:u64, _requested:u64, _reserved:&[u64], _next:u64)->Result<()> {
+fn verify_exit_budget(frozen:u64, requested:u64, reserved:&[u64], next:u64)->Result<()> {
+    ensure!(frozen==requested,"exit fee cap changed");
+    let used=reserved.iter().try_fold(0u64,|total,fee|total.checked_add(*fee))
+        .context("exit fee sum overflow")?;
+    ensure!(used.checked_add(next).context("exit fee sum overflow")?<=frozen,"exit fee cap exhausted");
     Ok(())
 }
 
@@ -407,7 +412,11 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         "wallet server identity mismatch"
     );
     observed_wallet_operation(async {
+    if exit::has_unfinished_intent(path)? && !matches!(req.operation.as_str(),"exit"|"snapshot") {
+        return Ok(json!({"blocked":true,"reason":"explicit exit intent owns this wallet; normal operations remain held","actual_fee_sat":0}));
+    }
     match req.operation.as_str() {
+        "exit" => exit::execute(&wallet,&mut rpc,path,req,network).await,
         "create" => {
             let fallback = wallet.fallback_destination().await?;
             let onchain = wallet.onchain().context("missing onchain wallet")?;
