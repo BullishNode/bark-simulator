@@ -132,6 +132,8 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_confirmed_recovery_report_keeps_its_bucket_and_adapter_scope_explicit(self):
         from simulator.report import generate
+        self.store.db.execute('UPDATE actor SET details=? WHERE id=?',
+            (canonical({'permanent_absence': {'rail': 'ark', 'coin_ids': [], 'received_sat': 0}}), 'actor-09'))
         self.controller_for(); await self.drive()
         self.rpc.confirmations = 1; await self.drive(2)
         result = generate(self.store, evaluate=False)
