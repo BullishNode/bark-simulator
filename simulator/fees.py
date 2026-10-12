@@ -111,6 +111,20 @@ def movement_fee(store, action):
         'signed_output_sat':net,'transferred_sat':transferred,'actual_fee_sat':cost,
         'scope':'customer charge from frozen intent and independently verified signed coin values; no operator mining fee attributed'}
 
+def _receive_hashes(data):
+    """Optional public native pending identities; never infer a missing half."""
+    fields = ('receive_payment_hashes_before', 'receive_payment_hashes_after')
+    if not any(field in data for field in fields):return None
+    result = []
+    for field, count_field in zip(fields, ('receive_count_before','receive_count_after')):
+        hashes = data[field]
+        if (not isinstance(hashes,list) or any(not isinstance(h,str) or len(h)!=64
+                or any(c not in '0123456789abcdef' for c in h) for h in hashes)
+                or len(set(hashes)) != len(hashes) or len(hashes) != data[count_field]):
+            raise EvidenceGap('pending receive identities do not match native count')
+        result.append(set(hashes))
+    return result
+
 def receive_fee(store,action):
     """Assign only newly completed receives inside a frozen sync boundary.
 
@@ -127,6 +141,9 @@ def receive_fee(store,action):
         and m.get('status')=='successful' and m['id'] not in before]
     if len(after)!=count:raise EvidenceGap('sync boundary does not prove every claim completion')
     if len({m['id'] for m in after})!=len(after):raise InvariantError('receive sync repeats a movement')
+    hashes = _receive_hashes(data)
+    if hashes is not None and (hashes[1] or hashes[0] != {m['payment_hash'] for m in after}):
+        raise EvidenceGap('successful claims differ from native pending identities')
     total=0;claims=[]
     for movement in after:
         observed=store.db.execute('SELECT payload FROM movement_evidence WHERE actor=? AND movement_id=?',(actor,movement['id'])).fetchone()
@@ -152,6 +169,111 @@ def receive_fee(store,action):
     if total>action['fee_reservation_sat']:raise InvariantError('receive charges exceed sync fee reservation')
     return {'actor':actor,'receive_movement_ids':[c['movement_id'] for c in claims],'claims':claims,'actual_fee_sat':total,
         'scope':'new completed claims between frozen native sync boundaries; original invoice and signed ownership/value proof; no operator fee attribution'}
+
+def _sync_movements(boundary):
+    movements = boundary['movements']
+    by_id = {movement['id']: movement for movement in movements}
+    if len(by_id) != len(movements):
+        raise EvidenceGap('sync history has ambiguous movement ids')
+    return by_id
+
+def _pending_sync_release(store, action):
+    """Prove an earlier unchanged sync made no receive claim of its own.
+
+    Native history omits unclaimed invoices (the empty-invoice fixture has an
+    empty history with one pending receive). Infer their hashes only when all
+    prior invoice outcomes are known and their unmatched count exactly equals
+    the native count. Later signed claim reconciliation must prove every hash;
+    a changed history, an intervening invoice or ambiguity keeps the reserve.
+    """
+    actor = action['actor_id']
+    data = json.loads(action['result'])['data']
+    count = integer(data['receive_count_before'], 'pending receive count')
+    if not count:raise EvidenceGap('earlier sync had no pending receive')
+    if integer(data['receive_count_after'], 'pending receive count') != count:
+        raise EvidenceGap('earlier sync changed pending receive count')
+    before = _sync_movements(data['before_evidence'])
+    after = _sync_movements(data['evidence'])
+    if canonical(before) != canonical(after):
+        raise EvidenceGap('earlier sync changed its movement history')
+    native_hashes = _receive_hashes(data)
+    if native_hashes is not None and native_hashes[0] != native_hashes[1]:
+        raise EvidenceGap('earlier sync changed its pending receive identities')
+    # Count-only legacy evidence especially needs the complete unchanged public
+    # inventory. Keep the same conservative gate for explicit native identities.
+    coins_before = data['before_evidence']['coins']
+    coins_after = data['evidence']['coins']
+    if (not isinstance(coins_before,list) or not isinstance(coins_after,list)
+            or len({c['id'] for c in coins_before}) != len(coins_before)
+            or canonical(sorted(coins_before,key=lambda c:c['id']))
+                != canonical(sorted(coins_after,key=lambda c:c['id']))):
+        raise EvidenceGap('sync changed or lacks complete coin inventory')
+    completed_hashes = set()
+    for movement in before.values():
+        if movement['subsystem'] == 'bark.lightning_receive':
+            if movement['status'] not in {'successful', 'pending'}:
+                raise EvidenceGap('earlier receive history is unresolved')
+            if movement['status'] == 'successful':
+                completed_hashes.add(movement['payment_hash'])
+    invoices = store.db.execute("""SELECT * FROM action WHERE actor_id=?
+        AND operation='invoice' AND created_at<=? ORDER BY created_at,id""",
+        (actor, action['created_at'])).fetchall()
+    hashes = set()
+    for invoice in invoices:
+        if invoice['state'] != 'completed' or invoice['updated_at'] > action['created_at']:
+            raise EvidenceGap('earlier invoice outcome is not frozen')
+        payment_hash = json.loads(invoice['result'])['data']['payment_hash']
+        if not isinstance(payment_hash, str) or len(payment_hash) != 64:
+            raise EvidenceGap('invoice lacks a payment hash')
+        if payment_hash in hashes:
+            raise EvidenceGap('earlier invoices have ambiguous payment hashes')
+        hashes.add(payment_hash)
+    pending = native_hashes[0] if native_hashes is not None else hashes - completed_hashes
+    if len(pending) != count:
+        raise EvidenceGap('invoice history does not identify every pending receive')
+    if not pending <= hashes:
+        raise EvidenceGap('pending receive lacks earlier frozen invoice')
+    for movement in before.values():
+        if (movement['subsystem'] == 'bark.lightning_receive'
+                and movement['status'] == 'pending' and movement['payment_hash'] not in pending):
+            raise EvidenceGap('pending movement lacks a frozen invoice')
+    proofs = store.db.execute("""SELECT * FROM action WHERE actor_id=?
+        AND operation='sync' AND state='completed' AND actual_fee_sat IS NOT NULL
+        AND created_at>? ORDER BY created_at,id""", (actor, action['updated_at'])).fetchall()
+    for proof in proofs:
+        # An invoice may not appear in movement history until it is claimed.
+        # New invoices would make count-only pending identity ambiguous.
+        if native_hashes is None and store.db.execute("""SELECT 1 FROM action WHERE actor_id=? AND operation='invoice'
+                AND created_at>? AND created_at<=? LIMIT 1""",
+                (actor, action['created_at'], proof['created_at'])).fetchone():
+            continue
+        try:
+            evidence = receive_fee(store, proof)
+            reconciled = store.db.execute("""SELECT payload FROM event
+                WHERE kind='client_fee_reconciled' AND json_extract(payload,'$.action_id')=?""",
+                (proof['id'],)).fetchall()
+            if (len(reconciled) != 1 or proof['actual_fee_sat'] != evidence['actual_fee_sat']
+                    or canonical(json.loads(reconciled[0][0])) != canonical({'action_id':proof['id'], **evidence})):
+                continue
+            claims = {claim['payment_hash']:claim for claim in evidence['claims']}
+            if len(claims) != len(evidence['claims']) or not pending <= claims.keys():
+                continue
+            proof_before = _sync_movements(json.loads(proof['result'])['data']['before_evidence'])
+            if any(coin_id not in proof_before or canonical(movement) != canonical(proof_before[coin_id])
+                    for coin_id,movement in before.items()):
+                continue
+            if any(movement['subsystem'] == 'bark.lightning_receive' and movement['status'] == 'pending'
+                    and claims[movement['payment_hash']]['movement_id'] != movement['id']
+                    for movement in before.values()):
+                continue
+            return {'actor':actor,'proving_action_id':proof['id'],
+                'receive_movement_ids':sorted(claims[h]['movement_id'] for h in pending),
+                'payment_hashes':sorted(pending),'released_reservation_sat':action['fee_reservation_sat'],
+                'actual_fee_sat':0,
+                'scope':'unchanged earlier native sync; every unambiguous pending invoice proved by later independently reconciled claims; claim fees stay on proving action'}
+        except (EvidenceGap,KeyError,TypeError,ValueError):
+            continue
+    raise EvidenceGap('no later independently reconciled sync proves all pending claims')
 
 def board_fee(store, action, tx):
     data=json.loads(action['result'])['data'];board=data['board']
@@ -257,3 +379,16 @@ async def collect(store,chain,limit=4):
         except InvariantError:raise
         except (EvidenceGap,KeyError,TypeError,ValueError):pass
         store.db.execute("INSERT OR REPLACE INTO meta VALUES ('movement_fee_cursor',?)",(action['id'],))
+    # Also revisit older reservations whose proving sync was reconciled before
+    # this release (or before a crash). Do not reassign its once-only claim cost.
+    for action in rows[:limit]:
+        if action['operation'] != 'sync':continue
+        try:
+            evidence = _pending_sync_release(store, action)
+            with store.transaction():
+                changed = store.db.execute("""UPDATE action SET actual_fee_sat=0
+                    WHERE id=? AND state='completed' AND actual_fee_sat IS NULL""", (action['id'],)).rowcount
+                if changed:
+                    store._event('fee_reservation_released', {'action_id':action['id'], **evidence})
+        except InvariantError:raise
+        except (EvidenceGap,KeyError,TypeError,ValueError):pass
