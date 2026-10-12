@@ -186,7 +186,8 @@ elif mode=='dispatch_overlap':
         ids=[]
         for name in actors:
             action_id='fixture-overlap-board-'+name
-            assert store.queue(action_id,name,'H01','board',{'amount_sat':10000},2000)
+            store.queue(action_id,name,'H01','board',{'amount_sat':10000},2000)
+            assert store.db.execute('SELECT state FROM action WHERE id=?',(action_id,)).fetchone()[0]=='queued'
             ids.append(action_id)
         assert asyncio.run(engine.dispatch_batch())
         events=[dict(row) for row in store.db.execute('SELECT * FROM event WHERE sequence>? ORDER BY sequence',(start,))]
