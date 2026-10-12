@@ -170,3 +170,7 @@ class OwnerAllocationTrancheTests(unittest.TestCase):
             self.assertEqual('queued',self.s.db.execute('SELECT state FROM action WHERE id=?',(action,)).fetchone()[0])
             self.s.db.execute("UPDATE action SET state='completed' WHERE id=?",(action,))
         self.assertFalse(any(m=='walletprocesspsbt' for m,_ in self.rpc.calls))
+    def test_created_online_recipient_does_not_need_an_earlier_board(self):
+        self.prepare()
+        self.detail('actor-06',board_submitted=False,funding_address='tb1q-client-06',needs_sync=True,snapshot_at=0)
+        self.assertEqual('broadcast',self.fund()['state'])
