@@ -80,18 +80,8 @@ For historical financial events, use the same query against `event`, with
 reservations and the recorded rule inputs before attributing sparse traffic to
 funding. Submitted sends and unknown outcomes do not prove delivery.
 
-Compare a rounds-wallet debit with the exact mining fee and backing transfer:
-
-```sql
-SELECT height,txid,kind,fee_sat,operator_fee_sat,rounds_delta_sat,
-       watchman_delta_sat,backing_delta_sat
-FROM operator_ledger_transaction ORDER BY height,txid;
-SELECT snapshot_id,height,
-       json_extract(result,'$.residual_msat') AS residual_msat,
-       json_extract(result,'$.unknowns') AS unknowns
-FROM capital_snapshot ORDER BY snapshot_id;
-```
-
-A null residual or fee payer remains unknown. A nonzero residual stays measured;
-see [capital accounting](capital.md) before treating a debit as fee burn or
-combining asset, recovery and entitlement ledgers.
+Compare a rounds-wallet debit with the actual raw transaction and every parent
+input value before treating it as a mining fee. A debit may fund new backing or
+move into unconfirmed change. Padding attribution is a subset of existing
+backing; missing spend or return-script evidence remains unknown. It cannot be
+added to the operator asset total or a recycling receipt.
