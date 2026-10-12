@@ -1,5 +1,7 @@
 """A new owner allocation cannot reuse or mutate an earlier funding tranche."""
 import json,time,unittest
+from pathlib import Path
+from simulator.store import Store
 from decimal import Decimal
 from unittest.mock import patch
 from simulator.model import InvariantError,canonical
@@ -33,7 +35,9 @@ class AllocationRpc(legacy.FundingRpc):
         return super().call(method,*args,**kw)
 
 class OwnerAllocationTrancheTests(unittest.TestCase):
-    setUp=fixtures.ContinuousTests.setUp
+    def setUp(self):
+        fixtures.ContinuousTests.setUp(self)
+        self.s.db.execute('CREATE TABLE IF NOT EXISTS funding_batch(id TEXT PRIMARY KEY,state TEXT NOT NULL,recipients TEXT NOT NULL,txid TEXT,raw_tx TEXT,fee_sat INTEGER,updated_at REAL NOT NULL)')
     tearDown=fixtures.ContinuousTests.tearDown
     detail=fixtures.ContinuousTests.detail
     def prepare(self):
@@ -61,7 +65,7 @@ class OwnerAllocationTrancheTests(unittest.TestCase):
         renewal.declare(self.s,old);before=self.s.get_meta('owner_renewal_declaration')
         for name in ('initial','ramp',renewal.TRANCHE):self.s.db.execute("INSERT INTO funding_batch VALUES (?,'confirmed','[]',?,'prior-frozen-transaction',1000,1)",(name,'f'*64))
         rows=[dict(r) for r in self.s.db.execute('SELECT * FROM funding_batch ORDER BY id')]
-        self.prepare();self.fund();self.assertEqual(before,self.s.get_meta('owner_renewal_declaration'))
+        self.prepare();self.fund();self.fund();self.fund();self.assertEqual(before,self.s.get_meta('owner_renewal_declaration'))
         self.assertEqual(rows,[dict(r) for r in self.s.db.execute('SELECT * FROM funding_batch WHERE id!=? ORDER BY id',(TRANCHE,))])
     def test_source_must_be_wallet_owned_confirmed_spendable_and_unallocated(self):
         self.prepare()
@@ -74,6 +78,7 @@ class OwnerAllocationTrancheTests(unittest.TestCase):
         self.assertEqual('held_source_allocated',self.fund()['state']);self.assertFalse(any(m=='sendrawtransaction' for m,_ in self.rpc.calls))
     def test_lost_reply_restart_reconciles_only_same_transaction(self):
         self.prepare();self.rpc.timeout=True;self.assertEqual('outcome_unknown',self.fund()['state'])
+        self.s.close();self.s=Store(Path(self.tmp.name),'synthetic',1000000)
         self.rpc.unavailable_broadcast=True
         for _ in range(3):self.assertEqual('outcome_unknown',self.fund()['state'])
         self.rpc.unavailable_broadcast=False;self.assertEqual('confirmed',self.fund()['state'])
@@ -105,3 +110,9 @@ class OwnerAllocationTrancheTests(unittest.TestCase):
         self.assertTrue(renewal.queue_board(self.s,'actor-01',detail,self.c));a=self.s.db.execute("SELECT * FROM action WHERE state='queued'").fetchone();args=json.loads(a['args'])
         self.assertIn(TRANCHE,a['id']);self.assertEqual(8000,args['minimum_ark_amount_sat']);self.assertEqual(9200,args['board_cap_sat']);self.assertTrue(args['recycle_autosize']);self.assertEqual(2000,a['fee_reservation_sat'])
         self.assertFalse(renewal.queue_board(self.s,'actor-01',detail,self.c));self.assertFalse(self.s.db.execute("SELECT 1 FROM event WHERE kind='recycle_intent'").fetchone())
+
+    def test_reconciliation_advances_only_selected_tranche_and_confirms_exactly_once(self):
+        self.prepare();self.fund();self.fund();self.fund()
+        row=self.s.db.execute('SELECT state FROM funding_batch WHERE id=?',(TRANCHE,)).fetchone()
+        self.assertEqual('confirmed',row[0])
+        self.assertEqual(1,self.s.db.execute("SELECT count(*) FROM event WHERE kind='owner_renewal_confirmed' AND json_extract(payload,'$.tranche')=?",(TRANCHE,)).fetchone()[0])
