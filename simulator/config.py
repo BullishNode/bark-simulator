@@ -59,6 +59,7 @@ class Config:
     inventory_command: tuple[str, ...] = ()
     funding_wallet: str = ""
     funding_credential_file: str = ""
+    proof_bundles: tuple[Path, ...] = ()
 
     @classmethod
     def load(cls, path: Path):
@@ -81,6 +82,11 @@ class Config:
         if workload not in {"none", "pilot", "continuous"}:
             raise ValueError("only none/pilot/continuous workloads are implemented")
         verify_executables(runtime, data.get('executables', {}))
+        from .proof_import import declared_paths
+        proofs = data.get('proofs', {})
+        if not isinstance(proofs, dict) or set(proofs) - {'bundles'}:
+            raise ValueError('proofs supports declared local bundles only')
+        proof_bundles = declared_paths(proofs.get('bundles', []), paths[1])
         return cls(state_dir=paths[0], observer_command=tuple(runtime["observer_command"]),
                    driver_command=tuple(runtime.get("driver_command", [])), wallet_root=paths[1],
                    expected_genesis=target["genesis"], expected_container=container,
@@ -89,7 +95,7 @@ class Config:
                    interval_seconds=integer(runtime.get("interval_seconds", 30), "interval", 1),
                    action_timeout_seconds=integer(runtime.get("action_timeout_seconds", 120), "action timeout", 1),
                    active=runtime.get("active", False) is True, workload=workload,
-                   proof_command=tuple(runtime.get("proof_command",[])), inventory_command=tuple(runtime.get("inventory_command",[])),
+                   proof_bundles=proof_bundles, proof_command=tuple(runtime.get("proof_command",[])), inventory_command=tuple(runtime.get("inventory_command",[])),
                    funding_wallet=data.get("funding",{}).get("wallet",""),funding_credential_file=data.get("funding",{}).get("credential_file",""),
                    board_amount_sat=integer(runtime.get("board_amount_sat", 12000), "board amount", 1),
                    action_fee_reserve_sat=integer(runtime.get("action_fee_reserve_sat", 2000), "action fee reserve"))

@@ -1,7 +1,6 @@
 """Public import boundaries: synthetic native replies never claim live proof."""
 import asyncio
 import copy
-import hashlib
 import json
 import tempfile
 import unittest
@@ -93,6 +92,31 @@ class ProofImportTests(unittest.TestCase):
         self.assertEqual(0, self.store.db.execute("SELECT COUNT(*) FROM event WHERE kind IN ('driver_request','ark_transfer_verified')").fetchone()[0])
         self.store.verify_event_chain()
 
+    def test_confirmed_payout_owner_gap_resolves_after_import_without_wallet_call(self):
+        from simulator.ownership import record_server_page
+        from simulator.settlements import collect_settlements
+        from types import SimpleNamespace
+        txid = 'f' * 64
+        script = self.coin['binding']['spk']
+        row = {'id': self.coin['id'], 'txid': txid, 'spk': script, 'fee_sat': 9,
+            'tx_settlement_count': 1, 'pre_commit_rows': [{'spend_state': 'spendable'}]}
+        record_server_page(self.store, {'kind': 'settlements', 'rows': [row],
+            'next': None, 'inventory_consistent': False})
+        self.store.db.execute('INSERT INTO operator_script VALUES (?,?)', ('operator-change', '{}'))
+        tx = {'txid': txid, 'confirmations': 1, 'fee_sat': 14,
+            'outputs': [{'script': script, 'amount_sat': 491},
+                        {'script': 'operator-change', 'amount_sat': 100}]}
+        chain = SimpleNamespace(identity=lambda: None, transaction=lambda identity: tx)
+        asyncio.run(collect_settlements(self.store, chain))
+        self.assertEqual('pending', self.store.db.execute('SELECT state FROM settlement_check').fetchone()[0])
+        self.collect()
+        asyncio.run(collect_settlements(self.store, chain))
+        self.assertEqual('amounts_checked', self.store.db.execute('SELECT state FROM settlement_check').fetchone()[0])
+        self.assertEqual('actor-09', self.store.db.execute('SELECT actor FROM checked_settlement').fetchone()[0])
+        self.assertFalse(self.store.online('actor-09'))
+        self.assertEqual(0, self.store.db.execute("SELECT COUNT(*) FROM event WHERE kind='driver_request'").fetchone()[0])
+        self.store.verify_event_chain()
+
     def test_content_hash_is_idempotent_across_whitespace_paths_and_restart(self):
         self.collect()
         self.path.write_text(canonical(self.bundle))
@@ -176,6 +200,14 @@ class ProofImportTests(unittest.TestCase):
             events = ' '.join(r[0] for r in self.store.db.execute('SELECT payload FROM event'))
             self.assertNotIn(value, events)
             self.assertNotIn(self.coin['signed_vtxo'], events)
+
+    def test_secret_shaped_native_reply_is_not_written_to_public_records(self):
+        for value in ('xprv-secret', '__cookie__:secret', 'abandon ' * 12):
+            reply = copy.deepcopy(self.reply); reply['validation_scope'] = value
+            self.collect(reply=reply)
+            self.assert_no_import()
+            events = ' '.join(r[0] for r in self.store.db.execute('SELECT payload FROM event'))
+            self.assertNotIn(value, events)
 
     def test_bound_target_must_match_declared_config_and_bundle(self):
         bundle = copy.deepcopy(self.bundle); bundle['identity']['server_pubkey'] = self.key

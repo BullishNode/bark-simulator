@@ -27,6 +27,7 @@ from .workload import record_actor_result, schedule_pilot
 from .raw_cases import RAW_CASES
 from .negative_checks import collect as collect_negative_checks
 from .payments import collect as collect_payments
+from .proof_import import collect as collect_public_proofs
 
 OPERATIONS = {"create", "snapshot", "sync", "address", "board", "send_arkoor", "refresh",
               "refresh_delegated", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES)
@@ -228,6 +229,7 @@ class Engine:
                 self.campaign_clock.tick(healthy=ready and lightning_ready(snapshot) and traffic_ready(self.store),real_campaign_started=self.store.get_meta("real_campaign_started") is not None)
             try:
                 if self.config.active:
+                    await collect_public_proofs(self.store,self.config)
                     collect_renewal(self.store,self.config)
                     await collect_payments(self.store,self.config.driver_command,self.config.expected_server_pubkey)
                 await self.collect_inventory()
