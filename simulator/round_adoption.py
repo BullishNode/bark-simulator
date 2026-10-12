@@ -407,6 +407,19 @@ def observation_can_clear(store,key,snapshot,config=None):
     action=store.db.execute('SELECT actual_fee_sat,actor_id FROM action WHERE id=?',(action_id,)).fetchone()
     if action is None:return False
     if action['actual_fee_sat'] is not None:return True
+    if key.startswith('round_adoption_security_window:'):
+        observed=snapshot.get('observed_at')
+        if (type(observed) not in (int,float) or not 0<=time.time()-observed<=90
+                or snapshot.get('stable_tip') is not True or snapshot.get('initial_block_download') is not False):return False
+        if config is None:
+            from types import SimpleNamespace
+            target=json.loads(store.get_meta('target_identity') or '{}')
+            config=SimpleNamespace(expected_server_pubkey=target.get('server_pubkey'))
+        if not config.expected_server_pubkey:return False
+        for candidate in candidate_rounds(store,config):
+            if candidate['refresh_action_id']==action_id:
+                return security_window(store,candidate,config,snapshot['height'])['status']=='ready'
+        return False
     if key.startswith('round_unclaimed_near_expiry:'):
         coin=evidence.get('coin_id')
         return store.db.execute("""SELECT 1 FROM coin_observation o JOIN action a ON a.id=o.action_id
