@@ -1,4 +1,4 @@
-//! Confirmed public nursery evidence drives one real scheduler cycle.
+// Confirmed public nursery evidence drives one real scheduler cycle.
 use super::{command,write};
 use std::{path::Path,time::Duration};
 use ark_testing::{TestContext,sat};

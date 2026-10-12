@@ -19,7 +19,7 @@ def main():
     parser.add_argument('--sdk-source',type=Path,default=ROOT/'fixture-source',help='isolated compatible SDK fixture checkout')
     parser.add_argument('--product-bin-dir',type=Path,default=ROOT/'source/target/debug',help='compatible product executable directory')
     parser.add_argument('--independent-target',action='store_true',help='use this simulator own target and lease; never share a suite slot')
-    parser.add_argument('--test',choices=['simulator_concurrent_clients','simulator_public_payout_seed_recovery','simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_board_absence_restore','simulator_pending_board_absence_restore','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits','simulator_fallback_negative_requests'],default='simulator_board_absence_restore')
+    parser.add_argument('--test',choices=['simulator_confirmed_round_scheduler_cycle','simulator_concurrent_clients','simulator_public_payout_seed_recovery','simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_board_absence_restore','simulator_pending_board_absence_restore','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits','simulator_fallback_negative_requests'],default='simulator_board_absence_restore')
     args = parser.parse_args()
     CLONE=args.sdk_source.resolve();PRODUCTION=args.product_bin_dir.resolve()
     assert args.name.replace('-', '').replace('_', '').isalnum()
@@ -55,8 +55,9 @@ def main():
                 'test': name, 'harness_sha256': digest(harness), 'runner_sha256': digest(__file__),
                 'binaries': {p.name: digest(p) for p in PRODUCTION.iterdir()},
                 'wall_seconds': 1800 if args.independent_target else 1200, 'target_dir':str(target),'lease':str(lock),'source': 'actual simulator supervisor/native driver; '+args.test,
-                'fixture_customer_fee_budget_sat':100_000 if args.test in ('simulator_concurrent_clients','simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits') else 10_000,
+                'fixture_customer_fee_budget_sat':100_000 if args.test in ('simulator_confirmed_round_scheduler_cycle','simulator_concurrent_clients','simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits') else 10_000,
                 'checks': {
+                    'simulator_confirmed_round_scheduler_cycle':['actual interactive and delegated pending SDK movements','exact frozen signed replacement outputs joined to independently confirmed nursery transactions','normal scheduler selects both syncs in one cycle','same scheduled sync proves new Spendable outputs and successful movements','actual SDK depth1/margin12/lifetime432; unsafe live security windows remain held'],
                     'simulator_concurrent_clients':['two and three distinct actual native wallets overlap before/after operation boundaries','actual concurrent boards from separately declared fixture funding','confirmed independently signed owned outputs','fee proof preserves action caps and owner conservation'],
                     'simulator_public_payout_seed_recovery':['fresh native public proof import without original client calls','historical operator descriptor anchored in confirmed rounds-wallet output','actual payout amount verdict from raw pre-commit history','seed-only prepare-only BIP84 discovery before frozen signing','source-only recovery to declared funding wallet under2000cap','confirmed separate recovered-capital bucket, no traffic/recycling credit'],
                     'simulator_owner_funded_renewal':['actual separately funded Core owner deposit','source-only funding PSBT <=2k fees','8k confirmed owned client grant','native new source-only board and5k confirmed Ark balance','zero recycling or qualified traffic credit'],
@@ -70,13 +71,15 @@ def main():
                     'simulator_board_absence_restore': ['actual Python journal and driver', 'no original calls after absence', 'confirmed rightful payout', 'fresh BIP84 seed-only recovery with no txid/index/birthday hints', 'confirmed spend'],
                     'simulator_pending_board_absence_restore': ['actual Python journal and driver', 'confirmed real board funding with fewer than required registration confirmations', 'no registered coin or original calls after absence', 'pending-board payout to independently verified owner', 'fresh BIP84 seed-only recovery with no txid/index/birthday hints', 'confirmed spend'],
                 }[args.test],
-                'simulator_sources':{str(p.relative_to(ROOT)):digest(p) for p in [*ROOT.glob('simulator/*.py'), ROOT/'simulator/bip39-english.txt', ROOT/'integration/fixture_runtime.py', ROOT/'integration/regtest-client.py',ROOT/'driver/src/main.rs',ROOT/'driver/src/bin/seed-restore.rs']},
+                'simulator_sources':{str(p.relative_to(ROOT)):digest(p) for p in [*ROOT.glob('simulator/*.py'), ROOT/'simulator/bip39-english.txt', ROOT/'integration/fixture_runtime.py', ROOT/'integration/regtest-client.py',*ROOT.glob('driver/src/**/*.rs'), *ROOT.glob('integration/*.rs'), ROOT/'integration/round-adoption-client.py', ROOT/'integration/round-padding-client.py']},
                 'driver_sha256':digest(ROOT/'target/debug/bark-sim-driver'), 'restore_sha256':digest(ROOT/'target/debug/seed-restore'),
-                'proof_sha256':digest(ROOT/'target/debug/vtxo-proof')}
+                'proof_sha256':digest(ROOT/'target/debug/vtxo-proof'),'server_policy_sha256':digest(ROOT/'target/debug/server-policy-proof')}
         (run / 'predeclared.json').write_text(json.dumps(decl, indent=2) + '\n')
         shutil.copyfile(harness, run / 'simulator_vertical.rs')
         shutil.copyfile(__file__, run / 'run-regtest.py')
         shutil.copyfile(ROOT / 'integration/regtest-client.py', run / 'regtest-client.py')
+        for source in ('round_adoption.rs','round-adoption-client.py','round_padding.rs','round-padding-client.py'):
+            shutil.copyfile(ROOT/'integration'/source, run/source)
         with open(run / 'build.log', 'w') as log:
             build = subprocess.run(['cargo', 'test', '--locked', '-p', 'ark-testing', '--test', 'bark-sdk', '--no-run'],
                                    cwd=CLONE, env=env, stdout=log, stderr=subprocess.STDOUT)

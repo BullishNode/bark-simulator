@@ -513,6 +513,8 @@ async fn simulator_payments_refresh_exits() {
         assert_eq!(row["actual_fee_sat"],0,"fixture round/send charges are zero; nonzero accounting is separately tested");
     }
     assert_eq!(end["data"]["balance"]["spendable_sat"].as_u64().unwrap(),0);
+    let padding_db=Db::connect(&srv.config().postgres).await.unwrap();
+    round_padding::qualify(&ctx,&srv,&padding_db,&root,&out).await;
     write(&out.join("result.json"),&json!({"result":"PASS","owners":3,"empty_before":empty_before,"empty_invoice":empty_invoice,"empty_received":empty_received,"arkoor":arkoor,
         "delegated":delegated,"interactive":interactive,"after_refresh":after_refresh,
         "external_ln":paid,"internal_ln":internal,"verified_payment_outcomes":payments,"receive_cost":received_fee,"qualified_traffic_audit":clock,"offboard":offboard,"confirmed_offboard_txid":txid.to_string(),
@@ -732,4 +734,12 @@ async fn simulator_owner_funded_renewal() {
         "owner_injection_txid":injection.to_string(),"renewal_funding":funding,"confirmed_renewal":confirmed,"renewal_board":boarded,
         "confirmed_renewal_board_txid":tx.compute_txid().to_string(),"final_spendable_sat":5000,
         "scope":"actual isolated Core source-only funding PSBT and native actor-owned source-only board, not recycled capital or signet acceptance"}));
+}
+
+mod round_adoption {
+    include!(concat!(env!("SIMULATOR_WORKSPACE"), "/integration/round_adoption.rs"));
+}
+
+mod round_padding {
+    include!(concat!(env!("SIMULATOR_WORKSPACE"), "/integration/round_padding.rs"));
 }
