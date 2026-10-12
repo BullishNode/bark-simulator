@@ -29,6 +29,7 @@ from .negative_checks import collect as collect_negative_checks
 from .payments import collect as collect_payments
 from .proof_import import collect as collect_public_proofs
 from .recovery import RecoveryController
+from .entitlements import record_submitted as record_delegated, collect as collect_delegated
 
 OPERATIONS = {"create", "snapshot", "sync", "address", "board", "send_arkoor", "refresh",
               "refresh_delegated", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES)
@@ -143,6 +144,7 @@ class Engine:
                         self.store.db.execute("UPDATE actor SET details=? WHERE id=?",(canonical(detail),target))
                 record_candidates(self.store,action["actor_id"],action["id"],response.get("data",{}),verification_failed=verified is None)
                 record_verified(self.store,action["actor_id"],action["id"],verified)
+                record_delegated(self.store,action["id"])
             try:
                 self.store.finish(action["id"], "completed", response, response.get("actual_fee_sat"),
                                   on_completed=completed)
@@ -243,6 +245,7 @@ class Engine:
                     if self.recovery: await self.recovery.tick()
                     await collect_fees(self.store,chain)
                     await collect_recycling(self.store,chain)
+                collect_delegated(self.store)
             except InvariantError as error:
                 self.store.event("ownership_incident",{"reason":str(error)})
                 self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','ownership contradiction')")

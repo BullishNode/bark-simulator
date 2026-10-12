@@ -56,6 +56,8 @@ class Store:
         initialize_ownership(self)
         from .settlements import initialize as initialize_settlements
         initialize_settlements(self)
+        from .entitlements import initialize as initialize_delegated_entitlements
+        initialize_delegated_entitlements(self)
         previous = self.get_meta("mode")
         if previous is not None and previous != mode:
             self.close()
