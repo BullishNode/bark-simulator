@@ -1,0 +1,21 @@
+[Unit]
+Description=Bark signet simulator observations
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/abandon-ship-simulator
+Environment=PYTHONUNBUFFERED=1
+Environment=SIM_DRIVER_CONFIG=/home/ubuntu/abandon-ship-simulator/config.driver.json
+ExecStart=/usr/bin/python3 -m simulator.cli observe --config config.local.toml
+Restart=on-failure
+RestartSec=15
+UMask=0077
+MemoryMax=1G
+CPUQuota=100%
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+# Use the fork's private public-RPC endpoint, never a default upstream server.
+server_address = "http://127.0.0.1:REPLACE_WITH_FORK_PUBLIC_RPC_PORT"
+bitcoind_address = "http://127.0.0.1:REPLACE_WITH_CORE_RPC_PORT"
+bitcoind_cookiefile = "/home/ubuntu/abandon-signet-fallback/deploy/state/signet-fallback/core.cookie"
+daemon_manual_sync = true
+vtxo_exit_margin = 12

@@ -1,0 +1,482 @@
+[
+  {
+    "id": "H01",
+    "behavior": "Create a wallet, register fallback, then board confirmed funds.",
+    "expected": "Board works only with the valid link/record; principal and actual fees reconcile.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H02",
+    "behavior": "Attempt boarding while the funding confirmation requirement is unmet, then retry.",
+    "expected": "Expected wait/refusal; one eventual funded board, no duplicate liability.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H03",
+    "behavior": "Board, finish registration, and never return.",
+    "expected": "Exactly one expiry payout to this owner's registered BIP84 script.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H04",
+    "behavior": "Broadcast a board, disappear before board registration finishes.",
+    "expected": "Pending-board source eventually pays its owner after real sweep evidence.",
+    "driver": "Phase"
+  },
+  {
+    "id": "H05",
+    "behavior": "Get board cosign/proposal but never broadcast its funding transaction.",
+    "expected": "No fictitious principal, sweep or payout; no server-funded gift.",
+    "driver": "Phase"
+  },
+  {
+    "id": "H06",
+    "behavior": "Create and use several boards in one wallet.",
+    "expected": "Distinct real entitlements; expiry grouping/fees reconcile.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H07",
+    "behavior": "Send arkoor to an online recipient.",
+    "expected": "Recipient owns transferred value; sender change remains sender's.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H08",
+    "behavior": "Send to a previously advertised address of a now-offline recipient.",
+    "expected": "Posted/registered recipient output pays the recipient at expiry without returning.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H09",
+    "behavior": "Receive several payments while offline.",
+    "expected": "All delivered entitled amounts group correctly, once.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H10",
+    "behavior": "Spend only part of a coin through arkoor.",
+    "expected": "Recipient and change have correct links, amounts, and future payouts.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H11",
+    "behavior": "Forward received value across three owners.",
+    "expected": "Final live entitlement is counted once; predecessors cannot receive it again.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H12",
+    "behavior": "Send several payments to the same offline wallet.",
+    "expected": "One destination group rather than a per-coin minimum test.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H13",
+    "behavior": "Accept an arkoor, disconnect before local sync finishes, then reconnect.",
+    "expected": "Server/local state converges without duplicate spend or balance.",
+    "driver": "Phase"
+  },
+  {
+    "id": "H14",
+    "behavior": "Lose the response to a money-moving request.",
+    "expected": "Driver reconciles IDs/status before retry; actual committed action counted once.",
+    "driver": "Phase"
+  },
+  {
+    "id": "H15",
+    "behavior": "Disconnect the sender before signed transfer delivery/posting.",
+    "expected": "Unregistered source follows the input-owner rule unless recipient registration wins first.",
+    "driver": "Phase"
+  },
+  {
+    "id": "H16",
+    "behavior": "Deliver/register that transfer before the expiry settlement commits.",
+    "expected": "Recipient entitlement wins; sender receives only legitimate change.",
+    "driver": "Phase"
+  },
+  {
+    "id": "H17",
+    "behavior": "Perform an ordinary interactive refresh.",
+    "expected": "Replacement appears once; temporary round capital lock is measured.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H18",
+    "behavior": "Keep refreshing for several lifetimes.",
+    "expected": "Old/new backing overlaps are measured; fees and reusable principal remain distinct.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H19",
+    "behavior": "Refresh close to the real eligibility boundary.",
+    "expected": "One valid refresh or one payout; stale inputs are never funded twice.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H20",
+    "behavior": "Start a delegated refresh and immediately go offline.",
+    "expected": "Server completes it or resolves its unclaimed source under actual protocol rules.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H21",
+    "behavior": "Schedule a delegated refresh for a later valid height, then disappear.",
+    "expected": "Scheduled output is linked; later expiry pays the correct wallet.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H22",
+    "behavior": "Drop an hArk completion/unlock step.",
+    "expected": "Unclaimed replacements/predecessors resolve once under the documented rules.",
+    "driver": "Phase"
+  },
+  {
+    "id": "H23",
+    "behavior": "Go offline for less than a lifetime and return.",
+    "expected": "Sync/refresh works; no phantom on-chain payment.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H24",
+    "behavior": "Return after expiry but before durable payout commitment.",
+    "expected": "Valid return action and payout arbitrate; at most one resulting entitlement.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H25",
+    "behavior": "Return after payout confirmation.",
+    "expected": "Ark value removed, on-chain value visible, address rotation recorded.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H26",
+    "behavior": "Recover an absent paid owner using the mnemonic alone.",
+    "expected": "Gap-20 BIP84 scan finds and spends the real output with no Ark-state hints.",
+    "driver": "Phase"
+  },
+  {
+    "id": "H27",
+    "behavior": "Reopen on a second device with the same seed.",
+    "expected": "Fallback state converges; no competing record or double entitlement.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H28",
+    "behavior": "Restart a wallet before the reserved fallback address receives anything.",
+    "expected": "Ordinary receives do not reuse its reservation improperly.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H29",
+    "behavior": "Rotate fallback after a payout, then abandon a later coin.",
+    "expected": "Committed old payout stays at its old script; later payout uses the new record.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H30",
+    "behavior": "Receive amounts that are individually small but jointly payable.",
+    "expected": "Grouped net threshold releases them exactly once.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H31",
+    "behavior": "Hold an aggregate balance below the actual net minimum.",
+    "expected": "Explicit retained obligation, unpaid age and fee sensitivity; never reported as paid.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H32",
+    "behavior": "Add later eligible value to that retained wallet.",
+    "expected": "It becomes payable after grouping when the actual net reaches the minimum.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H33",
+    "behavior": "Offboard voluntarily while online.",
+    "expected": "One on-chain entitlement; no expiry refund for offboarded predecessors.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H34",
+    "behavior": "Start a unilateral exit on this actor's own coin.",
+    "expected": "Exact backing path prevents an overlapping automatic payout; watchman burden measured.",
+    "driver": "SDK"
+  },
+  {
+    "id": "H35",
+    "behavior": "Pay a controlled external LN invoice successfully, then disappear.",
+    "expected": "Payee paid; no sender refund of successful principal; change still recoverable.",
+    "driver": "SDK/Peer"
+  },
+  {
+    "id": "H36",
+    "behavior": "Have an external LN send fail terminally, then disappear before revocation.",
+    "expected": "Failed send is automatically paid back to sender when independently eligible.",
+    "driver": "SDK/Peer"
+  },
+  {
+    "id": "H37",
+    "behavior": "Receive an external LN payment and finish the claim normally.",
+    "expected": "Collected value appears once; channel/on-chain capital changes reconcile.",
+    "driver": "SDK/Peer"
+  },
+  {
+    "id": "H38",
+    "behavior": "Complete the collection-enabling receive phase, then disappear before final claim delivery.",
+    "expected": "Verified collected receive gets the correct automatic payout; return drops stale claimable value.",
+    "driver": "Phase/Peer"
+  },
+  {
+    "id": "H39",
+    "behavior": "Prepare a receive but never reveal/commit what permits collection.",
+    "expected": "External payment fails back or internal sender eventually gets the rightful refund; no unfunded recipient payout.",
+    "driver": "Phase/Peer"
+  },
+  {
+    "id": "H40",
+    "behavior": "Pay another Bark actor through internal LN: exercise both normal completion and a disappearing recipient.",
+    "expected": "Correct internal settlement or refund; do not fabricate external channel movement.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D01",
+    "behavior": "Register another wallet's fallback using the attacker's signature.",
+    "expected": "Refused; victim record unchanged.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D02",
+    "behavior": "Alter the script in a signed fallback record.",
+    "expected": "Signature verification rejects it.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D03",
+    "behavior": "Alter the sequence in a signed fallback record.",
+    "expected": "Signature verification rejects it.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D04",
+    "behavior": "Replay a correctly signed record bound to another genesis hash.",
+    "expected": "Refused; no cross-chain record replay.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D05",
+    "behavior": "Replay an older valid record after a newer record exists.",
+    "expected": "Stored newer record survives; no rollback.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D06",
+    "behavior": "Submit a different script with the same record sequence.",
+    "expected": "Deterministic stored-record rule; no unsigned/ambiguous replacement.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D07",
+    "behavior": "Mix a valid record with invalid links in one request.",
+    "expected": "No unauthorized record/link partial application.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D08",
+    "behavior": "Forge a coin-key link for a victim public key.",
+    "expected": "Refused; coin cannot be redirected.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D09",
+    "behavior": "Replace the mailbox in an otherwise signed key link.",
+    "expected": "Refused; signature binds the wallet identity.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D10",
+    "behavior": "Replay one coin key's link for another key.",
+    "expected": "Refused.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D11",
+    "behavior": "Relink an already linked key using another mailbox.",
+    "expected": "Immutable link survives.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D12",
+    "behavior": "Request board creation without a link/record.",
+    "expected": "Creation refusal; no funded uncovered coin.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D13",
+    "behavior": "Request a round output without a link/record.",
+    "expected": "Creation refusal.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D14",
+    "behavior": "Request arkoor creation without a link/record.",
+    "expected": "Creation refusal.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D15",
+    "behavior": "Request a Lightning receive output without a link/record.",
+    "expected": "Creation refusal before unfunded/incorrect entitlement.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D16",
+    "behavior": "Request a Lightning-send/change output without a link/record.",
+    "expected": "Creation refusal for the actual output path under test.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D17",
+    "behavior": "Race two arkoor spends of the same input to different owned recipients.",
+    "expected": "At most one accepted successor path.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D18",
+    "behavior": "Race arkoor against interactive refresh of the same input.",
+    "expected": "One winner; losing request cannot claim another payout.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D19",
+    "behavior": "Race offboard against refresh of the same input.",
+    "expected": "One paid/successor entitlement.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D20",
+    "behavior": "Race unilateral exit against cooperative spending.",
+    "expected": "Chain and protocol arbitration prevent two funded claims; exact path recorded.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D21",
+    "behavior": "Replay a spend of an expiry-settled coin.",
+    "expected": "Settled refusal; no new amount or service crash.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D22",
+    "behavior": "Replay a delivered chain/mailbox message.",
+    "expected": "No duplicate credit, liability, or future payout.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D23",
+    "behavior": "Submit an altered/incomplete signed transfer chain for registration.",
+    "expected": "Invalid proof rejected; no payee change.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D24",
+    "behavior": "Deliver a previously unregistered chain after its input-owner payout committed.",
+    "expected": "Delivery/registration refused as settled; no second recipient payment.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D25",
+    "behavior": "Combine independent input-owner chains and try to attribute all outputs to one owner.",
+    "expected": "Each actual parent controls its entitlement; attacker cannot collect another parent's amount.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D26",
+    "behavior": "Race two delegated refresh requests on identical inputs.",
+    "expected": "One exchange or consistent refusal, never duplicated replacements.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D27",
+    "behavior": "Resubmit cached forfeit/completion data after expiry cancellation.",
+    "expected": "Canceled/settled participation cannot be revived for another payment.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D28",
+    "behavior": "Present an unrelated branch's confirmed sweep as proof for this coin.",
+    "expected": "This coin stays unpaid until its own path satisfies the proof.",
+    "driver": "Raw/Phase"
+  },
+  {
+    "id": "D29",
+    "behavior": "Request a refund for a successful Lightning send.",
+    "expected": "Refused even if a client missed its successful response/preimage.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D30",
+    "behavior": "Request a refund while the Lightning result is still unknown/pending.",
+    "expected": "No refund based only on silence or a client timeout.",
+    "driver": "Raw/Peer"
+  },
+  {
+    "id": "D31",
+    "behavior": "Replay a completed receive claim.",
+    "expected": "No second credit/payout.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D32",
+    "behavior": "Submit a wrong preimage for a prepared receive.",
+    "expected": "Cannot collect or redirect value; rightful resolution remains possible.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D33",
+    "behavior": "Claim an internal receive after a sender refund committed.",
+    "expected": "Refused; no late recipient creation over refunded funds.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D34",
+    "behavior": "Revoke the sender while a valid internal recipient claim is committing.",
+    "expected": "Recipient's valid claim and refund arbitrate once.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D35",
+    "behavior": "Request an excessive or invalid block-height expiry on a legitimately collected receive.",
+    "expected": "Bounded refusal, no panic; no attacker-chosen far-future reclaim lock.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D36",
+    "behavior": "Keep a prepared internal receive unfinished to immobilize sender funds.",
+    "expected": "Refund/claim deadline resolves ownership; lock duration and capital cost measured.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D37",
+    "behavior": "Send many small valid coins to an absent owner (bounded fragmentation).",
+    "expected": "Grouped payment remains possible; old 101-coin blockage must not recur.",
+    "driver": "SDK"
+  },
+  {
+    "id": "D38",
+    "behavior": "Repeatedly join and abandon round participation at different client stages.",
+    "expected": "Bounded lock duration, eventual valid-source resolution; ordinary actors still progress.",
+    "driver": "Phase"
+  },
+  {
+    "id": "D39",
+    "behavior": "Repeated valid read/record/invoice requests with capped rate and count.",
+    "expected": "Measure amplification, row growth, RPC latency and operator costs; no loss/misdirection.",
+    "driver": "Raw"
+  },
+  {
+    "id": "D40",
+    "behavior": "Malformed/truncated/oversized requests within the declared test cap.",
+    "expected": "Controlled refusal/size limit; captaind stays healthy and honest actors progress.",
+    "driver": "Raw"
+  }
+]

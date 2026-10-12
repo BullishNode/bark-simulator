@@ -1,0 +1,14 @@
+[Unit]
+Description=Private loopback report for simulator calibration
+After=abandon-simulation-observer.service
+[Service]
+User=ubuntu
+ExecStart=/usr/bin/python3 /opt/abandon-simulation/report-server.py /var/lib/abandon-simulation/calibration
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

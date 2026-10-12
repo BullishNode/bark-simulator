@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "abandon-ship-simulator"
+version = "0.1.0"
+description = "Continuous Bark signet workload and operator capital observations"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+bark-simulator = "simulator.cli:main"
+
+[tool.setuptools]
+packages = ["simulator"]
+
+[tool.setuptools.package-data]
+simulator = ["scenarios.json"]

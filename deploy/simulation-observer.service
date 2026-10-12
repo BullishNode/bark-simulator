@@ -1,0 +1,21 @@
+[Unit]
+Description=Read-only calibration of fallback operator and independent signet node
+After=network-online.target abandon-simulation-tunnel.service abandon-simulation-bitcoind.service
+Wants=network-online.target abandon-simulation-tunnel.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/abandon-ship-simulator
+Environment=PYTHONUNBUFFERED=1
+Environment=SIM_DRIVER_CONFIG=/home/ubuntu/abandon-ship-simulator/config.driver.json
+ExecStart=/usr/bin/python3 -m simulator.cli observe --config /home/ubuntu/abandon-ship-simulator/config.calibration.toml
+Restart=on-failure
+RestartSec=15
+UMask=0077
+MemoryMax=1G
+CPUQuota=100%
+KillMode=control-group
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,60 @@
+name: abandon-simulation-lightning
+services:
+  internal:
+    image: sha256:d39a7befb75611a76002a5c2e75c8d9d3be9796c68d0bb1148de98f1dbe7add1
+    pull_policy: never
+    entrypoint: [lightningd]
+    user: '1000:1000'
+    network_mode: host
+    restart: unless-stopped
+    stop_grace_period: 3m
+    environment:
+      LIGHTNINGD_NETWORK: signet
+    volumes:
+      - /var/lib/abandon-simulation/ln-internal:/data/.lightning
+      - /var/lib/abandon-simulation/core:/data/.bitcoin:ro
+    command:
+      - --network=signet
+      - --lightning-dir=/data/.lightning
+      - --bitcoin-datadir=/data/.bitcoin
+      - --bitcoin-rpcconnect=127.0.0.1
+      - --bitcoin-rpcport=38332
+      - --addr=127.0.0.1:9740
+      - --grpc-host=0.0.0.0
+      - --grpc-port=9470
+      - --important-plugin=/plugins/hold
+      - --hold-grpc-host=0.0.0.0
+      - --hold-grpc-port=9471
+      - --alias=abandon-sim-internal
+      - --allow-deprecated-apis=false
+      - --log-level=info
+    logging:
+      driver: json-file
+      options: {max-size: '20m', max-file: '5'}
+  external:
+    image: sha256:d39a7befb75611a76002a5c2e75c8d9d3be9796c68d0bb1148de98f1dbe7add1
+    pull_policy: never
+    entrypoint: [lightningd]
+    user: '1000:1000'
+    network_mode: host
+    restart: unless-stopped
+    stop_grace_period: 3m
+    environment:
+      LIGHTNINGD_NETWORK: signet
+    volumes:
+      - /var/lib/abandon-simulation/ln-external:/data/.lightning
+      - /var/lib/abandon-simulation/core:/data/.bitcoin:ro
+    command:
+      - --network=signet
+      - --lightning-dir=/data/.lightning
+      - --bitcoin-datadir=/data/.bitcoin
+      - --bitcoin-rpcconnect=127.0.0.1
+      - --bitcoin-rpcport=38332
+      - --addr=127.0.0.1:9741
+      - --grpc-port=9472
+      - --alias=abandon-sim-external
+      - --allow-deprecated-apis=false
+      - --log-level=info
+    logging:
+      driver: json-file
+      options: {max-size: '20m', max-file: '5'}

@@ -1,0 +1,20 @@
+# Must be replaced with measured target identity; placeholders deliberately fail.
+[target]
+network = "signet"
+genesis = "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6"
+container = "abandon-signet-fallback-fb-captaind-1"
+image_digest = "REPLACE_WITH_EXACT_SHA256_IMAGE"
+server_pubkey = "REPLACE_WITH_COMPRESSED_SERVER_PUBKEY"
+
+[runtime]
+state_dir = "/home/ubuntu/abandon-ship-simulator/runs/epoch-001"
+wallet_root = "/home/ubuntu/abandon-ship-simulator/wallets"
+fee_budget_sat = 10000
+active = false
+workload = "none" # pilot creates actors and boards only their externally funded wallets
+board_amount_sat = 12000
+action_fee_reserve_sat = 2000
+interval_seconds = 30
+action_timeout_seconds = 120
+observer_command = ["python3", "-m", "simulator.vm_observer", "--deployment", "/home/ubuntu/abandon-signet-fallback/deploy", "--container", "abandon-signet-fallback-fb-captaind-1", "--driver", "/home/ubuntu/abandon-ship-simulator/target/debug/bark-sim-driver", "--server-pubkey", "REPLACE_WITH_COMPRESSED_SERVER_PUBKEY"]
+driver_command = ["/home/ubuntu/abandon-ship-simulator/target/debug/bark-sim-driver"]

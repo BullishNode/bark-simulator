@@ -1,0 +1,5 @@
+{
+  "ark_endpoint": "http://127.0.0.1:REPLACE_WITH_FORK_PUBLIC_RPC_PORT",
+  "wallet_config": "/home/ubuntu/abandon-ship-simulator/config.wallet.toml",
+  "wallet_root": "/home/ubuntu/abandon-ship-simulator/wallets"
+}

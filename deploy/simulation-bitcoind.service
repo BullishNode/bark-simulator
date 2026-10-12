@@ -1,0 +1,23 @@
+[Unit]
+Description=Abandon Ship simulation Bitcoin signet node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+ExecStart=/opt/abandon-simulation/bin/bitcoind -datadir=/var/lib/abandon-simulation/core -conf=/var/lib/abandon-simulation/core/bitcoin.conf
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=300
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/abandon-simulation/core
+PrivateTmp=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
