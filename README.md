@@ -53,3 +53,6 @@ SIM_DRIVER_CONFIG="$PWD/config.driver.json" \
 Keep wallet directories, mnemonics, RPC credentials, local configurations, and campaign databases private. The repository contains source and configuration templates.
 
 See [accounting and state invariants](docs/invariants.md) and [verification](docs/verification.md) for the evidence requirements and current test coverage. Deployment templates are in `deploy/`.
+
+[Payout verification and recovery](docs/payout-verification.md) describes public
+proof imports, historical operator change checks and declared seed-only recovery.

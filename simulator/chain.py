@@ -10,7 +10,8 @@ class ChainReader:
         self.url,self.credential,self.expected=url,Path(credential),expected_genesis
         self.cache={}
     def call(self,method,*args):
-        if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout'}:raise ValueError('read-only RPC required')
+        if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout',
+                          'getdescriptorinfo','deriveaddresses','validateaddress'}:raise ValueError('read-only RPC required')
         token=base64.b64encode(self.credential.read_text().strip().encode()).decode()
         req=urllib.request.Request(self.url,json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':args}).encode(),{'Authorization':'Basic '+token,'Content-Type':'application/json'})
         with urllib.request.urlopen(req,timeout=12) as f:r=json.load(f,parse_float=Decimal)

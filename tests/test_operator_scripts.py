@@ -10,9 +10,14 @@ from simulator.ownership import EvidenceGap, record_server_page
 from simulator.settlements import check_payment
 
 
-class OperatorScriptTests(SettlementTests):
+class OperatorScriptTests(unittest.TestCase):
+    tearDown = SettlementTests.tearDown
+    proof = SettlementTests.proof
+    record = SettlementTests.record
+    server = SettlementTests.server
+    evidence = SettlementTests.evidence
     def setUp(self):
-        super().setUp()
+        SettlementTests.setUp(self)
         self.row, self.tx = self.evidence()
         self.s.db.execute("DELETE FROM operator_script")
         self.s.db.execute("INSERT INTO operator_script VALUES (?,?)",
@@ -31,6 +36,7 @@ class OperatorScriptTests(SettlementTests):
         class Chain:
             private = False
             foreign = False
+            confirmed = True
             calls = []
             def identity(self): return {'blocks': 100}
             def call(self, method, *args):
@@ -47,7 +53,7 @@ class OperatorScriptTests(SettlementTests):
                 raise AssertionError(method)
             def tx(self, txid):
                 outputs = [('anchor-script', 'address-0')] if txid == 'anchor' else [('spk-actor-01', 'client'), ('change', 'address-1')]
-                return {'txid': txid, 'confirmations': 2, 'vout': [
+                return {'txid': txid, 'confirmations': 2 if self.confirmed else 0, 'vout': [
                     {'n': i, 'scriptPubKey': {'hex': script, 'address': address}}
                     for i, (script, address) in enumerate(outputs)]}
         self.chain = Chain()
@@ -95,11 +101,31 @@ class OperatorScriptTests(SettlementTests):
         self.assertEqual(before, self.s.db.execute('SELECT COUNT(*) FROM event').fetchone()[0])
         self.assertEqual(3, self.s.db.execute('SELECT COUNT(*) FROM operator_address').fetchone()[0])
 
-    def test_identity_mismatch_and_unconfirmed_anchor_hold_ownership(self):
+    def test_identity_mismatch_holds_ownership(self):
         self.value['identity']['server_pubkey'] = 'foreign'
         self.path.write_text(json.dumps(self.value))
         self.collect()
         self.assertFalse(any(method == 'deriveaddresses' for method, _ in self.chain.calls))
+
+    def test_unconfirmed_anchor_cannot_qualify_descriptor(self):
+        self.chain.confirmed = False
+        self.collect()
+        self.assertIsNone(self.s.db.execute('SELECT anchor_outpoint FROM operator_descriptor').fetchone()[0])
+        self.assertIsNone(self.s.db.execute("SELECT 1 FROM operator_script WHERE script='change'").fetchone())
+
+    def test_mismatched_core_script_is_an_ownership_incident(self):
+        original = self.chain.call
+        self.chain.call = lambda method, *args: ({'isvalid': True, 'scriptPubKey': 'wrong'}
+            if method == 'validateaddress' else original(method, *args))
+        with self.assertRaises(InvariantError): self.collect()
+
+    def test_duplicate_derived_addresses_hold_without_partial_range_commit(self):
+        original = self.chain.call
+        self.chain.call = lambda method, *args: (['same'] * 3
+            if method == 'deriveaddresses' else original(method, *args))
+        self.collect()
+        self.assertEqual(0, self.s.db.execute('SELECT COUNT(*) FROM operator_address').fetchone()[0])
+        self.assertEqual(0, self.s.db.execute('SELECT next_index FROM operator_descriptor').fetchone()[0])
 
 
 if __name__ == '__main__': unittest.main()

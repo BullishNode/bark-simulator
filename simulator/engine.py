@@ -30,6 +30,7 @@ from .payments import collect as collect_payments
 from .proof_import import collect as collect_public_proofs
 from .recovery import RecoveryController
 from .entitlements import record_submitted as record_delegated, collect as collect_delegated
+from .operator_scripts import collect as collect_operator_scripts
 
 OPERATIONS = {"create", "snapshot", "sync", "address", "board", "send_arkoor", "refresh",
               "refresh_delegated", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES)
@@ -241,6 +242,7 @@ class Engine:
                 await retry_public_candidates(self.store,self.config.proof_command)
                 if len(self.config.proof_command)==4:
                     chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],self.config.expected_genesis)
+                    await collect_operator_scripts(self.store,self.config,chain)
                     await collect_settlements(self.store,chain)
                     if self.recovery: await self.recovery.tick()
                     await collect_fees(self.store,chain)

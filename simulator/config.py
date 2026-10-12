@@ -66,6 +66,7 @@ class Config:
     recovery_maximum_fee_sat: int = 2000
     recovery_fee_rate_sat_vb: int = 3
     recovery_timeout_seconds: int = 86400
+    operator_descriptors: tuple[Path, ...] = ()
 
     @classmethod
     def load(cls, path: Path):
@@ -113,6 +114,11 @@ class Config:
         if not isinstance(proofs, dict) or set(proofs) - {'bundles'}:
             raise ValueError('proofs supports declared local bundles only')
         proof_bundles = declared_paths(proofs.get('bundles', []), paths[1])
+        from .operator_scripts import declaration_paths
+        operator = data.get('operator', {})
+        if not isinstance(operator, dict) or set(operator) - {'descriptors'}:
+            raise ValueError('operator supports declared public descriptors only')
+        operator_descriptors = declaration_paths(operator.get('descriptors', []), paths[1])
         return cls(state_dir=paths[0], observer_command=tuple(runtime["observer_command"]),
                    driver_command=tuple(runtime.get("driver_command", [])), wallet_root=paths[1],
                    expected_genesis=target["genesis"], expected_container=container,
@@ -125,6 +131,7 @@ class Config:
                    recovery_destination=recovery_destination, recovery_maximum_fee_sat=recovery_maximum_fee_sat,
                    recovery_fee_rate_sat_vb=integer(recovery.get('fee_rate_sat_vb', 3), 'recovery fee rate', 1),
                    recovery_timeout_seconds=integer(recovery.get('timeout_seconds', 86400), 'recovery timeout', 1),
+                   operator_descriptors=operator_descriptors,
                    proof_bundles=proof_bundles, proof_command=tuple(runtime.get("proof_command",[])), inventory_command=tuple(runtime.get("inventory_command",[])),
                    funding_wallet=data.get("funding",{}).get("wallet",""),funding_credential_file=data.get("funding",{}).get("credential_file",""),
                    board_amount_sat=integer(runtime.get("board_amount_sat", 12000), "board amount", 1),
