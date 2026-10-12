@@ -23,7 +23,7 @@ async fn simulator_confirmed_round_scheduler_cycle() {
     std::fs::create_dir_all(&out).unwrap();
     // Declared isolated principals: server1M, two20k deposits/two12k boards.
     // Every customer operation retains <=2k maximum fee; no later funding.
-    write(&out.join("principal-declaration.json"),&json!({"server_sat":1_000_000,"customer_deposits_sat":[20_000,20_000],"customer_boards_sat":[12_000,12_000],"maximum_customer_fee_sat":2000,"lifetime_blocks":432,"sdk_depth":1,"sdk_exit_margin":12}));
+    write(&out.join("principal-declaration.json"),&json!({"server_sat":1_000_000,"fixture_cln_deposit_sat":1_200_000_000,"fixture_channel_capacity_sat":1_000_000_000,"fee_training_self_transfers":{"count":96,"amount_each_sat":100_000,"fee_rate_sat_vb":3},"customer_deposits_sat":[20_000,20_000],"customer_boards_sat":[12_000,12_000],"maximum_customer_fee_sat":2000,"lifetime_blocks":432,"sdk_depth":1,"sdk_exit_margin":12}));
     let ctx=TestContext::new("bark_sdk/simulator_confirmed_round_scheduler_cycle").await;
     let lightning=ctx.new_lightning_setup("lightningd").await;
     let core=ctx.bitcoind().sync_client();
