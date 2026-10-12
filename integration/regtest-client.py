@@ -135,8 +135,11 @@ elif mode=='scheduled_refresh':
         # exact actor online flags are restored before dispatch.
         with store.transaction():
             store.db.execute('UPDATE actor SET online=0 WHERE id!=?',(actor,))
+        try:
             schedule(store,cfg,{'capabilities':{'lightning_configured':False}})
-            for name,value in online.items():store.db.execute('UPDATE actor SET online=? WHERE id=?',(value,name))
+        finally:
+            with store.transaction():
+                for name,value in online.items():store.db.execute('UPDATE actor SET online=? WHERE id=?',(value,name))
         action=store.db.execute("SELECT * FROM action WHERE actor_id=? AND state='queued'",(actor,)).fetchone()
         assert action and action['operation'] in {'refresh','refresh_delegated'} and action['fee_reservation_sat']==2000
         asyncio.run(Engine(cfg,store).run(once=True))
