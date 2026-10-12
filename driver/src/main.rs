@@ -160,6 +160,10 @@ fn verify_recycle_input(psbt:&bitcoin::Psbt,source:&Value)->Result<()> {
     Ok(())
 }
 
+fn verify_exit_budget(_frozen:u64, _requested:u64, _reserved:&[u64], _next:u64)->Result<()> {
+    Ok(())
+}
+
 fn public_payment_status(
     hash: sha256::Hash,
     status: protos::LightningPaymentStatus,
@@ -1263,6 +1267,15 @@ mod tests {
         let result=observed_wallet_operation(async {bail!("original operation failure")},
             ||async {Ok(json!({"coins":[]}))},|_,_|bail!("journal unavailable")).await;
         assert_eq!(result.unwrap_err().to_string(),"original operation failure");
+    }
+
+
+    #[test]
+    fn exit_budget_never_expands_or_ignores_prior_signed_attempts() {
+        assert!(verify_exit_budget(1000,1000,&[400],600).is_ok());
+        assert!(verify_exit_budget(1000,1001,&[400],600).is_err(),"a resumed exit silently increased its fee cap");
+        assert!(verify_exit_budget(1000,1000,&[400],601).is_err(),"exit ignored already reserved mining fees");
+        assert!(verify_exit_budget(1000,1000,&[u64::MAX],1).is_err(),"exit fee sum overflow was accepted");
     }
 
     #[test]
