@@ -145,3 +145,28 @@ class OwnerAllocationTrancheTests(unittest.TestCase):
         self.s.set_online('actor-05',False);self.assertFalse(renewal.queue_board(self.s,'actor-05',detail,self.c));self.s.set_online('actor-05',True)
         detail['permanent_absence']={'original_wallet_must_stay_closed':True};self.s.db.execute("UPDATE actor SET details=? WHERE id='actor-05'",(canonical(detail),))
         self.assertFalse(renewal.queue_board(self.s,'actor-05',detail,self.c));self.assertFalse(self.s.db.execute("SELECT 1 FROM action WHERE operation='board'").fetchone())
+
+    def test_input_alias_or_changed_declared_wallet_is_rejected(self):
+        declaration=self.prepare()
+        for point in ('a'*64+':00','a'*64+':4294967296'):
+            with self.subTest(point=point),self.assertRaises(InvariantError):renewal.declare(self.s,declaration|{'source':declaration['source']|{'outpoint':point}})
+        self.rpc.wallet='another-wallet'
+        with self.assertRaises(InvariantError):self.fund()
+        self.assertFalse(any(m=='walletprocesspsbt' for m,_ in self.rpc.calls))
+
+    def test_fixed_grants_allow_stale_wallet_cache_and_preserve_queued_reads(self):
+        self.prepare()
+        self.detail('actor-02',board_submitted=True,funding_address='tb1q-client-02',snapshot_at=0,needs_sync=True)
+        self.s.queue('old-snapshot','actor-02','H01','snapshot',{},0)
+        self.s.queue('old-address','actor-01','H01','address',{},0)
+        before=[dict(r) for r in self.s.db.execute('SELECT * FROM action ORDER BY id')]
+        self.assertEqual('broadcast',self.fund()['state'])
+        self.assertEqual(before,[dict(r) for r in self.s.db.execute('SELECT * FROM action ORDER BY id')])
+    def test_queued_sync_or_money_still_holds_without_cancelling_it(self):
+        self.prepare()
+        for operation in ('sync','board','refresh','pay_invoice'):
+            action='pending-'+operation;self.s.queue(action,'actor-02','H01',operation,{},2000)
+            self.assertEqual('held_recipient_change',self.fund()['state'])
+            self.assertEqual('queued',self.s.db.execute('SELECT state FROM action WHERE id=?',(action,)).fetchone()[0])
+            self.s.db.execute("UPDATE action SET state='completed' WHERE id=?",(action,))
+        self.assertFalse(any(m=='walletprocesspsbt' for m,_ in self.rpc.calls))
