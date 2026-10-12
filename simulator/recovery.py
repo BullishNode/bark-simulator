@@ -38,6 +38,20 @@ CREATE TABLE IF NOT EXISTS recovered_capital(recovery_id TEXT PRIMARY KEY REFERE
 '''
 
 
+def report(store, limit=100):
+    """Confirmed recovery ledger totals, never a funding-wallet balance."""
+    available = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='recovered_capital'").fetchone()
+    totals = store.db.execute('SELECT COUNT(*),COALESCE(SUM(gross_sat),0),COALESCE(SUM(fee_sat),0),COALESCE(SUM(recovered_sat),0) FROM recovered_capital').fetchone() if available else (0, 0, 0, 0)
+    rows = [dict(row) for row in store.db.execute('SELECT * FROM recovered_capital ORDER BY recovery_id LIMIT ?', (limit,))] if available else []
+    pending = [dict(row) for row in store.db.execute("SELECT id,actor,state,txid,fee_sat,updated_at FROM seed_recovery WHERE state!='confirmed' ORDER BY updated_at,id LIMIT ?", (limit,))] if available else []
+    return {'declared': store.get_meta('seed_recovery_declaration') is not None,
+            'confirmed_count': totals[0], 'confirmed_gross_sat': totals[1],
+            'confirmed_fee_sat': totals[2], 'confirmed_recovered_sat': totals[3],
+            'confirmed_transactions': rows, 'pending': pending, 'detail_limit': limit,
+            'recycling_credit_sat': 0, 'traffic_credit_seconds': 0,
+            'scope': 'separate confirmed seed-only recovery ledger; funding-wallet balance and recycling remain separate'}
+
+
 def declared_seeds(values, wallet_root):
     if not isinstance(values, dict) or len(values) > 99:
         raise ValueError('declare recovery backups per actor')

@@ -12,6 +12,8 @@ from .store import Store
 from .continuous import absence_report
 from .recycling import report as recycling_report
 from .raw_cases import RAW_CASES
+from .recovery import report as recovery_report
+from .entitlements import unclaimed_expired_report
 
 
 # Primitive operations can exercise part of a behavior. Their availability and
@@ -24,6 +26,7 @@ SCENARIO_OPERATIONS = {
     **{case:{'refresh'} for case in ('H17','H18','H19')},
     'H20': {'refresh_delegated'},
     **{case:{'sync'} for case in ('H23','H24','H25','H31')},
+    'H26': {'seed_recovery'},
     'H28': {'create'}, 'H33': {'offboard_all'}, 'H34': {'exit'},
     'H35': {'pay_invoice'}, 'H36': {'pay_invoice'}, 'H37': {'invoice','sync'},
     'H40': {'invoice','pay_invoice','sync'},
@@ -152,7 +155,8 @@ def coverage(store):
         driver = case.get('driver')
         operations = SCENARIO_OPERATIONS.get(row['id'],set()) if driver in {
             'SDK','SDK/Peer','Phase','Phase/Peer','Raw','Raw/Phase','Raw/Peer'} else set()
-        supported = operations & OPERATIONS
+        controlled = {'seed_recovery'} if store.get_meta('seed_recovery_declaration') else set()
+        supported = operations & (OPERATIONS | controlled)
         states, breakdown, proofs, reasons = {}, [], [], []
         excluded = verified = funds_blocked = adapter_blocked = total = 0
         for (scenario,operation),item in aggregates.items():
@@ -225,6 +229,14 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
         "actions": actions, "coverage": coverage_rows, "entitlements": liabilities,
         "permanent_receive_absences":absence_report(store),
         "capital_recycling":recycling_report(store),
+        "seed_recovery_capital":recovery_report(store),
+        "delegated_refresh_entitlements":{
+            "state_counts":{r['state']:r['count'] for r in store.db.execute('SELECT state,COUNT(*) count FROM delegated_entitlement GROUP BY state')},
+            "rows":[{**dict(r),"input_coin_ids":json.loads(r['input_coin_ids']),"replacement_ids":json.loads(r['replacement_ids'])}
+                for r in store.db.execute('SELECT action_id,actor_id,state,input_coin_ids,replacement_ids,round_txid,server_round_id FROM delegated_entitlement ORDER BY updated_at DESC,action_id LIMIT 1000')],
+            "scope":"durable intent history; successive refresh amounts are not additive capital"},
+        "expired_unclaimed_outputs":unclaimed_expired_report(store,snapshots[-1]['height'])
+            if snapshots and type(snapshots[-1].get('height')) is int else {"status":"unknown_height","inventory_consistent":False},
         "owner_funded_renewal":{kind:[json.loads(r[0]) for r in store.db.execute('SELECT payload FROM event WHERE kind=? ORDER BY sequence',(kind,))]
             for kind in ['owner_renewal_allocation_intent','owner_renewal_confirmed','owner_renewal_board_intent']},
         "ownership_evidence": {"verified_keys":store.db.execute("SELECT COUNT(*) FROM owner_key").fetchone()[0],
