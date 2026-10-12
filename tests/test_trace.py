@@ -120,3 +120,9 @@ class TraceTests(unittest.TestCase):
         self.assertEqual(['two'], [r['action_id'] for r in trace.records(after=first + 1)])
         self.assertEqual(['one'], [r['action_id'] for r in trace.records(before=first)])
         self.assertEqual(2, trace.verify()['records'])
+
+    def test_symlink_archive_is_rejected_without_following_external_partitions(self):
+        from simulator.trace import partition_paths
+        external=self.root/'external';external.mkdir()
+        (self.root/'trace-archive').symlink_to(external,target_is_directory=True)
+        with self.assertRaises(ValueError):partition_paths(self.root)
