@@ -28,9 +28,23 @@ class SettlementTests(unittest.TestCase):
         for mutate in ['script','amount']:
             with self.subTest(mutate=mutate):
                 row,tx=self.evidence()
-                if mutate=='script':row['spk']='attacker-spk'
+                if mutate=='script':
+                    self.record('actor-02','other:0','foreign',amount=5000)
+                    row['spk']='spk-actor-02'
                 else:tx['outputs'][0]['amount_sat']=9702
                 with self.assertRaises(InvariantError):check_payment(self.s,[row],tx)
+    def test_missing_historical_record_remains_pending_without_claiming_payment(self):
+        row,tx=self.evidence()
+        self.s.db.execute("DELETE FROM owner_record WHERE script=?",(row['spk'],))
+        with self.assertRaisesRegex(EvidenceGap,'historical payout destination record'):
+            check_payment(self.s,[row],tx)
+        self.assertEqual(0,self.s.db.execute('SELECT COUNT(*) FROM checked_settlement').fetchone()[0])
+
+    def test_known_competing_destination_is_an_incident(self):
+        row,tx=self.evidence();self.record('actor-02','other:0','foreign',amount=5000)
+        row['spk']='spk-actor-02'
+        with self.assertRaises(InvariantError):check_payment(self.s,[row],tx)
+
     def test_unconfirmed_payment_and_unverified_change_are_not_success(self):
         row,tx=self.evidence();tx['confirmations']=0
         with self.assertRaises(EvidenceGap):check_payment(self.s,[row],tx)
