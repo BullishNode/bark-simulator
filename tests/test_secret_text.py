@@ -13,3 +13,8 @@ class SecretTextTests(unittest.TestCase):
     def test_public_signed_coin_and_hashes_remain_allowed(self):
         public_payload({'signed_vtxo':'ab'*2048,'payment_hash':'cd'*32,
                         'success_preimage_hash_valid':True})
+
+    def test_embedded_mnemonic_and_preimage_assignment_are_rejected(self):
+        phrase=' '.join(['abandon']*11+['about'])
+        for text in ('DEBUG wallet: '+phrase+'\nfinished', 'preimage = '+ 'ab'*32):
+            with self.subTest(text=text),self.assertRaises(ValueError):public_payload({'text':text})
