@@ -209,3 +209,24 @@ class RoundSchedulerCycleTests(unittest.TestCase):
         self.assertEqual(1,len(queued));self.assertEqual(('actor-02','sync'),(queued[0]['actor_id'],queued[0]['operation']))
         tick=json.loads(self.s.db.execute("SELECT payload FROM event WHERE kind='scheduler_tick' ORDER BY sequence DESC LIMIT 1").fetchone()[0])
         self.assertEqual('round_confirmed_sync',tick['actors'][0]['rule_id']);self.assertEqual('queued',tick['actors'][0]['outcome'])
+
+class RoundSecurityLifecycleTests(unittest.TestCase):
+    setUp=RoundAdoptionTests.setUp
+    tearDown=RoundAdoptionTests.tearDown
+    server=RoundAdoptionTests.server
+    decoder=RoundAdoptionTests.decoder
+    def test_security_warning_clears_only_from_positive_current_safe_window(self):
+        from simulator.round_adoption import security_findings,record_input_params,observation_can_clear
+        from unittest.mock import patch
+        self.s.db.execute('DELETE FROM round_input_params')
+        record_input_params(self.s,'aa',{'schema_version':1,'id':'input:0','candidate_user_pubkey':INPUT_KEY,'amount_sat':10000,'expiry_height':130,'exit_delta':12,'server_pubkey':SERVER,'client_owner_verified':False,'chain_contract_verified':False},SERVER,'cc'*32)
+        finding=security_findings(self.s,self.c,self.snapshot,decoder=self.decoder)[0]
+        self.s.db.execute("INSERT INTO observation VALUES (?,?,'active',?,?,?,?,1)",(finding['key'],'warning','security window',canonical(finding),1000,1000))
+        self.snapshot['height']=130
+        from simulator.round_adoption import candidate_rounds
+        candidates=candidate_rounds(self.s,self.c,decoder=self.decoder)
+        with patch('simulator.round_adoption.candidate_rounds',return_value=candidates),patch('simulator.round_adoption.time.time',return_value=1000):
+            self.assertTrue(observation_can_clear(self.s,finding['key'],self.snapshot,self.c))
+        self.s.db.execute('DELETE FROM round_input_params')
+        with patch('simulator.round_adoption.candidate_rounds',return_value=candidates),patch('simulator.round_adoption.time.time',return_value=1000):
+            self.assertFalse(observation_can_clear(self.s,finding['key'],self.snapshot,self.c))
