@@ -104,6 +104,8 @@ def record_actor_result(store: Store, actor: str, operation: str, data: dict):
         elif operation == "snapshot":
             details["snapshot_at"] = time.time()
             details["registered_spendable_sat"] = integer(data["balance"]["spendable_sat"], "client spendable balance")
+            details["needs_refresh_sat"] = integer(data["balance"].get("needs_refresh_sat", 0), "client refreshable balance")
+            details["pending_in_round_sat"] = integer(data["balance"].get("pending_in_round_sat", 0), "client pending round balance")
             details["onchain_confirmed_sat"] = integer(data["onchain"]["confirmed_sat"], "client confirmed balance")
             details["coin_ids"] = [v["id"] for v in data["vtxos"]]
             if any(not isinstance(coin, str) or not coin for coin in details["coin_ids"]):

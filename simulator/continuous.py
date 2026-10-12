@@ -12,6 +12,17 @@ from .renewal import queue_board as queue_owner_renewal
 # These are ordinary users becoming permanently silent, separate from protocol
 # attackers. The next cohort repeats the same independently seeded profiles.
 RECEIVE_ABSENCE = {'actor-03':'ark','actor-06':'lightning','actor-15':'ark','actor-18':'lightning'}
+LIGHTNING_CANDIDATES = ('actor-06','actor-18','actor-08','actor-07','actor-02')
+
+def online_lightning_candidates(store):
+    candidates=[]
+    for actor in LIGHTNING_CANDIDATES:
+        row=store.db.execute('SELECT online,details FROM actor WHERE id=?',(actor,)).fetchone()
+        if row and row['online']:
+            detail=json.loads(row['details'])
+            if detail.get('created') and detail.get('ark_address'):
+                candidates.append((actor,detail))
+    return candidates
 
 def arm_receive_absence(store,actor,rail):
     """Stop only after a real successful receive and independent signed outputs.
@@ -22,6 +33,7 @@ def arm_receive_absence(store,actor,rail):
     """
     row=store.db.execute('SELECT online,details FROM actor WHERE id=?',(actor,)).fetchone()
     if row is None or not row['online']:return False
+    if rail=='lightning' and len(online_lightning_candidates(store))<=2:return False
     detail=json.loads(row['details'])
     if detail.get('needs_sync') or not detail.get('snapshot_at'):return False
     subsystem={'ark':'bark.arkoor','lightning':'bark.lightning_receive'}[rail]
@@ -87,12 +99,7 @@ def absence_report(store):
 def lightning_recipient(store):
     # Losing an ordinary recipient must not end the entire workload. A new
     # invoice is created on another online independently seeded existing wallet.
-    peers=['actor-06','actor-18','actor-08','actor-07','actor-02']
-    for peer in peers:
-        row=store.db.execute('SELECT online,details FROM actor WHERE id=?',(peer,)).fetchone()
-        if row and row['online']:
-            detail=json.loads(row['details'])
-            if detail.get('created') and detail.get('ark_address'):return peer,detail
+    for peer,detail in online_lightning_candidates(store):return peer,detail
     return None,{}
 
 def schedule(store,config,snapshot):
@@ -177,6 +184,16 @@ def schedule(store,config,snapshot):
         if name==lightning_recipient(store)[0] and snapshot.get('capabilities',{}).get('lightning_configured') and time.time()-last('invoice')>1800:
             if queue('H40','invoice',{'amount_sat':2000},config.action_fee_reserve_sat):return
             continue
+        # Refreshable coins cannot fund a send yet. Keep their native state as
+        # a scheduling input and restore spendability before the dry-wallet gate.
+        # Sync debt and the read after a mutation were handled above.
+        refreshable=d.get('needs_refresh_sat',0)
+        refreshed_at=max(last('board'),last('refresh'),last('refresh_delegated'))
+        if refreshable>0 or (last('board') and time.time()-refreshed_at>3600
+                             and balance>=1000+config.action_fee_reserve_sat):
+            operation='refresh_delegated' if name in {'actor-07','actor-08'} else 'refresh'
+            if queue('H20' if operation.endswith('delegated') else 'H17',operation,fee=config.action_fee_reserve_sat):return
+            continue
         # A dry wallet continues observation; it is not silently topped up.
         if balance<1000+config.action_fee_reserve_sat:
             if time.time()-d.get('snapshot_at',0)>180:queue('H01','snapshot');return
@@ -194,6 +211,9 @@ def schedule(store,config,snapshot):
             invoice=recipient.get('latest_invoice');invoice_id=recipient.get('invoice_action_id')
             attempted={json.loads(x['args']).get('recipient_invoice_action') for x in history if x['operation']=='pay_invoice'}
             if invoice and invoice_id not in attempted:
+                if balance<2000+config.action_fee_reserve_sat:
+                    if time.time()-d.get('snapshot_at',0)>180:queue('H01','snapshot');return
+                    continue
                 if queue('H40','pay_invoice',{'invoice':invoice,'amount_sat':2000,'recipient_actor':recipient_actor,'recipient_invoice_action':invoice_id},config.action_fee_reserve_sat):return
                 continue
         # Refresh once per hour, with actual frozen SDK fee/input proof. Delegated
@@ -202,11 +222,6 @@ def schedule(store,config,snapshot):
         # immediately locks the whole balance through another round before the
         # client has made its first payment. Start the hourly cadence at the
         # latest board or refresh, including an explicitly journaled reboard.
-        refreshed_at=max(last('board'),last('refresh'),last('refresh_delegated'))
-        if last('board') and time.time()-refreshed_at>3600:
-            operation='refresh_delegated' if name in {'actor-07','actor-08'} else 'refresh'
-            if queue('H20' if operation.endswith('delegated') else 'H17',operation,fee=config.action_fee_reserve_sat):return
-            continue
         # Diverse amounts/peers are deterministic from durable action history.
         sends=sum(x['operation']=='send_arkoor' for x in history)
         if time.time()-last('send_arkoor')>600:

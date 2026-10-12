@@ -1,17 +1,17 @@
 import json
 import time
 import unittest
-from test_continuous import ContinuousTests, ReceiveThenDisappearTests
+import test_continuous as helpers
 from simulator.continuous import schedule, arm_receive_absence
 from simulator.workload import record_actor_result
 
 
 class LivenessRegressions(unittest.TestCase):
-    setUp = ContinuousTests.setUp
-    tearDown = ContinuousTests.tearDown
-    detail = ContinuousTests.detail
-    action = ContinuousTests.action
-    boarded_actor = ContinuousTests.boarded_actor
+    setUp = helpers.ContinuousTests.setUp
+    tearDown = helpers.ContinuousTests.tearDown
+    detail = helpers.ContinuousTests.detail
+    action = helpers.ContinuousTests.action
+    boarded_actor = helpers.ContinuousTests.boarded_actor
 
     def test_snapshot_retains_refreshable_and_pending_round_balances(self):
         record_actor_result(self.s, 'actor-01', 'snapshot', {
@@ -79,11 +79,11 @@ class LivenessRegressions(unittest.TestCase):
 
 
 class LightningAbsenceGuard(unittest.TestCase):
-    setUp = ContinuousTests.setUp
-    tearDown = ContinuousTests.tearDown
-    detail = ContinuousTests.detail
-    action = ContinuousTests.action
-    receive = ReceiveThenDisappearTests.receive
+    setUp = helpers.ContinuousTests.setUp
+    tearDown = helpers.ContinuousTests.tearDown
+    detail = helpers.ContinuousTests.detail
+    action = helpers.ContinuousTests.action
+    receive = helpers.ReceiveThenDisappearTests.receive
 
     def test_retirement_never_leaves_only_one_online_invoice_candidate(self):
         self.receive('actor-06', rail='lightning')
