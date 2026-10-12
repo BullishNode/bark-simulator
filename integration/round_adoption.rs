@@ -57,7 +57,8 @@ async fn simulator_confirmed_round_scheduler_cycle() {
     }
     command(&root,"refresh",&manifest,&out,"actor-02",json!({}));
     command(&root,"refresh_delegated",&manifest,&out,"actor-08",json!({}));
-    controller(&root,&manifest,"pending",&out);
+    let pending=controller(&root,&manifest,"pending",&out);
+    let input_ids:Vec<String>=pending["input_coin_ids"].as_array().unwrap().iter().map(|id|id.as_str().unwrap().to_string()).collect();
     let db=Db::connect(&srv.config().postgres).await.unwrap();
     let deadline=std::time::Instant::now()+Duration::from_secs(90);
     let inventory=loop {
@@ -66,9 +67,10 @@ async fn simulator_confirmed_round_scheduler_cycle() {
         let inventory=db.read(async |t|{
             let coins=t.query_one("SELECT coalesce(jsonb_agg(jsonb_build_object('vtxo_id',vtxo_id,'expiry',expiry,'spend_state',spend_state,'policy_type',policy_type,'signed_vtxo',encode(vtxo,'hex'))),'[]'::jsonb)::text FROM vtxo",&[]).await?;
             let nursery=t.query_one("SELECT coalesce(jsonb_agg(jsonb_build_object('txid',txid,'kind',kind,'raw_tx',encode(tx,'hex'),'confirmed_at_height',confirmed_at_height,'abandoned_at',abandoned_at)),'[]'::jsonb)::text FROM nursery_tx WHERE kind::text='round'",&[]).await?;
-            Ok(json!({"coins":serde_json::from_str::<Value>(&coins.get::<_,String>(0)).unwrap(),"nursery":serde_json::from_str::<Value>(&nursery.get::<_,String>(0)).unwrap()}))
+            let anchors=t.query_one("SELECT coalesce(jsonb_agg(jsonb_build_object('vtxo_id',v.vtxo_id,'funding_txid',r.funding_txid,'confirmed_at_height',n.confirmed_at_height)),'[]'::jsonb)::text FROM vtxo v LEFT JOIN round r ON r.id=v.spent_in_round LEFT JOIN nursery_tx n ON n.txid=r.funding_txid WHERE v.vtxo_id::text=ANY($1)",&[&input_ids]).await?;
+            Ok(json!({"input_anchors":serde_json::from_str::<Value>(&anchors.get::<_,String>(0)).unwrap(),"coins":serde_json::from_str::<Value>(&coins.get::<_,String>(0)).unwrap(),"nursery":serde_json::from_str::<Value>(&nursery.get::<_,String>(0)).unwrap()}))
         }).await.unwrap();
-        if inventory["nursery"].as_array().unwrap().len()>=2 && inventory["nursery"].as_array().unwrap().iter().all(|n|n["confirmed_at_height"].is_number()) {break inventory;}
+        if inventory["input_anchors"].as_array().unwrap().len()==input_ids.len() && inventory["input_anchors"].as_array().unwrap().iter().all(|n|n["confirmed_at_height"].is_number()) {break inventory;}
         assert!(std::time::Instant::now()<deadline,"server nursery did not independently record confirmation");
         tokio::time::sleep(Duration::from_secs(1)).await;
     };

@@ -34,13 +34,16 @@ try:
     refreshes=list(store.db.execute("SELECT * FROM action WHERE operation IN ('refresh','refresh_delegated')"))
     assert len(refreshes)==2 and {r['actor_id'] for r in refreshes}==set(actors)
     assert all(r['state']=='completed' and r['actual_fee_sat'] is None for r in refreshes)
+    input_ids=[]
     for actor in actors:
         parameters=runtime_parameters(store,actor)
         assert parameters['round_tx_required_confirmations']==1 and parameters['vtxo_exit_margin']==12
         movements=[json.loads(r[0]) for r in store.db.execute('SELECT payload FROM movement_evidence WHERE actor=?',(actor,))]
-        assert any(v['status']=='pending' and v['subsystem']=='bark.round' and v['input_vtxos'] for v in movements)
+        pending=[v for v in movements if v['status']=='pending' and v['subsystem']=='bark.round' and v['input_vtxos']]
+        assert len(pending)==1
+        input_ids.extend(pending[0]['input_vtxos'])
     if phase=='pending':
-        print(json.dumps({'pending_actors':list(actors),'source':'actual native movement evidence','wallet_calls':0}))
+        print(json.dumps({'pending_actors':list(actors),'source':'actual native movement evidence','wallet_calls':0,'input_coin_ids':input_ids}))
     else:
         assert phase=='cycle'
         inventory=json.loads((Path(m['out_dir'])/'round-scheduler-inventory.json').read_text())
