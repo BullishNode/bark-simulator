@@ -263,6 +263,55 @@ fn command(root: &Path, mode: &str, manifest: &Path, out: &Path, actor: &str, ar
 }
 
 #[tokio::test(flavor="multi_thread",worker_threads=4)]
+async fn simulator_concurrent_clients() {
+    let root=std::path::PathBuf::from(std::env::var("SIMULATOR_WORKSPACE").unwrap());
+    let out=std::path::PathBuf::from(std::env::var("SIMULATOR_OUT").unwrap());
+    std::fs::create_dir_all(&out).unwrap();
+    let ctx=TestContext::new("bark_sdk/simulator_concurrent_clients").await;
+    let core=ctx.bitcoind().sync_client();
+    let srv=ctx.captaind("server").bitcoind(ctx.bitcoind_arc()).funded(sat(1_000_000)).watchmand().no_vtxo_pool().cfg(|c| {
+        c.vtxo_lifetime=BlockDelta::new(432);c.min_board_amount=sat(330);
+        c.required_board_confirmations=6;c.round_interval=Duration::from_secs(3600);
+    }).create().await;
+    super::fallback_lightning::train_fee_estimator(&ctx).await;
+    let endpoint=srv.ark_url().replace("://0.0.0.0:","://127.0.0.1:");
+    let wallet_config=ctx.datadir.join("sim-wallet.toml");
+    std::fs::write(&wallet_config,toml::to_string(&ctx.bark_default_cfg(&endpoint,Some(ctx.bitcoind()))).unwrap()).unwrap();
+    let driver_config=ctx.datadir.join("sim-driver.json");
+    let wallet_root=ctx.datadir.join("sim-wallets");std::fs::create_dir(&wallet_root).unwrap();
+    write(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
+    let manifest=ctx.datadir.join("sim-fixture.json");
+    write(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
+        "genesis":core.get_block_hash(0).unwrap().to_string(),"driver_config":driver_config,"driver":root.join("target/debug/bark-sim-driver"),
+        "proof":root.join("target/debug/vtxo-proof"),"wallet_root":wallet_root,"state_dir":ctx.datadir.join("sim-journal"),"out_dir":out,
+        "server_pubkey":srv.ark_info().await.server_pubkey.to_string(),"server_binary":std::env::var("CAPTAIND_EXEC").unwrap(),
+        "server_binary_sha256":std::env::var("SIMULATOR_SERVER_SHA256").unwrap()}));
+    let actors=["actor-01","actor-02","actor-05","actor-07","actor-08"];
+    for actor in actors {
+        let created=command(&root,"create",&manifest,&out,actor,json!({}));
+        let address=created["data"]["funding_address"].as_str().unwrap().parse::<Address<bitcoin::address::NetworkUnchecked>>().unwrap().assume_checked();
+        let tx=core.send_to_address(&address,sat(20_000),None,None,None,None,None,None).unwrap();
+        ctx.await_transaction(tx).await;
+    }
+    ctx.generate_blocks(2).await;
+    let two=command(&root,"dispatch_overlap",&manifest,&out,"actor-01",json!({"actors":&actors[..2]}));
+    let three=command(&root,"dispatch_overlap",&manifest,&out,"actor-05",json!({"actors":&actors[2..]}));
+    ctx.generate_blocks(6).await;
+    let mut snapshots=vec![];
+    for actor in actors {
+        command(&root,"sync",&manifest,&out,actor,json!({}));
+        let snapshot=command(&root,"snapshot",&manifest,&out,actor,json!({}));
+        assert_eq!(snapshot["data"]["balance"]["spendable_sat"],10_000);
+        assert!(snapshot["data"]["evidence"]["coins"].as_array().unwrap().iter().any(|coin|coin["state"]=="Spendable"));
+        snapshots.push(json!({"actor":actor,"snapshot":snapshot}));
+    }
+    let fees=command(&root,"fee_audit",&manifest,&out,"actor-01",json!({}));
+    assert_eq!(fees.as_array().unwrap().iter().filter(|row|row["operation"]=="board" && row["actual_fee_sat"].as_u64().is_some_and(|fee|fee<=2000)).count(),5);
+    write(&out.join("result.json"),&json!({"result":"PASS","two":two,"three":three,"snapshots":snapshots,"fees":fees,
+        "coverage_limits":["actual concurrent native boards; live seeded campaign overlap remains a separate gate"]}));
+}
+
+#[tokio::test(flavor="multi_thread",worker_threads=4)]
 async fn simulator_zero_spendable_scheduled_refresh() {
     let root=std::path::PathBuf::from(std::env::var("SIMULATOR_WORKSPACE").unwrap());
     let out=std::path::PathBuf::from(std::env::var("SIMULATOR_OUT").unwrap());

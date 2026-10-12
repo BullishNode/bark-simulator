@@ -174,6 +174,43 @@ elif mode=='delegated_audit':
         row['fresh_native_boundaries']=[dict(r) for r in boundaries]
         store.verify_event_chain();print(json.dumps(row))
     finally:store.close()
+elif mode=='dispatch_overlap':
+    actors=command['args']['actors'];slots=len(actors)
+    assert slots in {2,3} and len(set(actors))==slots
+    assert set(actors).issubset({'actor-01','actor-02','actor-05','actor-07','actor-08'})
+    cfg=replace(config(),dispatch_per_tick=slots,campaign_seed='regtest-public-overlap-v1')
+    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    try:
+        engine=Engine(cfg,store)
+        start=store.db.execute('SELECT COALESCE(MAX(sequence),0) FROM event').fetchone()[0]
+        ids=[]
+        for name in actors:
+            action_id='fixture-overlap-board-'+name
+            assert store.queue(action_id,name,'H01','board',{'amount_sat':10000},2000)
+            ids.append(action_id)
+        assert asyncio.run(engine.dispatch_batch())
+        events=[dict(row) for row in store.db.execute('SELECT * FROM event WHERE sequence>? ORDER BY sequence',(start,))]
+        for event in events:event['payload']=json.loads(event['payload'])
+        requests=[e for e in events if e['kind']=='driver_request']
+        responses=[e for e in events if e['kind']=='driver_response']
+        assert len(requests)==len(responses)==slots
+        assert max(e['sequence'] for e in requests)<min(e['sequence'] for e in responses),'native requests did not overlap'
+        before=[e for e in events if e['kind']=='driver_evidence' and e['payload'].get('event')=='client_evidence_before']
+        after=[e for e in events if e['kind']=='driver_evidence' and e['payload'].get('event')=='client_evidence_after']
+        assert len(before)==len(after)==slots
+        assert max(e['sequence'] for e in before)<min(e['sequence'] for e in after),'native wallet operation boundaries did not overlap'
+        boards=[]
+        for action_id in ids:
+            row=store.db.execute('SELECT state,result FROM action WHERE id=?',(action_id,)).fetchone()
+            assert row['state']=='completed','concurrent board failed or is uncertain'
+            result=json.loads(row['result']);assert result['status']=='ok'
+            boards.append({'action_id':action_id,'result':result})
+        store.verify_event_chain()
+        result={'slots':slots,'actors':actors,'native_before_sequences':[e['sequence'] for e in before],
+            'native_after_sequences':[e['sequence'] for e in after],'boards':boards}
+        (Path(m['out_dir'])/('overlap-'+str(slots)+'.json')).write_text(json.dumps(result,indent=2)+'\n')
+        print(json.dumps(result))
+    finally:store.close()
 elif mode=='fee_audit':
     from simulator.chain import ChainReader
     from simulator.fees import collect

@@ -83,11 +83,24 @@ class Engine:
                 and snapshot.get("initial_block_download") is False
                 and snapshot.get("server_status", {}).get("status") == "running")
 
-    async def dispatch_one(self):
+    async def dispatch_batch(self):
+        """Claim distinct actors before launching concurrent client operations."""
+        if not self.config.active:return False
+        self.store.bind_wallet_root(self.config.wallet_root)
+        actions=[]
+        for _ in range(self.config.dispatch_per_tick):
+            action=self.store.claim(OPERATIONS)
+            if action is None:break
+            actions.append(action)
+        if not actions:return False
+        await asyncio.gather(*(self.dispatch_one(action) for action in actions))
+        return True
+
+    async def dispatch_one(self, action=None):
         if not self.config.active:
             return False
         self.store.bind_wallet_root(self.config.wallet_root)
-        action = self.store.claim(OPERATIONS)
+        action = action if action is not None else self.store.claim(OPERATIONS)
         if action is None:
             return False
         actor_dir = self.config.wallet_root / action["actor_id"]
@@ -253,7 +266,7 @@ class Engine:
                         self.prepare_campaign_funding(snapshot)
                         schedule_continuous(self.store,self.config,snapshot)
                 if ready:
-                    await self.dispatch_one()
+                    await self.dispatch_batch()
             if self.campaign_clock:
                 collect_ark_receipts(self.store)
                 self.campaign_clock.tick(healthy=ready and lightning_ready(snapshot) and traffic_ready(self.store),real_campaign_started=self.store.get_meta("real_campaign_started") is not None)
