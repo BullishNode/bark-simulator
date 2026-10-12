@@ -16,4 +16,4 @@ bark-simulator = "simulator.cli:main"
 packages = ["simulator"]
 
 [tool.setuptools.package-data]
-simulator = ["scenarios.json"]
+simulator = ["scenarios.json", "bip39-english.txt"]

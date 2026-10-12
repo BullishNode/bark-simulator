@@ -146,7 +146,7 @@ def collect_ark_receipts(store: Store, now: float | None = None):
                     break
                 observed = store.db.execute("""SELECT MIN(a.updated_at) FROM coin_observation o
                     JOIN action a ON a.id=o.action_id WHERE o.coin_id=? AND a.actor_id=?
-                    AND a.state='completed' AND a.updated_at>=? AND a.updated_at<=?""",
+                    AND a.state='completed' AND a.operation IN ('snapshot','sync','board','send_arkoor','refresh','refresh_delegated','offboard_all','invoice','pay_invoice') AND a.updated_at>=? AND a.updated_at<=?""",
                     (coin_id, recipient, action['updated_at'], now)).fetchone()[0]
                 if observed is None:
                     break

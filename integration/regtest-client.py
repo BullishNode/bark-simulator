@@ -109,6 +109,41 @@ elif mode=='payment_audit':
             'actual_fee_sat':r['actual_fee_sat']} for r in rows]))
         store.verify_event_chain()
     finally:store.close()
+elif mode=='clock_audit':
+    from simulator.campaign import collect_ark_receipts,traffic_ready
+    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    try:
+        collect_ark_receipts(store)
+        before=store.db.execute("SELECT COUNT(*) FROM event WHERE kind='ark_transfer_verified'").fetchone()[0]
+        collect_ark_receipts(store)
+        after=store.db.execute("SELECT COUNT(*) FROM event WHERE kind='ark_transfer_verified'").fetchone()[0]
+        assert before==after==1,'one actual signed recipient receipt must count once'
+        first=store.db.execute("SELECT MIN(updated_at) FROM action WHERE operation='send_arkoor'").fetchone()[0]
+        store.db.execute("INSERT OR REPLACE INTO meta VALUES ('real_campaign_started',?)",(str(first),))
+        assert traffic_ready(store),'both actual native traffic rails must qualify inside their windows'
+        row=store.db.execute("SELECT payload FROM event WHERE kind='ark_transfer_verified'").fetchone()
+        store.verify_event_chain();print(json.dumps({'ark_receipt':json.loads(row[0]),'receipt_count':after,'both_rails_ready':True}))
+    finally:store.close()
+elif mode=='scheduled_refresh':
+    from simulator.continuous import schedule
+    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    try:
+        details=json.loads(store.db.execute('SELECT details FROM actor WHERE id=?',(actor,)).fetchone()[0])
+        assert details['registered_spendable_sat']==0 and details['needs_refresh_sat']>0
+        online={r['id']:r['online'] for r in store.db.execute('SELECT id,online FROM actor')}
+        # Fixture-only eligibility isolation; originals are untouched and the
+        # exact actor online flags are restored before dispatch.
+        with store.transaction():
+            store.db.execute('UPDATE actor SET online=0 WHERE id!=?',(actor,))
+            schedule(store,cfg,{'capabilities':{'lightning_configured':False}})
+            for name,value in online.items():store.db.execute('UPDATE actor SET online=? WHERE id=?',(value,name))
+        action=store.db.execute("SELECT * FROM action WHERE actor_id=? AND state='queued'",(actor,)).fetchone()
+        assert action and action['operation'] in {'refresh','refresh_delegated'} and action['fee_reservation_sat']==2000
+        asyncio.run(Engine(cfg,store).run(once=True))
+        action=store.db.execute('SELECT state,result FROM action WHERE id=?',(action['id'],)).fetchone()
+        assert action['state']=='completed','zero-spendable actual scheduler refresh failed'
+        store.verify_event_chain();print(action['result'])
+    finally:store.close()
 elif mode in {'renewal_funder_create','renewal_fund','renewal_board'}:
     from simulator import renewal
     class FixtureRpc:

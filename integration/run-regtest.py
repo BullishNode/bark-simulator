@@ -20,7 +20,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('name')
     parser.add_argument('--independent-target',action='store_true',help='use this simulator own target and lease; never share a suite slot')
-    parser.add_argument('--test',choices=['simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_board_absence_restore','simulator_pending_board_absence_restore','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits','simulator_fallback_negative_requests'],default='simulator_board_absence_restore')
+    parser.add_argument('--test',choices=['simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_board_absence_restore','simulator_pending_board_absence_restore','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits','simulator_fallback_negative_requests'],default='simulator_board_absence_restore')
     args = parser.parse_args()
     assert args.name.replace('-', '').replace('_', '').isalnum()
     run = HERE / args.name
@@ -46,9 +46,11 @@ def main():
                 'test': name, 'harness_sha256': digest(harness), 'runner_sha256': digest(__file__),
                 'binaries': {p.name: digest(p) for p in PRODUCTION.iterdir()},
                 'wall_seconds': 1800 if args.independent_target else 1200, 'target_dir':str(target),'lease':str(lock),'source': 'actual simulator supervisor/native driver; '+args.test,
-                'fixture_customer_fee_budget_sat':100_000 if args.test in ('simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits') else 10_000,
+                'fixture_customer_fee_budget_sat':100_000 if args.test in ('simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits') else 10_000,
                 'checks': {
                     'simulator_owner_funded_renewal':['actual separately funded Core owner deposit','source-only funding PSBT <=2k fees','8k confirmed owned client grant','native new source-only board and5k confirmed Ark balance','zero recycling or qualified traffic credit'],
+                    'simulator_thin_receipt_recycling':['actual 4119-sat confirmed cooperative exit','exact source-only unsigned quote before signing','3000 Ark principal floor and2000 fee ceiling','raw-chain conservation and no extra funding'],
+                    'simulator_zero_spendable_scheduled_refresh':['actual depth-one coin with0spendable and5000needs_refresh','continuous.schedule queues delegated refresh with2000reserve','independently signed new owned coins and restored spendability','confirmed movement fee proof'],
                     'simulator_confirmed_receipt_recycling':['two actual confirmed cooperative exits, no extra funding','frozen own receipt is the only board input','fresh action IDs','principal+service+mining+ownchange conservation exact','no source reuse'],
                     'simulator_ark_receive_then_disappear':['native actual Ark receive','independent signed outputs before permanent silence','no original calls until payout','rightful grouped confirmed payout','seed-only recovery and confirmed spend'],
                     'simulator_lightning_receive_then_disappear':['native actual Lightning receive','external payer paid without refund','independent signed claim outputs before permanent silence','rightful grouped confirmed payout','seed-only recovery and confirmed spend'],
@@ -57,7 +59,7 @@ def main():
                     'simulator_board_absence_restore': ['actual Python journal and driver', 'no original calls after absence', 'confirmed rightful payout', 'fresh BIP84 seed-only recovery with no txid/index/birthday hints', 'confirmed spend'],
                     'simulator_pending_board_absence_restore': ['actual Python journal and driver', 'confirmed real board funding with fewer than required registration confirmations', 'no registered coin or original calls after absence', 'pending-board payout to independently verified owner', 'fresh BIP84 seed-only recovery with no txid/index/birthday hints', 'confirmed spend'],
                 }[args.test],
-                'simulator_sources':{str(p.relative_to(ROOT)):digest(p) for p in [*ROOT.glob('simulator/*.py'), ROOT/'integration/regtest-client.py',ROOT/'driver/src/main.rs',ROOT/'driver/src/bin/seed-restore.rs']},
+                'simulator_sources':{str(p.relative_to(ROOT)):digest(p) for p in [*ROOT.glob('simulator/*.py'), ROOT/'simulator/bip39-english.txt', ROOT/'integration/regtest-client.py',ROOT/'driver/src/main.rs',ROOT/'driver/src/bin/seed-restore.rs']},
                 'driver_sha256':digest(ROOT/'target/debug/bark-sim-driver'), 'restore_sha256':digest(ROOT/'target/debug/seed-restore'),
                 'proof_sha256':digest(ROOT/'target/debug/vtxo-proof')}
         (run / 'predeclared.json').write_text(json.dumps(decl, indent=2) + '\n')

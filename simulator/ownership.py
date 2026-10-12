@@ -130,7 +130,7 @@ def expiry_owner(store, coin_id, pre_state):
     return {'actor':owner['actor'],'mailbox':owner['mailbox'],'pubkey':key,'amount_sat':row['amount_sat']}
 
 
-def record_candidates(store, actor, action_id, data):
+def record_candidates(store, actor, action_id, data, verification_failed=False):
     evidence=data.get('evidence',{});binding=evidence.get('binding',data.get('binding'))
     if not isinstance(binding,dict):return
     for coin in evidence.get('coins',[]):
@@ -141,7 +141,7 @@ def record_candidates(store, actor, action_id, data):
         # another candidate unnecessary. State observations still pass through
         # record_verified, and existing raw evidence is never deleted.
         old=store.db.execute('SELECT c.*,k.actor FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey WHERE c.id=?',(coin['id'],)).fetchone()
-        if old and old['actor']==actor and old['signed_vtxo']==coin['signed_vtxo'] and old['pubkey']==coin['user_pubkey'] and old['amount_sat']==coin['amount_sat']:
+        if not verification_failed and old and old['actor']==actor and old['signed_vtxo']==coin['signed_vtxo'] and old['pubkey']==coin['user_pubkey'] and old['amount_sat']==coin['amount_sat']:
             cached=json.loads(old['proof']);bound=cached.get('binding',{})
             if (cached.get('signed_path_valid') is True and cached.get('anchor_confirmations',0)>=1
                     and cached.get('expiry_height')==coin['expiry_height']

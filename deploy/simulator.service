@@ -8,6 +8,7 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/abandon-ship-simulator
 Environment=PYTHONUNBUFFERED=1
+Environment=BARK_SIM_LOG=debug
 Environment=SIM_DRIVER_CONFIG=/home/ubuntu/abandon-ship-simulator/config.driver.json
 ExecStart=/usr/bin/python3 -m simulator.cli observe --config config.local.toml
 Restart=on-failure

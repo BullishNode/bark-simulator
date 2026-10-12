@@ -4,14 +4,15 @@ Implementation of the [operator simulator plan](/home/francis/bark-integration-2
 
 The program has twelve actor identities, a durable action queue, immutable epoch fee budgets, offline gating, unknown-outcome recovery, an independent payout-amount ledger, read-only VM observations, and HTML/Markdown/CSV/JSON reports. The catalogue contains all 40 honest and 40 adversarial behaviors. **The catalogue is not 80 implemented scenarios.** Reports deliberately do not turn a successful RPC into a complete scenario pass.
 
-The v21 candidate moves Lightning invoice creation before the dry Ark-balance
+The deployed v21 release moves Lightning invoice creation before the dry Ark-balance
 gate, after the existing sync/read requirements. Receiving is funded by the
 incoming payment. This scheduler change has three red/green regressions, a
 212-test Python pass, and a native empty-wallet receive fixture with an independent
 public-signature/chain audit. Packaging and live deployment are recorded in
 `BUILD_STATUS.md`; fixture success does not establish live traffic qualification.
-Refresh scheduling, payer affordability, recycling estimates and revised
-two-rail clock semantics are subsequent v22 work. The final implementation
+Refresh scheduling, payer affordability, exact recycling quotes and revised
+two-rail clock semantics are implemented in the v22 working candidate, with
+native qualification and live deployment still pending. The final implementation
 requirements and rulings are in the review plan dated 2026-10-12.
 
 ## Run locally without services or coins

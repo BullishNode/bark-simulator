@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import math
 import re
+from functools import lru_cache
+from pathlib import Path
 from decimal import Decimal
 from typing import Any
 
@@ -40,20 +42,33 @@ def canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+@lru_cache(maxsize=1)
+def _bip39_words():
+    return frozenset(Path(__file__).with_name('bip39-english.txt').read_text().splitlines())
+
+
 def public_payload(value: Any) -> None:
     """Reject secret-shaped fields before writing the public event trail."""
     if isinstance(value, dict):
         for key, item in value.items():
             lower = key.lower()
-            if any(word in lower for word in ("mnemonic", "private_key", "password", "auth_token", "cookie")):
+            if lower in {'preimage','payment_preimage','secret_key','seckey','xprv','tprv'} or any(word in lower for word in ("mnemonic", "private_key", "password", "auth_token", "cookie")):
                 raise ValueError(f"secret field is forbidden in public evidence: {key}")
             public_payload(item)
     elif isinstance(value, list):
         for item in value:
             public_payload(item)
     elif isinstance(value, str):
-        if re.search(r'(?i)\b(mnemonic|private[_ -]?key|password|auth[_ -]?token)\b|__cookie__:|\b[xt]prv[1-9A-HJ-NP-Za-km-z]+\b|\bseed\s*[:=]\s*[0-9a-f]{64}\b', value):
+        if re.search(r'(?i)\b(mnemonic|private[_ -]?key|password|auth[_ -]?token|payment[_ -]?preimage|secret[_ -]?key|seckey)\b|\bBearer\s+\S+|\bBasic\s+[A-Za-z0-9+/]+=*|__cookie__:|\b[xt]prv[1-9A-HJ-NP-Za-km-z]+\b|\bseed\s*[:=]\s*[0-9a-f]{64}\b', value):
             raise ValueError('secret-shaped text is forbidden in public evidence')
+        if re.search(r'(?i)\bpreimage\s*[:=]\s*(?:Some\()?\s*[\x22\x27]?[0-9a-f]{64}\b',value):
+            raise ValueError('preimage-shaped text is forbidden in public evidence')
+        # SDK timestamps/prefixes can surround an unlabeled phrase. Check each
+        # contiguous BIP39-word run, including punctuation-delimited log lines.
+        run=0;dictionary=_bip39_words()
+        for word in re.findall(r'[a-z]+|[^a-z\s]+',value.lower()):
+            run=run+1 if word in dictionary else 0
+            if run>=12:raise ValueError('mnemonic-shaped text is forbidden in public evidence')
 
 
 def fee_allocation(gross: dict[str, int], recipient_fee_sat: int) -> dict[str, int]:

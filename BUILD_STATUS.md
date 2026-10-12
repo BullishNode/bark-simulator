@@ -210,3 +210,37 @@ checkpoint records qualification for the candidate, not an executed deployment
 or restored live Lightning traffic. Deployment and independent live results
 will be added after measurement. Full17item implementation remains open; see
 IMPLEMENTATION_STATUS.md.
+
+## v21 deployed; v22 under qualification — 2026-10-12
+
+[measured] Simulator-only v21 deployment completed at epoch1791826074.446997.
+Independent check verified all63 artifact hashes, unchanged native/SDK/target
+pins and configurations, retained event prefix93539 and permanent absence of
+actors03/09/10. Actor06 invoice continuous-00007908 completed at
+epoch1791826161.765009:87.318seconds after deployment, satisfying the30-minute
+WI-1 gate. Evidence: simulator-lunanode-2026-10-11/empty-invoice-v21-deploy.log,
+empty-invoice-v21-independent-live-check.json and v21-invoice-live-criterion.json.
+An initial upload/deploy ordering failure occurred before service/state changes;
+its logs remain preserved. This verifies invoice scheduling, not two-rail traffic.
+
+[code/partial measurement] v22 restores needs-refresh scheduling ahead of dry
+gating, requires4000sat before a2000sat Lightning payment, retains at least two
+online invoice candidates, reclaims pending-sync reservations only after later
+proved claims, and reports six evidence-based coverage statuses. The clock has
+a separate zero-based qualified counter requiring signed Ark receipt within600s
+and verified Lightning success within3600s; legacy time is retained.
+
+Recycling keeps the483sat baseline only as a scheduling estimate when this
+actor has no confirmed quote. The native driver prepares an unsigned transaction
+using exactly the frozen confirmed own source, requotes service on its exact
+funding output, enforces the frozen board cap/principal floor/fee ceiling, then
+journals that exact proposal before signing. Python reconciliation consumes that
+proposal rather than treating the estimate hint as the final SDK funding amount.
+Source combining and unknown-outcome retry remain prohibited. Unrelated owned
+Ark coins are allowed; source descendants/unknown lifecycle state hold the board.
+
+[status] Focused quote/dedup/privacy tests19PASS; recycle/dedup tests30PASS;
+native driver unit tests8PASS and ordinary native buildPASS. Full combined suite,
+fresh zero-spendable scheduler fixture,4119sat native recycling fixture,
+independent audits, v22 packaging/deployment and live convergence are pending.
+No v22 artifacts have been installed and no new funding tranche was sent.

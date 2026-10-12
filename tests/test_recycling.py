@@ -26,7 +26,7 @@ class RecyclingTests(unittest.TestCase):
         self.assertIsNotNone(action,'a dry online wallet currently never reboards its own return')
         self.assertEqual('board',action['operation'])
         args=json.loads(action['args'])
-        self.assertEqual(4481,args['amount_sat'])
+        self.assertEqual(5998,args['amount_sat'])
         self.assertEqual(source['outpoint'],args['recycle_source']['outpoint'])
         self.assertEqual(3000,args['minimum_ark_amount_sat'])
         self.assertEqual(1,self.s.db.execute("SELECT COUNT(*) FROM event WHERE kind='recycle_intent'").fetchone()[0])
@@ -90,11 +90,11 @@ class RecyclingTests(unittest.TestCase):
         from simulator.recycling import reconcile
         source=self.source();schedule(self.s,self.c,self.snapshot);action=self.action()
         tx={'txid':'c'*64,'confirmations':2,'inputs':[{'outpoint':source['outpoint'],'amount_sat':6481,'script':source['script']}],
-            'outputs':[{'amount_sat':4481},{'amount_sat':1500}]}
-        self.s.event('client_fee_reconciled',{'action_id':action['id'],'chain_transaction':tx,'service_charge_sat':330,'mining_fee_sat':500})
+            'outputs':[{'amount_sat':5981}]}
+        self.s.event('client_fee_reconciled',{'action_id':action['id'],'chain_transaction':tx,'funded_amount_sat':5981,'service_charge_sat':330,'mining_fee_sat':500})
         reconcile(self.s);reconcile(self.s)
         p=json.loads(self.s.db.execute("SELECT payload FROM event WHERE kind='recycle_confirmed'").fetchone()[0])
-        self.assertEqual(4151,p['new_ark_principal_sat']);self.assertEqual(1500,p['own_onchain_change_sat'])
+        self.assertEqual(5651,p['new_ark_principal_sat']);self.assertEqual(0,p['own_onchain_change_sat'])
         self.assertEqual(0,p['external_injection_sat'])
         self.assertEqual(1,self.s.db.execute("SELECT COUNT(*) FROM event WHERE kind='recycle_confirmed'").fetchone()[0])
 

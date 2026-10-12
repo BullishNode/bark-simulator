@@ -216,6 +216,63 @@ fn command(root: &Path, mode: &str, manifest: &Path, out: &Path, actor: &str, ar
 }
 
 #[tokio::test(flavor="multi_thread",worker_threads=4)]
+async fn simulator_zero_spendable_scheduled_refresh() {
+    let root=std::path::PathBuf::from(std::env::var("SIMULATOR_WORKSPACE").unwrap());
+    let out=std::path::PathBuf::from(std::env::var("SIMULATOR_OUT").unwrap());
+    std::fs::create_dir_all(&out).unwrap();
+    let ctx=TestContext::new("bark_sdk/simulator_zero_spendable_scheduled_refresh").await;
+    let core=ctx.bitcoind().sync_client();
+    let srv=ctx.captaind("server").bitcoind(ctx.bitcoind_arc()).funded(sat(1_000_000)).watchmand().no_vtxo_pool().cfg(|c| {
+        c.vtxo_lifetime=BlockDelta::new(432);c.min_board_amount=sat(330);
+        c.max_vtxo_exit_depth=1;c.required_board_confirmations=6;c.round_interval=Duration::from_secs(3);
+    }).create().await;
+    super::fallback_lightning::train_fee_estimator(&ctx).await;
+    let endpoint=srv.ark_url().replace("://0.0.0.0:","://127.0.0.1:");
+    let wallet_config=ctx.datadir.join("sim-wallet.toml");
+    std::fs::write(&wallet_config,toml::to_string(&ctx.bark_default_cfg(&endpoint,Some(ctx.bitcoind()))).unwrap()).unwrap();
+    let driver_config=ctx.datadir.join("sim-driver.json");
+    let wallet_root=ctx.datadir.join("sim-wallets");std::fs::create_dir(&wallet_root).unwrap();
+    write(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
+    let manifest=ctx.datadir.join("sim-fixture.json");
+    write(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
+        "genesis":core.get_block_hash(0).unwrap().to_string(),"driver_config":driver_config,"driver":root.join("target/debug/bark-sim-driver"),
+        "proof":root.join("target/debug/vtxo-proof"),"wallet_root":wallet_root,"state_dir":ctx.datadir.join("sim-journal"),"out_dir":out,
+        "server_pubkey":srv.ark_info().await.server_pubkey.to_string(),"server_binary":std::env::var("CAPTAIND_EXEC").unwrap(),
+        "server_binary_sha256":std::env::var("SIMULATOR_SERVER_SHA256").unwrap()}));
+    let sender=command(&root,"create",&manifest,&out,"actor-01",json!({}));
+    command(&root,"create",&manifest,&out,"actor-07",json!({}));
+    let address=sender["data"]["funding_address"].as_str().unwrap().parse::<Address<bitcoin::address::NetworkUnchecked>>().unwrap().assume_checked();
+    let tx=core.send_to_address(&address,sat(40_000),None,None,None,None,None,None).unwrap();
+    ctx.await_transaction(tx).await;ctx.generate_blocks(2).await;
+    command(&root,"board",&manifest,&out,"actor-01",json!({"amount_sat":30_000}));
+    ctx.generate_blocks(6).await;command(&root,"sync",&manifest,&out,"actor-01",json!({}));
+    let recipient=command(&root,"address",&manifest,&out,"actor-07",json!({}));
+    let sent=command(&root,"send_arkoor",&manifest,&out,"actor-01",json!({"destination":recipient["data"]["address"],"amount_sat":5000,"recipient_actor":"actor-07"}));
+    command(&root,"sync",&manifest,&out,"actor-07",json!({}));
+    let before=command(&root,"snapshot",&manifest,&out,"actor-07",json!({}));
+    assert_eq!(before["data"]["balance"]["spendable_sat"],0);
+    assert_eq!(before["data"]["balance"]["needs_refresh_sat"],5000);
+    let old=before["data"]["evidence"]["coins"].as_array().unwrap().iter().map(|c|c["id"].as_str().unwrap().to_string()).collect::<std::collections::HashSet<_>>();
+    let refreshed=command(&root,"scheduled_refresh",&manifest,&out,"actor-07",json!({}));
+    let deadline=std::time::Instant::now()+Duration::from_secs(90);
+    let after=loop {
+        ctx.generate_blocks(ark_testing::constants::ROUND_CONFIRMATIONS).await;
+        command(&root,"sync",&manifest,&out,"actor-07",json!({}));
+        let snapshot=command(&root,"snapshot",&manifest,&out,"actor-07",json!({}));
+        if snapshot["data"]["balance"]["spendable_sat"]==5000 && snapshot["data"]["balance"]["needs_refresh_sat"]==0 {
+            let fresh=snapshot["data"]["evidence"]["coins"].as_array().unwrap().iter().filter(|c|c["state"]=="Spendable").map(|c|c["id"].as_str().unwrap().to_string()).collect::<std::collections::HashSet<_>>();
+            assert!(!fresh.is_empty() && fresh.is_disjoint(&old));break snapshot;
+        }
+        assert!(std::time::Instant::now()<deadline,"scheduled zero-spendable refresh did not restore spendability");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    };
+    let fees=command(&root,"fee_audit",&manifest,&out,"actor-07",json!({}));
+    assert!(fees.as_array().unwrap().iter().any(|f|f["operation"]=="refresh_delegated" && f["actual_fee_sat"]==0));
+    write(&out.join("result.json"),&json!({"result":"PASS","actor":"actor-07","max_exit_depth":1,"send":sent,"before":before,"scheduled_refresh":refreshed,"after":after,"fees":fees,
+        "coverage_limits":["actual continuous scheduler and depth-triggered needs-refresh balance; live expiry convergence still separate"]}));
+}
+
+#[tokio::test(flavor="multi_thread",worker_threads=4)]
 async fn simulator_payments_refresh_exits() {
     let root=std::path::PathBuf::from(std::env::var("SIMULATOR_WORKSPACE").unwrap());
     let out=std::path::PathBuf::from(std::env::var("SIMULATOR_OUT").unwrap());
@@ -340,6 +397,7 @@ async fn simulator_payments_refresh_exits() {
         }
     }
     let received_fee=command(&root,"receive_fee_audit",&manifest,&out,"actor-02",json!({}));
+    let clock=command(&root,"clock_audit",&manifest,&out,"actor-01",json!({}));
     let audited_fees=command(&root,"fee_audit",&manifest,&out,"actor-01",json!({}));
     let exits=audited_fees.as_array().unwrap().iter().filter(|row|row["operation"]=="offboard_all").collect::<Vec<_>>();
     assert_eq!(exits.len(),1);
@@ -352,7 +410,7 @@ async fn simulator_payments_refresh_exits() {
     assert_eq!(end["data"]["balance"]["spendable_sat"].as_u64().unwrap(),0);
     write(&out.join("result.json"),&json!({"result":"PASS","owners":3,"empty_before":empty_before,"empty_invoice":empty_invoice,"empty_received":empty_received,"arkoor":arkoor,
         "delegated":delegated,"interactive":interactive,"after_refresh":after_refresh,
-        "external_ln":paid,"internal_ln":internal,"verified_payment_outcomes":payments,"receive_cost":received_fee,"offboard":offboard,"confirmed_offboard_txid":txid.to_string(),
+        "external_ln":paid,"internal_ln":internal,"verified_payment_outcomes":payments,"receive_cost":received_fee,"qualified_traffic_audit":clock,"offboard":offboard,"confirmed_offboard_txid":txid.to_string(),
         "coverage_limits":["adapter exercise only; full ownership graph and independent capital audit pending","not a live signet campaign or all80 scenarios"]}));
 }
 
@@ -426,10 +484,19 @@ async fn simulator_fallback_negative_requests() {
 
 #[tokio::test(flavor="multi_thread",worker_threads=4)]
 async fn simulator_confirmed_receipt_recycling() {
+    confirmed_receipt_recycling(false).await;
+}
+
+#[tokio::test(flavor="multi_thread",worker_threads=4)]
+async fn simulator_thin_receipt_recycling() {
+    confirmed_receipt_recycling(true).await;
+}
+
+async fn confirmed_receipt_recycling(thin:bool) {
     let root=std::path::PathBuf::from(std::env::var("SIMULATOR_WORKSPACE").unwrap());
     let out=std::path::PathBuf::from(std::env::var("SIMULATOR_OUT").unwrap());
     std::fs::create_dir_all(&out).unwrap();
-    let test_name="simulator_confirmed_receipt_recycling";
+    let test_name=if thin {"simulator_thin_receipt_recycling"} else {"simulator_confirmed_receipt_recycling"};
     let ctx=TestContext::new(&format!("bark_sdk/{test_name}")).await;
     let core=ctx.bitcoind().sync_client();
     let srv=ctx.captaind("server").bitcoind(ctx.bitcoind_arc()).funded(sat(1_000_000)).watchmand().no_vtxo_pool().cfg(|c| {
@@ -462,17 +529,17 @@ async fn simulator_confirmed_receipt_recycling() {
     let address=created["data"]["funding_address"].as_str().unwrap().parse::<Address<bitcoin::address::NetworkUnchecked>>().unwrap().assume_checked();
     let funding=core.send_to_address(&address,sat(20_000),None,None,None,None,None,None).unwrap();
     ctx.await_transaction(funding).await;ctx.generate_blocks(2).await;
-    command(&root,"board",&manifest,&out,actor,json!({"amount_sat":10_000}));
+    command(&root,"board",&manifest,&out,actor,json!({"amount_sat":if thin {4973} else {10_000}}));
     ctx.generate_blocks(6).await;command(&root,"sync",&manifest,&out,actor,json!({}));
     let mut cycles=Vec::new();
-    for _ in 0..2 {
+    for _ in 0..if thin {1} else {2} {
         let exited=command(&root,"offboard_all",&manifest,&out,actor,json!({}));
         let exit_tx:Txid=exited["data"]["txid"].as_str().unwrap().parse().unwrap();
         ctx.await_transaction(exit_tx).await;ctx.generate_blocks(2).await;
         command(&root,"sync",&manifest,&out,actor,json!({}));
         command(&root,"snapshot",&manifest,&out,actor,json!({}));
         command(&root,"fee_audit",&manifest,&out,actor,json!({}));
-        let recycled=command(&root,"recycle_once",&manifest,&out,actor,json!({"board_cap_sat":10_000}));
+        let recycled=command(&root,"recycle_once",&manifest,&out,actor,json!({"board_cap_sat":if thin {5000} else {10_000}}));
         let raw=recycled["data"]["board"]["funding_tx"].as_str().unwrap();
         let tx:bitcoin::Transaction=bitcoin::consensus::encode::deserialize_hex(raw).unwrap();
         assert_eq!(tx.input.len(),1);assert_eq!(tx.input[0].previous_output.txid,exit_tx);
@@ -484,13 +551,14 @@ async fn simulator_confirmed_receipt_recycling() {
         cycles.push(json!({"exit":exited,"board":recycled,"confirmed_recycle":audit}));
     }
     let audit=command(&root,"recycle_audit",&manifest,&out,actor,json!({}));
-    assert_eq!(audit["recycle_confirmed"].as_array().unwrap().len(),2);
+    assert_eq!(audit["recycle_confirmed"].as_array().unwrap().len(),if thin {1} else {2});
     for cycle in audit["recycle_confirmed"].as_array().unwrap() {
         assert_eq!(cycle["external_injection_sat"],0);
         let source=cycle["source"]["amount_sat"].as_u64().unwrap();
+        if thin {assert_eq!(source,4119,"thin fixture must actually reproduce the recorded return amount");}
         assert_eq!(source,cycle["new_ark_principal_sat"].as_u64().unwrap()+cycle["service_fee_sat"].as_u64().unwrap()+cycle["mining_fee_sat"].as_u64().unwrap()+cycle["own_onchain_change_sat"].as_u64().unwrap());
     }
-    write(&out.join("result.json"),&json!({"result":"PASS","initial_owner_funding_sat":20_000,"cycles":cycles,"audit":audit,
+    write(&out.join("result.json"),&json!({"result":"PASS","initial_owner_funding_sat":20_000,"thin_return":thin,"cycles":cycles,"audit":audit,
         "coverage_limits":["confirmed collaborative exit recycling; signet fallback recycling and full server capital conservation separate"]}));
 }
 

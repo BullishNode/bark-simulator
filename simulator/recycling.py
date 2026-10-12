@@ -5,7 +5,7 @@ The driver spends precisely the frozen source, and confirmed Core evidence
 closes the cycle. Permanent absence and uncertain requests never recycle.
 """
 import asyncio,json,time
-from .model import InvariantError,integer,btc_to_sat
+from .model import InvariantError,integer,btc_to_sat,canonical
 
 def sources(store):
     result={}
@@ -49,37 +49,74 @@ async def collect(store,chain,limit=2):
             txid,vout=outpoint.split(':');utxo=await asyncio.to_thread(chain.call,'gettxout',txid,int(vout),True)
             if utxo and utxo.get('confirmations',0)>=1:
                 if btc_to_sat(utxo['value'])!=source['amount_sat'] or utxo['scriptPubKey']['hex']!=source['script']:raise InvariantError('confirmed recycle source changed amount or destination')
-                store.event('recycle_source_unspent_verified',{**source,'confirmations':utxo['confirmations'],'checked_at':time.time()})
+                value={**source,'confirmations':utxo['confirmations'],'checked_at':time.time(),'status':'unspent'}
+                previous=json.loads(store.get_meta('recycle_verified:'+outpoint) or 'null')
+                unchanged=previous is not None and {k:v for k,v in previous.items() if k!='checked_at'}=={k:v for k,v in value.items() if k!='checked_at'}
+                if not unchanged:store.event('recycle_source_unspent_verified',value)
+                store.db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)",('recycle_verified:'+outpoint,canonical(value)))
+            else:
+                # Invalidate the fresh cache immediately; old append-only
+                # observations cannot override a newer spent/unavailable result.
+                store.db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)",('recycle_verified:'+outpoint,canonical({**source,'status':'unavailable_or_spent','checked_at':time.time()})))
         except InvariantError:raise
-        except Exception:pass # Unavailable or spent source is never credit.
+        except Exception:
+            store.db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)",('recycle_verified:'+outpoint,canonical({**source,'status':'unavailable','checked_at':time.time()})))
         store.db.execute("INSERT OR REPLACE INTO meta VALUES ('recycle_source_cursor',?)",(outpoint,))
     reconcile(store)
 
+def board_cost_estimate(store,actor):
+    rows=store.db.execute("""SELECT e.payload FROM event e JOIN action a
+        ON a.id=json_extract(e.payload,'$.action_id')
+        WHERE e.kind='client_fee_reconciled' AND a.actor_id=? AND a.operation='board'
+        ORDER BY e.sequence DESC""",(actor,)).fetchall()
+    for row in rows:
+        value=json.loads(row[0])
+        if value.get('chain_transaction',{}).get('confirmations',0)<1:continue
+        service=integer(value['service_charge_sat'],'observed board service fee')
+        mining=integer(value['mining_fee_sat'],'observed board mining fee')
+        return {'fee_sat':service+mining,'service_sat':service,'mining_sat':mining,
+                'source_action_id':value['action_id'],'basis':'confirmed native board cost'}
+    # Independently audited v18 signet baseline, explicitly a planning estimate.
+    # Native preparation requotes exact service/mining before any signing.
+    return {'fee_sat':483,'service_sat':330,'mining_sat':153,
+            'source_action_id':None,'basis':'audited campaign baseline; exact native quote still required'}
+
+
 def plan(store,actor,detail,config):
-    if not detail.get('board_submitted') or detail.get('needs_sync') or detail.get('permanent_absence') or detail.get('registered_spendable_sat',0):return None
-    # No new board while old signed coins or a pending board remain live.
+    if not detail.get('board_submitted') or detail.get('needs_sync') or detail.get('permanent_absence'):return None
+    # Unknown wallet state remains held. Independently observed unrelated live
+    # Ark coins do not prevent a source-only on-chain board.
+    live=[]
     for coin in detail.get('coin_ids',[]):
-        state=store.db.execute('SELECT state FROM coin_observation WHERE coin_id=? ORDER BY observed_at DESC LIMIT 1',(coin,)).fetchone()
-        if not state or state[0] not in {'Spent','Exited','Offboarded'}:return None
-    seen=set()
+        state=store.db.execute("SELECT state FROM coin_observation WHERE coin_id=? AND state!='PublicProof' ORDER BY observed_at DESC LIMIT 1",(coin,)).fetchone()
+        if not state:return None
+        if state[0] not in {'Spent','Exited','Offboarded'}:
+            proof=store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(coin,)).fetchone()
+            if not proof:return None
+            live.append(json.loads(proof[0]))
+    sources_by_id={}
     for row in store.db.execute("SELECT payload FROM event WHERE kind='recycle_source_unspent_verified' AND json_extract(payload,'$.actor')=? ORDER BY sequence DESC",(actor,)):
-        source=json.loads(row[0]);outpoint=source['outpoint']
-        if outpoint in seen:continue
-        seen.add(outpoint)
-        if claimed(store,outpoint) or source.get('confirmations',0)<1 or not 0<=time.time()-source['checked_at']<=120:continue
+        source=json.loads(row[0]);sources_by_id.setdefault(source['outpoint'],source)
+    for row in store.db.execute("SELECT value FROM meta WHERE key LIKE 'recycle_verified:%'"):
+        source=json.loads(row[0])
+        if source['actor']==actor:sources_by_id[source['outpoint']]=source
+    quote=board_cost_estimate(store,actor)
+    for outpoint,source in sources_by_id.items():
+        if source.get('status','unspent')!='unspent' or claimed(store,outpoint) or source.get('confirmations',0)<1 or not 0<=time.time()-source['checked_at']<=120:continue
+        if any(outpoint in step.get('inputs',[]) for proof in live for step in proof.get('path',[])):continue
         available=min(integer(detail.get('onchain_confirmed_sat',0),'own confirmed balance'),integer(source['amount_sat'],'confirmed recycle source',1))
-        amount=min(config.board_amount_sat,available-config.action_fee_reserve_sat)
-        # Keep the payout minimum plus one unchanged per-action fee reserve
-        # inside Ark. Do not manufacture a tiny new coin just to show activity.
+        amount=min(config.board_amount_sat,available-quote['fee_sat'])
         minimum_principal=1000+config.action_fee_reserve_sat
-        if amount<minimum_principal:
+        if quote['fee_sat']>config.action_fee_reserve_sat or amount<minimum_principal:
             if not store.db.execute("SELECT 1 FROM event WHERE kind='recycle_fee_exhaustion' AND json_extract(payload,'$.outpoint')=?",(outpoint,)).fetchone():
                 store.event('recycle_fee_exhaustion',{'actor':actor,'outpoint':outpoint,'confirmed_source_sat':source['amount_sat'],
                     'confirmed_wallet_sat':detail.get('onchain_confirmed_sat',0),'fee_reserve_sat':config.action_fee_reserve_sat,
-                    'minimum_new_ark_principal_sat':minimum_principal,
-                    'source_remains_in_own_bip84_wallet':True,'funding_injected_sat':0,'reason':'returned capital cannot safely support another minimum-sized board plus fixed fee reserve'})
+                    'minimum_new_ark_principal_sat':minimum_principal,'fee_estimate':quote,
+                    'source_remains_in_own_bip84_wallet':True,'funding_injected_sat':0,
+                    'reason':'source minus estimated cost is below principal floor or quote exceeds hard fee ceiling; no source combining'})
             continue
-        return {'amount_sat':amount,'minimum_ark_amount_sat':minimum_principal,'recycle_source':source}
+        return {'amount_sat':amount,'minimum_ark_amount_sat':minimum_principal,'recycle_source':source,
+                'recycle_autosize':True,'board_cap_sat':config.board_amount_sat,'recycle_fee_estimate':quote}
     return None
 
 def reconcile(store):
@@ -92,9 +129,15 @@ def reconcile(store):
         f=json.loads(fee[0][0]);tx=f['chain_transaction'];source=p['source']
         if tx.get('confirmations',0)<1:continue
         if len(tx['inputs'])!=1 or tx['inputs'][0]['outpoint']!=source['outpoint'] or tx['inputs'][0]['amount_sat']!=source['amount_sat'] or tx['inputs'][0]['script']!=source['script']:raise InvariantError('recycle board did not spend precisely its frozen own receipt')
-        principal=p['board_amount_sat']-f['service_charge_sat'];change=sum(o['amount_sat'] for o in tx['outputs'])-p['board_amount_sat']
+        action_row=store.db.execute('SELECT args FROM action WHERE id=?',(action,)).fetchone()
+        args=json.loads(action_row[0]) if action_row else {}
+        funded=p['board_amount_sat']
+        if args.get('recycle_autosize') is True:
+            funded=integer(f['funded_amount_sat'],'independently reconciled exact board output',1)
+            if funded>args['board_cap_sat']:raise InvariantError('recycle board exceeds frozen cap')
+        principal=funded-f['service_charge_sat'];change=sum(o['amount_sat'] for o in tx['outputs'])-funded
         minimum=1000+p['fee_reserve_sat']
-        if principal<minimum or source['amount_sat']!=principal+f['service_charge_sat']+f['mining_fee_sat']+change:raise InvariantError('recycle principal/fees/change do not conserve confirmed receipt')
+        if change<0 or f['service_charge_sat']+f['mining_fee_sat']>p['fee_reserve_sat'] or principal<minimum or source['amount_sat']!=principal+f['service_charge_sat']+f['mining_fee_sat']+change:raise InvariantError('recycle principal/fees/change do not conserve confirmed receipt')
         store.event('recycle_confirmed',{'actor':p['actor'],'action_id':action,'source':source,'board_txid':tx['txid'],
             'new_ark_principal_sat':principal,'service_fee_sat':f['service_charge_sat'],'mining_fee_sat':f['mining_fee_sat'],
             'own_onchain_change_sat':change,'external_injection_sat':0,'source_credit_count':1,

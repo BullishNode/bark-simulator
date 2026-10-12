@@ -54,7 +54,7 @@ def arm_receive_absence(store,actor,rail):
             coin=store.db.execute('SELECT c.id,c.amount_sat,k.actor FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey WHERE c.id=?',(coin_id,)).fetchone()
             if coin is None:break
             if coin['actor']!=actor:raise InvariantError('receive disappearance proof belongs to another owner')
-            state=store.db.execute('SELECT state FROM coin_observation WHERE coin_id=? ORDER BY observed_at DESC LIMIT 1',(coin_id,)).fetchone()
+            state=store.db.execute("SELECT state FROM coin_observation WHERE coin_id=? AND state!='PublicProof' ORDER BY observed_at DESC LIMIT 1",(coin_id,)).fetchone()
             if state is None or state['state']!='Spendable':break
             coins.append(coin)
         if len(coins)!=len(ids):continue

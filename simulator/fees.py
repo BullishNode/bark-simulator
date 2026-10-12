@@ -287,14 +287,31 @@ def board_fee(store, action, tx):
     if tx.get('confirmations',0)<1:raise EvidenceGap('board funding is not confirmed')
     outputs=[o for o in tx['outputs'] if o['vout']==int(index)]
     if len(outputs)!=1:raise InvariantError('board anchor output missing')
-    funded=integer(json.loads(action['args'])['amount_sat'],'board funded amount',1)
+    args=json.loads(action['args'])
+    funded=integer(args['amount_sat'],'board funded amount',1)
+    proposal=None
+    if args.get('recycle_autosize') is True:
+        proposal=_proposal(store,action,'board_proposal')
+        funded=integer(proposal['amount_sat'],'exact frozen board output',1)
+        if proposal.get('recycle_autosize') is not True or proposal['funding_txid']!=txid:
+            raise InvariantError('auto board differs from frozen exact quote')
+        source=args['recycle_source']
+        if (len(tx['inputs'])!=1 or any(tx['inputs'][0].get(k)!=source[k]
+                for k in ('outpoint','amount_sat','script'))):
+            raise InvariantError('auto board consumed other than its frozen receipt')
+        if funded>integer(args['board_cap_sat'],'board output cap',1):
+            raise InvariantError('auto board exceeds frozen cap')
+        if coin['amount_sat']<integer(args['minimum_ark_amount_sat'],'minimum Ark principal',1):
+            raise InvariantError('auto board creates below-floor Ark principal')
     if outputs[0]['amount_sat']!=funded:raise InvariantError('actual board funding differs from request')
     service=funded-coin['amount_sat']
     if service<0 or service!=data['sdk_service_fee_sat']:raise InvariantError('signed board service charge differs from SDK result')
     mining=integer(tx['fee_sat'],'actual board mining fee')
+    if proposal and (service!=proposal['estimated_service_fee_sat'] or mining!=proposal['planned_mining_fee_sat']):
+        raise InvariantError('confirmed auto board costs differ from pre-sign exact quote')
     total=service+mining
     if total>action['fee_reservation_sat']:raise InvariantError('actual board cost exceeds declared reserve')
-    return {'txid':txid,'coin_id':ids[0],'mining_fee_sat':mining,'service_charge_sat':service,'actual_fee_sat':total,
+    return {'txid':txid,'coin_id':ids[0],'funded_amount_sat':funded,'mining_fee_sat':mining,'service_charge_sat':service,'actual_fee_sat':total,
         'scope':'confirmed Core input/output fee and signed board amount; service charge is not a mining fee'}
 
 def offboard_fee(store,action,tx):

@@ -87,6 +87,7 @@ class Engine:
         context = {"snapshot_id":latest["id"] if latest else None, "height":snapshot.get("height"),
                    "tip_hash":snapshot.get("tip_hash"), "mode":self.store.get_meta("mode")}
         self.store.event("driver_request", {"action_id": action["id"], "request": request, "context":context})
+        queued_for_ms=max(0,round((time.time()-action["created_at"])*1000))
         started = time.monotonic()
 
         def progress(event):
@@ -94,12 +95,20 @@ class Engine:
                 raise ValueError("driver evidence action mismatch")
             self.store.event("driver_evidence", {**event,"context":context})
 
+        def driver_stderr(log):
+            try:
+                public_payload(log)
+            except ValueError:
+                log={"redacted":True,"bytes":log["bytes"],"truncated":log["truncated"]}
+            self.store.event("driver_stderr",{"action_id":action["id"],**log})
+
         try:
             response = await json_command(list(self.config.driver_command), request,
-                timeout=self.config.action_timeout_seconds, on_event=progress)
+                timeout=self.config.action_timeout_seconds, on_event=progress,on_stderr=driver_stderr)
             public_payload(response)
             self.store.event("driver_response", {"action_id": action["id"], "response": response,
-                             "duration_ms": round((time.monotonic() - started) * 1000), "context":context})
+                             "duration_ms": round((time.monotonic() - started) * 1000),
+                             "queued_for_ms":queued_for_ms, "context":context})
         except Exception as error:
             self.store.finish(action["id"], "outcome_unknown", {"reason": type(error).__name__,
                 "duration_ms": round((time.monotonic() - started) * 1000)})
@@ -129,7 +138,7 @@ class Engine:
                     if row:
                         detail=json.loads(row[0]);detail["needs_sync"]=True
                         self.store.db.execute("UPDATE actor SET details=? WHERE id=?",(canonical(detail),target))
-                record_candidates(self.store,action["actor_id"],action["id"],response.get("data",{}))
+                record_candidates(self.store,action["actor_id"],action["id"],response.get("data",{}),verification_failed=verified is None)
                 record_verified(self.store,action["actor_id"],action["id"],verified)
             try:
                 self.store.finish(action["id"], "completed", response, response.get("actual_fee_sat"),

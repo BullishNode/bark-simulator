@@ -411,6 +411,8 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             let mut receive_ceiling = 0u64;
             let pending_receives = wallet.pending_lightning_receives().await?;
             let receive_count_before = pending_receives.len();
+            let receive_payment_hashes_before = pending_receives.iter()
+                .map(|recv| recv.payment_hash.to_string()).collect::<Vec<_>>();
             for recv in pending_receives {
                 let q = wallet
                     .estimate_lightning_receive_fee(recv.invoice.get_payment_amount(None)?)
@@ -432,7 +434,10 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             // reuse the SDK's maintenance progression for existing intents.
             wallet.progress_pending_rounds(None).await?;
             wallet.sync_onchain().await?;
-            let receive_count_after = wallet.pending_lightning_receives().await?.len();
+            let pending_after = wallet.pending_lightning_receives().await?;
+            let receive_count_after = pending_after.len();
+            let receive_payment_hashes_after = pending_after.iter()
+                .map(|recv| recv.payment_hash.to_string()).collect::<Vec<_>>();
             // Sync creates a new fee obligation only for newly claimed receives.
             // Advancing existing boards/rounds/sends/offboards is accounted to
             // their original persisted action, never charged a second time here.
@@ -440,6 +445,8 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             Ok(
                 json!({"requested": "sync", "note": "SDK sync can log partial failures; inspect snapshot/status before declaring convergence",
                     "receive_count_before":receive_count_before,"receive_count_after":receive_count_after,
+                    "receive_payment_hashes_before":receive_payment_hashes_before,
+                    "receive_payment_hashes_after":receive_payment_hashes_after,
                     "actual_fee_sat":if no_new_receive {json!(0)} else {Value::Null},
                     "fee_scope":"no new receive claim; costs of existing persisted actions remain on those actions",
                     "before_evidence":before,"evidence":coin_evidence(&wallet).await?}),
@@ -513,15 +520,9 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             wallet.sync_onchain().await?;
             let (key, _) = wallet.derive_store_next_keypair().await?;
             let (destination, expiry) = wallet.board_funding_address(&key).await?;
-            let estimate = wallet
-                .estimate_board_offchain_fee(amount(&req.args)?)
-                .await?;
-            if let Some(minimum) = req.args.get("minimum_ark_amount_sat") {
-                let minimum = minimum.as_u64().context("invalid minimum Ark principal")?;
-                if amount(&req.args)?.to_sat().checked_sub(estimate.fee.to_sat()).unwrap_or(0) < minimum {
-                    return Ok(json!({"blocked":true,"reason":"recycle board would create below-minimum Ark principal","actual_fee_sat":0}));
-                }
-            }
+            let autosize=req.args["recycle_autosize"].as_bool()==Some(true);
+            ensure!(!autosize || req.args.get("recycle_source").is_some(), "autosize requires a frozen own receipt");
+            let destination_script=destination.script_pubkey();
             let fee_rate = wallet.chain().fee_rates().await.regular;
             let onchain = wallet.onchain().context("missing onchain wallet")?;
             let mut guard = onchain.write().await;
@@ -536,13 +537,46 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 ensure!(source_utxo.txout.value.to_sat()==value && source_utxo.txout.script_pubkey==script, "recycle source differs from frozen receipt");
                 let mut builder = bdk.build_tx();
                 builder.ordering(bdk_wallet::TxOrdering::Untouched).add_utxo(outpoint)?.manually_selected_only()
-                    .add_recipient(destination.script_pubkey(),amount(&req.args)?).fee_rate(fee_rate);
-                let psbt=builder.finish()?;
+                    .fee_rate(fee_rate);
+                if autosize {
+                    let cap=req.args["board_cap_sat"].as_u64().context("invalid board cap")?;
+                    ensure!(cap>0, "zero board cap");
+                    if value<=cap {
+                        // Only the selected receipt can fund this drain output.
+                        // Service cost is quoted below against the exact output.
+                        builder.drain_wallet().drain_to(destination_script.clone());
+                    } else {
+                        builder.add_recipient(destination_script.clone(),Amount::from_sat(cap));
+                    }
+                } else {
+                    builder.add_recipient(destination_script.clone(),amount(&req.args)?);
+                }
+                let psbt=match builder.finish() {
+                    Ok(psbt)=>psbt,
+                    Err(error) if autosize=>return Ok(json!({"blocked":true,"reason":"source cannot fund an unsigned recycle board at the current fee rate",
+                        "preparation_error":error.to_string(),"actual_fee_sat":0,"no_sign_no_broadcast":true})),
+                    Err(error)=>return Err(error.into()),
+                };
                 verify_recycle_input(&psbt,source)?;
                 psbt
             } else {
                 guard.prepare_tx(&[(destination, amount(&req.args)?)], fee_rate).await?
             };
+            let outputs=psbt.unsigned_tx.output.iter().filter(|o|o.script_pubkey==destination_script).collect::<Vec<_>>();
+            ensure!(outputs.len()==1, "board funding output is ambiguous");
+            let funded=outputs[0].value;
+            if autosize {
+                ensure!(funded.to_sat()<=req.args["board_cap_sat"].as_u64().context("invalid board cap")?, "prepared board exceeds cap");
+            } else {
+                ensure!(funded==amount(&req.args)?, "prepared board differs from request");
+            }
+            let estimate=wallet.estimate_board_offchain_fee(funded).await?;
+            if let Some(minimum)=req.args.get("minimum_ark_amount_sat") {
+                let minimum=minimum.as_u64().context("invalid minimum Ark principal")?;
+                if funded.to_sat().checked_sub(estimate.fee.to_sat()).unwrap_or(0)<minimum {
+                    return Ok(json!({"blocked":true,"reason":"recycle board would create below-minimum Ark principal","actual_fee_sat":0,"no_sign_no_broadcast":true}));
+                }
+            }
             let mining_fee = psbt.fee()?.to_sat();
             let total_fee = mining_fee
                 .checked_add(estimate.fee.to_sat())
@@ -557,13 +591,13 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 "board_proposal",
                 json!({"funding_txid":psbt.unsigned_tx.compute_txid().to_string(),
                 "unsigned_funding_tx":hex(&bitcoin::consensus::serialize(&psbt.unsigned_tx)),
-                "amount_sat":amount(&req.args)?.to_sat(), "planned_mining_fee_sat":mining_fee,
+                "amount_sat":funded.to_sat(), "planned_mining_fee_sat":mining_fee,"recycle_autosize":autosize,
                 "estimated_service_fee_sat":estimate.fee.to_sat(), "expiry_height":expiry.to_u32()}),
             )?;
             let signed = guard.finish_psbt(psbt).await?;
             drop(guard);
             let board = wallet.board_psbt(signed, key, expiry).await?;
-            let service_fee = amount(&req.args)?
+            let service_fee = funded
                 .checked_sub(board.amount)
                 .context("board amount exceeds funded amount")?
                 .to_sat();
@@ -1086,6 +1120,9 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
 
 #[tokio::main]
 async fn main() {
+    if std::env::var("BARK_SIM_LOG").as_deref() == Ok("debug") {
+        let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).try_init();
+    }
     let mut input = String::new();
     let result = (|| -> Result<(DriverConfig, Request)> {
         io::stdin()
