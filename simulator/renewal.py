@@ -151,7 +151,7 @@ def collect(store,config):
     if not config.funding_wallet:return
     row=store.db.execute('SELECT * FROM funding_batch WHERE id=?',(TRANCHE,)).fetchone()
     if row and row['state'] in {'broadcast','broadcasting','outcome_unknown'}:
-        reconcile(store,WalletRpc(config.funding_credential_file,config.funding_wallet),row)
+        reconcile(store,WalletRpc(config.funding_credential_file,config.funding_wallet,capture=store.trace_sample if store.trace is not None else None),row)
 
 def queue_board(store,actor,detail,config):
     source=detail.get('owner_renewal_source')

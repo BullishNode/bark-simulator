@@ -69,13 +69,14 @@ def declared_seeds(values, wallet_root):
 
 
 class RecoveryRpc:
-    def __init__(self, config):
+    def __init__(self, config, *, capture=None):
         command = config.recovery_command
         if len(command) != 3 or re.fullmatch(r'http://127\.0\.0\.1:\d+', command[1]) is None:
             raise ValueError('seed recovery requires a pinned adapter and independent loopback Core')
         if re.fullmatch(r'[A-Za-z0-9_-]{1,100}', config.funding_wallet) is None:
             raise ValueError('declare simulator funding wallet for recovery destination')
         self.url, self.credential, self.wallet = command[1], Path(command[2]), config.funding_wallet
+        self.capture=capture
 
     def call(self, method, *params):
         if method not in {'getblockhash', 'getblockchaininfo', 'getaddressinfo', 'gettxout',
@@ -86,8 +87,17 @@ class RecoveryRpc:
         request = urllib.request.Request(url, json.dumps({'jsonrpc': '2.0', 'id': 1,
             'method': method, 'params': params}).encode(),
             {'Authorization': 'Basic ' + token, 'Content-Type': 'application/json'})
-        with urllib.request.urlopen(request, timeout=12) as stream:
-            response = json.load(stream, parse_float=Decimal)
+        raw=None
+        try:
+            with urllib.request.urlopen(request, timeout=12) as stream:raw=stream.read(16*1024*1024+1)
+            if len(raw)>16*1024*1024:raw=None;raise ValueError('recovery Core response exceeds bound')
+            response = json.loads(raw, parse_float=Decimal)
+        except Exception as error:
+            if self.capture:self.capture({'kind':'chain.rpc','payload':{'method':method,'params':list(params),'error':type(error).__name__,'consumer':'seed-recovery'},'raw':raw})
+            raise
+        if self.capture:
+            from .trace import normalized
+            self.capture({'kind':'chain.rpc','payload':{'method':method,'params':list(params),'result':normalized(response.get('result')),'error':normalized(response.get('error')),'consumer':'seed-recovery'},'raw':raw})
         if response.get('error'): raise ValueError('recovery Core evidence unavailable')
         return response['result']
 
@@ -170,7 +180,8 @@ class RecoveryController:
             raise ValueError('seed recovery cap exceeds declared action reservation or 2000 sats')
         integer(config.recovery_fee_rate_sat_vb, 'seed recovery fee rate', 1)
         integer(config.recovery_timeout_seconds, 'seed recovery preparation timeout', 1)
-        self.store, self.config, self.rpc, self.prepare = store, config, rpc or RecoveryRpc(config), prepare
+        if getattr(config,'trace_enabled',False):store.attach_trace(config.trace_retention_days)
+        self.store, self.config, self.rpc, self.prepare = store, config, rpc or RecoveryRpc(config,capture=store.trace_sample if store.trace is not None else None), prepare
         self.jobs = {}
         store.db.executescript(SCHEMA)
 

@@ -10,6 +10,25 @@ MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_STDERR_BYTES = 256 * 1024
 
 
+def public_command_capture(store, kind, request, *, actor=None, action_id=None):
+    """Capture public helper commands without serializing their credential argv.
+
+    Private signer preparation never uses this helper. Its input must not enter
+    either the public trace or the financial journal.
+    """
+    if getattr(store, 'trace', None) is None: return {}
+    from .model import public_payload
+    public_payload(request)
+    store.trace_capture(kind+'.call', {'phase':'request','request':request}, actor=actor, action_id=action_id)
+    def stream(name):
+        def capture(record):
+            payload={key:value for key,value in record.items() if key!='raw'}
+            store.trace_capture(kind+'.'+name, {**payload,'request':request},
+                                actor=actor, action_id=action_id, raw=record['raw'])
+        return capture
+    return {'on_stdout_raw':stream('stdout'), 'on_stderr_raw':stream('stderr')}
+
+
 class CommandError(RuntimeError):
     pass
 

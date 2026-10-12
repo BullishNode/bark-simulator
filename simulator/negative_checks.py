@@ -2,7 +2,7 @@
 import json,time
 from .model import InvariantError,canonical,integer
 from .ownership import EvidenceGap
-from .process import json_command
+from .process import json_command, public_command_capture
 from .raw_cases import RAW_CASES
 
 def request_for(store,action):
@@ -49,13 +49,14 @@ async def collect(store,command,proof_command=(),limit=2):
         try:
             if RAW_CASES.get(action['operation'])!=action['scenario_id']:raise InvariantError('negative adapter/catalogue mismatch')
             request,expected,protected=request_for(store,action)
-            observed=await json_command(list(command),request,timeout=25)
+            observed=await json_command(list(command),request,timeout=25,**public_command_capture(store,'binding.check',request,actor=action['actor_id'],action_id=action['id']))
             evidence={**check(request,expected,protected,observed),'snapshot':observed}
             for link in observed['links']:
                 if not proof_command:raise EvidenceGap('independent signature verifier unavailable')
                 record=next(r for r in observed['records'] if r['mailbox_pk']==link['mailbox_pk'])
-                proof=await json_command(list(proof_command),{'user_pubkey':link['user_pubkey'],'key_link_attestation':link['sig'],
-                    'binding':{'mailbox_pk':record['mailbox_pk'],'spk':record['spk'],'seq':record['seq'],'record_attestation':record['sig']}},timeout=30)
+                proof_request={'user_pubkey':link['user_pubkey'],'key_link_attestation':link['sig'],
+                    'binding':{'mailbox_pk':record['mailbox_pk'],'spk':record['spk'],'seq':record['seq'],'record_attestation':record['sig']}}
+                proof=await json_command(list(proof_command),proof_request,timeout=30,**public_command_capture(store,'proof.binding',proof_request,actor=action['actor_id'],action_id=action['id']))
                 bound=proof.get('binding',{})
                 if proof.get('user_pubkey')!=link['user_pubkey'] or bound.get('mailbox_pk')!=record['mailbox_pk'] or bound.get('spk')!=record['spk'] or bound.get('seq')!=record['seq']:
                     raise InvariantError('independent binding verifier returned another identity')

@@ -81,7 +81,7 @@ elif mode in {'verified_recovery','verified_recovery_confirm'}:
     store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
     initialize(store)
     controller=RecoveryController(store,cfg)
-    chain=ChainReader(m['core_url'],m['core_cookie'],m['genesis'])
+    chain=ChainReader(m['core_url'],m['core_cookie'],m['genesis'],capture=store.trace_sample,consumer='payout-fixture')
     async def verify_and_recover():
         if mode=='verified_recovery':
             inventory=json.loads((out/'public-payout-inventory.json').read_text())
@@ -97,6 +97,9 @@ elif mode in {'verified_recovery','verified_recovery_confirm'}:
             await collect_settlements(store,chain)
             assert store.db.execute('SELECT state FROM settlement_check').fetchone()[0]=='pending'
             assert await collect_proofs(store,cfg)==1
+            for coin in store.db.execute('SELECT proof FROM owned_coin'):
+                anchor=json.loads(coin[0])['chain_anchor'].split(':')[0]
+                await asyncio.to_thread(chain.tx,anchor)
             await collect_settlements(store,chain)
             assert store.db.execute('SELECT reason FROM settlement_check').fetchone()[0]=='operator change ownership is unverified'
             await collect_operator(store,cfg,chain)
@@ -121,6 +124,14 @@ elif mode in {'verified_recovery','verified_recovery_confirm'}:
     try:
         result=asyncio.run(verify_and_recover())
         store.verify_event_chain()
+        if mode=='verified_recovery_confirm':
+            from simulator.export_bundle import export_bundle,audit_bundle
+            destination=out/'confirmed-payout-export'
+            export_bundle(store,destination,actor=actor)
+            audit=audit_bundle(destination,proof_binary=Path(m['proof']))
+            assert audit['payouts'] and audit['payouts'][0]['state']=='amounts_checked'
+            assert audit['native_protocol_reverified'] and all(p['raw_chain_reverified'] for p in audit['payouts']),'export must recheck real signatures and serialized payout/input transactions'
+            result['bundle_audit']=audit
         (out/(mode+'.json')).write_text(json.dumps(result,indent=2)+'\n')
         print(json.dumps(result))
     finally:

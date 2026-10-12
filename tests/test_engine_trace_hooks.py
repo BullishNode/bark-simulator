@@ -13,6 +13,46 @@ from simulator.store import Store
 
 
 class EngineTraceHooksTests(unittest.IsolatedAsyncioTestCase):
+    async def test_public_helper_rejects_private_signer_input_before_any_trace_write(self):
+        from simulator.process import public_command_capture
+        with tempfile.TemporaryDirectory() as temporary:
+            store=Store(Path(temporary),'synthetic',10000);store.attach_trace()
+            try:
+                with self.assertRaises(ValueError):
+                    public_command_capture(store,'signer',{'mnemonic':'private input'})
+                self.assertEqual(0,store.trace.verify()['records'])
+                self.assertEqual(0,store.db.execute('SELECT COUNT(*) FROM event').fetchone()[0])
+            finally:store.close()
+
+    async def test_funding_and_recovery_rpc_capture_excludes_auth_and_keeps_exact_amount(self):
+        from decimal import Decimal
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from simulator.funding import WalletRpc
+        from simulator.recovery import RecoveryRpc
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);store=Store(root,'synthetic',10000);store.attach_trace()
+            credential=root/'rpc-auth';credential.write_text('user:opaque-test-auth')
+            cfg=SimpleNamespace(recovery_command=('adapter','http://127.0.0.1:1',str(credential)),funding_wallet='funding')
+            class Response:
+                def __enter__(self):return self
+                def __exit__(self,*args):pass
+                def read(self,*args):return b'{"result":{"value":0.00004661},"error":null}'
+            try:
+                readers=(WalletRpc(str(credential),'funding',capture=store.trace_sample),RecoveryRpc(cfg,capture=store.trace_sample))
+                with patch('urllib.request.urlopen',return_value=Response()):
+                    for reader in readers:
+                        self.assertEqual(Decimal('0.00004661'),reader.call('getrawtransaction','a'*64,True)['value'])
+                records=list(store.trace.records())
+                self.assertEqual(2,len(records))
+                for record in records:
+                    self.assertEqual('0.00004661',record['payload']['result']['value'])
+                    self.assertIsNotNone(record['raw'])
+                    self.assertNotIn('opaque-test-auth',json.dumps(record['payload']))
+                    self.assertNotIn(b'opaque-test-auth',record['raw'])
+                self.assertEqual(0,store.db.execute('SELECT COUNT(*) FROM event').fetchone()[0])
+            finally:store.close()
+
     async def test_full_native_boundaries_live_in_trace_with_compact_financial_references(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

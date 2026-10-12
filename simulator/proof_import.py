@@ -22,7 +22,7 @@ from pathlib import Path
 
 from .model import InvariantError, canonical, integer, public_payload
 from .ownership import EvidenceGap, record_candidates, record_verified
-from .process import json_command
+from .process import json_command, public_command_capture
 
 MAX_BYTES = 2_097_152
 MAX_COINS = 16
@@ -207,7 +207,7 @@ async def collect(store, config, *, paths=None, limit=2):
                 raise EvidenceGap('independent native verifier is not configured')
             objects = []
             for coin in coins:
-                proof = await json_command(list(config.proof_command), coin, timeout=30)
+                proof = await json_command(list(config.proof_command), coin, timeout=30, **public_command_capture(store,'proof.import',coin,actor=actor,action_id=identity))
                 objects.append(_checked(config, coin, proof))
             with store.transaction():
                 at = time.time()

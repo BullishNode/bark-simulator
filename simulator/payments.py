@@ -9,7 +9,7 @@ import time
 
 from .model import InvariantError, canonical, public_payload
 from .ownership import EvidenceGap
-from .process import json_command
+from .process import json_command, public_command_capture
 
 
 def payment_hash(store, action):
@@ -81,7 +81,7 @@ async def collect(store, driver_command, server_pubkey, limit=2):
             request = {'operation': 'lightning_payment_status', 'action_id': query_id,
                 'actor_dir': None, 'expected_server_pubkey': server_pubkey,
                 'maximum_fee_sat': 0, 'args': {'payment_hash': value}}
-            response = await json_command(list(driver_command), request, timeout=15)
+            response = await json_command(list(driver_command), request, timeout=15, **public_command_capture(store,'payment.status',request,action_id=action['id']))
             record_status(store, action, value, response, query_id)
         except InvariantError:
             raise

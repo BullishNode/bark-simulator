@@ -10,15 +10,25 @@ from pathlib import Path
 from .model import SIGNET_GENESIS,btc_to_sat,canonical,integer
 from .store import Store
 class WalletRpc:
-    def __init__(self,token_file,wallet):
+    def __init__(self,token_file,wallet,*,capture=None):
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',wallet):raise ValueError('invalid fixture funding wallet name')
-        self.token_file=token_file;self.wallet=wallet
+        self.token_file=token_file;self.wallet=wallet;self.capture=capture
     def call(self,method,*params,root=False):
         if method not in {'getblockhash','getblockchaininfo','getwalletinfo','getbalances','getaddressinfo','gettxout','walletcreatefundedpsbt','walletprocesspsbt','finalizepsbt','decoderawtransaction','sendrawtransaction','getrawtransaction'}:raise ValueError('unsupported funding RPC')
         token=base64.b64encode(Path(self.token_file).read_text().strip().encode()).decode()
         url='http://127.0.0.1:38332'+('' if root else '/wallet/'+self.wallet)
         req=urllib.request.Request(url,json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode(),{'Authorization':'Basic '+token,'Content-Type':'application/json'})
-        with urllib.request.urlopen(req,timeout=30) as f:r=json.load(f,parse_float=Decimal)
+        raw=None
+        try:
+            with urllib.request.urlopen(req,timeout=30) as f:raw=f.read(16*1024*1024+1)
+            if len(raw)>16*1024*1024:raw=None;raise ValueError('funding RPC response exceeds bound')
+            r=json.loads(raw,parse_float=Decimal)
+        except Exception as error:
+            if self.capture:self.capture({'kind':'chain.rpc','payload':{'method':method,'params':list(params),'error':type(error).__name__,'consumer':'funding-wallet'},'raw':raw})
+            raise
+        if self.capture:
+            from .trace import normalized
+            self.capture({'kind':'chain.rpc','payload':{'method':method,'params':list(params),'result':normalized(r.get('result')),'error':normalized(r.get('error')),'consumer':'funding-wallet'},'raw':raw})
         if r.get('error'):raise ValueError('funding RPC unavailable/rejected')
         return r['result']
 

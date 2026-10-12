@@ -195,7 +195,7 @@ class Engine:
             last=float(self.store.get_meta("funding_check_"+batch) or "0")
             if time.time()-last<120:continue
             try:
-                result=fund(self.store,WalletRpc(self.config.funding_credential_file,self.config.funding_wallet),batch)
+                result=fund(self.store,WalletRpc(self.config.funding_credential_file,self.config.funding_wallet,capture=self.store.trace_sample if self.store.trace is not None else None),batch)
                 if batch=="initial" and result["state"]=="confirmed" and self.store.get_meta("real_campaign_started") is None:
                     done=sum(bool(json.loads(r[0]).get("board_submitted")) for r in rows)
                     if done==12 and lightning_ready(snapshot):

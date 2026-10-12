@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib,json,time
 from contextlib import nullcontext
 from .model import InvariantError,canonical,integer,public_payload
-from .process import json_command
+from .process import json_command, public_command_capture
 
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS client_coin_candidate(id TEXT NOT NULL, actor TEXT NOT NULL REFERENCES actor(id), action_id TEXT NOT NULL REFERENCES action(id), digest TEXT NOT NULL, payload TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(id,digest));
@@ -38,7 +38,7 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
     verified=[]
     if operation=='address':
         request={k:data[k] for k in ('user_pubkey','key_link_attestation','binding')}
-        proof=await json_command(list(proof_command),request,timeout=30)
+        proof=await json_command(list(proof_command),request,timeout=30,**public_command_capture(store,'proof.verify',request,actor=actor))
         if proof['user_pubkey']!=data['user_pubkey']:raise InvariantError('advertised key verification mismatch')
         verified.append({'kind':'key','proof':proof})
     for coin in evidence.get('coins',[]):
@@ -51,8 +51,8 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
             cached=json.loads(old['proof'])
             if old['signed_hash']==signed_hash and cached['binding']['mailbox_pk']==binding['mailbox_pk'] and cached['binding']['seq']==binding['seq'] and cached['binding']['spk']==binding['spk']:
                 proof=cached
-            else:proof=await json_command(list(proof_command),request,timeout=30)
-        else:proof=await json_command(list(proof_command),request,timeout=30)
+            else:proof=await json_command(list(proof_command),request,timeout=30,**public_command_capture(store,'proof.verify',request,actor=actor))
+        else:proof=await json_command(list(proof_command),request,timeout=30,**public_command_capture(store,'proof.verify',request,actor=actor))
         if (proof['id'],proof['user_pubkey'],proof['amount_sat'])!=(coin['id'],coin['user_pubkey'],integer(coin['amount_sat'],'coin amount',1)):
             raise InvariantError('independent coin evidence mismatch')
         if proof.get('signed_path_valid') is not True or proof.get('anchor_confirmations',0)<1:
