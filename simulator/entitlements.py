@@ -206,6 +206,9 @@ def _replacements(store, action, inputs, outputs):
                 value,hashed = _server_coin(store,coin,action,active_output=True)
             except EvidenceGap:
                 continue
+            from .padding import classification
+            if classification(store, value) == 'round_padding':
+                continue
             earliest = store.db.execute('SELECT MIN(observed_at) FROM coin_observation WHERE coin_id=?',
                                         (coin['id'],)).fetchone()[0]
             if earliest is None or earliest <= action['created_at']:
@@ -418,8 +421,12 @@ def unclaimed_expired_report(store, height, limit=1000):
     rows = store.db.execute("""SELECT id,payload,observed_at FROM server_item WHERE kind='coins'
         AND json_extract(payload,'$.policy_type')='pubkey' AND json_extract(payload,'$.spend_state')='unclaimed'
         AND json_extract(payload,'$.expiry')<? ORDER BY id""",(height,))
+    from .padding import classification
     candidates,total = [],0
     for row in rows:
+        value = json.loads(row['payload'])
+        if classification(store, value) == 'round_padding':
+            continue
         total += 1
         if len(candidates)>=limit:continue
         coin = store.db.execute("""SELECT c.*,k.actor FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey
@@ -439,4 +446,4 @@ def unclaimed_expired_report(store, height, limit=1000):
     return {'height':height,'status':'partial_inventory' if count else 'no_inventory',
         'inventory_consistent':False,'inventory_coin_rows':count,'expired_unclaimed_public_key_rows':total,
         'rows':candidates,'detail_limit':limit,'truncated':total>len(candidates),
-        'scope':'saved/current trusted paginated server observations; no complete snapshot or payout qualification; unknown ownership/amounts remain unknown'}
+        'scope':'saved/current trusted paginated server observations, positively SDK-decoded protocol padding excluded; no complete snapshot or payout qualification; unknown ownership/amounts remain unknown'}

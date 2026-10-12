@@ -13,6 +13,7 @@ from .continuous import absence_report
 from .recycling import report as recycling_report
 from .raw_cases import RAW_CASES
 from .recovery import report as recovery_report
+from .padding import report as padding_report, csv_values as padding_csv_values
 from .entitlements import unclaimed_expired_report
 
 
@@ -211,9 +212,10 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
         store.verify_event_chain()
     if evaluate:
         observe(store)
-    snapshot_query = "SELECT payload FROM snapshot ORDER BY observed_at,id" if full else "SELECT payload FROM (SELECT * FROM snapshot ORDER BY observed_at DESC,id DESC LIMIT 1440) ORDER BY observed_at,id"
+    snapshot_query = "SELECT id,payload FROM snapshot ORDER BY observed_at,id" if full else "SELECT id,payload FROM (SELECT * FROM snapshot ORDER BY observed_at DESC,id DESC LIMIT 1440) ORDER BY observed_at,id"
     action_query = "SELECT * FROM action ORDER BY created_at,id" if full else "SELECT * FROM (SELECT * FROM action ORDER BY created_at DESC,id DESC LIMIT 2000) ORDER BY created_at,id"
-    snapshots = [json.loads(r[0]) for r in store.db.execute(snapshot_query)]
+    snapshot_records = list(store.db.execute(snapshot_query))
+    snapshots = [json.loads(r['payload']) for r in snapshot_records]
     fields = ("id","actor_id","scenario_id","operation","state","fee_reservation_sat","actual_fee_sat")
     actions = [{key:r[key] for key in fields} for r in store.db.execute(action_query)]
     coverage_rows = coverage(store)
@@ -235,6 +237,7 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
             "rows":[{**dict(r),"input_coin_ids":json.loads(r['input_coin_ids']),"replacement_ids":json.loads(r['replacement_ids'])}
                 for r in store.db.execute('SELECT action_id,actor_id,state,input_coin_ids,replacement_ids,round_txid,server_round_id FROM delegated_entitlement ORDER BY updated_at DESC,action_id LIMIT 1000')],
             "scope":"durable intent history; successive refresh amounts are not additive capital"},
+        "tree_padding":padding_report(store),
         "expired_unclaimed_outputs":unclaimed_expired_report(store,snapshots[-1]['height'])
             if snapshots and type(snapshots[-1].get('height')) is int else {"status":"unknown_height","inventory_consistent":False},
         "owner_funded_renewal":{kind:[json.loads(r[0]) for r in store.db.execute('SELECT payload FROM event WHERE kind=? ORDER BY sequence',(kind,))]
@@ -272,7 +275,13 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
     atomic_text(store.root / "observations.json", json.dumps(result["observations"], indent=2) + "\n")
     mode = "SYNTHETIC DEMONSTRATION — NOT SIGNET EVIDENCE" if result["mode"] == "synthetic" else "LIVE OBSERVATIONS — QUALIFICATION INCOMPLETE"
     summary = "\n".join(f"- {key}: {value if value is not None else 'unknown'}" for key, value in result["capital"].items())
+    padding=result['tree_padding']
+    padding_summary=(f"Protocol padding: {padding['tree_padding_unclaimed']} unclaimed; {padding['tree_padding_expired_unclaimed']} expired; "
+        f"{padding['tree_padding_swept']} confirmed swept. Operator padding locked within existing backing: "
+        +(str(padding['tree_padding_locked_sat'])+' sat' if padding['tree_padding_locked_sat'] is not None else 'unknown')
+        +'. Padding is not a customer entitlement or an additional asset.')
     markdown = f"# Bark operator report\n\n**{mode}**\n\n{summary}\n\n"
+    markdown += padding_summary+"\n\n"
     markdown += f"Known payout recipient fees: {fees[0]} sat. Operator change fees: {fees[1]} sat.\n\n"
     markdown += "Observations (facts and missing evidence, not scenario verdicts):\n\n"
     markdown += "\n".join(f"- [{o['severity']}, {o['status']}] {o['summary']} Evidence: {json.dumps(o['evidence'],sort_keys=True)}" for o in result["observations"]) + "\n\n"
@@ -336,7 +345,7 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
     observations_html = "".join(f"<li><strong>{html.escape(o['severity'])} / {o['status']}</strong>: {html.escape(o['summary'])}<br><code>{html.escape(json.dumps(o['evidence'],sort_keys=True))}</code></li>" for o in result["observations"])
     document = f"""<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
 <title>Bark operator observations</title><style>body{{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem}}table{{border-collapse:collapse;width:100%}}td,th{{padding:.6rem;border-bottom:1px solid #ccc;text-align:left}}pre{{white-space:pre-wrap}}.banner{{padding:1rem;background:#fff0bd}}</style>
-<h1>Bark operator observations</h1><p class=banner>{mode}</p><h2>Capital</h2><pre>{html.escape(summary)}</pre>
+<h1>Bark operator observations</h1><p class=banner>{mode}</p><h2>Capital</h2><pre>{html.escape(summary)}</pre><p>{html.escape(padding_summary)}</p>
 {chart}
 <p>Minimum required capital: unknown. A funded successful run does not prove a minimum.</p>
 <p>Campaign active seconds ({html.escape(clock['active_seconds_scope'])}): {clock['active_seconds']}. Legacy clock seconds: {clock['legacy_clock_seconds']}; original campaign counter: {clock['campaign_active_seconds']}.</p>
@@ -347,11 +356,12 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
     atomic_text(store.root / "index.html", document)
     temp = store.root / "capital.csv.tmp"
     with temp.open("w", newline="", encoding="utf-8") as file:
-        fields = ["observed_at", "height", "complete", "rounds_confirmed_sat", "rounds_unconfirmed_sat", "tree_locked_sat", "watchman_confirmed_sat", "ln_spendable_msat", "ln_receivable_msat"]
+        fields = ["observed_at", "height", "complete", "rounds_confirmed_sat", "rounds_unconfirmed_sat", "tree_locked_sat", "tree_padding_locked_sat", "tree_padding_unclaimed", "tree_padding_swept", "watchman_confirmed_sat", "ln_spendable_msat", "ln_receivable_msat"]
         writer = csv.DictWriter(file, fields)
         writer.writeheader()
-        for snapshot in snapshots:
-            writer.writerow({key: snapshot.get(key) for key in fields})
+        for record in snapshot_records:
+            values={**json.loads(record['payload']),**padding_csv_values(store,record['id'])}
+            writer.writerow({key: values.get(key) for key in fields})
     os.replace(temp, store.root / "capital.csv")
     store.export_events(full=full)
     return result

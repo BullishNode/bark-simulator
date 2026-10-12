@@ -116,7 +116,7 @@
   {
     "id": "H20",
     "behavior": "Start a delegated refresh and immediately go offline.",
-    "expected": "Server completes it or resolves its unclaimed source under actual protocol rules.",
+    "expected": "Server completes it or resolves its customer unclaimed source under actual protocol rules; positively decoded operator padding is reported separately.",
     "driver": "SDK"
   },
   {

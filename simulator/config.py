@@ -6,14 +6,15 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from .padding import PADDING_PUBKEY, PADDING_UNLOCK_HASH, PADDING_AMOUNT_SAT
 from .model import SIGNET_GENESIS, integer, public_payload
 
 def verify_executables(runtime: dict, pins: dict) -> None:
     """Verify the commands actually invoked, not a different build directory."""
-    if runtime.get('active') is not True and not pins:
+    if runtime.get('active') is not True and not pins and not runtime.get('server_policy_command'):
         return
     required = []
-    for name in ('driver_command', 'proof_command', 'recovery_command'):
+    for name in ('driver_command', 'proof_command', 'recovery_command', 'server_policy_command'):
         if runtime.get(name):
             required.append(runtime[name][0])
     observer = runtime.get('observer_command', [])
@@ -68,6 +69,10 @@ class Config:
     recovery_fee_rate_sat_vb: int = 3
     recovery_timeout_seconds: int = 86400
     operator_descriptors: tuple[Path, ...] = ()
+    server_policy_command: tuple[str, ...] = ()
+    expected_padding_pubkey: str = PADDING_PUBKEY
+    expected_padding_unlock_hash: str = PADDING_UNLOCK_HASH
+    expected_padding_amount_sat: int = PADDING_AMOUNT_SAT
     trace_enabled: bool = True
     trace_retention_days: int = 30
     campaign_seed: str = ""
@@ -76,6 +81,8 @@ class Config:
     dispatch_per_tick: int = 1
 
     def __post_init__(self):
+        if (self.expected_padding_pubkey,self.expected_padding_unlock_hash,self.expected_padding_amount_sat)!=(PADDING_PUBKEY,PADDING_UNLOCK_HASH,PADDING_AMOUNT_SAT):
+            raise ValueError('round padding constants must match the pinned SDK')
         integer(self.dispatch_per_tick,"dispatch per tick",1)
         if self.dispatch_per_tick>3:raise ValueError("dispatch per tick must not exceed 3")
         if not isinstance(self.campaign_seed,str) or len(self.campaign_seed)>128:raise ValueError("campaign seed must be public text of at most 128 characters")
@@ -88,6 +95,16 @@ class Config:
     def load(cls, path: Path):
         data = tomllib.loads(path.read_text())
         target, runtime = data["target"], data["runtime"]
+        for name, expected in [('padding_pubkey',PADDING_PUBKEY),('padding_unlock_hash',PADDING_UNLOCK_HASH),('padding_amount_sat',PADDING_AMOUNT_SAT)]:
+            if target.get(name,expected)!=expected:
+                raise ValueError('round padding constants must match the pinned SDK')
+        policy=runtime.get('server_policy_command',[])
+        if not isinstance(policy,list) or len(policy)>1 or any(not isinstance(x,str) for x in policy):
+            raise ValueError('server_policy_command must contain one pinned public executable')
+        if policy:
+            executable=Path(policy[0])
+            if not executable.is_absolute() or executable.is_symlink() or not executable.is_file():
+                raise ValueError('unsafe server-policy executable')
         trace=data.get('trace',{})
         if not isinstance(trace,dict) or set(trace)-{'enabled','retention_days'} or type(trace.get('enabled',True)) is not bool:
             raise ValueError('trace requires enabled boolean and retention_days')
@@ -139,7 +156,7 @@ class Config:
         if not isinstance(operator, dict) or set(operator) - {'descriptors'}:
             raise ValueError('operator supports declared public descriptors only')
         operator_descriptors = declaration_paths(operator.get('descriptors', []), paths[1])
-        return cls(state_dir=paths[0], observer_command=tuple(runtime["observer_command"]),
+        return cls(server_policy_command=tuple(policy), state_dir=paths[0], observer_command=tuple(runtime["observer_command"]),
                    driver_command=tuple(runtime.get("driver_command", [])), wallet_root=paths[1],
                    expected_genesis=target["genesis"], expected_container=container,
                    expected_image=image, expected_server_pubkey=pubkey,

@@ -4,19 +4,36 @@ Use a public export for repeatable analysis. Its timeline includes actor-linked
 trace and accounting records; its README describes evidence limits. SQLite
 queries below run against `state.sqlite` or a selected trace partition.
 
-Find expired spendable outputs that the server still considers unclaimed:
+Find expired public-key outputs still reported unclaimed, excluding positively
+decoded protocol padding. Unknown or failed decoding stays in the candidate set:
 
 ```sql
-SELECT id,json_extract(payload,'$.amount_sat') AS amount_sat,
-       json_extract(payload,'$.expiry') AS expiry
-FROM server_item WHERE kind='coins'
-AND json_extract(payload,'$.spend_state')='spendable'
-AND json_extract(payload,'$.expiry') < :tip;
+SELECT s.id,json_extract(s.payload,'$.expiry') AS expiry,
+       c.classification
+FROM server_item s LEFT JOIN server_coin_classification c
+ON c.coin_id=s.id
+AND json_extract(c.proof,'$.source_signed_vtxo')=json_extract(s.payload,'$.signed_vtxo')
+AND json_extract(c.proof,'$.expiry_height')=json_extract(s.payload,'$.expiry')
+WHERE s.kind='coins'
+AND json_extract(s.payload,'$.policy_type')='pubkey'
+AND json_extract(s.payload,'$.spend_state')='unclaimed'
+AND json_extract(s.payload,'$.expiry') < :tip
+AND coalesce(c.classification,'unknown') <> 'round_padding';
 ```
 
-A server state is an observation. Resolve the signed owner and settlement
-arbitration before interpreting a row as someone else's entitlement. Check the
-actual inventory schema when comparing expiry heights.
+The joined classification is written only by the pinned native decoder.
+`simulator.entitlements.unclaimed_expired_report(store, tip)` also checks the
+serialized-byte digest, decoded identity, expiry and server-key binding.
+Never filter on an unsigned server `padding` flag or on 330 sats alone.
+
+The fixed marker is the public-key policy with key
+`02dfa52f6690299d2d6a08323083e290597b56fee125063e5f4e2957731639c42c`,
+a 330-sat amount, the unlock hash `deadbeef` repeated eight times and no arkoor
+transition. Its source is pinned to SDK commit
+`d47c6a4d115b30bf56219d69251fa9238d13f32d`. These leaves have no participant
+entitlement. A server state remains an observation; independently resolve the
+signed owner and settlement arbitration for every remaining customer candidate.
+See [padding attribution](tree-padding.md) for separate counts and capital limits.
 
 Inspect an actor returning after payout:
 
@@ -62,3 +79,19 @@ For historical financial events, use the same query against `event`, with
 `kind='scheduler_tick'`. Compare wallet balance, pending invoices, fee
 reservations and the recorded rule inputs before attributing sparse traffic to
 funding. Submitted sends and unknown outcomes do not prove delivery.
+
+Compare a rounds-wallet debit with the exact mining fee and backing transfer:
+
+```sql
+SELECT height,txid,kind,fee_sat,operator_fee_sat,rounds_delta_sat,
+       watchman_delta_sat,backing_delta_sat
+FROM operator_ledger_transaction ORDER BY height,txid;
+SELECT snapshot_id,height,
+       json_extract(result,'$.residual_msat') AS residual_msat,
+       json_extract(result,'$.unknowns') AS unknowns
+FROM capital_snapshot ORDER BY snapshot_id;
+```
+
+A null residual or fee payer remains unknown. A nonzero residual stays measured;
+see [capital accounting](capital.md) before treating a debit as fee burn or
+combining asset, recovery and entitlement ledgers.

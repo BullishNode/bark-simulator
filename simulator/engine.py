@@ -12,6 +12,7 @@ from .observations import observe
 from .process import json_command
 from .report import generate
 from .store import Store
+from .padding import collect as collect_padding, collect_backing as collect_padding_backing, capture_snapshot as capture_padding_snapshot
 from .ownership import record_candidates, record_verified, retry_public_candidates, verify_client_evidence, record_server_page
 from .model import InvariantError,canonical
 from .chain import ChainReader
@@ -234,6 +235,7 @@ class Engine:
             on_stderr_raw=self.raw_capture('inventory.stderr'))
         if page.get("kind")!=kind:raise ValueError("inventory kind mismatch")
         record_server_page(self.store,page)
+        await collect_padding(self.store,self.config.server_policy_command,self.config.expected_server_pubkey,limit=16)
         self.store.db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)",(key,page.get("next") or ""))
         self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('inventory_kind_index',?)",(str((index+1)%len(kinds)),))
 
@@ -286,6 +288,12 @@ class Engine:
                 await retry_public_candidates(self.store,self.config.proof_command)
                 if len(self.config.proof_command)==4:
                     chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],self.config.expected_genesis,capture=self.store.trace_sample)
+                    if self.config.server_policy_command:
+                        try:
+                            chain.consumer='padding-backing'
+                            await collect_padding_backing(self.store,chain,self.config.server_policy_command,self.config.expected_server_pubkey,limit=2)
+                        except InvariantError:raise
+                        except Exception as error:self.store.event('padding_backing_gap',{'reason':type(error).__name__})
                     chain.consumer='operator-ownership'
                     await collect_operator_scripts(self.store,self.config,chain)
                     chain.consumer='settlements'
@@ -301,6 +309,11 @@ class Engine:
                 self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','ownership contradiction')")
             except Exception as error:
                 self.store.event("inventory_gap",{"reason":type(error).__name__})
+            padding_latest=self.store.db.execute('SELECT id,payload FROM snapshot ORDER BY id DESC LIMIT 1').fetchone()
+            if padding_latest:
+                padding_snapshot=json.loads(padding_latest['payload'])
+                if type(padding_snapshot.get('height')) is int:
+                    capture_padding_snapshot(self.store,padding_latest['id'],padding_snapshot)
             if self.store.trace is not None:self.store.trace.archive()
             observe(self.store)
             if once or last_report is None or self.store.get_meta("paused") or time.monotonic() - last_report >= 300:
