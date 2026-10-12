@@ -98,7 +98,7 @@ def main():
     parser = argparse.ArgumentParser(); parser.add_argument('run', type=Path)
     parser.add_argument('--bitcoind',type=Path,required=True,help='trusted compatible Bitcoin Core executable')
     args = parser.parse_args()
-    run = args.run.resolve(); evidence = run / 'v23-public-recovery-independent-audit-1'; evidence.mkdir(exist_ok=False)
+    run = args.run.resolve(); evidence = run / 'recovery-independent-audit'; evidence.mkdir(exist_ok=False)
     data = evidence / 'core'; (data / 'regtest').mkdir(parents=True)
     shutil.copytree(run / 'test-data/bark_sdk/simulator_public_payout_seed_recovery/bitcoind/regtest/blocks', data / 'regtest/blocks')
     executable = args.bitcoind.resolve()
