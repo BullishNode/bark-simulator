@@ -252,6 +252,7 @@ class VerifiedClockTests(unittest.TestCase):
     def test_old_threshold_does_not_trigger_new_ramp_until_qualified_time_reaches_it(self):
         self.store.db.execute("INSERT INTO meta VALUES ('campaign_active_seconds','10800')")
         self.store.db.execute("INSERT INTO meta VALUES ('ramp_plan',?)", (canonical(campaign.RampPlan().__dict__),))
+        original_actions = self.store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]
         now = [0]
         clock = campaign.CampaignClock(self.store, campaign.RampPlan(), clock=lambda: now[0])
         clock.tick(healthy=True, real_campaign_started=True)
@@ -265,7 +266,7 @@ class VerifiedClockTests(unittest.TestCase):
         self.assertEqual('true', self.store.get_meta('ramp_applied'))
         self.assertEqual(24, self.store.db.execute('SELECT COUNT(*) FROM actor').fetchone()[0])
         self.assertEqual('10800', self.store.get_meta('campaign_active_seconds'))
-        self.assertEqual(0, self.store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0])
+        self.assertEqual(original_actions, self.store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0])
         self.store.verify_event_chain()
 
     def test_old_applied_ramp_never_replays(self):
