@@ -142,6 +142,27 @@ elif mode=='recover':
     assert f"{payout['txid']}:{payout['vout']}" in {c['outpoint'] for c in result['inputs']}
     Path(m['out_dir'],'restore.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result))
+elif mode=='delegated_audit':
+    from simulator.entitlements import collect
+    from simulator.ownership import record_server_page
+    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    try:
+        page=json.loads(Path(m['out_dir'],'public-delegated-inventory.json').read_text())
+        record_server_page(store,{'kind':'coins','rows':page,'next':None,'inventory_consistent':False})
+        collect(store)
+        rows=store.db.execute('SELECT * FROM delegated_entitlement WHERE actor_id=?',(actor,)).fetchall()
+        assert len(rows)==1 and rows[0]['state']=='replaced','native submitted entitlement lacks verified successors'
+        row=dict(rows[0]);row['input_coin_ids']=json.loads(row['input_coin_ids']);row['replacement_ids']=json.loads(row['replacement_ids']);row['evidence']=json.loads(row['evidence'])
+        assert set(row['input_coin_ids']).isdisjoint(row['replacement_ids']) and row['replacement_ids']
+        before=store.db.execute("SELECT COUNT(*) FROM event WHERE kind='delegated_entitlement_changed' AND json_extract(payload,'$.state')='replaced'").fetchone()[0]
+        collect(store)
+        assert before==store.db.execute("SELECT COUNT(*) FROM event WHERE kind='delegated_entitlement_changed' AND json_extract(payload,'$.state')='replaced'").fetchone()[0]==1
+        assert store.db.execute('SELECT actual_fee_sat FROM action WHERE id=?',(row['action_id'],)).fetchone()[0]==0
+        boundaries=store.db.execute("SELECT json_extract(payload,'$.event') name,COUNT(*) count FROM event WHERE kind='driver_evidence' AND json_extract(payload,'$.event') IN ('client_evidence_before','client_evidence_after') GROUP BY name").fetchall()
+        assert len(boundaries)==2 and boundaries[0]['count']==boundaries[1]['count']>0
+        row['fresh_native_boundaries']=[dict(r) for r in boundaries]
+        store.verify_event_chain();print(json.dumps(row))
+    finally:store.close()
 elif mode=='fee_audit':
     from simulator.chain import ChainReader
     from simulator.fees import collect

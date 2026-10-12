@@ -317,7 +317,14 @@ async fn simulator_zero_spendable_scheduled_refresh() {
     };
     let fees=command(&root,"fee_audit",&manifest,&out,"actor-07",json!({}));
     assert!(fees.as_array().unwrap().iter().any(|f|f["operation"]=="refresh_delegated" && f["actual_fee_sat"]==0));
-    write(&out.join("result.json"),&json!({"result":"PASS","actor":"actor-07","max_exit_depth":3,"send":sent,"before":before,"scheduled_refresh":refreshed,"after":after,"fees":fees,
+    let db=Db::connect(&srv.config().postgres).await.unwrap();
+    let inventory=db.read(async |t| {
+        let r=t.query_one("SELECT coalesce(jsonb_agg(jsonb_build_object('vtxo_id',v.vtxo_id,'expiry',v.expiry,'spend_state',v.spend_state,'policy_type',v.policy_type,'signed_vtxo',encode(v.vtxo,'hex'),'spent_in_round',v.spent_in_round,'spent_in_round_txid',(SELECT r.funding_txid FROM round r WHERE r.id=v.spent_in_round),'offboarded_in',v.offboarded_in)),'[]'::jsonb)::text FROM vtxo v",&[]).await?;
+        Ok(serde_json::from_str::<Value>(&r.get::<_,String>(0)).unwrap())
+    }).await.unwrap();
+    write(&out.join("public-delegated-inventory.json"),&inventory);
+    let delegated=command(&root,"delegated_audit",&manifest,&out,"actor-07",json!({}));
+    write(&out.join("result.json"),&json!({"result":"PASS","actor":"actor-07","max_exit_depth":3,"send":sent,"before":before,"scheduled_refresh":refreshed,"after":after,"fees":fees,"delegated_entitlement":delegated,
         "coverage_limits":["actual continuous scheduler and depth-triggered needs-refresh balance; live expiry convergence still separate"]}));
 }
 
