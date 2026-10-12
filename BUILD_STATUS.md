@@ -244,3 +244,45 @@ native driver unit tests8PASS and ordinary native buildPASS. Full combined suite
 fresh zero-spendable scheduler fixture,4119sat native recycling fixture,
 independent audits, v22 packaging/deployment and live convergence are pending.
 No v22 artifacts have been installed and no new funding tranche was sent.
+
+## v22 release qualification — 2026-10-12
+
+[measured] Combined Python suite324PASS359.619s
+(runs/v22-full-python-2.log). Initial323-test combined run found one
+twelve-client test mock missing the new optional stderr callback; its failure
+is retained, the callback signature was updated without changing assertions,
+and that integration test independently passed before the full rerun.
+
+Actual native thin-receipt recycling fixturePASS72.285s and independent
+network-disabled raw-chain auditPASS:4119source=3511signed Ark+608mining,
+0service/own change/new funding. The exact unsigned source-only quote, cap,
+floor, fee ceiling, signed ownership/backing and historical source spent once
+were independently checked. Files: runs/integration/v22-thin-recycling-d47-1
+and its v22-recycling-independent-audit-1/summary.json. Regtest has zero
+board service fees; signet's330sat service estimate remains separately quoted.
+
+Actual native zero-spendable scheduler fixturePASS76.827s and independent
+raw-chain/signed-proposal auditPASS:actor07 starts0spendable/5000needs_refresh;
+continuous.schedule queues refresh_delegated with2000reserve; new independently
+signed coins restore5000spendable/0needs_refresh with0actual customer charge.
+Files: runs/integration/v22-zero-spendable-refresh-d47-4 and its
+v22-refresh-independent-audit-1/summary.json. Runs1–3 remain preserved: depth1
+could not fund the initial send; run2 fixture isolation nested the scheduler
+transaction; depth2 also classified the round replacement as needing refresh.
+The final declared depth3 lies between the real receipt's3 transitions and
+its replacement's2; no fee, ownership or convergence assertion was relaxed.
+
+Native payments/clock/reservations fixturePASS164.872s; reconstructed-chain
+auditPASS. One5000sat signed recipient receipt linked to the frozen send counts
+once; actual internal/external Lightning successes were independently polled.
+Quiet pending sync fixture-sync-3 released its2000sat reservation at0 only
+after fixture-sync-5 independently proved the same receive. Native before/after
+payment-hash sets and unchanged public coin/history evidence are retained.
+Files: runs/integration/v22-payments-clock-reserves-d47-1 and its
+v22-payments-independent-audit-1/summary.json.
+
+[status] Simulator source is published on main at
+https://github.com/BullishNode/bark-simulator. Wallets, runtime journals, private
+configuration/credentials, SDK checkout and built binaries are excluded.
+v22 native/Python gates pass; packaging, deployment and live convergence
+remain pending. SDKd47 and captaind target pins remain unchanged.

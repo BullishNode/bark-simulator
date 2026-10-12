@@ -9,3 +9,10 @@ Original actors 03/09/10 must never be reopened or synced. Do not repeat the ini
 The main agent retains captaind product/source/releases, target VM `172.81.182.157`, and goal status. Coordinate any proposed captaind version or target/SDK pin change at the time it is needed. Current SDK and target remain d47; no target or identity change was made for takeover. No contact with Noah or Second; no mainnet work; no new subagents.
 
 Continue from the unified plan at `/home/francis/bark-integration-2026-10-01/simulator-unified-plan-2026-10-12.md`, using the wind-down and verified takeover baseline for current state. Reorg tests remain out of scope. Full campaign, coverage and capital qualification remain unfinished.
+
+2026-10-12 implementation update: the owner explicitly authorized a first and
+second subagent after takeover. Their isolated source worktrees carry reviewed
+subtasks only; this root agent remains the sole source integrator, VM writer
+and dispatcher owner. The original no-subagents condition is superseded by
+that direct instruction; all other isolation and version-coordination limits
+remain in force. Source origin is BullishNode/bark-simulator on GitHub.

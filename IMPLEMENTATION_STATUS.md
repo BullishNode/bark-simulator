@@ -14,13 +14,13 @@ Record those separately; a local pass does not complete a live gate.
 | Work item | Release | Status | Required evidence still to obtain |
 |---|---|---|---|
 | WI-1 empty-wallet invoice | v21 | Complete: deployed and independently verified | 63 artifacts; invoice actor-06 completed 87.318 seconds after deploy; configs/pins, event prefix and offline actors preserved |
-| WI-2 refresh gate | v22 | Local implementation and focused regressions pass; combined/native/live gates pending | Reds/greens, refreshed zero-spendable native wallet, audit, live convergence |
-| WI-3 payer affordability | v22 | Local implementation and focused regressions pass; combined/native/live gates pending | 3,000 refusal/4,000 scheduling regressions, live decisions |
-| WI-O1 decisions/driver logs | v22 | Local implementation and focused regressions pass; combined/native/live gates pending | Every rule logged, bounded sanitized stderr, timing, native logger, live growth |
-| WI-8 coverage | v22 | Local implementation and focused regressions pass; combined/native/live gates pending | Six statuses, exclusion of reads, verified outcomes, coverage-80.md |
-| WI-5a sync reservations | v22 | Local implementation and focused regressions pass; combined/native/live gates pending | Later proof closes unchanged pending sets once, native audit |
-| WI-4 recycling | v22 | Planning estimate and exact pre-sign source-only quote implemented; focused tests pass | Real quote/ceiling, coexistence, terminal sub-floor, no combining, native conservation and live cycle |
-| WI-5 clock | v22 | Local implementation and focused regressions pass; combined/native/live gates pending | Separate zero-based qualified counter; legacy history retained; observed Ark receipts; 600/3,600 windows |
+| WI-2 refresh gate | v22 | Combined324-test suite and required native/audit gates pass; deployment/live gates pending | Reds/greens, refreshed zero-spendable native wallet, audit, live convergence |
+| WI-3 payer affordability | v22 | Combined324-test suite and required native/audit gates pass; deployment/live gates pending | 3,000 refusal/4,000 scheduling regressions, live decisions |
+| WI-O1 decisions/driver logs | v22 | Combined324-test suite and required native/audit gates pass; deployment/live gates pending | Every rule logged, bounded sanitized stderr, timing, native logger, live growth |
+| WI-8 coverage | v22 | Combined324-test suite and required native/audit gates pass; deployment/live gates pending | Six statuses, exclusion of reads, verified outcomes, coverage-80.md |
+| WI-5a sync reservations | v22 | Combined324-test suite and required native/audit gates pass; deployment/live gates pending | Later proof closes unchanged pending sets once, native audit |
+| WI-4 recycling | v22 | 4119sat native return and raw-chain exact-quote audit pass; deployment/live cycle pending | Real quote/ceiling, coexistence, terminal sub-floor, no combining, native conservation and live cycle |
+| WI-5 clock | v22 | Combined324-test suite and required native/audit gates pass; deployment/live gates pending | Separate zero-based qualified counter; legacy history retained; observed Ark receipts; 600/3,600 windows |
 | WI-6b public proofs | v23 | Isolated implementation passes 15 focused tests; not yet integrated or deployed | Reverified import without original wallet calls, automatic payout verdict, chain audit |
 | WI-6a operator scripts | v23 | Pending | Verified ownership of historical/spent scripts; coordinate target bridge with main agent |
 | WI-6c recovery | v23 | Isolated implementation in progress | Separate seed-only wallet, declared funding destination, 2,000 cap, recovery bucket, confirmed spend |
