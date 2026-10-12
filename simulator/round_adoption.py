@@ -109,7 +109,7 @@ def _locked(store,actor,inputs):
     return matches[0] if len(matches)==1 else None
 
 
-def _outputs(store,action,intent,server,decoder):
+def _outputs(store,action,intent,server,decoder,*,complete=True):
     matches=[]
     for row in store.db.execute("SELECT * FROM server_item WHERE kind='coins' AND observed_at>=?",(action['created_at'],)):
         value=json.loads(row['payload'])
@@ -124,7 +124,7 @@ def _outputs(store,action,intent,server,decoder):
             'expiry_height':proof['expiry_height'],'chain_anchor':proof['chain_anchor'],'signed_hash':proof['signed_hash'],
             'verifier_hash':proof['verifier_hash'],'inventory_observed_at':row['observed_at']})
     actual=Counter((coin['pubkey'],coin['amount_sat']) for coin in matches)
-    if actual!=intent['outputs']:return []
+    if (complete and actual!=intent['outputs']) or not actual or any(count>intent['outputs'][key] for key,count in actual.items()):return []
     if len({coin['chain_anchor'].split(':')[0] for coin in matches})!=1:return []
     # Distinct unresolved proposals cannot claim the same frozen output tuple.
     for other in store.db.execute("SELECT * FROM action WHERE operation IN ('refresh','refresh_delegated') AND id<>? AND actual_fee_sat IS NULL AND state IN ('completed','dispatched','outcome_unknown')",(action['id'],)):
@@ -250,7 +250,7 @@ def near_expiry_findings(store,config,snapshot,*,decoder=None):
         try:intent=_intent(store,action)
         except InvariantError:raise
         except (EvidenceGap,KeyError,TypeError,ValueError):continue
-        for coin in _outputs(store,action,intent,config.expected_server_pubkey,decoder):
+        for coin in _outputs(store,action,intent,config.expected_server_pubkey,decoder,complete=False):
             remaining=coin['expiry_height']-height
             if remaining>=threshold:continue
             # A fresh native Spendable observation is positive adoption evidence.
