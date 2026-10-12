@@ -35,7 +35,9 @@ def decode_object(output: str) -> dict:
 
 async def text_command(argv: list[str], request: dict | None = None, timeout: int = 120,
                        on_line: Callable[[str], None] | None = None,
-                       on_stderr: Callable[[dict], None] | None = None) -> str:
+                       on_stderr: Callable[[dict], None] | None = None,
+                       on_stdout_raw: Callable[[dict], None] | None = None,
+                       on_stderr_raw: Callable[[dict], None] | None = None) -> str:
     """No shell, bounded output/time, and cleanup only of this child's session."""
     if not argv:
         raise ValueError("empty command")
@@ -43,14 +45,18 @@ async def text_command(argv: list[str], request: dict | None = None, timeout: in
                                                stdout=asyncio.subprocess.PIPE,
                                                stderr=asyncio.subprocess.PIPE, start_new_session=True)
 
+    output = bytearray(); stdout_bytes = 0
+
     async def drain_stderr():
         captured=bytearray();size=0
         while True:
             chunk=await proc.stderr.read(65536)
             if not chunk:break
             size+=len(chunk)
-            if on_stderr is not None:
+            if on_stderr is not None or on_stderr_raw is not None:
                 captured.extend(chunk[:max(0,MAX_STDERR_BYTES-len(captured))])
+        if on_stderr_raw is not None:
+            on_stderr_raw({'raw':bytes(captured),'bytes':size,'truncated':size>MAX_STDERR_BYTES})
         if on_stderr is not None and size:
             on_stderr({'text':captured.decode('utf-8',errors='replace'),
                        'bytes':size,'truncated':size>MAX_STDERR_BYTES})
@@ -58,18 +64,19 @@ async def text_command(argv: list[str], request: dict | None = None, timeout: in
     stderr_task=asyncio.create_task(drain_stderr())
 
     async def exchange():
+        nonlocal stdout_bytes
         if request is not None:
             proc.stdin.write((json.dumps(request, allow_nan=False) + "\n").encode())
             await proc.stdin.drain()
         proc.stdin.close()
-        output = bytearray()
         pending = bytearray()
         while True:
             chunk = await proc.stdout.read(65536)
             if not chunk:
                 break
-            output.extend(chunk)
-            if len(output) > MAX_RESPONSE_BYTES:
+            stdout_bytes += len(chunk)
+            output.extend(chunk[:max(0,MAX_RESPONSE_BYTES-len(output))])
+            if stdout_bytes > MAX_RESPONSE_BYTES:
                 raise CommandError("command response exceeded byte limit")
             if on_line is not None:
                 pending.extend(chunk)
@@ -103,13 +110,19 @@ async def text_command(argv: list[str], request: dict | None = None, timeout: in
             # Drain the remaining pipe after stopping our child; capture any
             # diagnostic already emitted without leaving a task behind.
             await stderr_task
+        if on_stdout_raw is not None:
+            on_stdout_raw({'raw':bytes(output),'bytes':stdout_bytes,'truncated':stdout_bytes>MAX_RESPONSE_BYTES,
+                           'exit_code':proc.returncode})
 
 
 async def json_command(argv: list[str], request: dict | None = None, timeout: int = 120,
                        on_event: Callable[[dict], None] | None = None,
-                       on_stderr: Callable[[dict], None] | None = None) -> dict:
+                       on_stderr: Callable[[dict], None] | None = None,
+                       on_stdout_raw: Callable[[dict], None] | None = None,
+                       on_stderr_raw: Callable[[dict], None] | None = None) -> dict:
     if on_event is None:
-        return decode_object(await text_command(argv, request, timeout,on_stderr=on_stderr))
+        return decode_object(await text_command(argv, request, timeout,on_stderr=on_stderr,
+            on_stdout_raw=on_stdout_raw,on_stderr_raw=on_stderr_raw))
     final = None
 
     def line(output):
@@ -122,7 +135,8 @@ async def json_command(argv: list[str], request: dict | None = None, timeout: in
         else:
             final = value
 
-    await text_command(argv, request, timeout, on_line=line,on_stderr=on_stderr)
+    await text_command(argv, request, timeout, on_line=line,on_stderr=on_stderr,
+        on_stdout_raw=on_stdout_raw,on_stderr_raw=on_stderr_raw)
     if final is None:
         raise CommandError("driver produced no final result")
     return final

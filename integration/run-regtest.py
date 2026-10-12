@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Declare and run the absent-owner hArk regression in an isolated checkout."""
 from pathlib import Path
-import argparse, datetime, fcntl, hashlib, json, os, shutil, subprocess, time
+import argparse, datetime, fcntl, hashlib, json, os, shutil, subprocess, time, sys
 import fixture_runtime as runtime
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT))
+from simulator.fixture_logs import collect_daemon_logs
 HERE = ROOT / 'runs/integration'
 HEAD = 'd47c6a4d115b30bf56219d69251fa9238d13f32d'
 
@@ -78,7 +80,7 @@ def main():
             build = subprocess.run(['cargo', 'test', '--locked', '-p', 'ark-testing', '--test', 'bark-sdk', '--no-run'],
                                    cwd=CLONE, env=env, stdout=log, stderr=subprocess.STDOUT)
         if build.returncode:
-            (run / 'summary.json').write_text(json.dumps({'overall': 'FAIL', 'phase': 'build', 'exit': build.returncode}) + '\n')
+            (run / 'summary.json').write_text(json.dumps({'overall': 'FAIL', 'phase': 'build', 'exit': build.returncode,'daemon_logs':collect_daemon_logs(run)}) + '\n')
             raise SystemExit(build.returncode)
         started = time.monotonic()
         timed_out = False
@@ -104,7 +106,8 @@ def main():
                            if not (ROOT/name).is_file() or digest(ROOT/name) != expected]
         passed = (proc.returncode == 0 and not timed_out and not sampler.violation
                   and result and result['result'] == 'PASS' and not changed_sources)
-        summary = {'overall': 'PASS' if passed else 'FAIL', 'exit': proc.returncode, 'timeout': timed_out,
+        daemon_logs=collect_daemon_logs(run)
+        summary = {'daemon_logs':daemon_logs,'overall': 'PASS' if passed else 'FAIL', 'exit': proc.returncode, 'timeout': timed_out,
                    'wall_seconds': time.monotonic() - started, 'result': result,
                    'resource_violation': sampler.violation, 'invalidated_sources':changed_sources, 'cleanup': cleanup}
         (run / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
