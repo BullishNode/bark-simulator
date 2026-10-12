@@ -249,6 +249,25 @@ class VerifiedClockTests(unittest.TestCase):
         self.assertEqual(1, self.store.db.execute("SELECT COUNT(*) FROM event WHERE kind='campaign_active_interval'").fetchone()[0])
         self.store.verify_event_chain()
 
+    def test_old_threshold_does_not_trigger_new_ramp_until_qualified_time_reaches_it(self):
+        self.store.db.execute("INSERT INTO meta VALUES ('campaign_active_seconds','10800')")
+        self.store.db.execute("INSERT INTO meta VALUES ('ramp_plan',?)", (canonical(campaign.RampPlan().__dict__),))
+        now = [0]
+        clock = campaign.CampaignClock(self.store, campaign.RampPlan(), clock=lambda: now[0])
+        clock.tick(healthy=True, real_campaign_started=True)
+        now[0] = 120
+        self.assertEqual(120, clock.tick(healthy=True, real_campaign_started=True))
+        self.assertIsNone(self.store.get_meta('ramp_applied'))
+        self.assertEqual(12, self.store.db.execute('SELECT COUNT(*) FROM actor').fetchone()[0])
+        for _ in range(89):
+            now[0] += 120
+            clock.tick(healthy=True, real_campaign_started=True)
+        self.assertEqual('true', self.store.get_meta('ramp_applied'))
+        self.assertEqual(24, self.store.db.execute('SELECT COUNT(*) FROM actor').fetchone()[0])
+        self.assertEqual('10800', self.store.get_meta('campaign_active_seconds'))
+        self.assertEqual(0, self.store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0])
+        self.store.verify_event_chain()
+
     def test_old_applied_ramp_never_replays(self):
         self.store.db.execute("INSERT INTO meta VALUES ('campaign_active_seconds','10800')")
         self.store.db.execute("INSERT INTO meta VALUES ('ramp_plan',?)", (canonical(campaign.RampPlan().__dict__),))
