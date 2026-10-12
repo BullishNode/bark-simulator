@@ -56,3 +56,6 @@ See [accounting and state invariants](docs/invariants.md) and [verification](doc
 
 [Payout verification and recovery](docs/payout-verification.md) describes public
 proof imports, historical operator change checks and declared seed-only recovery.
+
+Use [public evidence exports](docs/observability.md), the [record index](docs/index.md)
+and the [query cookbook](docs/cookbook.md) to inspect traffic and accounting evidence.

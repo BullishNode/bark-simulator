@@ -6,7 +6,7 @@ Run the Python suite with:
 python3 -m unittest discover -s tests
 ```
 
-The current supervisor behavior passed 324 Python tests and eight native driver unit tests. Tests cover scheduling, affordability, offline-client preservation, unknown outcomes, ownership, payout replay, fee conservation, bounded diagnostics, coverage aggregation, and qualified-clock rules.
+The current supervisor behavior passed 458 Python tests and 16 native unit tests across the driver, public verifier and seed recovery adapter. Tests cover scheduling, affordability, offline-client preservation, unknown outcomes, ownership, payout replay, fee conservation, bounded diagnostics, coverage aggregation, qualified-clock rules and public trace/export integrity.
 
 Isolated native regtest fixtures additionally exercised:
 
@@ -16,6 +16,9 @@ Isolated native regtest fixtures additionally exercised:
 | Thin-receipt recycling | A confirmed 4,119-sat receipt becomes 3,511 sats of Ark principal plus 608 sats of mining fees, with no additional funding. |
 | Zero-spendable delegated refresh | The actual scheduler queues a refresh for 0 spendable sats and 5,000 sats needing refresh; signed replacements restore spendability. |
 | Payments and reservations | Ark and internal/external Lightning payments succeed; a pending-sync reservation closes once after later signed receive evidence. |
+| Public payout and automatic seed recovery | Fresh native coin/link/record checks and anchored public operator derivation verify a 10,000-sat entitlement and 9,703-sat payout. A seed-only spend recovers the payout under the 2,000-sat cap, preserving absence and separate capital accounting. |
+| Delegated entitlement and native boundaries | The frozen 5,000-sat delegated intent becomes a signed replacement tied to the actual round; the fee closes once. Fresh before/after evidence accompanies online native operations. |
+| Public evidence export | A payout bundle replays serialized payout/input transactions and real protocol, link and record signatures through a public archive-only RPC server, with no upstream connection. |
 
 Independent audits reconstruct isolated raw blocks in a network-disabled Bitcoin Core instance and rerun signature and ownership verification. They check frozen inputs and proposals, confirmed outputs, fees, replacement coins, and receipt reuse.
 
@@ -38,4 +41,15 @@ For a completed board-disappearance fixture, reconstruct and audit its raw chain
 
 ```sh
 python3 integration/verify-regtest.py runs/integration/board-check
+```
+
+For the automated public-payout fixture, use `--test simulator_public_payout_seed_recovery`.
+Its exported bundle includes the public material needed for signature replay:
+
+```sh
+python3 integration/verify-recovery.py runs/integration/recovery-check \
+  --bitcoind /path/to/bitcoind
+python3 integration/verify-export-bundle.py \
+  runs/integration/recovery-check/out/confirmed-payout-export \
+  --proof-binary target/debug/vtxo-proof
 ```
