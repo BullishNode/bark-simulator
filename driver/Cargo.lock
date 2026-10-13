@@ -311,14 +311,15 @@ dependencies = [
  "bdk_wallet",
  "bip39",
  "bitcoin",
- "chrono",
  "bytes",
+ "chrono",
  "env_logger",
  "futures",
  "http-body",
  "http-body-util",
  "hyper",
  "hyper-util",
+ "noah-public-proof",
  "prost",
  "serde",
  "serde_json",
@@ -1954,6 +1955,17 @@ name = "multiversion_no_op"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
+
+[[package]]
+name = "noah-public-proof"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "lightning-invoice",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "num-traits"

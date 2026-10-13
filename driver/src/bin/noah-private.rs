@@ -21,7 +21,8 @@ fn private_regular(path:&Path)->Result<()> {
 fn validate(cfg:&PrivateConfig,req:&Request)->Result<()> {
  ensure!(req.protocol=="noah-private-v1" && req.operation=="enrollment_material","private enrollment protocol differs");
  ensure!(cfg.sdk_commit==noah::SDK_COMMIT && req.expected_sdk_commit==noah::SDK_COMMIT,"independently qualified SDK pin differs");
- ensure!(req.actor.starts_with("noah-") && req.actor.len()<=64 && req.actor.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b==b'-'),"declared new phone required");
+ let index=req.actor.strip_prefix("actor-").and_then(|s|s.parse::<u16>().ok()).context("native phone actor required")?;
+ ensure!((41..=999).contains(&index) && req.actor==format!("actor-{index:02}"),"fresh reserved phone actor required");
  ensure!(!req.action_id.is_empty() && req.action_id.len()<=100 && req.action_id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'||b==b'_'),"explicit private setup id required");
  ensure!(cfg.private_phone_root.is_absolute() && req.wallet_path.is_absolute() && req.wallet_path.parent()==Some(cfg.private_phone_root.as_path())
     && req.wallet_path.file_name().and_then(|p|p.to_str())==Some(req.actor.as_str()) && cfg.phones.get(&req.actor)==Some(&req.wallet_path),"phone wallet differs from explicit declaration");
@@ -64,11 +65,11 @@ mod tests {
  use super::*;
  fn fixture()->(PathBuf,PrivateConfig,Request){
   let root=std::env::temp_dir().join(format!("noah-private-boundary-{}-{}",std::process::id(),bitcoin::secp256k1::rand::random::<u64>()));
-  let path=root.join("noah-phone-01");fs::create_dir_all(&path).unwrap();fs::set_permissions(&path,fs::Permissions::from_mode(0o700)).unwrap();
+  let path=root.join("actor-41");fs::create_dir_all(&path).unwrap();fs::set_permissions(&path,fs::Permissions::from_mode(0o700)).unwrap();
   for name in ["mnemonic","db.sqlite"]{let file=fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path.join(name)).unwrap();drop(file);}
   let cfg=PrivateConfig{ark_endpoint:"https://owned.example".into(),wallet_config:root.join("config"),private_phone_root:root.clone(),
-    phones:BTreeMap::from([("noah-phone-01".into(),path.clone())]),sdk_commit:noah::SDK_COMMIT.into()};
-  let req=Request{protocol:"noah-private-v1".into(),operation:"enrollment_material".into(),actor:"noah-phone-01".into(),action_id:"setup-1".into(),
+    phones:BTreeMap::from([("actor-41".into(),path.clone())]),sdk_commit:noah::SDK_COMMIT.into()};
+  let req=Request{protocol:"noah-private-v1".into(),operation:"enrollment_material".into(),actor:"actor-41".into(),action_id:"setup-1".into(),
     wallet_path:path,k1:String::new(),expiry_unix:1500,expected_sdk_commit:noah::SDK_COMMIT.into(),expected_server_pubkey:String::new(),
     expected_ark_address:String::new(),expected_fallback_script:String::new(),expected_auth_pubkey:String::new(),expected_mailbox_id:String::new()};
   (root,cfg,req)
@@ -76,7 +77,7 @@ mod tests {
  #[test]
  fn native_boundary_rejects_original_actor_drift_sdk_drift_and_undeclared_phone(){
   let (root,mut cfg,mut req)=fixture();assert!(validate(&cfg,&req).is_ok());
-  req.actor="actor-09".into();assert!(validate(&cfg,&req).is_err());req.actor="noah-phone-01".into();
+  req.actor="actor-09".into();assert!(validate(&cfg,&req).is_err());req.actor="actor-41".into();
   req.expected_sdk_commit="d47".into();assert!(validate(&cfg,&req).is_err());req.expected_sdk_commit=noah::SDK_COMMIT.into();
   cfg.phones.clear();assert!(validate(&cfg,&req).is_err());fs::remove_dir_all(root).unwrap();
  }

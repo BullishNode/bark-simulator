@@ -386,10 +386,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         .context("actor name missing")?
         .to_str()
         .context("actor name must be UTF-8")?;
-    ensure!(
-        actor.starts_with("actor-") && actor.len() == 8 && actor[6..].parse::<u8>().is_ok(),
-        "invalid actor directory"
-    );
+    actor_index(actor)?;
     ensure!(!path.is_symlink(), "symlink actor directory");
     if req.operation.starts_with("raw_protocol_") || req.operation.starts_with("phase_execute_") || matches!(req.operation.as_str(),"fallback_rotate"|"phase_register_saved") {
         ensure!(!matches!(actor,"actor-03"|"actor-09"|"actor-10"),"original permanently absent wallet must stay closed");
@@ -537,7 +534,8 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 json!({"balance": balance, "onchain": onchain_balance, "vtxos": vtxos, "fallback_script": hex(fallback.spk.as_bytes()), "fallback_seq": fallback.seq, "evidence":coin_evidence(&wallet).await?}),
             )
         }
-        "sync" => {
+        "sync" | "claim_lightning" => {
+            if req.operation=="claim_lightning" {ensure!(req.args.get("receive_payment_hash").is_some(),"original claim hash required");}
             let mut receive_ceiling = 0u64;
             let pending_receives = wallet.pending_lightning_receives().await?;
             let receive_count_before = pending_receives.len();
@@ -611,8 +609,10 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             // A short-lived adapter has no daemon driving unfinished rounds.
             // Lightweight sync only handles completed rounds' confirmations;
             // reuse the SDK's maintenance progression for existing intents.
-            wallet.progress_pending_rounds(None).await?;
-            wallet.sync_onchain().await?;
+            if req.operation!="claim_lightning" {
+                wallet.progress_pending_rounds(None).await?;
+                wallet.sync_onchain().await?;
+            }
             let pending_after = wallet.pending_lightning_receives().await?;
             let receive_count_after = pending_after.len();
             let receive_payment_hashes_after = pending_after.iter()
@@ -1317,6 +1317,13 @@ fn response_status(data:&Value)->&'static str {
     else {"ok"}
 }
 
+fn actor_index(actor:&str)->Result<u16> {
+    let index=actor.strip_prefix("actor-").and_then(|s|s.parse::<u16>().ok())
+        .context("invalid actor directory")?;
+    ensure!((1..=999).contains(&index) && actor==format!("actor-{index:02}"),"invalid actor directory");
+    Ok(index)
+}
+
 fn response_fee(operation:&str,data:&Value)->Value {
     if response_status(data)=="error" {return Value::Null;}
     data.get("actual_fee_sat").cloned().unwrap_or_else(|| {
@@ -1330,6 +1337,13 @@ fn response_fee(operation:&str,data:&Value)->Value {
 #[cfg(test)]
 mod response_tests {
     use super::*;
+    #[test]
+    fn native_actor_names_cover_two_hundred_new_phones_without_aliases() {
+        for index in 41..=240 {assert_eq!(actor_index(&format!("actor-{index:02}")).unwrap(),index);}
+        for name in ["actor-00","actor-041","actor-1000","noah-phone-41","actor-41/../09"] {
+            assert!(actor_index(name).is_err());
+        }
+    }
     #[test]
     fn saved_private_fence_is_unknown_even_with_blocked_flag_and_claimed_zero_fee() {
         for flag in ["probe_unknown","phase_unknown"] {
