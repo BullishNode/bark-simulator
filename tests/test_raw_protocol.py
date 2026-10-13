@@ -15,7 +15,7 @@ class RawProtocolTests(unittest.TestCase):
         self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',(self.coin,self.key,5000,hashlib.sha256(b'ab').hexdigest(),b'ab'.hex(),'{}'))
         self.store.queue('snapshot',self.actor,'H01','snapshot',{},0)
         self.store.db.execute("UPDATE action SET state='completed',updated_at=100,result='{}' WHERE id='snapshot'")
-        self.store.db.execute('INSERT INTO coin_observation VALUES (?,?,?,?,?)',('snapshot',self.coin,'Spendable',100,None))
+        self.store.db.execute('INSERT INTO coin_observation(coin_id,action_id,state,observed_at) VALUES (?,?,?,?)',(self.coin,'snapshot','Spendable',100))
     def tearDown(self):self.store.close();self.tmp.cleanup()
     def prepare(self,scenario='D14',**extra):
         from simulator.raw_protocol import queue_probe
@@ -55,8 +55,10 @@ class RawProtocolTests(unittest.TestCase):
     def test_generic_invalid_argument_or_transport_error_never_qualifies(self):
         from simulator.raw_protocol import validate_response
         action_id=self.prepare()['action_id'];action=self.store.db.execute('SELECT * FROM action WHERE id=?',(action_id,)).fetchone()
+        intent=json.loads(action['args'])
+        base={'scenario':'D14','actor':self.actor,'intent_hash':intent['intent_hash'],'request_hash':'dd'*32,'input_coin_ids':[self.coin],'input_status_before':[1],'input_status_after':[1],'response_message_hash':'ee'*32,'rpc_attempted':True,'actual_fee_sat':0}
         for value in [{'rpc':'RequestArkoorCosign','code':'InvalidArgument','guard':'other'}, {'rpc':'RequestArkoorCosign','code':'Unavailable','guard':'missing_fallback'}]:
-            with self.subTest(value=value),self.assertRaises(EvidenceGap):validate_response(action,{'probe':value})
+            with self.subTest(value=value),self.assertRaises(EvidenceGap):validate_response(action,{'probe':{**base,**value}})
     def test_probe_response_is_bound_to_scenario_actor_intent_and_request_hash(self):
         from simulator.raw_protocol import validate_response
         result=self.prepare();action=self.store.db.execute('SELECT * FROM action WHERE id=?',(result['action_id'],)).fetchone()
