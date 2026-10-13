@@ -172,3 +172,31 @@ class PhaseTrialTests(unittest.TestCase):
         trial=self.trial('D18');intent=self.controller.intent(trial)
         # The wrong gross/net quote must fail before any round signing session.
         with self.assertRaises(InvariantError):self.controller.validate_round_quote(intent,{'requested_outputs':[{'pubkey':self.keys['actor-11'],'amount_sat':3000}],'committed_fee_sat':2001,'round_attempt':{'round_seq':15,'attempt_seq':0}})
+
+    def multi_input_prepared(self):
+        second='ab'*32+':0'
+        row=self.store.db.execute('SELECT * FROM owned_coin WHERE id=?',(self.coin,)).fetchone()
+        proof=json.loads(row['proof']);proof['id']=second
+        self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',(second,row['pubkey'],5000,row['signed_hash'],row['signed_vtxo'],canonical(proof)))
+        trial=self.trial(input_coin_ids=[self.coin,second]);intent=self.controller.intent(trial)
+        legs=[]
+        for side,prefix,actor,wire in [('left','d1','actor-04','a1'),('right','d2','actor-06','a2')]:
+            legs.append({'leg_id':side,'rpc':'RequestArkoorCosign','input_coin_ids':[self.coin,second],'wire_sha256':wire*32,'private_checkpoint_sha256':wire*32,
+                'input_spends':[{'coin_id':self.coin,'txid':('c1' if side=='left' else 'c2')*32},{'coin_id':second,'txid':('c3' if side=='left' else 'c4')*32}],
+                'outputs':[{'coin_id':prefix*32+':'+str(i),'pubkey':self.keys[actor],'amount_sat':5000,'input_coin_ids':[identity]} for i,identity in enumerate([self.coin,second])]})
+        return trial,{'trial_id':trial,'intent_hash':intent['intent_hash'],'legs':legs}
+    def test_multi_input_outputs_link_their_own_exact_unsigned_input_not_every_package_input(self):
+        trial,prepared=self.multi_input_prepared();self.controller.prepare(trial,prepared)
+        for i,source in enumerate(prepared['legs'][0]['input_spends']):
+            self.add_output('d1'*32+':'+str(i),self.keys['actor-04'],[source['coin_id']],spending_txid=source['txid'])
+        verdict=self.controller.judge(trial)
+        self.assertEqual([{'leg_id':'left','signed_output_ids':['d1'*32+':0','d1'*32+':1']}],verdict['signed_candidates'])
+        self.assertEqual('pending',verdict['state']) # Actual intervals/current arbitration remain required.
+    def test_multi_input_preparation_requires_explicit_complete_output_lineage(self):
+        trial,prepared=self.multi_input_prepared()
+        del prepared['legs'][0]['outputs'][0]['input_coin_ids']
+        with self.assertRaises(EvidenceGap):self.controller.prepare(trial,prepared)
+    def test_multi_input_preparation_cannot_omit_a_frozen_input_from_output_lineage(self):
+        trial,prepared=self.multi_input_prepared()
+        for output in prepared['legs'][0]['outputs']:output['input_coin_ids']=[self.coin]
+        with self.assertRaises(InvariantError):self.controller.prepare(trial,prepared)
