@@ -148,3 +148,40 @@ class NoahPrivateControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual('outcome_unknown',self.store.db.execute('SELECT state FROM noah_control').fetchone()[0])
         with self.assertRaises(ValueError):await controller.enroll('setup-next','noah-phone-01','ExpoPushToken[phone]',expiry=1500)
 
+
+class NoahCancelledObservationTests(unittest.IsolatedAsyncioTestCase):
+    setUp=fixtures.NoahAdapterTests.setUp
+    tearDown=fixtures.NoahAdapterTests.tearDown
+    adapter=fixtures.NoahAdapterTests.adapter
+
+    async def test_cancelled_http_waiter_preserves_late_private_reply_until_drained(self):
+        entered=asyncio.Event();release=asyncio.Event()
+        async def late(*args):entered.set();await release.wait();return {'private_phone_body':'late-private-reply'}
+        adapter=self.adapter(late)
+        task=asyncio.create_task(adapter._request('POST','/v0/user_info',{},'private-bearer',actor='noah-phone-01'))
+        await asyncio.wait_for(entered.wait(),2);task.cancel()
+        with self.assertRaises(asyncio.CancelledError):await task
+        self.assertEqual(1,adapter.pending_observations)
+        release.set();await adapter.drain_observations()
+        self.assertEqual(0,adapter.pending_observations)
+        artifacts=[json.loads(p.read_text()) for p in (self.store.root/'noah-protected').glob('*.json')]
+        replies=[item for item in artifacts if item['kind']=='http.response']
+        self.assertEqual({'private_phone_body':'late-private-reply'},replies[0]['payload']['decoded_response'])
+        public=' '.join(row['payload'] for row in self.store.db.execute('SELECT payload FROM event'))
+        self.assertNotIn('late-private-reply',public);self.assertNotIn('private-bearer',public)
+
+    async def test_cancelled_http_waiter_preserves_late_private_error_without_reissuing(self):
+        entered=asyncio.Event();release=asyncio.Event();calls=[]
+        async def late(*args):calls.append(True);entered.set();await release.wait();raise TimeoutError('private-late-http-diagnostic')
+        adapter=self.adapter(late)
+        task=asyncio.create_task(adapter._request('POST','/v0/user_info',{},'private-bearer',actor='noah-phone-01'))
+        await asyncio.wait_for(entered.wait(),2);task.cancel()
+        with self.assertRaises(asyncio.CancelledError):await task
+        release.set();await adapter.drain_observations()
+        self.assertEqual([True],calls);self.assertEqual(0,adapter.pending_observations)
+        artifacts=[json.loads(p.read_text()) for p in (self.store.root/'noah-protected').glob('*.json')]
+        errors=[item for item in artifacts if item['kind']=='http.error']
+        self.assertEqual('private-late-http-diagnostic',errors[0]['payload']['available_error_text'])
+        public=' '.join(row['payload'] for row in self.store.db.execute('SELECT payload FROM event'))
+        self.assertNotIn('private-late-http-diagnostic',public)
+
