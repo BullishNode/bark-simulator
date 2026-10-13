@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS owner_key(pubkey TEXT PRIMARY KEY, actor TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS owner_record(actor TEXT NOT NULL REFERENCES actor(id), mailbox TEXT NOT NULL, seq INTEGER NOT NULL, script TEXT NOT NULL, proof TEXT NOT NULL, PRIMARY KEY(mailbox,seq));
 CREATE TABLE IF NOT EXISTS owned_coin(id TEXT PRIMARY KEY, pubkey TEXT NOT NULL REFERENCES owner_key(pubkey), amount_sat INTEGER NOT NULL, signed_hash TEXT NOT NULL, signed_vtxo TEXT NOT NULL, proof TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS coin_observation(coin_id TEXT NOT NULL REFERENCES owned_coin(id), action_id TEXT NOT NULL REFERENCES action(id), state TEXT NOT NULL, observed_at REAL NOT NULL, PRIMARY KEY(coin_id,action_id));
+CREATE TABLE IF NOT EXISTS client_movement_candidate(actor TEXT NOT NULL REFERENCES actor(id), action_id TEXT NOT NULL REFERENCES action(id), movement_id TEXT NOT NULL, digest TEXT NOT NULL, payload TEXT NOT NULL, promoted INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(actor,movement_id,digest));
 CREATE TABLE IF NOT EXISTS movement_evidence(actor TEXT NOT NULL REFERENCES actor(id), movement_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(actor,movement_id));
 CREATE TABLE IF NOT EXISTS movement_edge(actor TEXT NOT NULL, movement_id TEXT NOT NULL, coin_id TEXT NOT NULL, direction TEXT NOT NULL CHECK(direction IN ('input','output')), PRIMARY KEY(actor,movement_id,coin_id,direction));
 CREATE TABLE IF NOT EXISTS server_item(kind TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, observed_at REAL NOT NULL, PRIMARY KEY(kind,id));
@@ -133,6 +134,19 @@ def expiry_owner(store, coin_id, pre_state):
 def record_candidates(store, actor, action_id, data, verification_failed=False):
     evidence=data.get('evidence',{});binding=evidence.get('binding',data.get('binding'))
     if not isinstance(binding,dict):return
+    action=store.db.execute('SELECT actor_id FROM action WHERE id=?',(action_id,)).fetchone()
+    if evidence.get('movements') and (action is None or action['actor_id']!=actor):raise InvariantError('public movement source belongs to another actor')
+    # Keep original SDK claims even if an unrelated coin rejects the proof
+    # batch. These are pending metadata, not signed evidence or fee credit.
+    for movement in evidence.get('movements',[]):
+        public_payload(movement)
+        if not isinstance(movement,dict) or not isinstance(movement.get('id'),str) or not 1<=len(movement['id'])<=128:
+            raise ValueError('bounded original movement identity required')
+        payload=canonical(movement)
+        existing=store.db.execute('SELECT payload FROM movement_evidence WHERE actor=? AND movement_id=?',(actor,movement['id'])).fetchone()
+        if existing is not None and existing['payload']==payload:continue
+        store.db.execute('INSERT OR IGNORE INTO client_movement_candidate(actor,action_id,movement_id,digest,payload) VALUES (?,?,?,?,?)',
+            (actor,action_id,movement['id'],digest(movement),payload))
     for coin in evidence.get('coins',[]):
         value={**coin,'binding':binding};public_payload(value)
         # Signature nonces can differ on every read while the signed coin and
@@ -151,12 +165,56 @@ def record_candidates(store, actor, action_id, data, verification_failed=False):
         store.db.execute('INSERT OR IGNORE INTO client_coin_candidate(id,actor,action_id,digest,payload) VALUES (?,?,?,?,?)',
             (coin['id'],actor,action_id,digest(value),canonical(value)))
 
+def promote_public_movements(store,limit=64):
+    """Use the original observation only after every referenced coin is proved.
+
+    Never open a wallet, discard a batch failure, close a fee reservation or
+    infer a missing movement from an amount. Contradictory source observations
+    and conflicting existing movement versions remain pending.
+    """
+    from .campaign import _signed_coin
+    after=int(store.get_meta('movement_retry_cursor') or '0')
+    # Use stable candidate rowids for bounded round-robin work.
+    rows=store.db.execute("""SELECT c.rowid AS candidate_rowid,c.*,a.state,a.actor_id,a.updated_at
+        FROM client_movement_candidate c JOIN action a ON a.id=c.action_id
+        WHERE c.promoted=0 ORDER BY c.rowid""").fetchall()
+    ordered=[r for r in rows if r['candidate_rowid']>after]+[r for r in rows if r['candidate_rowid']<=after]
+    for row in ordered[:limit]:
+        with (nullcontext() if store.db.in_transaction else store.transaction()):
+            store.db.execute("INSERT OR REPLACE INTO meta VALUES ('movement_retry_cursor',?)",(str(row['candidate_rowid']),))
+            if row['state']!='completed' or row['actor_id']!=row['actor']:continue
+            if store.db.execute("""SELECT 1 FROM event WHERE kind IN ('ownership_incident','ownership_contradiction')
+                AND json_extract(payload,'$.action_id')=? LIMIT 1""",(row['action_id'],)).fetchone():continue
+            source=json.loads(store.db.execute('SELECT result FROM action WHERE id=?',(row['action_id'],)).fetchone()[0] or '{}')
+            original=source.get('data',{}).get('evidence',{}).get('movements',[])
+            if not any(canonical(value)==row['payload'] for value in original):continue
+            movement=json.loads(row['payload'])
+            if movement.get('id')!=row['movement_id'] or digest(movement)!=row['digest']:
+                raise InvariantError('frozen public movement claim changed')
+            refs=[]
+            for field in ('input_vtxos','output_vtxos'):
+                values=movement.get(field)
+                if not isinstance(values,list) or any(not isinstance(v,str) or not v for v in values) or len(values)!=len(set(values)):break
+                refs.extend(values)
+            else:
+                if not refs or len(refs)!=len(set(refs)) or any(_signed_coin(store,v,row['actor']) is None for v in refs):continue
+                existing=store.db.execute('SELECT payload FROM movement_evidence WHERE actor=? AND movement_id=?',(row['actor'],row['movement_id'])).fetchone()
+                if existing is not None and existing['payload']!=row['payload']:continue
+                record_verified(store,row['actor'],row['action_id'],{'objects':[],'movements':[movement]})
+                store.db.execute('UPDATE client_movement_candidate SET promoted=1 WHERE rowid=?',(row['candidate_rowid'],))
+                store._event('public_movement_claim_promoted',{'actor':row['actor'],'action_id':row['action_id'],
+                    'movement_id':row['movement_id'],'claim_digest':row['digest'],'original_action_updated_at':row['updated_at'],
+                    'independently_verified_coin_ids':refs,'fee_reservation_released':False,
+                    'scope':'original SDK metadata linked to already accepted same-owner signed proofs; payment and traffic require their separate exact oracles'})
+
 async def retry_public_candidates(store, proof_command, limit=8):
     if not proof_command:return
     # Rotation prevents one unconfirmed/bad candidate starving later ones. Each
     # stored proof is public; absence never causes an original-wallet call.
     rows=store.db.execute('SELECT rowid,* FROM client_coin_candidate WHERE verified=0 ORDER BY rowid').fetchall()
-    if not rows:return
+    if not rows:
+        promote_public_movements(store)
+        return
     after=int(store.get_meta('ownership_retry_cursor') or '0')
     ordered=[r for r in rows if r['rowid']>after]+[r for r in rows if r['rowid']<=after]
     for row in ordered[:limit]:
@@ -168,3 +226,4 @@ async def retry_public_candidates(store, proof_command, limit=8):
         except Exception:
             pass # An unavailable/unconfirmed proof stays explicitly unverified.
         store.db.execute("INSERT OR REPLACE INTO meta VALUES ('ownership_retry_cursor',?)",(str(row['rowid']),))
+    promote_public_movements(store)
