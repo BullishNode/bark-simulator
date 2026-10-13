@@ -95,6 +95,25 @@ class TargetEpochTests(unittest.TestCase):
             declaration=self.declaration();declaration[key]=24
             with self.assertRaises(ValueError):self.declare(declaration)
 
+    def test_original_funding_source_cannot_change_during_epoch_qualification(self):
+        self.store.db.execute("INSERT INTO meta VALUES ('owner_renewal_funding_source','original source')")
+        declaration=self.declaration()
+        self.store.db.execute("UPDATE meta SET value='replacement source' WHERE key='owner_renewal_funding_source'")
+        with self.assertRaises(ValueError):self.declare(declaration)
+
+    def test_direct_controller_lease_blocks_epoch_until_independently_reconciled(self):
+        self.store.acquire_actor_lease('actor-04','controller-1','qualified profile')
+        with self.assertRaises(ValueError):self.declare()
+        self.store.finish_actor_lease('actor-04','controller-1','outcome_unknown')
+        with self.assertRaises(ValueError):self.declare()
+        self.store.finish_actor_lease('actor-04','controller-1','completed')
+        self.declare()
+
+    def test_legacy_private_controller_unknown_blocks_global_epoch(self):
+        self.store.db.execute('CREATE TABLE noah_control(id TEXT PRIMARY KEY, actor TEXT, state TEXT)')
+        self.store.db.execute("INSERT INTO noah_control VALUES ('legacy','noah-phone-1','outcome_unknown')")
+        with self.assertRaises(ValueError):self.declare()
+
     def test_missing_receipt_stale_audit_guard_or_original_actor_online_blocks_epoch(self):
         mutations=[('receipt_hashes',{}),('observed_at',time.time()-601),('recovery_guard_verified',False),
                    ('pending_server_payouts_preserved',False),('declaration_hashes',{})]
