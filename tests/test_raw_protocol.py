@@ -81,3 +81,37 @@ class RawProtocolTests(unittest.TestCase):
         with self.assertRaises(EvidenceGap):validate_response(action,{'probe':probe})
     def test_delivery_replay_requires_actual_successful_movement(self):
         with self.assertRaises(EvidenceGap):self.prepare('D22')
+
+    def test_intent_history_is_not_presented_as_additive_capital(self):
+        from simulator.raw_protocol import scenario_rows
+        identity=self.prepare()['action_id']
+        row=next(r for r in scenario_rows(self.store) if r['scenario']=='D14')
+        self.assertEqual([identity],[r['action_id'] for r in row['liabilities']['exposure_intents']])
+        self.assertFalse(row['liabilities']['intent_history_is_additive_capital'])
+
+class RawProtocolCollectorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_observer_does_not_claim_checked_refusal(self):
+        from simulator.raw_protocol import collect
+        with tempfile.TemporaryDirectory() as directory:
+            store=Store(Path(directory),'synthetic',100000);initialize(store)
+            await collect(store,(),())
+            self.assertEqual(0,store.db.execute('SELECT count(*) FROM raw_protocol_check').fetchone()[0])
+            store.close()
+    async def test_ambiguous_native_status_is_retained_as_pending(self):
+        from unittest.mock import patch
+        from simulator.raw_protocol import collect
+        fixture=RawProtocolTests();fixture.setUp()
+        try:
+            identity=fixture.prepare()['action_id'];action=fixture.store.db.execute('SELECT * FROM action WHERE id=?',(identity,)).fetchone();args=json.loads(action['args'])
+            script='0014'+'33'*20;signature='44'*64;serialized=script+(7).to_bytes(8,'little').hex()+signature
+            probe={'scenario':'D14','actor':fixture.actor,'intent_hash':args['intent_hash'],'request_hash':'dd'*32,'response_hash':'ab'*32,'response_message_hash':'ee'*32,'input_coin_ids':[fixture.coin],'input_status_before':[-1],'input_status_after':[-1],'rpc':'RequestArkoorCosign','code':'InvalidArgument','guard':'missing_fallback','rpc_attempted':True,'actual_fee_sat':0}
+            data={'probe':probe,'protected_record':{'mailbox_pk':'mailbox','serialized':serialized},'attempted_key_pubkeys':[]}
+            fixture.store.db.execute("UPDATE action SET state='expected_refusal',result=? WHERE id=?",(canonical({'data':data}),identity))
+            async def observe(_command,request,**kw):
+                if request.get('kind')=='binding_check':return {**request,'inventory_consistent':True,'records':[{'mailbox_pk':'mailbox','spk':script,'seq':7,'sig':signature}],'links':[{'user_pubkey':fixture.key,'mailbox_pk':'mailbox','sig':'55'*64}]}
+                return {'user_pubkey':fixture.key,'binding':{'mailbox_pk':'mailbox','spk':script,'seq':7,'record_signature_valid':True,'key_link_signature_valid':True}}
+            with patch('simulator.raw_protocol.json_command',side_effect=observe):await collect(fixture.store,('observer',),('proof',))
+            row=fixture.store.db.execute('SELECT * FROM raw_protocol_check WHERE action_id=?',(identity,)).fetchone()
+            self.assertEqual('pending',row['state']);self.assertFalse(json.loads(row['payload'])['live_qualified'])
+            self.assertIn('bindings',json.loads(row['payload']));fixture.store.verify_event_chain()
+        finally:fixture.tearDown()
