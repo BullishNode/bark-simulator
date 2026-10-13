@@ -312,7 +312,7 @@ class NoahAdapter:
 
     async def enroll(self,actor,signer,expo_token,*,expiry):
         phone=self._phone(actor,require_online=True,enrollment=True);now=int(self.clock());integer(expiry,'mailbox expiry',now+1)
-        if expiry>now+90*86400 or not isinstance(expo_token,str) or re.fullmatch(r'(Expo|Exponent)PushToken\[[A-Za-z0-9_-]{1,100}\]',expo_token) is None:
+        if expiry>now+90*86400 or (not callable(expo_token) and (not isinstance(expo_token,str) or re.fullmatch(r'(Expo|Exponent)PushToken\[[A-Za-z0-9_-]{1,100}\]',expo_token) is None)):
             raise ValueError('Expo token or mailbox expiry invalid')
         challenge=await self._request('GET','/v0/getk1',actor=actor,enrollment=True)
         k1=challenge.get('k1');match=re.fullmatch(r'[0-9a-f]{64}_([0-9]{1,20})',k1 or '')
@@ -339,6 +339,13 @@ class NoahAdapter:
             'ark_address':phone['ark_address'],'device_info':None},token,actor=actor,enrollment=True)
         if registered.get('status')!='OK' or registered.get('lightning_address')!=phone['username']+'@'+self.manifest['origin']['lnurl_domain']:
             raise ValueError('authenticated registration differs')
+        if callable(expo_token):
+            # A declared private transport may issue an opaque device token only
+            # after authentic login. It is never derived from another key.
+            expo_token=await expo_token(token)
+            self.protect('phone.token.response',{'push_token':expo_token},actor=actor)
+            if not isinstance(expo_token,str) or re.fullmatch(r'(Expo|Exponent)PushToken\[[A-Za-z0-9_-]{1,100}\]',expo_token) is None:
+                raise ValueError('authenticated private device token invalid')
         for path,body in (('/v0/register_push_token',{'push_token':expo_token}),('/v0/mailbox/authorize',{key:material[key] for key in ('mailbox_id','expiry','encoded')})):
             if (await self._request('POST',path,body,token,actor=actor,enrollment=True)).get('success') is not True:raise ValueError('phone authorization not accepted')
         info=await self._request('POST','/v0/user_info',{},token,actor=actor,enrollment=True)

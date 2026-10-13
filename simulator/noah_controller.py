@@ -99,8 +99,16 @@ class NoahController:
 
     async def enroll(self,identifier,actor,expo_token,*,expiry):
         self._qualified(actor);integer(expiry,'mailbox expiry',int(self.adapter.clock())+1)
-        if expiry>self.adapter.clock()+90*86400 or not isinstance(expo_token,str):raise ValueError('bounded enrollment declaration required')
-        intent={'operation':'enroll','expiry':expiry,'expo_token_sha256':hashlib.sha256(expo_token.encode()).hexdigest(),
+        if expiry>self.adapter.clock()+90*86400:raise ValueError('bounded enrollment declaration required')
+        if isinstance(expo_token,str):
+            if re.fullmatch(r'(Expo|Exponent)PushToken\[[A-Za-z0-9_-]{1,100}\]',expo_token) is None:raise ValueError('bounded device token required')
+            device={'token_sha256':hashlib.sha256(expo_token.encode()).hexdigest()}
+        else:
+            from .noah_inbox import NoahTokenProvider
+            if not isinstance(expo_token,NoahTokenProvider) or expo_token.actor!=actor or expo_token.inbox.adapter is not self.adapter:
+                raise ValueError('declared private device token provider differs')
+            device=expo_token.declaration()
+        intent={'operation':'enroll','expiry':expiry,'device':device,
             'manifest_sha256':hashlib.sha256(canonical(self.adapter.manifest).encode()).hexdigest(),
             'qualification':self.qualification,'helper_sha256':self.helper_sha256}
         self._start(identifier,actor,intent)

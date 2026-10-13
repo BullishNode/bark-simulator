@@ -1,6 +1,5 @@
 """Owned pull persistence tests; no native job or payment is executed."""
 import copy
-import hashlib
 import unittest
 
 import test_noah_adapter as fixtures
@@ -87,3 +86,34 @@ class NoahInboxTests(unittest.IsolatedAsyncioTestCase):
         result=await adapter.enroll('noah-phone-01',signer,provider,expiry=1500)
         self.assertEqual('enrolled',result['state'])
         self.assertEqual(['getk1','login','register','token-provider','register_push_token','authorize','user_info'],paths)
+
+    async def test_partial_invalid_page_and_transport_error_do_not_lose_pending_cursor(self):
+        inbox,adapter=self.inbox()
+        async def issue(*args):return {'push_token':'ExpoPushToken[private-phone-token]'}
+        adapter.transport=issue;await inbox.token('noah-phone-01','private-noah-session')
+        value=self.page();second=copy.deepcopy(value['records'][0]);second['cursor']=8
+        second['payload']['to']=['ExpoPushToken[foreign]'];value['records'].append(second);value['cursor']=8
+        async def malformed(*args):return value
+        adapter.transport=malformed
+        with self.assertRaises(ValueError):await inbox.pull('noah-phone-01')
+        self.assertEqual(0,inbox.cursor('noah-phone-01'));self.assertEqual([],inbox.pending('noah-phone-01'))
+        async def outage(*args):raise TimeoutError('private-transport-outage')
+        adapter.transport=outage
+        with self.assertRaises(TimeoutError):await inbox.pull('noah-phone-01')
+        self.assertEqual(0,inbox.cursor('noah-phone-01'));self.assertEqual([],inbox.pending('noah-phone-01'))
+
+    async def test_transport_source_drift_and_modified_original_artifact_are_held(self):
+        inbox,adapter=self.inbox()
+        async def replies(method,url,body,bearer):
+            if url.endswith('/token'):return {'push_token':'ExpoPushToken[private-phone-token]'}
+            return self.page()
+        adapter.transport=replies;await inbox.token('noah-phone-01','private-noah-session');await inbox.pull('noah-phone-01')
+        import json
+        original=json.loads(inbox.pending('noah-phone-01')[0]['artifact'])
+        artifact=self.store.root/original['path'];artifact.write_text('{}')
+        with self.assertRaises(ValueError):inbox.original('noah-phone-01',7)
+        observed={'verified':True,'method':'independent_transport_audit','https_origin':self.manifest['origin']['https_origin'],
+            'spool_source_sha256':'ff'*32,'nginx_sha256':'ee'*32,'backend_manifest_sha256':'34'*32,
+            'token_mode':'opaque_native_auth','pull_path':'/test/phone/pushes','token_path':'/test/phone/token'}
+        inbox.qualification=self.store.trace_capture('noah.phone.transport',observed)
+        with self.assertRaises(ValueError):await inbox.pull('noah-phone-01')
