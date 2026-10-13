@@ -4,26 +4,6 @@ Use a public export for repeatable analysis. Its timeline includes actor-linked
 trace and accounting records; its README describes evidence limits. SQLite
 queries below run against `state.sqlite` or a selected trace partition.
 
-Inspect read-only [fee observations](fee-watch.md) without summing repeated
-transactions as new costs:
-
-```sql
-SELECT txid,json_extract(payload,'$.mining_fee_sat') AS mining_fee_sat,
-       json_extract(payload,'$.vsize') AS vsize,
-       json_extract(payload,'$.actual_sat_per_vbyte') AS actual_sat_per_vbyte
-FROM fee_watch_transaction ORDER BY txid;
-
-SELECT id,json_extract(payload,'$.estimate.sat_per_vbyte') AS current_reference,
-       json_extract(payload,'$.unknowns') AS evidence_gaps
-FROM fee_watch_tick ORDER BY rowid;
-```
-
-These tables exist after the fee collector is initialized. The reference is
-sampled at the observer tick, not necessarily when the transaction was built.
-The report keeps anonymous server counters and unbound warnings separate from
-each payout's local verification reason. Server waiting reason and age require
-producer evidence that binds an identified payout to unique ticks.
-
 Find expired public-key outputs still reported unclaimed, excluding positively
 decoded protocol padding. Unknown or failed decoding stays in the candidate set:
 
@@ -105,3 +85,23 @@ input value before treating it as a mining fee. A debit may fund new backing or
 move into unconfirmed change. Padding attribution is a subset of existing
 backing; missing spend or return-script evidence remains unknown. It cannot be
 added to the operator asset total or a recycling receipt.
+
+Inspect read-only [fee observations](fee-watch.md) without summing repeated
+transactions as new costs:
+
+```sql
+SELECT txid,json_extract(payload,'$.mining_fee_sat') AS mining_fee_sat,
+       json_extract(payload,'$.vsize') AS vsize,
+       json_extract(payload,'$.actual_sat_per_vbyte') AS actual_sat_per_vbyte
+FROM fee_watch_transaction ORDER BY txid;
+
+SELECT id,json_extract(payload,'$.estimate.sat_per_vbyte') AS current_reference,
+       json_extract(payload,'$.unknowns') AS evidence_gaps
+FROM fee_watch_tick ORDER BY rowid;
+```
+
+These tables exist after the fee collector is initialized. The reference is
+sampled at the observer tick, not necessarily when the transaction was built.
+The report keeps anonymous server counters and unbound warnings separate from
+each payout's local verification reason. Server waiting reason and age require
+producer evidence that binds an identified payout to unique ticks.
