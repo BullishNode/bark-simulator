@@ -106,7 +106,7 @@ class PhaseTrialTests(unittest.TestCase):
         self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32;action=self.controller.release(trial)
         self.store.db.execute('UPDATE action SET actual_fee_sat=0 WHERE id=?',(action,))
         self.controller.reply(trial,'delivery',{'kind':'expiry_settled_refusal','wire_sha256':'a1'*32})
-        row={'id':'d1'*32+':0','spend_state':state,'onchain_spent_txid':txid,'oor_spent_txid':None,'spent_in_round':None,'offboarded_in':None}
+        row={'id':'d1'*32+':0','spend_state':state,'onchain_spent_txid':'f0'*32,'oor_spent_txid':None,'spent_in_round':None,'offboarded_in':None}
         self.store.db.execute('INSERT INTO server_item VALUES (?,?,?,?)',('coins',row['id'],canonical(row),1e12 if fresh else 0))
         return trial
     def test_delayed_paid_successor_can_close_only_after_fresh_terminal_state_and_real_fee_identity(self):
