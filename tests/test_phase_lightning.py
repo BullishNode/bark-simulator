@@ -31,3 +31,9 @@ class LightningPhaseTests(unittest.TestCase):
         from simulator.phase_lightning import refund_authorization
         _,intent,legs=self.prepared();intent['scenario']='D33'
         with self.assertRaises(EvidenceGap):refund_authorization(None,intent,legs[1])
+    def test_partial_lost_or_two_signed_competing_replies_hold_further_registration(self):
+        from simulator.phase_lightning import registration_allowed
+        self.assertFalse(registration_allowed([{'kind':'sdk_signed_successors'},{'kind':'transport_unknown'}]))
+        self.assertFalse(registration_allowed([{'kind':'sdk_signed_successors'},{'kind':'sdk_signed_successors'}]))
+        self.assertFalse(registration_allowed([{'kind':'sdk_signed_successors'}]))
+        self.assertTrue(registration_allowed([{'kind':'sdk_signed_successors'},{'kind':'protocol_refusal'}]))
