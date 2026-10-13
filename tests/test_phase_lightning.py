@@ -37,3 +37,34 @@ class LightningPhaseTests(unittest.TestCase):
         self.assertFalse(registration_allowed([{'kind':'sdk_signed_successors'},{'kind':'sdk_signed_successors'}]))
         self.assertFalse(registration_allowed([{'kind':'sdk_signed_successors'}]))
         self.assertTrue(registration_allowed([{'kind':'sdk_signed_successors'},{'kind':'protocol_refusal'}]))
+
+class SenderPreparationReadinessTests(unittest.TestCase):
+    def test_actual_pending_checkpoints_use_only_the_prederived_key_without_mutation(self):
+        import copy
+        from simulator.phase_lightning import sender_refund_terms
+        for stage in ('HtlcReceived','PaymentInitiated'):
+            checkpoint={'progress':{stage:{'vtxo_ids':['a'*64+':0']}},'revocation_key':'02'+'11'*32}
+            frozen=copy.deepcopy(checkpoint)
+            self.assertEqual(('02'+'11'*32,['a'*64+':0']),sender_refund_terms(checkpoint))
+            self.assertEqual(frozen,checkpoint)
+        with self.assertRaises(EvidenceGap):sender_refund_terms({'progress':{'PaymentInitiated':{'vtxo_ids':['a'*64+':0']}},'revocation_key':None})
+    def test_existing_revocation_cannot_drift_or_reuse_an_ambiguous_stuck_attempt(self):
+        from simulator.phase_lightning import sender_refund_terms
+        checkpoint={'progress':{'RevocableHtlcs':{'htlcs':{'vtxo_ids':['a'*64+':0']},'revocation':{'key':'02'+'11'*32}}},'revocation_key':'02'+'22'*32}
+        with self.assertRaises(InvariantError):sender_refund_terms(checkpoint)
+        with self.assertRaises(EvidenceGap):sender_refund_terms({'progress':'Start'})
+
+class WithheldRefundReadinessTests(unittest.TestCase):
+    def evidence(self):
+        return {'payment_hash':'aa'*32,'height':121,'receiver_deadline':120,'sweep_min_confirmations':3,
+            'granted_ids':['a'*64+':0','b'*64+':0'],'paths':[
+            {'coin_id':'a'*64+':0','resolution':'swept','confirmed_height':118,'raw_chain_proof_sha256':'11'*32},
+            {'coin_id':'b'*64+':0','resolution':'exited_timeout','confirmed_height':119,'raw_chain_proof_sha256':'22'*32}]}
+    def test_deadline_equality_missing_paths_notfound_or_shallow_timeout_stay_held(self):
+        import copy
+        from simulator.phase_lightning import withheld_refund_ready
+        good=self.evidence();self.assertTrue(withheld_refund_ready(good)['ready'])
+        for change in [{'height':120},{'paths':good['paths'][:1]}, {'paths':[{**good['paths'][0],'resolution':'not_found'},good['paths'][1]]},
+            {'paths':[good['paths'][0],{**good['paths'][1],'confirmed_height':120}]}, {'paths':[good['paths'][0],{**good['paths'][1],'raw_chain_proof_sha256':None}]}]:
+            evidence=copy.deepcopy(good);evidence.update(change)
+            self.assertFalse(withheld_refund_ready(evidence)['ready'])
