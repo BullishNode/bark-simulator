@@ -47,6 +47,21 @@ class NoahBootstrapTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):await self.adapter(forbidden).enroll('noah-phone-01',forbidden,'ExpoPushToken[phone]',expiry=1500)
         self.assertEqual([],self.calls)
 
+    def test_two_declared_phones_cannot_share_auth_mailbox_or_fallback_identity(self):
+        from simulator.noah import NoahAdapter
+        for shared in ('auth_pubkey','mailbox_id','fallback_script'):
+            declaration=copy.deepcopy(self.manifest)
+            phone=copy.deepcopy(declaration['phones'][0])
+            phone.update(actor='noah-phone-02',username='bob',ark_address='tark-fixture-bob',
+                auth_pubkey='03'+'22'*32,mailbox_id='03'+'33'*32,fallback_script='0014'+'44'*20)
+            phone[shared]=declaration['phones'][0][shared];declaration['phones'].append(phone)
+            declaration['capital']['actor_principal_sat']['noah-phone-02']=10000;declaration['capital']['principal_sat']=30000
+            for section in ('phones','capital'):
+                declaration['evidence'][section]=self.store.trace_capture('noah.readiness.'+section,{
+                    'observed':copy.deepcopy(declaration[section]),'verified':True,'method':'independent_observation'})
+            adapter=NoahAdapter(self.store,declaration,clock=lambda:1000)
+            self.assertEqual('unqualified',adapter.readiness(enrollment=True)['status'],shared)
+
 
 class NoahPrivateControllerTests(unittest.IsolatedAsyncioTestCase):
     setUp=fixtures.NoahAdapterTests.setUp
