@@ -98,7 +98,7 @@ def record_server_page(store, page):
     rows=page['rows']
     if not isinstance(rows,list) or len(rows)>100:raise ValueError('inventory page cap')
     public_payload(rows)
-    with store.transaction():
+    with (nullcontext() if store.db.in_transaction else store.transaction()):
         for row in rows:
             key=row[fields[kind]];encoded=canonical(row);at=time.time();hashed=digest(row)
             store.db.execute('INSERT INTO server_item VALUES (?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload,observed_at=excluded.observed_at',(kind,key,encoded,at))

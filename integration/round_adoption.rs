@@ -76,4 +76,5 @@ async fn simulator_confirmed_round_scheduler_cycle() {
     };
     write(&out.join("round-scheduler-inventory.json"),&inventory);
     let result=controller(&root,&manifest,"cycle",&out);assert_eq!(result["result"],"PASS");
+    write(&out.join("result.json"),&result);
 }

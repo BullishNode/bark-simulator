@@ -238,6 +238,11 @@ class Engine:
         await collect_padding(self.store,self.config.server_policy_command,self.config.expected_server_pubkey,limit=16)
         self.store.db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)",(key,page.get("next") or ""))
         self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('inventory_kind_index',?)",(str((index+1)%len(kinds)),))
+        from .priority_inventory import collect as collect_priority_inventory
+        result=await collect_priority_inventory(self.store,self.config,
+            normal_page={'request':{'kind':kind,'after':cursor},'response':page})
+        if result['status']!='idle':self.store.event('round_priority_inventory_cycle',result)
+
 
     async def run(self, once: bool = False):
         self.store.verify_event_chain()
