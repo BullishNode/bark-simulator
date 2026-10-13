@@ -74,10 +74,10 @@ class PriorityInventoryTests(unittest.IsolatedAsyncioTestCase):
     async def test_timeout_keeps_committed_cursor_and_bounds_extra_work(self):
         async def slow(argv,request,**kwargs):
             self.requests.append(request)
-            if request['kind']=='coins' and request['after']:await asyncio.sleep(1)
+            if request['kind']=='coins' and request['after']:await asyncio.sleep(4)
             return await self.fetch(argv,request,**kwargs)
         from simulator.priority_inventory import collect
-        result=await collect(self.store,self.config,fetch=slow,decode=self.decode,time_budget=.05)
+        result=await collect(self.store,self.config,fetch=slow,decode=self.decode,time_budget=2)
         self.assertEqual('held',result['status']);self.assertEqual(coin_id(100),json.loads(self.store.get_meta('round_priority_cursor_coins'))['after'])
         self.assertLessEqual(result['requests'],4)
     async def test_invalid_secret_page_is_never_written(self):
@@ -94,3 +94,33 @@ class PriorityInventoryTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.store,'_event',side_effect=fail):await self.collect()
         self.assertIsNone(self.store.get_meta('round_priority_cursor_coins'))
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM server_item WHERE kind='coins'").fetchone()[0]);self.store.verify_event_chain()
+
+    async def test_engine_preserves_all_six_normal_kinds_while_priority_finds_late_coin(self):
+        self.config.trace_enabled=False;self.config.workload='none';self.config.recovery_command=()
+        normal=[]
+        async def normal_fetch(argv,request,**kwargs):
+            normal.append(request)
+            if request['kind'] in {'coins','nursery'}:return await self.fetch(argv,request,**kwargs)
+            return page(request['kind'],[])
+        with patch('simulator.engine.json_command',side_effect=normal_fetch),patch('simulator.engine.collect_padding',new=AsyncMock()), \
+                patch('simulator.priority_inventory.json_command',side_effect=self.fetch),patch('simulator.priority_inventory.collect_decoder',side_effect=self.decode):
+            engine=Engine(self.config,self.store)
+            for _ in range(6):await engine.collect_inventory()
+        self.assertEqual(['coins','pending','links','settlements','records','nursery'],[r['kind'] for r in normal])
+        self.assertEqual('0',self.store.get_meta('inventory_kind_index'))
+        self.assertEqual(coin_id(100),self.store.get_meta('inventory_cursor_coins'))
+        self.assertIsNotNone(self.store.db.execute("SELECT id FROM server_item WHERE kind='coins' AND id=?",(coin_id(950),)).fetchone())
+        self.assertEqual(0,self.store.db.execute('SELECT count(*) FROM action').fetchone()[0]);self.store.verify_event_chain()
+    async def test_disappearance_during_read_stops_further_priority_requests(self):
+        async def disappearance(argv,request,**kwargs):
+            self.requests.append(request);self.store.set_online('actor-02',False)
+            return page(request['kind'],[])
+        from simulator.priority_inventory import collect
+        result=await collect(self.store,self.config,fetch=disappearance,decode=self.decode)
+        self.assertEqual(1,result['requests']);self.assertEqual([],self.decoded)
+    async def test_corrupt_saved_cursor_is_held_without_reinitialization(self):
+        saved=canonical({'schema_version':1,'after':'unsafe cursor','generation':4})
+        self.store.db.execute('INSERT INTO meta VALUES (?,?)',('round_priority_cursor_nursery',saved))
+        result=await self.collect()
+        self.assertEqual('held',result['status']);self.assertEqual([],self.requests)
+        self.assertEqual(saved,self.store.get_meta('round_priority_cursor_nursery'))
