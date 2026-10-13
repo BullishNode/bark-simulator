@@ -2,6 +2,8 @@
 
 Bark Simulator exercises Ark and Lightning wallet behavior against a compatible Bark server. It runs persisted client workloads, collects public protocol and chain evidence, and reports payments, refreshes, payouts, fees, and coverage.
 
+The maintained source is on the default `master` branch.
+
 ## Features
 
 - Independent client wallets with persistent online and offline state.
@@ -34,7 +36,7 @@ CARGO_TARGET_DIR="$PWD/target" cargo build --manifest-path driver/Cargo.toml --l
 CARGO_TARGET_DIR="$PWD/target" cargo test --manifest-path driver/Cargo.toml --locked
 ```
 
-This builds `bark-sim-driver`, `vtxo-proof`, and `seed-restore`. The native driver accepts signet and local regtest configurations; it refuses mainnet.
+This builds `bark-sim-driver`, `vtxo-proof`, `seed-restore`, `server-policy-proof`, `noah-private`, and `sweep-proof-trial`. The native driver accepts signet and local regtest configurations; it refuses mainnet. Helper availability does not qualify a live scenario; Noah payments require the independently checked readiness described in [Owned Noah journeys](docs/noah.md).
 
 ## Configuration and execution
 

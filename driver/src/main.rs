@@ -25,7 +25,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
-mod exit;
 use ark::attestations::{FallbackRecordAttestation, KeyLinkAttestation};
 use ark::lightning::Bolt11InvoiceExt;
 use ark::{ProtocolEncoding, SECP};
@@ -209,14 +208,6 @@ fn verify_recycle_input(psbt:&bitcoin::Psbt,source:&Value)->Result<()> {
         "recycle board must spend precisely its declared receipt");
     let utxo=psbt.inputs[0].witness_utxo.as_ref().context("recycle input lacks witness UTXO")?;
     ensure!(utxo.value.to_sat()==amount && utxo.script_pubkey==script,"recycle PSBT differs from frozen receipt");
-    Ok(())
-}
-
-fn verify_exit_budget(frozen:u64, requested:u64, reserved:&[u64], next:u64)->Result<()> {
-    ensure!(frozen==requested,"exit fee cap changed");
-    let used=reserved.iter().try_fold(0u64,|total,fee|total.checked_add(*fee))
-        .context("exit fee sum overflow")?;
-    ensure!(used.checked_add(next).context("exit fee sum overflow")?<=frozen,"exit fee cap exhausted");
     Ok(())
 }
 

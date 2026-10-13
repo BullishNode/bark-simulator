@@ -6,7 +6,7 @@ Run the Python suite with:
 python3 -m unittest discover -s tests
 ```
 
-The current supervisor behavior passed 534 Python tests and 22 native unit tests across the driver, public verifier and seed recovery adapter. Tests cover scheduling, affordability, offline-client preservation, unknown outcomes, ownership, payout replay, fee conservation, bounded diagnostics, coverage aggregation, qualified-clock rules and public trace/export integrity.
+The supervisor and native suites cover scheduling, affordability, offline-client preservation, unknown outcomes, ownership, payout replay, fee conservation, bounded diagnostics, coverage aggregation, qualified-clock rules and public trace/export integrity. Native tests also exercise capped exits and the gated protocol and Noah adapters. Run the suites against the source revision you intend to use; historical fixture results below do not qualify later changes automatically.
 
 Isolated native regtest fixtures additionally exercised:
 
