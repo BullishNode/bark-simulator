@@ -93,6 +93,82 @@ class Engine:
                 and snapshot.get("initial_block_download") is False
                 and snapshot.get("server_status", {}).get("status") == "running")
 
+    async def noah_action(self,adapter,actor,identifier,operation,args,maximum_fee_sat):
+        """Explicit Noah jobs use the existing queue, native driver and fee holds.
+
+        Raw native frames remain protected. Only invoice creation can complete
+        here; payment/claim ACKs retain their original independent-proof hold.
+        """
+        import base64,hashlib
+        from .noah import _actor,_hex
+        from .model import integer
+        adapter._ready();_actor(actor)
+        if not self.config.active or self.store.get_meta('mode')!='live' or self.store.actor_namespace(actor)!='noah':
+            raise ValueError('explicit active Noah actor required')
+        if adapter.store is not self.store or operation not in {'invoice','claim_lightning','pay_invoice'}:
+            raise ValueError('Noah job context differs')
+        if operation=='pay_invoice':
+            frozen=adapter.payment_request(identifier,_dispatched=True)
+            if frozen['actor']!=actor or frozen['args']!=args or frozen['maximum_fee_sat']!=maximum_fee_sat:
+                raise ValueError('native payment differs from frozen intended invoice')
+        else:adapter._phone(actor,require_online=True)
+        integer(maximum_fee_sat,'Noah fee reservation',1)
+        if maximum_fee_sat>adapter.manifest['capital']['per_action_fee_sat']:
+            raise ValueError('Noah native fee exceeds declared cap')
+        if operation=='claim_lightning':_hex(args.get('receive_payment_hash'))
+        command=Path(self.config.driver_command[0])
+        if command.is_symlink() or hashlib.sha256(command.read_bytes()).hexdigest()!=adapter.manifest['source'].get('driver_binary_sha256'):
+            raise ValueError('qualified native driver differs')
+        if self.config.expected_server_pubkey!=adapter.manifest['chain']['server_pubkey']:
+            raise ValueError('native server differs from Noah declaration')
+        wallet=self.config.wallet_root/actor
+        if not wallet.is_dir() or any(p.is_symlink() for p in (wallet,*wallet.parents)):
+            raise ValueError('declared native wallet is missing or aliased')
+        latest=self.store.db.execute('SELECT payload FROM snapshot ORDER BY id DESC LIMIT 1').fetchone()
+        snapshot=json.loads(latest[0]) if latest else {}
+        if not latest or not self.ready_for_actions(snapshot):raise ValueError('fresh healthy target observation required')
+        self.config.validate_identity(snapshot)
+        if operation in {'invoice','pay_invoice'}:
+            from .pool_readiness import ready as pool_ready
+            pool=await json_command(list(self.config.inventory_command),{'kind':'pool_status'},timeout=15,
+                **public_command_capture(self.store,'pool.status',{'kind':'pool_status'},action_id=identifier))
+            if not pool_ready({**snapshot,'pool_status':pool},args.get('amount_sat',0)):
+                raise ValueError('confirmed usable pool is not proven')
+        old=self.store.db.execute('SELECT state FROM action WHERE id=?',(identifier,)).fetchone()
+        if old:raise ValueError('native job already attempted; reconcile original action')
+        request={'actor_dir':str(wallet),'operation':operation,'action_id':identifier,'args':args,
+            'expected_server_pubkey':self.config.expected_server_pubkey,'maximum_fee_sat':maximum_fee_sat}
+        self.store.bind_wallet_root(self.config.wallet_root)
+        self.store.db.execute("INSERT OR IGNORE INTO scenario VALUES ('NOAH_NATIVE','Captured Noah native job; independent journey proof required',0)")
+        protected=adapter.protect('native.request',request,actor=actor,action_id=identifier)
+        self.store.queue(identifier,actor,'NOAH_NATIVE',operation,{'private_request':protected},maximum_fee_sat,namespace='noah')
+        action=self.store.claim({operation},namespace='noah',action_id=identifier)
+        if action is None:raise ValueError('Noah native action ownership unavailable')
+        def raw(stream):
+            def capture(row):adapter.protect('native.'+stream,{**{k:v for k,v in row.items() if k!='raw'},
+                'body_base64':base64.b64encode(row['raw']).decode()},actor=actor,action_id=identifier)
+            return capture
+        def progress(frame):
+            if frame.get('action_id')!=identifier:raise ValueError('native event identity differs')
+            adapter.protect('native.event',frame,actor=actor,action_id=identifier)
+        try:
+            response=await json_command(list(self.config.driver_command),request,timeout=self.config.action_timeout_seconds,
+                on_event=progress,on_stdout_raw=raw('stdout'),on_stderr_raw=raw('stderr'))
+            proof=adapter.protect('native.response',response,actor=actor,action_id=identifier)
+            if response.get('action_id')!=identifier or response.get('status')!='ok' or not isinstance(response.get('data'),dict):
+                raise ValueError('native job unresolved')
+            data=response['data']
+            if operation=='invoice' and (not isinstance(data.get('invoice'),str) or not data['invoice']):
+                raise ValueError('native invoice missing')
+            if operation in {'invoice','pay_invoice'}:_hex(data.get('payment_hash'))
+            completed=operation=='invoice' and type(response.get('actual_fee_sat')) is int and response['actual_fee_sat']==0
+            self.store.finish(identifier,'completed' if completed else 'outcome_unknown',{'native_artifact':proof},0 if completed else None)
+            return data
+        except BaseException as error:
+            adapter.protect('native.error',{'error_type':type(error).__name__},actor=actor,action_id=identifier)
+            self.store.finish(identifier,'outcome_unknown',{'reason':'native job needs original independent reconciliation'})
+            raise
+
     async def dispatch_batch(self):
         """Claim distinct actors before launching concurrent client operations."""
         if not self.config.active:return False

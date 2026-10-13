@@ -19,7 +19,7 @@ class TrafficLiquidityTests(unittest.TestCase):
         from simulator.continuous import lightning_payer
         for actor in ['actor-03','actor-09','actor-10']:
             self.detail(actor,registered_spendable_sat=50000)
-        self.s.actor('noah-phone-01','noah');self.detail('noah-phone-01',registered_spendable_sat=50000)
+        self.s.actor('actor-41','noah');self.detail('actor-41',registered_spendable_sat=50000)
         self.assertIsNone(lightning_payer(self.s,self.c)[0])
     def test_stale_or_unsynchronized_capital_does_not_authorize_payment(self):
         from simulator.continuous import lightning_payer

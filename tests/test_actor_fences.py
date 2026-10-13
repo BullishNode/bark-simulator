@@ -82,10 +82,10 @@ class ActorFenceTests(unittest.TestCase):
         for actor in ('actor-03','actor-09','actor-10'):
             self.store.set_online(actor,False);self.store.queue('closed-'+actor,actor,'H01','snapshot',{},0)
         self.assertIsNone(self.store.claim({'snapshot'}))
-        self.store.actor('noah-phone-new','noah-phone')
+        self.store.actor('actor-44','noah-phone')
         self.store.db.execute("INSERT INTO scenario VALUES ('N01','explicit separate phone protocol',0)")
-        with self.assertRaises(ValueError):self.store.queue('ordinary-noah','noah-phone-new','H01','create',{},0)
-        self.store.queue('explicit-noah','noah-phone-new','N01','invoice',{},0,namespace='noah')
+        with self.assertRaises(ValueError):self.store.queue('ordinary-noah','actor-44','H01','create',{},0)
+        self.store.queue('explicit-noah','actor-44','N01','invoice',{},0,namespace='noah')
         self.assertIsNone(self.store.claim({'invoice'}))
         self.assertEqual('explicit-noah',self.store.claim({'invoice'},namespace='noah')['id'])
 
@@ -103,7 +103,7 @@ class ActorSelectorTests(unittest.TestCase):
     def test_new_phone_registration_never_triggers_ordinary_create_but_extra_cohort_does(self):
         from simulator.continuous import schedule
         for i in range(1,13):self.s.set_online(f'actor-{i:02}',False)
-        self.s.actor('noah-phone-new','noah-phone');schedule(self.s,self.c,self.snapshot)
+        self.s.actor('actor-44','noah-phone');schedule(self.s,self.c,self.snapshot)
         self.assertIsNone(self.action())
         self.s.actor('actor-25','additional realistic client');schedule(self.s,self.c,self.snapshot)
         self.assertEqual(('actor-25','create'),(self.action()['actor_id'],self.action()['operation']))
@@ -121,9 +121,9 @@ class ActorSelectorTests(unittest.TestCase):
 
     def test_recycler_does_not_reboard_a_phone_or_actor_with_active_private_hold(self):
         from simulator.recycling import plan
-        self.s.actor('noah-phone-new','noah-phone')
+        self.s.actor('actor-44','noah-phone')
         self.c.board_amount_sat=5000
-        for actor in ('noah-phone-new','actor-01'):
+        for actor in ('actor-44','actor-01'):
             source={'actor':actor,'outpoint':'a'*64+':0','script':'0014'+'b'*40,'amount_sat':8000,'confirmations':2,'checked_at':time.time()}
             self.s.event('recycle_source_unspent_verified',source)
             if actor=='actor-01':self.hold(actor)
@@ -179,7 +179,7 @@ class ActorRecoveryFenceTests(unittest.IsolatedAsyncioTestCase):
         self.prepare.assert_not_awaited();self.assertEqual({},controller.jobs)
         self.assertFalse(self.store.online('actor-09'))
     async def test_new_phone_never_uses_ordinary_seed_recovery_declaration(self):
-        actor='noah-phone-new';self.store.actor(actor,'noah-phone');self.store.set_online(actor,False)
+        actor='actor-44';self.store.actor(actor,'noah-phone');self.store.set_online(actor,False)
         self.store.db.execute('UPDATE actor SET details=? WHERE id=?',(canonical({'permanent_absence':True}),actor))
         self.config.recovery_seeds=((actor,self.root/'new-phone.seed'),)
         controller=self.controller_for();await controller.tick()
@@ -210,12 +210,12 @@ class ActorRampFenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store=Store(Path(directory),'synthetic',1000);initialize(store)
             try:
-                store.actor('noah-phone-new','noah-phone')
+                store.actor('actor-44','noah-phone')
                 clock=CampaignClock(store,RampPlan(),clock=lambda:0)
                 store.db.execute("UPDATE meta SET value='10800' WHERE key='qualified_campaign_active_seconds'")
                 clock.tick(healthy=True,real_campaign_started=True)
                 self.assertEqual(25,store.db.execute('SELECT count(*) FROM actor').fetchone()[0])
-                self.assertEqual('{}',store.db.execute("SELECT details FROM actor WHERE id='noah-phone-new'").fetchone()[0])
+                self.assertEqual('{}',store.db.execute("SELECT details FROM actor WHERE id='actor-44'").fetchone()[0])
                 payload=json.loads(store.db.execute("SELECT payload FROM event WHERE kind='client_ramp_applied'").fetchone()[0])
-                self.assertNotIn('noah-phone-new',payload['actors']);self.assertFalse(payload['funding_dispatched'])
+                self.assertNotIn('actor-44',payload['actors']);self.assertFalse(payload['funding_dispatched'])
             finally:store.close()

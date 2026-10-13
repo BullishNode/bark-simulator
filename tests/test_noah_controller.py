@@ -17,7 +17,7 @@ class NoahBootstrapTests(unittest.IsolatedAsyncioTestCase):
 
     def unfunded(self):
         self.manifest['capital'].update(principal_sat=0,per_action_fee_sat=0,campaign_fee_sat=0,
-            actor_principal_sat={'noah-phone-01':0})
+            actor_principal_sat={'actor-41':0})
         self.manifest['evidence']['capital']=self.store.trace_capture('noah.readiness.capital',{
             'observed':copy.deepcopy(self.manifest['capital']),'verified':True,'method':'independent_observation'})
 
@@ -32,19 +32,19 @@ class NoahBootstrapTests(unittest.IsolatedAsyncioTestCase):
         async def signer(challenge,expiry):return {'key':PUB,'sig':'30'+'aa'*70,'mailbox_id':PUB,'expiry':expiry,'encoded':PUB+'11'*72}
         adapter=self.adapter(reply)
         self.assertEqual('unqualified',adapter.readiness()['status'])
-        result=await adapter.enroll('noah-phone-01',signer,'ExpoPushToken[phone]',expiry=1500)
+        result=await adapter.enroll('actor-41',signer,'ExpoPushToken[phone]',expiry=1500)
         self.assertEqual('enrolled',result['state'])
         self.assertEqual(6,len(self.calls))
-        with self.assertRaises(ValueError):await adapter.negotiate('pay-unfunded','noah-payer-01','noah-phone-01',5000000,binding=self.binding)
+        with self.assertRaises(ValueError):await adapter.negotiate('pay-unfunded','actor-241','actor-41',5000000,binding=self.binding)
         async def forbidden(*args):self.fail('unfunded native economic operation')
-        with self.assertRaises(ValueError):await adapter.consume_push('noah-phone-01',{
+        with self.assertRaises(ValueError):await adapter.consume_push('actor-41',{
             'to':['ExpoPushToken[phone]'],'data':{'notification_type':'lightning_claim_request','payment_hash':'ab'*32,'amount_sat':5000}},
             'ExpoPushToken[phone]',invoice=forbidden,claim=forbidden)
 
     async def test_unfunded_bootstrap_still_requires_independent_pins_and_actor_presence(self):
         self.unfunded();self.manifest['evidence']['chain']['hash']='00'*32
         async def forbidden(*args):self.fail('unqualified wallet or HTTP call')
-        with self.assertRaises(ValueError):await self.adapter(forbidden).enroll('noah-phone-01',forbidden,'ExpoPushToken[phone]',expiry=1500)
+        with self.assertRaises(ValueError):await self.adapter(forbidden).enroll('actor-41',forbidden,'ExpoPushToken[phone]',expiry=1500)
         self.assertEqual([],self.calls)
 
     def test_two_declared_phones_cannot_share_auth_mailbox_or_fallback_identity(self):
@@ -52,10 +52,10 @@ class NoahBootstrapTests(unittest.IsolatedAsyncioTestCase):
         for shared in ('auth_pubkey','mailbox_id','fallback_script'):
             declaration=copy.deepcopy(self.manifest)
             phone=copy.deepcopy(declaration['phones'][0])
-            phone.update(actor='noah-phone-02',username='bob',ark_address='tark-fixture-bob',
+            phone.update(actor='actor-42',username='bob',ark_address='tark-fixture-bob',
                 auth_pubkey='03'+'22'*32,mailbox_id='03'+'33'*32,fallback_script='0014'+'44'*20)
             phone[shared]=declaration['phones'][0][shared];declaration['phones'].append(phone)
-            declaration['capital']['actor_principal_sat']['noah-phone-02']=10000;declaration['capital']['principal_sat']=30000
+            declaration['capital']['actor_principal_sat']['actor-42']=10000;declaration['capital']['principal_sat']=30000
             for section in ('phones','capital'):
                 declaration['evidence'][section]=self.store.trace_capture('noah.readiness.'+section,{
                     'observed':copy.deepcopy(declaration[section]),'verified':True,'method':'independent_observation'})
@@ -72,18 +72,18 @@ class NoahPrivateControllerTests(unittest.IsolatedAsyncioTestCase):
         from simulator.noah_controller import NoahController
         adapter=self.adapter();helper=self.root/'helper';helper.write_bytes(b'unit-test-helper')
         digest=hashlib.sha256(helper.read_bytes()).hexdigest()
-        wallet=self.root/'phones'/'noah-phone-01';wallet.mkdir(parents=True)
+        wallet=self.root/'phones'/'actor-41';wallet.mkdir(parents=True)
         observation={'schema_version':1,'verified':True,'method':'independent_native_sdk_audit',
             'manifest_sha256':hashlib.sha256(fixtures.canonical(self.manifest).encode()).hexdigest(),
             'network':'signet','server_pubkey':PUB,'sdk_commit':fixtures.SDK,
-            'helper_sha256':digest,'protocol':'noah-private-v1','wallets':{'noah-phone-01':str(wallet)}}
+            'helper_sha256':digest,'protocol':'noah-private-v1','wallets':{'actor-41':str(wallet)}}
         reference=self.store.trace_capture('noah.native.qualification',observation) if qualified else None
         return NoahController(adapter,helper,digest,reference),adapter,helper
 
     async def test_missing_native_qualification_never_launches_or_contacts_backend(self):
         controller,adapter,helper=self.controller(False)
         with patch('simulator.noah_controller.json_command',side_effect=AssertionError('native launch')):
-            with self.assertRaises(ValueError):await controller.enroll('setup-1','noah-phone-01','ExpoPushToken[phone]',expiry=1500)
+            with self.assertRaises(ValueError):await controller.enroll('setup-1','actor-41','ExpoPushToken[phone]',expiry=1500)
         self.assertEqual([],self.calls)
 
     async def test_lost_private_reply_is_durable_and_never_replayed(self):
@@ -97,11 +97,11 @@ class NoahPrivateControllerTests(unittest.IsolatedAsyncioTestCase):
             kwargs['on_stderr_raw']({'raw':b'private-helper-diagnostic','bytes':25,'truncated':False})
             raise TimeoutError('private-untrusted-error')
         with patch('simulator.noah_controller.json_command',side_effect=lost):
-            with self.assertRaises(ValueError):await controller.enroll('setup-1','noah-phone-01','ExpoPushToken[phone]',expiry=1500)
+            with self.assertRaises(ValueError):await controller.enroll('setup-1','actor-41','ExpoPushToken[phone]',expiry=1500)
             from simulator.noah_controller import NoahController
             reopened=NoahController(adapter,helper,controller.helper_sha256,controller.qualification)
-            with self.assertRaises(ValueError):await reopened.enroll('setup-1','noah-phone-01','ExpoPushToken[phone]',expiry=1500)
-            with self.assertRaises(ValueError):await reopened.enroll('setup-2','noah-phone-01','ExpoPushToken[phone]',expiry=1500)
+            with self.assertRaises(ValueError):await reopened.enroll('setup-1','actor-41','ExpoPushToken[phone]',expiry=1500)
+            with self.assertRaises(ValueError):await reopened.enroll('setup-2','actor-41','ExpoPushToken[phone]',expiry=1500)
         self.assertEqual(1,len(calls))
         public=' '.join(row['payload'] for row in self.store.db.execute('SELECT payload FROM event'))
         self.assertNotIn('private-helper-diagnostic',public);self.assertNotIn('private-untrusted-error',public)
@@ -113,19 +113,19 @@ class NoahPrivateControllerTests(unittest.IsolatedAsyncioTestCase):
         entered=asyncio.Event();release=asyncio.Event();calls=[]
         async def blocked(*args,**kwargs):calls.append(True);entered.set();await release.wait();raise TimeoutError()
         adapter.enroll=blocked
-        first=asyncio.create_task(controller.enroll('setup-1','noah-phone-01','ExpoPushToken[phone]',expiry=1500))
+        first=asyncio.create_task(controller.enroll('setup-1','actor-41','ExpoPushToken[phone]',expiry=1500))
         await asyncio.wait_for(entered.wait(),2)
-        with self.assertRaises(ValueError):await controller.enroll('setup-2','noah-phone-01','ExpoPushToken[phone]',expiry=1500)
+        with self.assertRaises(ValueError):await controller.enroll('setup-2','actor-41','ExpoPushToken[phone]',expiry=1500)
         release.set()
         with self.assertRaises(ValueError):await first
         self.assertEqual([True],calls)
-        self.store.set_online('noah-phone-01',False)
-        with self.assertRaises(ValueError):await controller.enroll('setup-3','noah-phone-01','ExpoPushToken[phone]',expiry=1500)
+        self.store.set_online('actor-41',False)
+        with self.assertRaises(ValueError):await controller.enroll('setup-3','actor-41','ExpoPushToken[phone]',expiry=1500)
         self.assertEqual([True],calls)
 
     async def test_binary_or_qualification_context_drift_holds_before_launch(self):
         controller,adapter,helper=self.controller();helper.write_bytes(b'replaced')
-        with self.assertRaises(ValueError):await controller.enroll('setup-1','noah-phone-01','ExpoPushToken[phone]',expiry=1500)
+        with self.assertRaises(ValueError):await controller.enroll('setup-1','actor-41','ExpoPushToken[phone]',expiry=1500)
         self.assertEqual([],self.calls)
 
     async def test_successful_private_helper_is_context_bound_and_has_no_public_secret(self):
@@ -140,14 +140,14 @@ class NoahPrivateControllerTests(unittest.IsolatedAsyncioTestCase):
         adapter.transport=replies
         async def native(argv,request,**kwargs):
             self.assertEqual([str(helper)],argv)
-            self.assertEqual(str(self.root/'phones'/'noah-phone-01'),request['wallet_path'])
+            self.assertEqual(str(self.root/'phones'/'actor-41'),request['wallet_path'])
             self.assertEqual(PUB,request['expected_server_pubkey'])
             result={k:request[k] for k in ('protocol','operation','actor','action_id')}
             result['material']={'key':PUB,'sig':sig,'mailbox_id':PUB,'expiry':1500,'encoded':grant}
             raw=json.dumps(result).encode();kwargs['on_stdout_raw']({'raw':raw,'bytes':len(raw),'truncated':False,'exit_code':0})
             return result
         with patch('simulator.noah_controller.json_command',side_effect=native):
-            result=await controller.enroll('setup-1','noah-phone-01','ExpoPushToken[phone]',expiry=1500)
+            result=await controller.enroll('setup-1','actor-41','ExpoPushToken[phone]',expiry=1500)
         self.assertEqual('enrolled',result['state'])
         self.assertEqual('completed',self.store.db.execute('SELECT state FROM noah_control').fetchone()[0])
         public=' '.join(row['payload'] for row in self.store.db.execute('SELECT payload FROM event'))
@@ -157,11 +157,11 @@ class NoahPrivateControllerTests(unittest.IsolatedAsyncioTestCase):
         controller,adapter,helper=self.controller();entered=asyncio.Event()
         async def blocked(*args,**kwargs):entered.set();await asyncio.Future()
         adapter.enroll=blocked
-        task=asyncio.create_task(controller.enroll('setup-cancel','noah-phone-01','ExpoPushToken[phone]',expiry=1500))
+        task=asyncio.create_task(controller.enroll('setup-cancel','actor-41','ExpoPushToken[phone]',expiry=1500))
         await asyncio.wait_for(entered.wait(),2);task.cancel()
         with self.assertRaises(asyncio.CancelledError):await task
         self.assertEqual('outcome_unknown',self.store.db.execute('SELECT state FROM noah_control').fetchone()[0])
-        with self.assertRaises(ValueError):await controller.enroll('setup-next','noah-phone-01','ExpoPushToken[phone]',expiry=1500)
+        with self.assertRaises(ValueError):await controller.enroll('setup-next','actor-41','ExpoPushToken[phone]',expiry=1500)
 
 
 class NoahCancelledObservationTests(unittest.IsolatedAsyncioTestCase):
@@ -173,7 +173,7 @@ class NoahCancelledObservationTests(unittest.IsolatedAsyncioTestCase):
         entered=asyncio.Event();release=asyncio.Event()
         async def late(*args):entered.set();await release.wait();return {'private_phone_body':'late-private-reply'}
         adapter=self.adapter(late)
-        task=asyncio.create_task(adapter._request('POST','/v0/user_info',{},'private-bearer',actor='noah-phone-01'))
+        task=asyncio.create_task(adapter._request('POST','/v0/user_info',{},'private-bearer',actor='actor-41'))
         await asyncio.wait_for(entered.wait(),2);task.cancel()
         with self.assertRaises(asyncio.CancelledError):await task
         self.assertEqual(1,adapter.pending_observations)
@@ -189,7 +189,7 @@ class NoahCancelledObservationTests(unittest.IsolatedAsyncioTestCase):
         entered=asyncio.Event();release=asyncio.Event();calls=[]
         async def late(*args):calls.append(True);entered.set();await release.wait();raise TimeoutError('private-late-http-diagnostic')
         adapter=self.adapter(late)
-        task=asyncio.create_task(adapter._request('POST','/v0/user_info',{},'private-bearer',actor='noah-phone-01'))
+        task=asyncio.create_task(adapter._request('POST','/v0/user_info',{},'private-bearer',actor='actor-41'))
         await asyncio.wait_for(entered.wait(),2);task.cancel()
         with self.assertRaises(asyncio.CancelledError):await task
         release.set();await adapter.drain_observations()

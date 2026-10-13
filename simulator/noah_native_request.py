@@ -1,12 +1,13 @@
 """Private enrollment requests bound to independently declared phone identities."""
 from pathlib import Path
+from .noah import _actor
 import re
 
 SDK_COMMIT='8f2286ee7e1631b0ceccd1631ec3b728a1bb0a52'
 
 def enrollment_request(*,identifier,actor,wallet,phone,chain,k1,expiry):
     if not isinstance(identifier,str) or not re.fullmatch('[A-Za-z0-9_-]{1,100}',identifier):raise ValueError('explicit setup identity required')
-    if (not isinstance(actor,str) or not re.fullmatch('noah-[a-z0-9-]{1,59}',actor)
+    if (not isinstance(actor,str) or _actor(actor)!=actor
             or phone.get('actor')!=actor):raise ValueError('new declared phone identity differs')
     wallet=Path(wallet)
     if (not wallet.is_absolute() or wallet.name!=actor or not wallet.is_dir()

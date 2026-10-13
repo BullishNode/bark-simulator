@@ -4,7 +4,12 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[[bin]]
+name = "noah-public-proof"
+path = "../integration/noah-public-proof/src/main.rs"
+
 [dependencies]
+noah-public-proof = { path = "../integration/noah-public-proof" }
 prost = "0.14"
 bytes = "1"
 http-body = "1"
