@@ -3,16 +3,15 @@
 //! Arrival order is observed, never inferred from client leg names. Completion
 //! and once-only financial arbitration require independent evidence collectors.
 use super::{
-    evidence, phase_protocol as retained,
+    Request, evidence, phase_protocol as retained,
     phase_transport::{ClientTransport, Gate, Plan, Validator},
-    Request,
 };
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result, ensure};
 use ark::attestations::DelegatedRoundParticipationAttestation;
 use ark::{ProtocolEncoding, VtxoId, VtxoRequest};
-use bark::{round::RoundParticipation, subsystem::RoundMovement, Wallet};
+use bark::{Wallet, round::RoundParticipation, subsystem::RoundMovement};
 use prost::Message;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use server_rpc::protos;
 use std::{
     collections::HashMap,
@@ -249,7 +248,7 @@ pub async fn execute(
         .lock()
         .map_err(|_| anyhow::anyhow!("delegated state poisoned"))?
         .quotes = quotes;
-    // SDK 8f expressly permits outstanding participations over the same inputs;
+    // The pinned SDK permits outstanding participations over the same inputs;
     // the server replaces held input records. We do not patch its state machine.
     let first_future =
         wallet.join_delegated_round(first, Some(RoundMovement::Refresh), Some(height));
@@ -307,7 +306,7 @@ pub async fn execute(
             &json!({"released":released.is_ok(),"error":released.err().map(|e|format!("{e:#}"))}),
         )?,
     )?;
-    // No automatic round sync, re-sign, forfeit, or resend here. Root must
+    // No automatic round sync, re-sign, forfeit, or resend here. The caller must
     // collect both exact unlock-hash statuses and qualify later SDK progression.
     Ok(
         json!({"phase_unknown":true,"actual_fee_sat":Value::Null,"scenario":"D26","customer_traffic_credit":false,"states":states,"captured_transport_failure":invocation.gate.has_failed(),

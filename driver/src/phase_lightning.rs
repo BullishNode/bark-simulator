@@ -1,5 +1,5 @@
 //! Real same-hash SDK claim/refund builders retained for one invocation.
-//! Caller supplies only declared online Wallets; root owns their opening.
+//! Caller supplies and owns the opening of only declared online Wallets.
 //! No invoice, payment, funding, forged checkpoint or background sync is started.
 //! Original SDK checkpoints remain held until independently reconciled/adopted.
 use super::{Request, evidence, phase_protocol as retained};

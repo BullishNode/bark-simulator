@@ -1,10 +1,10 @@
 //! Wallet-free replay of an exact previously captured, valid SDK forfeit.
 //! This consumes protected evidence, never generates a new partial signature.
-use super::{evidence, phase_protocol as retained, Request};
-use anyhow::{ensure, Context, Result};
-use ark::{forfeit::HashLockedForfeitBundle, musig, vtxo::Full, ProtocolEncoding, Vtxo};
+use super::{Request, evidence, phase_protocol as retained};
+use anyhow::{Context, Result, ensure};
+use ark::{ProtocolEncoding, Vtxo, forfeit::HashLockedForfeitBundle, musig, vtxo::Full};
 use prost::Message;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use server_rpc::protos::{self, ark_service_client::ArkServiceClient};
 use std::{fs, io::Read, os::unix::fs::MetadataExt, path::Path};
 use tonic::transport::Channel;
@@ -153,7 +153,7 @@ fn verify_bundle(
     }
     Ok(body)
 }
-/// Root must run the positive cancellation collector before queuing this op;
+/// The caller must run the positive cancellation collector before this op;
 /// no absent wallet, new nonce, new forfeit, or ordinary SDK sync is involved.
 pub async fn execute(
     rpc: &mut ArkServiceClient<Channel>,

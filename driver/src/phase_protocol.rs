@@ -1,25 +1,26 @@
 //! Genuine phase trials; opaque SDK nonces never leave their signing process.
 //! Each submitted wire request is frozen before submission. Reopening a fence
 //! holds the outcome unknown; it never regenerates nonces or retries a spend.
-use super::{evidence, hex, Request};
-use anyhow::{ensure, Context, Result};
+use super::{Request, evidence, hex};
+use anyhow::{Context, Result, ensure};
 use ark::arkoor::{
+    ArkoorDestination,
     package::{ArkoorPackageBuilder, ArkoorPackageCosignResponse},
-    state, ArkoorDestination,
+    state,
 };
 use ark::{ProtocolEncoding, Vtxo, VtxoId, VtxoPolicy};
 use bark::Wallet;
 use bitcoin::hex::FromHex;
 use bitcoin::{
-    hashes::{sha256, Hash},
-    secp256k1::{Keypair, PublicKey},
     Amount, Network,
+    hashes::{Hash, sha256},
+    secp256k1::{Keypair, PublicKey},
 };
 use prost::Message;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use server_rpc::{
-    protos::{self, ark_service_client::ArkServiceClient},
     StatusExt,
+    protos::{self, ark_service_client::ArkServiceClient},
 };
 use std::{
     fs,
@@ -47,12 +48,13 @@ pub(super) fn now_ns() -> u128 {
         .as_nanos()
 }
 fn metadata(map: &tonic::metadata::MetadataMap) -> Value {
-    json!(map
-        .clone()
-        .into_headers()
-        .iter()
-        .map(|(name, value)| json!({"name":name.as_str(),"value_hex":hex(value.as_bytes())}))
-        .collect::<Vec<_>>())
+    json!(
+        map.clone()
+            .into_headers()
+            .iter()
+            .map(|(name, value)| json!({"name":name.as_str(),"value_hex":hex(value.as_bytes())}))
+            .collect::<Vec<_>>()
+    )
 }
 pub(super) fn save(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = fs::OpenOptions::new()
