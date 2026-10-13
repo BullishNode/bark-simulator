@@ -106,6 +106,20 @@ class NoahAdapterTests(unittest.IsolatedAsyncioTestCase):
         async def submit(request):return {'payment_hash':HASH,'paid':True}
         await adapter.dispatch('payment-1',submit)
         self.assertEqual('outcome_unknown',adapter.intent('payment-1')['state'])
+    async def test_unknown_payer_hold_prevents_another_invoice_request(self):
+        adapter=self.adapter();await adapter.negotiate('payment-1','noah-payer-01','noah-phone-01',5000000,binding=self.binding)
+        async def lost(request):raise TimeoutError()
+        await adapter.dispatch('payment-1',lost)
+        with self.assertRaises(ValueError):await adapter.negotiate('payment-2','noah-payer-01','noah-phone-01',5000000,binding=self.binding)
+        self.assertEqual(2,len(self.calls))
+    async def test_real_gone_recipient_allows_forwarder_protocol_without_wallet_call(self):
+        self.store.actor('noah-phone-01','noah-phone');self.store.set_online('noah-phone-01',False)
+        adapter=self.adapter()
+        result=await adapter.negotiate('payment-1','noah-payer-01','noah-phone-01',5000000,binding=self.binding)
+        self.assertEqual('invoice_frozen',result['state'])
+        async def signer(*args):self.fail('absent phone signing call')
+        with self.assertRaises(ValueError):await adapter.enroll('noah-phone-01',signer,'ExpoPushToken[phone]',expiry=1500)
+        self.assertFalse(self.store.online('noah-phone-01'))
         async def status(payment_hash):return {'payment_hash':payment_hash,'state':'succeeded'}
         await adapter.reconcile('payment-1',status)
         self.assertEqual('outcome_unknown',adapter.intent('payment-1')['state'])
@@ -189,6 +203,29 @@ class NoahPushTests(unittest.IsolatedAsyncioTestCase):
         async def claim():claimed.append(True);return {'actual_claim_evidence':'fixture-only'}
         result=await consume_expo_push({'to':['ExpoPushToken[phone]'],'data':canonical({'notification_type':'lightning_claim_request','payment_hash':HASH,'amount_sat':5000})},'ExpoPushToken[phone]',invoice=fail,submit=fail,claim=claim)
         self.assertEqual([True],claimed);self.assertEqual('claim_called',result['state']);self.assertFalse(result['outcome_verified'])
+
+
+class NoahDurablePushTests(unittest.IsolatedAsyncioTestCase):
+    setUp=NoahAdapterTests.setUp
+    tearDown=NoahAdapterTests.tearDown
+    adapter=NoahAdapterTests.adapter
+    async def test_original_duplicate_push_never_creates_another_invoice_after_lost_submit(self):
+        adapter=self.adapter();self.store.actor('noah-phone-01','noah-phone')
+        transaction='00000000-0000-4000-8000-000000000001';calls=[]
+        envelope={'to':['ExpoPushToken[phone]'],'data':canonical({'notification_type':'lightning_invoice_request','transaction_id':transaction,'amount':5000000})}
+        async def invoice(amount):calls.append(('invoice',amount));return {'invoice':self.invoice,'payment_hash':HASH}
+        async def submit(body):calls.append(('submit',body));raise TimeoutError()
+        async def claim():self.fail('automatic claim')
+        result=await adapter.consume_push('noah-phone-01',envelope,'ExpoPushToken[phone]',invoice=invoice,submit=submit,claim=claim)
+        self.assertEqual('outcome_unknown',result['state'])
+        await adapter.consume_push('noah-phone-01',envelope,'ExpoPushToken[phone]',invoice=invoice,submit=submit,claim=claim)
+        self.assertEqual(2,len(calls))
+        changed=copy.deepcopy(envelope);changed['data']=canonical({'notification_type':'lightning_invoice_request','transaction_id':transaction,'amount':6000000})
+        with self.assertRaises(ValueError):await adapter.consume_push('noah-phone-01',changed,'ExpoPushToken[phone]',invoice=invoice,submit=submit,claim=claim)
+    async def test_absent_phone_does_not_consume_original_push_with_wallet_callbacks(self):
+        adapter=self.adapter();self.store.actor('noah-phone-01','noah-phone');self.store.set_online('noah-phone-01',False)
+        async def fail(*args):self.fail('absent wallet call')
+        with self.assertRaises(ValueError):await adapter.consume_push('noah-phone-01',{'to':['ExpoPushToken[phone]'],'data':canonical({'notification_type':'lightning_claim_request','payment_hash':HASH,'amount_sat':5000})},'ExpoPushToken[phone]',invoice=fail,submit=fail,claim=fail)
 
 
 class NoahCoverageTests(unittest.TestCase):
