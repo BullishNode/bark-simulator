@@ -22,14 +22,20 @@ class FinalCampaignRegressions(unittest.TestCase):
         self.declaration = {'id':'final-fixture', 'pins':PINS, 'started_at':100,
             'windows_seconds':{'ark':600, 'internal_lightning':600, 'external_lightning':600},
             'minimum_observations':{'ark':1, 'internal_lightning':1, 'external_lightning':1}}
-        self.store.db.execute("INSERT INTO meta VALUES ('final_financial_epoch',?)", (canonical(self.declaration),))
+        self.store.db.execute("INSERT INTO meta VALUES ('paused','declare')")
+        from simulator.final_campaign import declare_epoch
+        declare_epoch(self.store,self.declaration)
+        self.store.db.execute("DELETE FROM meta WHERE key='paused'")
 
     def tearDown(self):
         self.store.close()
         self.temp.cleanup()
 
     def transfer(self, identity, operation, data, at, args=None):
-        self.store.queue(identity, 'actor-01', 'H07', operation, args or {}, 0)
+        with patch('simulator.store.time.time',return_value=float(at)):
+            self.store.add_snapshot({'observed_at':float(at),'financial_pins':PINS})
+            self.store.queue(identity, 'actor-01', 'H07', operation, args or {}, 0)
+            self.store.claim({operation},action_id=identity)
         self.store.db.execute('UPDATE action SET state=?,result=?,updated_at=? WHERE id=?',
             ('completed', canonical({'status':'ok', 'data':data}), at, identity))
 
@@ -79,7 +85,10 @@ class FinalEpochEvidenceTests(unittest.TestCase):
         self.store.close();self.temp.cleanup()
 
     def action(self, identity, operation, actor='actor-01', at=101, data=None, args=None):
-        self.store.queue(identity,actor,'H07',operation,args or {},0)
+        with patch('simulator.store.time.time',return_value=float(at)):
+            self.store.add_snapshot({'observed_at':float(at),'financial_pins':PINS})
+            self.store.queue(identity,actor,'H07',operation,args or {},0)
+            self.store.claim({operation},action_id=identity)
         self.store.db.execute('UPDATE action SET created_at=?,state=?,result=?,updated_at=? WHERE id=?',
             (at,'completed',canonical({'data':data or {}}),at,identity))
 
@@ -89,6 +98,7 @@ class FinalEpochEvidenceTests(unittest.TestCase):
             row=self.store.db.execute('SELECT updated_at FROM action WHERE id=?',(payload.get('action_id'),)).fetchone()
             at=row[0] if row else 104
         with patch('simulator.store.time.time',return_value=float(at)):
+            self.store.add_snapshot({'observed_at':float(at),'financial_pins':PINS})
             self.store.event(kind,payload)
         return self.store.db.execute('SELECT MAX(sequence) FROM event').fetchone()[0]
 
@@ -96,10 +106,23 @@ class FinalEpochEvidenceTests(unittest.TestCase):
         from simulator.final_campaign import record_traffic
         return record_traffic(self.store,rail,action,sequence,PINS)
 
+    def coin(self,actor,identity,action,at):
+        key='key-'+identity
+        binding={'mailbox_pk':actor,'key_link_signature_valid':True,'record_signature_valid':True}
+        proof={'id':identity,'user_pubkey':key,'amount_sat':1000,'binding':binding,
+               'signed_path_valid':True,'anchor_confirmations':1}
+        self.store.db.execute('INSERT INTO owner_key VALUES (?,?,?,?)',(key,actor,actor,canonical(proof)))
+        self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',
+            (identity,key,1000,'fixture-hash','aa',canonical(proof)))
+        self.store.db.execute('INSERT INTO coin_observation VALUES (?,?,?,?)',(identity,action,'Spendable',at))
+        self.event('public_ownership_verified',{'actor':actor,'action_id':action,'objects':1})
+
     def ark(self, at=101):
         self.action('ark','send_arkoor',at=at)
+        self.action('recipient','sync','actor-02',at)
+        self.coin('actor-02','receipt:0','recipient',at)
         return self.credit('ark','ark',self.event('ark_transfer_verified',
-            {'action_id':'ark','recipient_actor':'actor-02','verified_at':at}))
+            {'action_id':'ark','recipient_actor':'actor-02','receipts':[{'coin_id':'receipt:0'}],'verified_at':at}))
 
     def internal(self, at=102):
         payment='a'*64
@@ -108,6 +131,7 @@ class FinalEpochEvidenceTests(unittest.TestCase):
             data={'payment_hash':payment,'payment_status_verified':True,'payment_state':'succeeded'},
             args={'recipient_actor':'actor-02','recipient_invoice_action':'invoice'})
         self.action('claim','sync','actor-02',at)
+        self.coin('actor-02','coin:0','claim',at)
         seq=self.event('client_fee_reconciled',{'action_id':'claim',
             'claims':[{'payment_hash':payment,'invoice_action_id':'invoice','output_coin_ids':['coin:0']}]})
         return self.credit('internal_lightning','claim',seq)
@@ -202,6 +226,7 @@ class FinalRampEvidenceTests(unittest.TestCase):
     setUp=FinalEpochEvidenceTests.setUp
     tearDown=FinalEpochEvidenceTests.tearDown
     action=FinalEpochEvidenceTests.action
+    event=FinalEpochEvidenceTests.event
     def prepare(self):
         self.store.db.execute("INSERT INTO meta VALUES ('ramp_applied','true')")
         self.store.db.execute("UPDATE meta SET value='10800' WHERE key='qualified_campaign_active_seconds'")
@@ -221,6 +246,7 @@ class FinalRampEvidenceTests(unittest.TestCase):
             self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',
                 (coin,key,5000,'fixture-hash','aa',canonical(proof)))
             self.store.db.execute('INSERT INTO coin_observation VALUES (?,?,?,?)',(coin,identity,'Spendable',201))
+            self.event('public_ownership_verified',{'action_id':identity,'actor':actor,'objects':1})
         self.store.db.execute('INSERT INTO funding_batch VALUES (?,?,?,?,?,?,?)',
             ('ramp','confirmed',canonical(recipients),'a'*64,'fixture-raw',1000,200))
         # Real post-funding movement proof registration has separate tests. Here
@@ -315,13 +341,16 @@ class FinalCollectorTests(unittest.TestCase):
     tearDown=FinalEpochEvidenceTests.tearDown
     action=FinalEpochEvidenceTests.action
     event=FinalEpochEvidenceTests.event
+    coin=FinalEpochEvidenceTests.coin
 
     def test_pending_proof_does_not_starve_later_eligible_rail(self):
         from simulator.final_campaign import collect_traffic
         self.action('unresolved','sync',at=101)
         self.event('client_fee_reconciled',{'action_id':'unresolved','claims':[]})
         self.action('ark','send_arkoor',at=102)
-        self.event('ark_transfer_verified',{'action_id':'ark','recipient_actor':'actor-02','verified_at':102})
+        self.action('recipient','sync','actor-02',102)
+        self.coin('actor-02','receipt:0','recipient',102)
+        self.event('ark_transfer_verified',{'action_id':'ark','recipient_actor':'actor-02','receipts':[{'coin_id':'receipt:0'}],'verified_at':102})
         self.assertEqual(0,collect_traffic(self.store,PINS,limit=1))
         self.assertEqual(1,collect_traffic(self.store,PINS,limit=1))
         self.assertEqual(0,collect_traffic(self.store,PINS,limit=1))
@@ -351,9 +380,44 @@ class OriginalPinBindingRegressions(unittest.TestCase):
         self.assertEqual(0,self.store.db.execute('SELECT COUNT(*) FROM final_traffic').fetchone()[0])
 
     def test_unpinned_original_intent_cannot_gain_a_current_pin_label(self):
+        encoded=self.store.get_meta('final_financial_epoch')
+        self.store.db.execute("DELETE FROM meta WHERE key='final_financial_epoch'")
         self.action('ark','send_arkoor',at=101)
+        self.store.db.execute("INSERT INTO meta VALUES ('final_financial_epoch',?)",(encoded,))
         seq=self.event('ark_transfer_verified',{'action_id':'ark','recipient_actor':'actor-02',
             'verified_at':101,'financial_pins':PINS})
         with self.assertRaisesRegex(ValueError,'original.*pin'):
+            self.credit('ark','ark',seq)
+        self.assertEqual(0,self.store.db.execute('SELECT COUNT(*) FROM final_traffic').fetchone()[0])
+
+class OriginalContextFenceTests(unittest.TestCase):
+    setUp=FinalEpochEvidenceTests.setUp
+    tearDown=FinalEpochEvidenceTests.tearDown
+    action=FinalEpochEvidenceTests.action
+    event=FinalEpochEvidenceTests.event
+    coin=FinalEpochEvidenceTests.coin
+    credit=FinalEpochEvidenceTests.credit
+
+    def test_missing_or_mismatched_snapshot_blocks_new_intent_and_dispatch(self):
+        from simulator.store import CampaignPaused
+        with self.assertRaises(CampaignPaused):
+            self.store.queue('missing','actor-01','H07','send_arkoor',{},0)
+        with patch('simulator.store.time.time',return_value=101.0):
+            self.store.add_snapshot({'observed_at':101.0,'financial_pins':{**PINS,'product_commit':'9'*40}})
+            with self.assertRaises(CampaignPaused):
+                self.store.queue('wrong','actor-01','H07','send_arkoor',{},0)
+            self.assertIsNone(self.store.claim({'send_arkoor'}))
+        self.assertEqual(0,self.store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0])
+
+    def test_missing_original_recipient_context_is_not_repaired_by_current_proof(self):
+        self.action('ark','send_arkoor',at=101)
+        self.action('recipient','sync','actor-02',101)
+        # Signed cached coin alone is insufficient without its original proof context.
+        self.coin('actor-02','receipt:0','recipient',101)
+        row=self.store.db.execute("SELECT sequence FROM event WHERE kind='public_ownership_verified'").fetchone()
+        self.store.db.execute('DELETE FROM event WHERE sequence=?',(row[0],))
+        seq=self.event('ark_transfer_verified',{'action_id':'ark','recipient_actor':'actor-02',
+            'receipts':[{'coin_id':'receipt:0'}],'verified_at':101})
+        with self.assertRaisesRegex(ValueError,'recipient proof pins'):
             self.credit('ark','ark',seq)
         self.assertEqual(0,self.store.db.execute('SELECT COUNT(*) FROM final_traffic').fetchone()[0])

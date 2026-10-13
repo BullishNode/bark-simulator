@@ -114,6 +114,35 @@ def _source_event(store, sequence):
     return event, json.loads(event['payload'])
 
 
+def _action_pins(store, action_id, pins):
+    action=store.db.execute('SELECT * FROM action WHERE id=?',(action_id,)).fetchone()
+    if action is None:raise ValueError('original action missing')
+    for kind in ('action_intent','action_dispatched'):
+        rows=store.db.execute("SELECT sequence FROM event WHERE kind=? AND json_extract(payload,'$.action_id')=?",(kind,action_id)).fetchall()
+        if len(rows)!=1:raise ValueError('original action pin context missing or ambiguous')
+        _,proof=_source_event(store,rows[0][0])
+        if proof.get('financial_pins')!=pins:raise ValueError('original action pins differ from final financial epoch')
+        if kind=='action_intent' and (proof.get('actor')!=action['actor_id'] or proof.get('operation')!=action['operation'] or proof.get('args')!=json.loads(action['args'])):
+            raise ValueError('original intent differs from action')
+
+
+def _recipient_pins(store, actor, coin_ids, pins):
+    if not coin_ids or len(coin_ids)>256:raise ValueError('original recipient proof pin context missing')
+    from .campaign import _signed_coin
+    for coin_id in coin_ids:
+        if _signed_coin(store,coin_id,actor) is None:raise ValueError('recipient signed ownership missing')
+        rows=store.db.execute('SELECT action_id FROM coin_observation WHERE coin_id=?',(coin_id,)).fetchall()
+        matching=False
+        for row in rows:
+            try:_action_pins(store,row['action_id'],pins)
+            except ValueError:continue
+            events=store.db.execute("SELECT sequence FROM event WHERE kind='public_ownership_verified' AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.actor')=?",(row['action_id'],actor)).fetchall()
+            for event in events:
+                _,proof=_source_event(store,event[0])
+                if proof.get('financial_pins')==pins:matching=True
+        if not matching:raise ValueError('original recipient proof pins differ or are missing')
+
+
 def record_traffic(store, rail, action_id, source_sequence, observed_pins):
     """Bind an existing checked outcome to its original time, never import time.
 
@@ -125,6 +154,9 @@ def record_traffic(store, rail, action_id, source_sequence, observed_pins):
         raise ValueError('financial epoch/rail/pins differ')
     declaration = epoch(store)
     event, proof = _source_event(store, source_sequence)
+    if proof.get('financial_pins') != declaration['pins']:
+        raise ValueError('original proof pins differ from final financial epoch')
+    _action_pins(store,action_id,declaration['pins'])
     action = store.db.execute('SELECT * FROM action WHERE id=?',(action_id,)).fetchone()
     if action is None or action['state'] != 'completed':
         raise ValueError('traffic action is not a completed original action')
@@ -135,6 +167,7 @@ def record_traffic(store, rail, action_id, source_sequence, observed_pins):
     if rail == 'ark':
         if event['kind'] != 'ark_transfer_verified' or action['operation'] != 'send_arkoor':
             raise ValueError('signed Ark receipt proof required')
+        _recipient_pins(store,proof.get('recipient_actor'),[r['coin_id'] for r in proof.get('receipts',[])],declaration['pins'])
         verified_at = timestamp(proof['verified_at'],'original receipt observation')
     elif rail == 'internal_lightning':
         if event['kind'] != 'client_fee_reconciled' or action['operation'] != 'sync':
@@ -154,6 +187,10 @@ def record_traffic(store, rail, action_id, source_sequence, observed_pins):
             if (intended.get('recipient_actor') != action['actor_id']
                     or intended.get('recipient_invoice_action') != claim['invoice_action_id']):
                 raise ValueError('internal recipient differs from frozen payer intent')
+            _action_pins(store,claim['invoice_action_id'],declaration['pins'])
+            sender_id=store.db.execute("SELECT id FROM action WHERE operation='pay_invoice' AND json_extract(result,'$.data.payment_hash')=?",(claim['payment_hash'],)).fetchone()[0]
+            _action_pins(store,sender_id,declaration['pins'])
+            _recipient_pins(store,action['actor_id'],claim.get('output_coin_ids',[]),declaration['pins'])
             invoice = store.db.execute("SELECT actor_id,result,created_at FROM action WHERE id=? AND operation='invoice' AND state='completed'",(claim['invoice_action_id'],)).fetchone()
             if (invoice is None or invoice['actor_id'] != action['actor_id']
                     or invoice['created_at'] < declaration['started_at']
@@ -248,6 +285,11 @@ def verify_ramp(store, chain, observed_pins):
             coins = store.db.execute("SELECT coin_id FROM coin_observation WHERE action_id=?",(board['id'],)).fetchall()
             signed = [_signed_coin(store,c[0],recipient['actor']) for c in coins]
             if signed and all(c is not None for c in signed):
+                try:
+                    _action_pins(store,board['id'],declaration['pins'])
+                    _recipient_pins(store,recipient['actor'],[c[0]['id'] for c in signed],declaration['pins'])
+                except ValueError:
+                    continue
                 boards.append({'action_id':board['id'],'coin_ids':[c[0]['id'] for c in signed]})
         if not boards:
             raise ValueError('ramp actor lacks independently signed confirmed board evidence')

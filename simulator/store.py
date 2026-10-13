@@ -103,7 +103,19 @@ class Store:
         row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
         return row[0] if row else None
 
+    def financial_context(self):
+        row=self.db.execute('SELECT payload FROM snapshot ORDER BY id DESC LIMIT 1').fetchone()
+        if row is None:return None
+        snapshot=json.loads(row[0])
+        if not 0 <= time.time()-snapshot['observed_at'] <= 90:return None
+        return snapshot.get('financial_pins')
+
     def _event(self, kind: str, payload: dict):
+        if self.get_meta('final_financial_epoch') is not None and kind in {
+                'action_intent','action_dispatched','driver_evidence','public_ownership_verified',
+                'ark_transfer_verified','client_fee_reconciled','controlled_peer_payment_verified',
+                'lightning_payment_outcome'}:
+            payload={**payload,'financial_pins':payload.get('financial_pins',self.financial_context())}
         public_payload(payload)
         last = self.db.execute("SELECT sequence,hash FROM event ORDER BY sequence DESC LIMIT 1").fetchone()
         seq, previous = (last[0] + 1, last[1]) if last else (1, "0" * 64)
@@ -191,6 +203,10 @@ class Store:
         if not isinstance(action_id, str) or not 1 <= len(action_id) <= 128:
             raise ValueError("action id must contain 1–128 characters")
         integer(fee_reservation_sat, "fee reservation")
+        if self.get_meta('final_financial_epoch') is not None:
+            from .final_campaign import pins_match
+            if not pins_match(self,self.financial_context()):
+                raise CampaignPaused('final financial pins unverified; no new intent')
         at = time.time()
         due = at if due_at is None else timestamp(due_at, "action due time")
         with (nullcontext() if self.db.in_transaction else self.transaction()):
@@ -215,6 +231,9 @@ class Store:
         with self.transaction():
             if self.get_meta("paused"):
                 return None
+            if self.get_meta('final_financial_epoch') is not None:
+                from .final_campaign import pins_match
+                if not pins_match(self,self.financial_context()):return None
             rows = self.db.execute("SELECT a.* FROM action a JOIN actor u ON u.id=a.actor_id WHERE a.state='queued' AND a.due_at<=? AND u.online=1 ORDER BY a.due_at,a.id", (time.time(),)).fetchall()
             for row in rows:
                 if action_id is not None and row['id']!=action_id:continue
