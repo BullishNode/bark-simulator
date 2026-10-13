@@ -111,6 +111,10 @@ def _checked_manifest(manifest):
     if forwarder['enabled']:
         if not forwarder['ready'] or not isinstance(forwarder['identity'],str) or not forwarder['identity'].startswith('noah-forwarder-'):
             raise ValueError('forwarder not independently ready')
+        if forwarder.get('barkd_url')!='http://noah-barkd-signet.internal:3000':raise ValueError('owned pinned signet forwarding route required')
+        _pubkey(forwarder.get('auth_pubkey'));_pubkey(forwarder.get('mailbox_id'))
+        if not isinstance(forwarder.get('fallback_script'),str) or re.fullmatch('[0-9a-f]{2,20000}',forwarder['fallback_script']) is None:
+            raise ValueError('forwarder fallback record evidence missing')
     elif forwarder['identity'] is not None or forwarder['ready']:raise ValueError('disabled forwarder identity differs')
     capital=manifest['capital']
     if re.fullmatch('noah-capital-[A-Za-z0-9_-]{1,80}',capital['allocation_id']) is None:raise ValueError('separate explicit Noah allocation required')
@@ -119,6 +123,7 @@ def _checked_manifest(manifest):
     if capital['per_action_fee_sat']>capital['campaign_fee_sat']:raise ValueError('per-action fee exceeds campaign cap')
     allocations=capital['actor_principal_sat']
     if not isinstance(allocations,dict) or not actors<=set(allocations):raise ValueError('phone capital declaration missing')
+    if forwarder['enabled'] and forwarder['identity'] not in allocations:raise ValueError('separate forwarder capital missing')
     if any(re.fullmatch('noah-(phone|payer|forwarder)-[A-Za-z0-9_-]{1,64}',actor) is None for actor in allocations):
         raise ValueError('old simulator capital cannot be reassigned')
     if sum(integer(value,'actor principal',1) for value in allocations.values())>total:raise ValueError('allocation exceeds capital')
@@ -172,6 +177,7 @@ class NoahAdapter:
     def __init__(self,store,manifest,*,transport=None,invoice_verifier=None,clock=time.time):
         self.store,self.manifest,self.clock=store,manifest,clock
         self.transport,self.invoice_verifier=transport,invoice_verifier
+        self._sessions={}  # Private bearer memory; never serialized into evidence.
         store.db.executescript(SCHEMA)
 
     def readiness(self):
@@ -252,7 +258,23 @@ class NoahAdapter:
         self.store.event('noah_phone_enrolled',{'actor':actor,'auth_pubkey':phone['auth_pubkey'],'ark_address':phone['ark_address'],
             'mailbox_id':phone['mailbox_id'],'mailbox_grant_sha256':_digest(material['encoded']),'expiry':expiry,
             'qualification':'authenticated enrollment only; no payment or ownership outcome'})
+        self._sessions[actor]=(token,self.clock()+login['expires_in_seconds'])
         return {'state':'enrolled','actor':actor,'authenticated_identity':phone['auth_pubkey']}
+
+    async def submit_invoice(self,actor,body):
+        self._phone(actor,require_online=True)
+        if not isinstance(body,dict) or set(body)!={'transaction_id','invoice'} or not isinstance(body['invoice'],str):
+            raise ValueError('original invoice submission fields missing')
+        row=self.store.db.execute('SELECT * FROM noah_push WHERE actor=? AND transaction_id=?',(actor,body['transaction_id'])).fetchone()
+        if (row is None or row['state']!='dispatched' or row['invoice_digest']!=_digest(body['invoice']) or not row['payment_hash']):
+            raise ValueError('invoice does not match an unsubmitted original phone request')
+        session=self._sessions.get(actor)
+        if session is None or session[1]<=self.clock():raise ValueError('private bearer expired or absent; explicit real login required')
+        with self.store.transaction():
+            self.store.db.execute("UPDATE noah_push SET state='submission_started' WHERE actor=? AND transaction_id=?",(actor,body['transaction_id']))
+            self.store._event('noah_phone_submission_started',{'actor':actor,'transaction_id':body['transaction_id'],
+                'invoice_sha256':row['invoice_digest'],'payment_hash':row['payment_hash']})
+        return await self._request('POST','/v0/lnurlp/submit_invoice',body,session[0])
 
     def intent(self,identifier):
         row=self.store.db.execute('SELECT * FROM noah_intent WHERE id=?',(identifier,)).fetchone()
@@ -401,7 +423,7 @@ class NoahAdapter:
             'qualification':'node status alone does not prove intended recipient collection/refund, final ownership or fees'})
         return row
 
-    async def consume_push(self,actor,envelope,expo_token,*,invoice,submit,claim):
+    async def consume_push(self,actor,envelope,expo_token,*,invoice,claim,submit=None):
         self._phone(actor,require_online=True)
         data=_expo_data(envelope,expo_token);kind=data.get('notification_type')
         if kind=='lightning_invoice_request':
@@ -426,6 +448,8 @@ class NoahAdapter:
                 self.store.db.execute('UPDATE noah_push SET payment_hash=?,invoice_digest=? WHERE actor=? AND transaction_id=?',(payment_hash,digest,actor,transaction))
                 self.store._event('noah_phone_invoice_created',{'actor':actor,'transaction_id':transaction,'amount_msat':amount,'payment_hash':payment_hash,'invoice_sha256':digest})
             return created
+        if submit is None:
+            async def submit(body):return await self.submit_invoice(actor,body)
         try:result=await consume_expo_push(envelope,expo_token,invoice=freeze_invoice,submit=submit,claim=claim)
         except Exception:result={'state':'outcome_unknown','outcome_verified':False}
         with self.store.transaction():
