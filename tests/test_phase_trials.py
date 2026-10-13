@@ -25,8 +25,9 @@ class PhaseTrialTests(unittest.TestCase):
         return self.controller.prepare(trial,{'trial_id':trial,'intent_hash':self.controller.intent(trial)['intent_hash'],
             'legs':[{'leg_id':'left','rpc':'RequestArkoorCosign','input_coin_ids':[self.coin],'wire_sha256':'a1'*32,'nonce_retention':nonce,'private_checkpoint_sha256':'b1'*32,'input_spends':[{'coin_id':self.coin,'txid':'c1'*32}],'outputs':[{'coin_id':'d1'*32+':0','pubkey':self.keys['actor-04'],'amount_sat':5000}]},
                     {'leg_id':'right','rpc':'RequestArkoorCosign','input_coin_ids':[self.coin],'wire_sha256':'a2'*32,'nonce_retention':nonce,'private_checkpoint_sha256':'b2'*32,'input_spends':[{'coin_id':self.coin,'txid':'c2'*32}],'outputs':[{'coin_id':'d2'*32+':0','pubkey':self.keys['actor-06'],'amount_sat':5000}]}]})
-    def add_output(self,identity,key,parents):
+    def add_output(self,identity,key,parents,spending_txid=None):
         proof={'id':identity,'user_pubkey':key,'amount_sat':5000,'signed_path_valid':True,'anchor_confirmations':2,'ancestor_ids':parents}
+        if spending_txid:proof['path']=[{'txid':spending_txid,'inputs':parents}]
         self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',(identity,key,5000,hashlib.sha256(identity.encode()).hexdigest(),identity.encode().hex(),canonical(proof)))
     def test_same_input_pair_is_one_principal_and_one_fee_cap(self):
         trial=self.trial();intent=self.controller.intent(trial)
@@ -47,7 +48,7 @@ class PhaseTrialTests(unittest.TestCase):
         with self.assertRaises(InvariantError):self.controller.prepare(trial,{'trial_id':trial,'intent_hash':'ff'*32,'legs':[]})
     def test_two_independently_signed_competing_successors_are_an_incident(self):
         trial=self.trial();self.prepared(trial)
-        for prefix,actor in [('d1','actor-04'),('d2','actor-06')]:self.add_output(prefix*32+':0',self.keys[actor],[self.coin])
+        for prefix,actor in [('d1','actor-04'),('d2','actor-06')]:self.add_output(prefix*32+':0',self.keys[actor],[self.coin],spending_txid=('c1' if prefix=='d1' else 'c2')*32)
         with self.assertRaises(InvariantError):self.controller.judge(trial)
         self.assertEqual('phase contradiction',self.store.get_meta('paused'))
     def test_equal_amount_unrelated_receipt_is_not_a_winner(self):
@@ -126,8 +127,8 @@ class PhaseTrialTests(unittest.TestCase):
         proof=json.loads(self.store.db.execute('SELECT proof FROM owned_coin WHERE id=?',('d1'*32+':0',)).fetchone()[0])
         proof['path']=[{'txid':path_txid or 'c1'*32,'inputs':[self.coin]}]
         self.store.db.execute('UPDATE owned_coin SET proof=? WHERE id=?',(canonical(proof),'d1'*32+':0'))
-        self.controller.reply(trial,'left',{'kind':'sdk_signed_successors','wire_sha256':'a1'*32})
-        self.controller.reply(trial,'right',{'kind':'protocol_refusal','wire_sha256':'a2'*32,'code':'InvalidArgument','rejected_coin_ids':[self.coin]})
+        self.controller.reply(trial,'left',{'kind':'sdk_signed_successors','wire_sha256':'a1'*32,'submitted_at_ns':100,'reply_at_ns':300})
+        self.controller.reply(trial,'right',{'kind':'protocol_refusal','wire_sha256':'a2'*32,'code':'InvalidArgument','rejected_coin_ids':[self.coin],'submitted_at_ns':200,'reply_at_ns':400})
         for identity,payload in [(self.coin,{'id':self.coin,'spend_state':'spent','oor_spent_txid':'c1'*32,'spent_in_round':None,'offboarded_in':None,'onchain_spent_txid':None}),('d1'*32+':0',{'id':'d1'*32+':0','spend_state':'spendable','oor_spent_txid':None,'spent_in_round':None,'offboarded_in':None,'onchain_spent_txid':None})]:
             self.store.db.execute('INSERT INTO server_item VALUES (?,?,?,?)',('coins',identity,canonical(payload),1e12))
         self.store.db.execute('UPDATE action SET actual_fee_sat=0 WHERE id=?',(action,))
@@ -145,10 +146,17 @@ class PhaseTrialTests(unittest.TestCase):
         with self.assertRaises(InvariantError):self.controller.judge(trial)
     def test_sequential_submissions_are_not_qualified_as_a_race(self):
         trial=self.winning_race();self.store.db.execute('DELETE FROM phase_reply WHERE trial_id=?',(trial,))
-        self.controller.reply(trial,'left',{'kind':'sdk_signed_successors','wire_sha256':'a1'*32,'submitted_at_ms':100,'reply_at_ms':110})
-        self.controller.reply(trial,'right',{'kind':'protocol_refusal','wire_sha256':'a2'*32,'code':'InvalidArgument','rejected_coin_ids':[self.coin],'submitted_at_ms':120,'reply_at_ms':130})
+        self.controller.reply(trial,'left',{'kind':'sdk_signed_successors','wire_sha256':'a1'*32,'submitted_at_ns':100,'reply_at_ns':110})
+        self.controller.reply(trial,'right',{'kind':'protocol_refusal','wire_sha256':'a2'*32,'code':'InvalidArgument','rejected_coin_ids':[self.coin],'submitted_at_ns':120,'reply_at_ns':130})
         self.assertEqual('pending',self.controller.judge(trial)['state'])
     def test_full_signed_ancestry_with_unrelated_prepared_spends_does_not_create_incident(self):
         trial=self.trial();self.prepared(trial)
         for prefix,actor in [('d1','actor-04'),('d2','actor-06')]:self.add_output(prefix*32+':0',self.keys[actor],[self.coin])
         self.assertEqual('pending',self.controller.judge(trial)['state']);self.assertIsNone(self.store.get_meta('paused'))
+    def test_finite_loser_absence_is_required_not_paginated_inventory_absence(self):
+        trial=self.winning_race();verdict=self.controller.judge(trial)
+        self.assertEqual('pending',verdict['state']);self.assertIn('exact losing-output read-only reconciliation unavailable',verdict['unknowns'])
+    def test_delayed_reply_must_match_the_actual_frozen_wallet_free_request(self):
+        trial=self.checked_delivery();action=self.controller.row(trial)['release_action']
+        self.controller.delivery_prepared(trial,action,{'wire_sha256':'a1'*32,'intent_hash':self.controller.intent(trial)['intent_hash'],'saved_successor_ids':['d1'*32+':0'],'original_wallet_opened':False})
+        with self.assertRaises(InvariantError):self.controller.reply(trial,'delivery',{'kind':'expiry_settled_refusal','wire_sha256':'bb'*32})
