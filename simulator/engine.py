@@ -108,6 +108,12 @@ class Engine:
         if not self.store.ordinary_actor_available(action['actor_id'],native_action=action['id']):
             self.store.finish(action['id'],'blocked',{'reason':'actor belongs to a private namespace or active controller; no native call'},0)
             return True
+        if action['args'].get('purpose')=='replenish_lightning_payer':
+            target=action['args'].get('recipient_actor')
+            if (not isinstance(target,str) or not self.store.online(target)
+                    or not self.store.ordinary_actor_available(target)):
+                self.store.finish(action['id'],'blocked',{'reason':'liquidity recipient became unavailable before native call'},0)
+                return True
         actor_dir = self.config.wallet_root / action["actor_id"]
         if actor_dir.parent.resolve() != self.config.wallet_root or actor_dir.is_symlink():
             self.store.finish(action["id"], "failed", {"reason": "unsafe actor directory"})

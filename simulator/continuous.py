@@ -1,7 +1,8 @@
 """Restart-safe ordinary client traffic, explicitly partial scenario coverage.
 
 Real outcome qualification is performed by separate recipes/oracles. This
-scheduler never funds a wallet, wakes an absent actor, or retries uncertainty.
+scheduler circulates existing client principal, keeps external funding declared,
+and never wakes an absent actor or retries uncertainty.
 """
 import json,time
 from .model import InvariantError,canonical,integer
@@ -116,6 +117,60 @@ def lightning_recipient(store):
         if receive_fee_block(store,peer) is None:return peer,detail
     return None,{}
 
+def queue_liquidity_transfer(store,config,snapshot,decisions):
+    """Restore a payer's affordability using existing owned client capital.
+
+    A cached balance is a scheduling observation; the native sender still
+    rechecks its actual signed inputs and fee cap. An uncertain transfer or
+    missing recipient receipt stays pending rather than becoming another send.
+    """
+    if not getattr(config,'active',False) or not snapshot.get('capabilities',{}).get('lightning_configured'):return False
+    now=time.time();reserve=integer(config.action_fee_reserve_sat,'liquidity transfer fee reserve')
+    payer='actor-05'
+    def eligible(actor,details):
+        if actor in {'actor-03','actor-09','actor-10'} or not store.online(actor) or not store.ordinary_actor_available(actor):return False
+        if store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state='queued'",(actor,)).fetchone():return False
+        stamp=details.get('snapshot_at',0)
+        return (details.get('created') and details.get('ark_address') and not details.get('needs_sync')
+                and not details.get('permanent_absence') and type(stamp) in (int,float) and stamp>0 and 0<=now-stamp<=180)
+    with _transaction(store):
+        row=store.db.execute('SELECT details FROM actor WHERE id=?',(payer,)).fetchone()
+        if row is None:return False
+        target=json.loads(row[0])
+        if not eligible(payer,target):return False
+        spendable=integer(target.get('registered_spendable_sat',0),'payer spendable')
+        if spendable>=2000+reserve:return False
+        # Prior original intents must have known fees and a validated recipient
+        # receipt before another transfer. Freshness must follow that outcome.
+        for previous in store.db.execute("SELECT id,state,actual_fee_sat,updated_at FROM action WHERE json_extract(args,'$.purpose')='replenish_lightning_payer'"):
+            if previous['state']=='canceled':continue
+            if (previous['state']!='completed' or previous['actual_fee_sat'] is None
+                    or target['snapshot_at']<=previous['updated_at']):return False
+            if not store.db.execute("SELECT 1 FROM event WHERE kind='ark_transfer_verified' AND json_extract(payload,'$.action_id')=?",(previous['id'],)).fetchone():return False
+        amount=4000+reserve-spendable
+        keep_sat=3000
+        donors=[]
+        for row in store.db.execute('SELECT id,details FROM actor ORDER BY id'):
+            actor=row['id'];detail=json.loads(row['details'])
+            if actor==payer or not eligible(actor,detail):continue
+            balance=integer(detail.get('registered_spendable_sat',0),'donor spendable')
+            if balance>=amount+reserve+keep_sat:donors.append((balance,actor,detail))
+        if not donors or store.remaining_fee_budget()<reserve:return False
+        balance,actor,detail=sorted(donors,key=lambda item:(-item[0],item[1]))[0]
+        action_id=f"continuous-{store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]+1:08}"
+        args={'destination':target['ark_address'],'amount_sat':amount,'recipient_actor':payer,
+            'purpose':'replenish_lightning_payer','source_snapshot_at':detail['snapshot_at'],
+            'recipient_snapshot_at':target['snapshot_at']}
+        store.queue(action_id,actor,'H07','send_arkoor',args,reserve)
+        evidence={'actor':actor,'recipient_actor':payer,'action_id':action_id,'amount_sat':amount,
+            'fee_reservation_sat':reserve,'observed_sender_spendable_sat':balance,
+            'observed_recipient_spendable_sat':spendable,'minimum_sender_retained_sat':keep_sat,
+            'source_snapshot_at':detail['snapshot_at'],'recipient_snapshot_at':target['snapshot_at'],
+            'external_injection_sat':0,'recycling_credit_sat':0,'outcome':'pending native send and signed recipient receipt'}
+        store._event('client_liquidity_transfer_intent',evidence)
+        decisions[actor]={'actor':actor,'rule_id':'lightning_payer_liquidity','outcome':'queued','operation':'send_arkoor','inputs':evidence}
+        return True
+
 def schedule(store,config,snapshot):
     decisions={}
     try:
@@ -149,6 +204,7 @@ def _schedule(store,config,snapshot,decisions,rng=None):
         key=('round-held:'+decision['inputs']['refresh_action_id']) if decision['outcome']=='held' else decision['actor']
         decisions[key]=decision
     if round_decision and round_decision['outcome']=='queued':return
+    if queue_liquidity_transfer(store,config,snapshot,decisions):return
     actors=store.db.execute("SELECT a.* FROM actor a WHERE online=1 ORDER BY COALESCE((SELECT MAX(updated_at) FROM action WHERE actor_id=a.id),0),a.id").fetchall()
     for actor in actors:
         name=actor['id'];d=json.loads(actor['details'])
