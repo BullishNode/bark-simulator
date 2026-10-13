@@ -82,6 +82,12 @@ class RawProtocolTests(unittest.TestCase):
     def test_delivery_replay_requires_actual_successful_movement(self):
         with self.assertRaises(EvidenceGap):self.prepare('D22')
 
+    def test_report_does_not_mutate_uninitialized_evidence_database(self):
+        from simulator.raw_protocol import scenario_rows
+        self.store.db.execute('PRAGMA query_only=ON')
+        self.assertEqual(24,len(scenario_rows(self.store)))
+        self.store.db.execute('PRAGMA query_only=OFF')
+
     def test_intent_history_is_not_presented_as_additive_capital(self):
         from simulator.raw_protocol import scenario_rows
         identity=self.prepare()['action_id']
