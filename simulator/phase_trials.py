@@ -101,6 +101,16 @@ class Controller:
     def intent(self,trial):
         row=self.row(trial);return {**json.loads(row['intent']),'intent_hash':row['intent_hash']}
     def preparations(self,trial):return [json.loads(r[0]) for r in self.store.db.execute('SELECT payload FROM phase_preparation WHERE trial_id=? ORDER BY leg_id',(trial,))]
+    def validate_round_quote(self,intent,leg):
+        requested=leg.get('requested_outputs',[])
+        if not requested or len(requested)>16:raise EvidenceGap('exact SDK requested round outputs missing')
+        principal=sum(integer(v['amount_sat'],'requested round principal',1) for v in requested)
+        fee=integer(leg.get('committed_fee_sat'),'frozen SDK round fee')
+        if fee>intent['maximum_fee_sat'] or principal+fee!=intent['principal_sat']:raise InvariantError('requested SDK round value/fee differs from whole-trial identity')
+        attempt=leg.get('round_attempt',{})
+        if type(attempt.get('round_seq')) is not int or attempt['round_seq']<0 or attempt.get('attempt_seq')!=0:raise EvidenceGap('exact first interactive round attempt required; no retries')
+        if leg.get('input_spends') or leg.get('outputs'):raise InvariantError('submission cannot assert not-yet-funded round outputs or forfeit identities')
+        return {'requested_principal_sat':principal,'committed_fee_sat':fee}
     def prepare(self,trial,prepared):
         public_payload(prepared);intent=self.intent(trial)
         if prepared.get('trial_id')!=trial or prepared.get('intent_hash')!=intent['intent_hash']:raise InvariantError('preparation belongs to another frozen trial')
@@ -110,10 +120,12 @@ class Controller:
         for index,leg in enumerate(legs):
             if leg.get('rpc')!=intent['rpcs'][index] or leg.get('input_coin_ids')!=ids:raise InvariantError('prepared RPC/input set differs from frozen phase')
             if not hash64(leg.get('wire_sha256')) or not hash64(leg.get('private_checkpoint_sha256')):raise EvidenceGap('exact request and private checkpoint hashes required')
+            round_submission=intent['scenario']=='D18' and index==1
             spends=leg.get('input_spends',[])
-            if [v.get('coin_id') for v in spends]!=ids or any(not hash64(v.get('txid')) for v in spends):raise EvidenceGap('exact unsigned input spending identities missing')
+            if round_submission:self.validate_round_quote(intent,leg)
+            if not round_submission and ([v.get('coin_id') for v in spends]!=ids or any(not hash64(v.get('txid')) for v in spends)):raise EvidenceGap('exact unsigned input spending identities missing')
             outputs=leg.get('outputs',[])
-            if not outputs or len({v['coin_id'] for v in outputs})!=len(outputs):raise EvidenceGap('exact unsigned successor IDs missing')
+            if not round_submission and (not outputs or len({v['coin_id'] for v in outputs})!=len(outputs)):raise EvidenceGap('exact unsigned successor IDs missing')
             if sum(integer(v['amount_sat'],'prepared output principal') for v in outputs)>intent['principal_sat']:raise InvariantError('prepared branch inflates principal')
             if intent['scenario']=='D17' and any(v['pubkey']!=intent['context']['recipients'][index]['pubkey'] for v in outputs):raise InvariantError('prepared race changes registered destination')
             old=self.store.db.execute('SELECT digest FROM phase_preparation WHERE trial_id=? AND leg_id=?',(trial,leg['leg_id'])).fetchone()

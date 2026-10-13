@@ -79,6 +79,7 @@ pub struct Gate {
     captured: AtomicU64,
     prepared: AtomicU64,
     released: AtomicBool,
+    failed: AtomicBool,
     ready: Notify,
     release: Notify,
 }
@@ -134,6 +135,7 @@ impl Gate {
             captured: AtomicU64::new(0),
             prepared: AtomicU64::new(0),
             released: AtomicBool::new(false),
+            failed: AtomicBool::new(false),
             ready: Notify::new(),
             release: Notify::new(),
         }))
@@ -179,6 +181,15 @@ impl Gate {
         );
         *count += 1;
         Ok(decoded)
+    }
+    pub fn has_failed(&self) -> bool {
+        self.failed.load(Ordering::Acquire)
+    }
+    pub fn invoked(&self, method: &str) -> bool {
+        self.counts
+            .lock()
+            .map(|counts| counts.get(method).copied().unwrap_or(0) > 0)
+            .unwrap_or(true)
     }
     pub async fn wait_prepared(&self) -> Result<()> {
         loop {
@@ -251,7 +262,16 @@ impl Body for CapturedBody {
                 } else {
                     Err(anyhow::anyhow!("unknown body frame; capture incomplete"))
                 };
+                if let Some(trailers) = frame.trailers_ref() {
+                    if trailers
+                        .get("grpc-status")
+                        .is_some_and(|value| value.as_bytes() != b"0")
+                    {
+                        this.gate.failed.store(true, Ordering::Release);
+                    }
+                }
                 if captured.is_err() {
+                    this.gate.failed.store(true, Ordering::Release);
                     return Poll::Ready(Some(Err(tonic::Status::internal(
                         "private capture failed; financial outcome unknown",
                     ))));
@@ -260,6 +280,7 @@ impl Body for CapturedBody {
                 Poll::Ready(Some(Ok(frame)))
             }
             Poll::Ready(Some(Err(error))) => {
+                this.gate.failed.store(true, Ordering::Release);
                 let _ = this.gate.capture(
                     this.id,
                     "response",
@@ -351,6 +372,7 @@ async fn proxy(
     let decoded = match gate.admit(&method, &wire) {
         Ok(value) => value,
         Err(error) => {
+            gate.failed.store(true, Ordering::Release);
             gate.capture(
                 id,
                 "request",
@@ -381,6 +403,13 @@ async fn proxy(
     // Channel retains its original physical origin and TLS peer authentication.
     let response = upstream.oneshot(request).await?;
     let (parts, body) = response.into_parts();
+    if parts
+        .headers
+        .get("grpc-status")
+        .is_some_and(|value| value.as_bytes() != b"0")
+    {
+        gate.failed.store(true, Ordering::Release);
+    }
     gate.capture(id,"response",0,"headers",&serde_json::to_vec(&json!({"http_status":parts.status.as_u16(),"http_version":format!("{:?}",parts.version),"headers_hex":headers(&parts.headers).iter().map(|b|format!("{b:02x}")).collect::<String>()}))?)?;
     Ok(Response::from_parts(
         parts,
@@ -443,6 +472,7 @@ impl ClientTransport {
                                 match proxy(upstream, gate.clone(), request).await {
                                     Ok(response) => response,
                                     Err(error) => {
+                                        gate.failed.store(true, Ordering::Release);
                                         let _=save(&gate.root.join(format!("transport-gap-{}.json",gate.next.fetch_add(1,Ordering::Relaxed))),&serde_json::to_vec(&json!({"error":format!("{error:#}"),"financial_outcome":"unknown","source":"client_capture_guard"})).unwrap_or_default());
                                         client_refusal()
                                     }
@@ -454,6 +484,9 @@ impl ClientTransport {
                         .max_concurrent_streams(4)
                         .serve_connection(TokioIo::new(socket), service)
                         .await;
+                    if result.is_err() {
+                        terminal_gate.failed.store(true, Ordering::Release);
+                    }
                     let _=save(&terminal_gate.root.join("connection-end.json"),&serde_json::to_vec(&json!({"error":result.err().map(|error|error.to_string()),"financial_outcome":"not inferred from connection termination"})).unwrap_or_default());
                 }
                 Err(error) => {

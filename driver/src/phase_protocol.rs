@@ -31,8 +31,8 @@ use std::{
 };
 use tonic::transport::Channel;
 
-type Prepared = ArkoorPackageBuilder<state::UserGeneratedNonces>;
-fn hash(bytes: &[u8]) -> String {
+pub(super) type Prepared = ArkoorPackageBuilder<state::UserGeneratedNonces>;
+pub(super) fn hash(bytes: &[u8]) -> String {
     sha256::Hash::hash(bytes).to_string()
 }
 fn now() -> u128 {
@@ -41,7 +41,7 @@ fn now() -> u128 {
         .unwrap()
         .as_millis()
 }
-fn now_ns() -> u128 {
+pub(super) fn now_ns() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -56,7 +56,7 @@ fn metadata(map: &tonic::metadata::MetadataMap) -> Value {
             .collect::<Vec<_>>()
     )
 }
-fn save(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(super) fn save(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = fs::OpenOptions::new()
         .create_new(true)
         .write(true)
@@ -67,7 +67,7 @@ fn save(path: &Path, bytes: &[u8]) -> Result<()> {
     fs::File::open(path.parent().context("private phase parent")?)?.sync_all()?;
     Ok(())
 }
-fn intent(req: &Request, scenario: &str) -> Result<Value> {
+pub(super) fn intent(req: &Request, scenario: &str) -> Result<Value> {
     let mut frozen = req.args["phase_intent"].clone();
     let map = frozen
         .as_object_mut()
@@ -99,7 +99,7 @@ fn intent(req: &Request, scenario: &str) -> Result<Value> {
     );
     Ok(frozen)
 }
-fn fence(root: &Path, req: &Request) -> Result<Option<PathBuf>> {
+pub(super) fn fence(root: &Path, req: &Request) -> Result<Option<PathBuf>> {
     ensure!(!root.is_symlink(), "private phase parent is symlink");
     fs::create_dir_all(root)?;
     fs::set_permissions(root, fs::Permissions::from_mode(0o700))?;
@@ -123,7 +123,7 @@ fn fence(root: &Path, req: &Request) -> Result<Option<PathBuf>> {
 fn unknown() -> Value {
     json!({"phase_unknown":true,"reason":"existing immutable phase fence; reconcile independently; no retry","actual_fee_sat":Value::Null,"customer_traffic_credit":false})
 }
-fn body_checkpoint(
+pub(super) fn body_checkpoint(
     builder: &Prepared,
     body: &protos::ArkoorPackageCosignRequest,
     leg: &str,
@@ -135,7 +135,7 @@ fn body_checkpoint(
         "restart_continuation":false,"input_spends":builder.input_spend_info().map(|(id,txid)|json!({"coin_id":id.to_string(),"txid":txid.to_string()})).collect::<Vec<_>>(),
         "outputs":builder.build_unsigned_vtxos().map(|v|json!({"coin_id":v.id().to_string(),"pubkey":v.user_pubkey().to_string(),"amount_sat":v.amount().to_sat()})).collect::<Vec<_>>()})
 }
-fn signed_reply(
+pub(super) fn signed_reply(
     directory: &Path,
     leg: &str,
     builder: Prepared,
