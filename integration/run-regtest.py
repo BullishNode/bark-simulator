@@ -50,7 +50,8 @@ def main():
                    BARK_EXEC=str(PRODUCTION / 'bark'), BARKD_EXEC=str(PRODUCTION / 'barkd'),
                    STAGE4_RECOVERY_DEADLINE='180', STAGE4_CONCURRENCY='1')
         env.update(SIMULATOR_WORKSPACE=str(ROOT), SIMULATOR_OUT=str(run / 'out'), SIMULATOR_SERVER_SHA256=digest(PRODUCTION / 'captaind'))
-        name = 'simulator_vertical::'+args.test
+        module='round_adoption::' if args.test=='simulator_confirmed_round_scheduler_cycle' else ''
+        name = 'simulator_vertical::'+module+args.test
         decl = {'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'head': HEAD,
                 'test': name, 'harness_sha256': digest(harness), 'runner_sha256': digest(__file__),
                 'binaries': {p.name: digest(p) for p in PRODUCTION.iterdir()},
