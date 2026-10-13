@@ -19,6 +19,7 @@ use bitcoin::{
 };
 use prost::Message;
 use serde_json::{Value, json};
+use server_rpc::StatusExt;
 use server_rpc::protos::{self, ark_service_client::ArkServiceClient};
 use std::path::Path;
 use tonic::transport::Channel;
@@ -254,10 +255,19 @@ impl Partner {
                         &json!({"code":format!("{:?}",status.code()),"message":status.message(),"details_hex":hex(status.details()),"metadata":format!("{:?}",status.metadata())}),
                     )?,
                 )?;
-                json!({"kind":"offboard_refusal_or_transport_unknown","code":format!("{:?}",status.code())})
+                json!({"kind":if status.is_rejection(){"protocol_refusal"}else{"transport_unknown"},"code":format!("{:?}",status.code()),"rejected_coin_ids":status.rejected_vtxos().iter().map(|id|id.to_string()).collect::<Vec<_>>()})
             }
         };
-        let result = json!({"leg_id":"offboard","wire_sha256":self.checkpoint["wire_sha256"],"submitted_at_ns":started,"reply_at_ns":finished,"observation":result,"customer_traffic_credit":false});
+        let kind = if result["kind"] == "sdk_signed_offboard"
+            && result["broadcast_reply_known"] == false
+        {
+            "transport_unknown"
+        } else {
+            result["kind"]
+                .as_str()
+                .context("offboard actual reply classification")?
+        };
+        let result = json!({"kind":kind,"leg_id":"offboard","wire_sha256":self.checkpoint["wire_sha256"],"submitted_at_ns":started,"reply_at_ns":finished,"observation":result,"customer_traffic_credit":false});
         evidence(
             req,
             "phase_offboard_reply_observed",

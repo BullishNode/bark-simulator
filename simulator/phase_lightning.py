@@ -77,3 +77,8 @@ def refund_authorization(store,intent,refund):
     return {'payment_hash':intent['context']['payment_hash'],'refund_wire_sha256':refund['wire_sha256'],'refund_output_ids':[v['coin_id'] for v in refund['outputs']],
         'independent_proof_sha256':hashlib.sha256(canonical(proofs).encode()).hexdigest(),'original_spend_sha256':hashlib.sha256(canonical(states).encode()).hexdigest(),
         'actual_refund_attempt_fee_sat':0,'sender_htlc_gross_sat':input_total,'scope':'exact signed registered sender refund through fresh server observation; overall same-hash receiver and existing sender fee arbitration remain separate'}
+
+
+def registration_allowed(replies):
+    """Complete single winner plus known competing refusal; no blind follow-up."""
+    return len(replies)==2 and sum(v.get('kind')=='sdk_signed_successors' for v in replies)==1 and all(v.get('kind') in {'sdk_signed_successors','protocol_refusal'} for v in replies)

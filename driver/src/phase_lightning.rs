@@ -2,19 +2,19 @@
 //! Caller supplies only declared online Wallets; root owns their opening.
 //! No invoice, payment, funding, forged checkpoint or background sync is started.
 //! Original SDK checkpoints remain held until independently reconciled/adopted.
-use super::{evidence, phase_protocol as retained, Request};
-use anyhow::{ensure, Context, Result};
+use super::{Request, evidence, phase_protocol as retained};
+use anyhow::{Context, Result, ensure};
 use ark::{
-    arkoor::package::ArkoorPackageBuilder, lightning::PaymentHash, vtxo::Full, ProtocolEncoding,
-    Vtxo, VtxoPolicy,
+    ProtocolEncoding, Vtxo, VtxoPolicy, arkoor::package::ArkoorPackageBuilder,
+    lightning::PaymentHash, vtxo::Full,
 };
 use bark::{
-    actions::lightning::{pay, receive},
     Wallet,
+    actions::lightning::{pay, receive},
 };
 use bitcoin::secp256k1::Keypair;
 use prost::Message;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use server_rpc::protos::{self, ark_service_client::ArkServiceClient};
 use std::{
     fs,
@@ -218,7 +218,9 @@ async fn prepare(
     retained::save(&directory.join("claim-request-private.bin"), &bytes)?;
     claim.checkpoint["wire_sha256"] = json!(retained::hash(&bytes));
     claim.checkpoint["private_checkpoint_sha256"] = json!(retained::hash(&bytes));
-    claim.checkpoint["preimage_scope"]=json!("private exact request only; actual preimage hash verified; never exposed in journal or trace");
+    claim.checkpoint["preimage_scope"] = json!(
+        "private exact request only; actual preimage hash verified; never exposed in journal or trace"
+    );
     let refund = if scenario == "D36" {
         None
     } else {
@@ -581,10 +583,27 @@ pub async fn execute(
             json!({"trial_id":req.args["trial_id"],"reply":result}),
         )?;
     }
-    if scenario == "D34" {
-        register(rpc, &directory, "refund", &refund_result).await?
+    let known = [&refund_result, &claim_result];
+    let one_signed = known
+        .iter()
+        .filter(|reply| reply["kind"] == "sdk_signed_successors")
+        .count()
+        == 1;
+    let all_known = known.iter().all(|reply| {
+        reply["kind"] == "sdk_signed_successors" || reply["kind"] == "protocol_refusal"
+    });
+    if one_signed && all_known {
+        if scenario == "D34" {
+            register(rpc, &directory, "refund", &refund_result).await?
+        }
+        register(rpc, &directory, "claim", &claim_result).await?;
+    } else {
+        evidence(
+            req,
+            "phase_competing_registration_held",
+            json!({"trial_id":req.args["trial_id"],"same_hash":hash.to_string(),"complete_signed_branches":known.iter().filter(|reply|reply["kind"]=="sdk_signed_successors").count(),"reason":"ambiguous or dual-signed outcome; no downstream money operation before independent arbitration"}),
+        )?;
     }
-    register(rpc, &directory, "claim", &claim_result).await?;
     Ok(
         json!({"phase_unknown":true,"actual_fee_sat":Value::Null,"scenario":scenario,"customer_traffic_credit":false,"required_audit":"exact same-hash claim/refund signed successors and current server arbitration; both original SDK checkpoints held; successful SDK receive movement adoption required separately"}),
     )

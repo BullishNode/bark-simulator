@@ -1,10 +1,10 @@
 //! Read-only proof rejection using two genuine signed branches and an actual
 //! confirmed transaction from independent signet Core. No wallet or signer.
-use anyhow::{ensure, Context, Result};
-use ark::{vtxo::Full, ProtocolEncoding, Vtxo};
+use anyhow::{Context, Result, ensure};
+use ark::{ProtocolEncoding, Vtxo, vtxo::Full};
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client, RpcApi};
-use bitcoin::{consensus::serialize, constants::genesis_block, Network, OutPoint, Txid};
-use serde_json::{json, Value};
+use bitcoin::{Network, OutPoint, Txid, consensus::serialize, constants::genesis_block};
+use serde_json::{Value, json};
 use std::{collections::HashSet, io::Read, str::FromStr};
 fn hex(encoded: &str) -> Result<Vec<u8>> {
     ensure!(
@@ -58,10 +58,18 @@ fn branch(
 }
 fn verify() -> Result<Value> {
     let args = std::env::args().collect::<Vec<_>>();
-    ensure!(
-        args.len() == 4 && args[1].starts_with("http://127.0.0.1:"),
-        "declared loopback Core/cookie/server required"
-    );
+    ensure!(args.len() == 4, "declared Core/cookie/server required");
+    let address = args[1]
+        .strip_prefix("http://127.0.0.1:")
+        .context("Core must use fixed loopback host")?;
+    let port = address
+        .strip_suffix('/')
+        .unwrap_or(address)
+        .parse::<u16>()
+        .context(
+            "loopback Core port must contain only decimal digits; no userinfo or remote authority",
+        )?;
+    ensure!(port > 0, "Core port must be nonzero");
     let core = Client::new(&args[1], Auth::CookieFile((&args[2]).into()))?;
     let genesis = core.get_block_hash(0)?;
     ensure!(
