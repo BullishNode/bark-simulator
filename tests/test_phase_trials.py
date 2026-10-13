@@ -119,3 +119,27 @@ class PhaseTrialTests(unittest.TestCase):
         self.store.db.execute('UPDATE server_item SET observed_at=1e12');row=json.loads(self.store.db.execute('SELECT payload FROM server_item').fetchone()[0]);row['spend_state']='spendable'
         self.store.db.execute('UPDATE server_item SET payload=?',(canonical(row),))
         with self.assertRaises(InvariantError):self.controller.judge(trial)
+    def winning_race(self,*,path_txid=None):
+        trial=self.trial();self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32
+        action=self.controller.release(trial);self.prepared(trial)
+        self.add_output('d1'*32+':0',self.keys['actor-04'],[self.coin])
+        proof=json.loads(self.store.db.execute('SELECT proof FROM owned_coin WHERE id=?',('d1'*32+':0',)).fetchone()[0])
+        proof['path']=[{'txid':path_txid or 'c1'*32,'inputs':[self.coin]}]
+        self.store.db.execute('UPDATE owned_coin SET proof=? WHERE id=?',(canonical(proof),'d1'*32+':0'))
+        self.controller.reply(trial,'left',{'kind':'sdk_signed_successors','wire_sha256':'a1'*32})
+        self.controller.reply(trial,'right',{'kind':'protocol_refusal','wire_sha256':'a2'*32,'code':'InvalidArgument','rejected_coin_ids':[self.coin]})
+        for identity,payload in [(self.coin,{'id':self.coin,'spend_state':'spent','oor_spent_txid':'c1'*32,'spent_in_round':None,'offboarded_in':None,'onchain_spent_txid':None}),('d1'*32+':0',{'id':'d1'*32+':0','spend_state':'spendable','oor_spent_txid':None,'spent_in_round':None,'offboarded_in':None,'onchain_spent_txid':None})]:
+            self.store.db.execute('INSERT INTO server_item VALUES (?,?,?,?)',('coins',identity,canonical(payload),1e12))
+        self.store.db.execute('UPDATE action SET actual_fee_sat=0 WHERE id=?',(action,))
+        return trial
+    def test_one_signed_registered_race_winner_closes_exact_principal_once(self):
+        trial=self.winning_race();verdict=self.controller.judge(trial)
+        self.assertEqual('verified',verdict['state']);self.assertEqual(5000,verdict['financial_identity']['registered_successor_sat'])
+        self.assertEqual(0,verdict['financial_identity']['identity_residual_sat']);before=self.store.db.execute('SELECT count(*) FROM event').fetchone()[0]
+        self.assertEqual(verdict,self.controller.judge(trial));self.assertEqual(before,self.store.db.execute('SELECT count(*) FROM event').fetchone()[0])
+    def test_signed_ancestor_alone_does_not_link_exact_prepared_spend(self):
+        trial=self.winning_race(path_txid='cf'*32);verdict=self.controller.judge(trial)
+        self.assertEqual('pending',verdict['state']);self.assertIn('exact signed prepared spending path unavailable',verdict['unknowns'])
+    def test_race_winner_cannot_coexist_with_original_payout(self):
+        trial=self.winning_race();self.store.db.execute('INSERT INTO checked_settlement VALUES (?,?,?,?,?,?)',(self.coin,'ea'*32,'actor-11','0014'+'77'*20,5000,'{}'))
+        with self.assertRaises(InvariantError):self.controller.judge(trial)
