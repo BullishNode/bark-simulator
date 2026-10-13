@@ -200,3 +200,27 @@ class PhaseTrialTests(unittest.TestCase):
         trial,prepared=self.multi_input_prepared()
         for output in prepared['legs'][0]['outputs']:output['input_coin_ids']=[self.coin]
         with self.assertRaises(InvariantError):self.controller.prepare(trial,prepared)
+
+    def test_round_race_requires_registered_recipient_and_bounded_frozen_wait(self):
+        with self.assertRaises(EvidenceGap):self.trial('D18',recipients=[{'actor':'actor-04','pubkey':'02'+'99'*32}])
+        with self.assertRaises(ValueError):self.trial('D18',maximum_wait_seconds=1801)
+    def test_wallet_free_delayed_registration_cannot_reserve_spending_fees(self):
+        with self.assertRaises(InvariantError):self.trial('D24',courier_actor='actor-12',saved_successor_ids=['d1'*32+':0'],maximum_fee_sat=1)
+    def delegated_prepared(self):
+        trial=self.trial('D26',scheduled_height=326200)
+        self.store.db.execute('UPDATE phase_trial SET release_action=? WHERE id=?',('native-action',trial))
+        intent=self.controller.intent(trial)
+        legs=[{'leg_id':name,'rpc':'SubmitRoundParticipation','input_coin_ids':[self.coin],'wire_sha256':prefix*32,'private_checkpoint_sha256':prefix*32,'scheduled_height':326200,
+               'requested_outputs':[{'pubkey':self.keys['actor-11'],'amount_sat':4800}], 'committed_fee_sat':200,'input_spends':[],'outputs':[],'signing_scope':'SDK delegated input attestations; later forfeit nonces stay in the same process'} for name,prefix in [('first','a1'),('replacement','a2')]]
+        return trial,{'trial_id':trial,'intent_hash':intent['intent_hash'],'legs':legs}
+    def test_delegated_replacement_freezes_two_exact_sdk_attestations_without_funded_output_claims(self):
+        trial,prepared=self.delegated_prepared()
+        self.controller.delegated_prepared(trial,'native-action',prepared)
+        self.assertEqual(2,len(self.controller.preparations(trial)))
+        self.assertEqual('pending',self.controller.judge(trial)['state'])
+        with self.assertRaises(InvariantError):self.controller.delegated_prepared(trial,'another-action',prepared)
+    def test_delegated_replacement_cannot_change_schedule_or_reuse_the_same_signed_request(self):
+        trial,prepared=self.delegated_prepared();prepared['legs'][1]['scheduled_height']=326201
+        with self.assertRaises(InvariantError):self.controller.delegated_prepared(trial,'native-action',prepared)
+        prepared['legs'][1]['scheduled_height']=326200;prepared['legs'][1]['wire_sha256']=prepared['legs'][0]['wire_sha256']
+        with self.assertRaises(InvariantError):self.controller.delegated_prepared(trial,'native-action',prepared)
