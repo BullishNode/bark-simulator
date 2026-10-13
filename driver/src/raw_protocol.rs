@@ -567,18 +567,11 @@ pub async fn execute(
                     .position(|v| v.user_pubkey() != inputs[0].user_pubkey())
                     .context("independent foreign policy required")?;
                 let coin = &inputs[foreign];
-                let changed = Vtxo::new(
-                    coin.point(),
-                    VtxoPolicy::new_pubkey(inputs[0].user_pubkey()),
-                    coin.amount(),
-                    coin.expiry_height(),
-                    coin.server_pubkey(),
-                    coin.exit_delta(),
-                    coin.chain_anchor(),
-                );
+                // The SDK wire places genesis before policy and point. Use its
+                // public field-mutation codec rather than moving byte sections.
+                let mut changed = ark::vtxo::raw::RawVtxo::deserialize(&coin.serialize())?;
+                changed.policy = VtxoPolicy::new_pubkey(inputs[0].user_pubkey()).into();
                 bytes = changed.serialize();
-                ensure!(bytes.pop() == Some(0), "SDK bare genesis marker differs");
-                bytes.extend(coin.serialize_genesis());
             }
             let body = protos::RegisterVtxoTransactionsRequest {
                 vtxos: if scenario == "D25" {
@@ -1042,4 +1035,37 @@ pub async fn rotate(
     let result = json!({"rotation_intent_hash":intent_hash,"mailbox_pk":mailbox.to_string(),"old_script":hex(before.spk.as_bytes()),"old_sequence":before.seq,"new_script":hex(after.spk.as_bytes()),"new_sequence":after.seq,"record_before_hash":hashed(&baseline.record),"record_after_hash":hashed(&reply.record),"actual_fee_sat":0,"production_qualified":false,"raw_sdk_registration_capture":"unavailable","scope":"SDK-owned record rotation; original payout immutability and later-coin payout still require independent evidence"});
     evidence(req, "fallback_rotation_registered", result.clone())?;
     Ok(result)
+}
+
+#[cfg(test)]
+mod controlled_policy_tests {
+    use super::*;
+    #[test]
+    fn changing_payee_preserves_anchor_point_value_and_entire_genesis() {
+        let values: Value =
+            serde_json::from_str(include_str!("fixtures/mixed-owner-coins.json")).unwrap();
+        let original = values[1]["signed_vtxo"].as_str().unwrap();
+        let bytes = (0..original.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&original[i..i + 2], 16).unwrap())
+            .collect::<Vec<_>>();
+        let coin = Vtxo::deserialize(&bytes).unwrap();
+        let key = PublicKey::from_str(values[0]["pubkey"].as_str().unwrap()).unwrap();
+        assert_ne!(coin.user_pubkey(), key);
+        let mut altered = ark::vtxo::raw::RawVtxo::deserialize(&bytes).unwrap();
+        altered.policy = VtxoPolicy::new_pubkey(key).into();
+        let encoded = altered.serialize();
+        let parsed = ark::vtxo::raw::RawVtxo::deserialize(&encoded).unwrap();
+        assert_eq!(parsed.point, coin.point());
+        assert_eq!(parsed.anchor_point, coin.chain_anchor());
+        assert_eq!(parsed.amount, coin.amount());
+        assert_eq!(parsed.server_pubkey, coin.server_pubkey());
+        assert_eq!(parsed.expiry_height, coin.expiry_height());
+        assert_eq!(parsed.policy.into_user_policy().unwrap().user_pubkey(), key);
+        let server: ark::vtxo::Vtxo<ark::vtxo::Full, ark::vtxo::policy::ServerVtxoPolicy> =
+            ark::vtxo::raw::RawVtxo::deserialize(&encoded)
+                .unwrap()
+                .into();
+        assert_eq!(server.serialize_genesis(), coin.serialize_genesis());
+    }
 }
