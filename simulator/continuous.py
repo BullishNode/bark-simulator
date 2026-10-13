@@ -114,7 +114,13 @@ def lightning_recipient(store):
     # Losing an ordinary recipient must not end the entire workload. A new
     # invoice is created on another online independently seeded existing wallet.
     for peer,detail in online_lightning_candidates(store):
-        if receive_fee_block(store,peer) is None:return peer,detail
+        if receive_fee_block(store,peer) is not None:continue
+        # A successful bounded pass still defers full sync/mailbox adoption.
+        # Preserve that receiver and its original invoices while another online
+        # peer handles new traffic; partial progress is not receive readiness.
+        latest=store.db.execute("SELECT state,result FROM action WHERE actor_id=? AND operation='sync' ORDER BY created_at DESC LIMIT 1",(peer,)).fetchone()
+        if latest and latest['state']=='completed' and json.loads(latest['result'] or '{}').get('data',{}).get('bounded_receive_sync') is True:continue
+        return peer,detail
     return None,{}
 
 def queue_liquidity_transfer(store,config,snapshot,decisions):
