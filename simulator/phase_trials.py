@@ -73,8 +73,9 @@ class Controller:
             if hashlib.sha256(bytes.fromhex(row['signed_vtxo'])).hexdigest()!=row['signed_hash']:raise InvariantError('original input serialization changed')
             inputs.append({'coin_id':identity,'pubkey':row['pubkey'],'amount_sat':row['amount_sat'],'signed_hash':row['signed_hash'],'actor':actor})
         recipients=context.get('recipients',[])
-        if scenario=='D17':
-            if len(recipients)!=2 or len({r['pubkey'] for r in recipients})!=2:raise InvariantError('race requires distinct registered recipient keys')
+        if scenario in {'D17','D18'}:
+            if scenario=='D18' and not recipients:raise EvidenceGap('round race requires a registered arkoor recipient')
+            if scenario=='D17' and (len(recipients)!=2 or len({r['pubkey'] for r in recipients})!=2):raise InvariantError('race requires distinct registered recipient keys')
             for recipient in recipients:
                 self.online(recipient['actor'])
                 own=self.store.db.execute('SELECT actor FROM owner_key WHERE pubkey=?',(recipient['pubkey'],)).fetchone()
@@ -82,7 +83,10 @@ class Controller:
                 if own[0]!=recipient['actor']:raise InvariantError('recipient key belongs to another actor')
         if scenario=='D24' and (not isinstance(context.get('saved_successor_ids'),list) or not context['saved_successor_ids'] or len(context['saved_successor_ids'])>16 or any(not isinstance(v,str) for v in context['saved_successor_ids']) or len(set(context['saved_successor_ids']))!=len(context['saved_successor_ids'])):
             raise EvidenceGap('delayed delivery requires exact saved signed successor IDs')
+        if scenario=='D18' and not 30<=integer(context.get('maximum_wait_seconds',900),'round wait')<=1800:raise ValueError('round wait must be bounded before submission')
+        if scenario=='D26':integer(context.get('scheduled_height'),'frozen delegated schedule',1)
         maximum=integer(context.get('maximum_fee_sat',0 if scenario in {'D24','D27','D28','D33','D36'} else 2000),'whole trial fee ceiling')
+        if scenario=='D24' and maximum!=0:raise InvariantError('wallet-free registration cannot reserve spending fees')
         if maximum>2000:raise ValueError('whole trial fee ceiling exceeds2000')
         frozen={'schema_version':1,'scenario':scenario,'actor':actor,'network':'signet','server_pubkey':self.config.expected_server_pubkey,
             'inputs':inputs,'principal_sat':sum(i['amount_sat'] for i in inputs),'maximum_fee_sat':maximum,'rpcs':RPCS[scenario],
@@ -150,6 +154,32 @@ class Controller:
         if any(not hash64(value) for value in sessions) or len(set(sessions))!=len(sessions):
             raise InvariantError('competing signing sessions must use distinct exact public nonces')
         return self.prepare(trial,prepared)
+    def delegated_prepared(self,trial,action_id,prepared):
+        public_payload(prepared);intent=self.intent(trial)
+        if intent['scenario']!='D26' or self.row(trial)['release_action']!=action_id or prepared.get('trial_id')!=trial or prepared.get('intent_hash')!=intent['intent_hash']:
+            raise InvariantError('delegated checkpoint differs from released frozen phase')
+        legs=prepared.get('legs',[]);ids=[v['coin_id'] for v in intent['inputs']]
+        if len(legs)!=2 or len({v.get('leg_id') for v in legs})!=2 or len({v.get('wire_sha256') for v in legs})!=2:
+            raise InvariantError('two distinct actual signed delegated submissions required')
+        for leg in legs:
+            if leg.get('rpc')!='SubmitRoundParticipation' or leg.get('input_coin_ids')!=ids or leg.get('scheduled_height')!=intent['context']['scheduled_height']:
+                raise InvariantError('delegated request changed frozen inputs or schedule')
+            if not hash64(leg.get('wire_sha256')) or not hash64(leg.get('private_checkpoint_sha256')):raise EvidenceGap('exact delegated request checkpoint missing')
+            requested=leg.get('requested_outputs',[])
+            if not requested or len(requested)>16 or leg.get('input_spends') or leg.get('outputs'):raise InvariantError('delegated submission cannot invent funded output or forfeit identities')
+            for output in requested:
+                key=self.store.db.execute('SELECT actor FROM owner_key WHERE pubkey=?',(output.get('pubkey'),)).fetchone()
+                if key is None:raise EvidenceGap('new delegated SDK key requires independently collected signed ownership evidence')
+                if key[0]!=intent['actor']:raise InvariantError('delegated refresh changes original actor')
+            principal=sum(integer(v['amount_sat'],'requested delegated value',1) for v in requested)
+            fee=integer(leg.get('committed_fee_sat'),'delegated quote fee')
+            if principal+fee!=intent['principal_sat'] or fee>intent['maximum_fee_sat']:raise InvariantError('delegated quote violates whole-trial principal/fee ceiling')
+            old=self.store.db.execute('SELECT digest FROM phase_preparation WHERE trial_id=? AND leg_id=?',(trial,leg['leg_id'])).fetchone()
+            if old and old[0]!=digest(leg):raise InvariantError('delegated checkpoint changed after submission')
+        with self.atomic():
+            for leg in legs:self.store.db.execute('INSERT OR IGNORE INTO phase_preparation VALUES (?,?,?,?)',(trial,leg['leg_id'],digest(leg),canonical(leg)))
+            self.store._event('phase_delegated_preparations_frozen',{'trial_id':trial,'legs':legs,'live_qualified':False})
+        return prepared
     def delivery_prepared(self,trial,action_id,prepared):
         public_payload(prepared);intent=self.intent(trial)
         if self.row(trial)['release_action']!=action_id or intent['scenario']!='D24' or prepared.get('intent_hash')!=intent['intent_hash']:
