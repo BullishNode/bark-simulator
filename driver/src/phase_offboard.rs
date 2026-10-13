@@ -1,5 +1,6 @@
 //! Public SDK offboard fee, attestation and connector-forfeit primitives.
 //! Prepares one genuine server session, never regenerates a finish nonce.
+use server_rpc::TryFromBytes;
 use super::{Request, evidence, hex, phase_protocol as retained};
 use anyhow::{Context, Result, ensure};
 use ark::{

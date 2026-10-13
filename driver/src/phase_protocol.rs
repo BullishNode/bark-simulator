@@ -167,8 +167,9 @@ pub(super) fn signed_reply(
     reply: Result<tonic::Response<protos::ArkoorPackageCosignResponse>, tonic::Status>,
     wire_hash: &str,
     submitted_at_ns: u128,
+    reply_at_ns: u128,
 ) -> Result<Value> {
-    let reply_at_ns = now_ns();
+    ensure!(reply_at_ns>=submitted_at_ns,"reply precedes original submission");
     match reply {
         Ok(response) => {
             save(
@@ -405,6 +406,7 @@ pub async fn race_arkoor(
             reply,
             prepared["legs"][0]["wire_sha256"].as_str().unwrap(),
             started,
+            now_ns(),
         )
     };
     let right_future = async {
@@ -422,6 +424,7 @@ pub async fn race_arkoor(
             reply,
             prepared["legs"][1]["wire_sha256"].as_str().unwrap(),
             started,
+            now_ns(),
         )
     };
     let (left_result, right_result) = tokio::join!(left_future, right_future);
@@ -671,7 +674,7 @@ pub async fn register_saved(
 mod tests {
     use super::*;
     fn declaration(scenario: &str) -> Request {
-        let frozen = json!({"network":"signet","scenario":scenario,"actor":"actor-11","maximum_fee_sat":2000,"server_pubkey":"pinned-key"});
+        let frozen = json!({"network":"signet","scenario":scenario,"actor":"actor-11","maximum_fee_sat":2000,"server_pubkey":"pinned-key","context":{"protocol_version":server_rpc::MAX_PROTOCOL_VERSION}});
         serde_json::from_value(json!({"operation":"phase_execute_d17","action_id":"unit-private-fence","actor_dir":null,"expected_server_pubkey":"pinned-key","maximum_fee_sat":2000,
             "args":{"phase_intent":frozen,"intent_hash":hash(&serde_json::to_vec(&frozen).unwrap()),"qualification_manifest_sha256":"e1".repeat(32)}})).unwrap()
     }
@@ -686,6 +689,17 @@ mod tests {
         assert!(intent(&req, "D17").is_err());
         assert!(intent(&declaration("D24"), "D17").is_err());
     }
+    #[test]
+    fn negotiated_protocol_version_is_required_and_carried_on_the_request() {
+        let mut req=declaration("D17");
+        let request=pinned_request(&req,()).unwrap();
+        assert_eq!(request.metadata().get("pver").unwrap().to_str().unwrap(),server_rpc::MAX_PROTOCOL_VERSION.to_string());
+        req.args["phase_intent"]["context"]["protocol_version"]=Value::Null;
+        assert!(protocol_version(&req).is_err());
+        req.args["phase_intent"]["context"]["protocol_version"]=json!(server_rpc::MAX_PROTOCOL_VERSION+1);
+        assert!(protocol_version(&req).is_err());
+    }
+
     #[test]
     fn reopened_exact_request_fence_does_not_dispatch_again() {
         let root =

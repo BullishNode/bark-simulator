@@ -1,5 +1,6 @@
 //! Wallet-free replay of an exact previously captured, valid SDK forfeit.
 //! This consumes protected evidence, never generates a new partial signature.
+use server_rpc::TryFromBytes;
 use super::{Request, evidence, phase_protocol as retained};
 use anyhow::{Context, Result, ensure};
 use ark::{ProtocolEncoding, Vtxo, forfeit::HashLockedForfeitBundle, musig, vtxo::Full};

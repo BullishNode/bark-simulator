@@ -1,3 +1,15 @@
+mod raw_guard;
+mod raw_protocol;
+mod phase_protocol;
+mod phase_transport;
+mod phase_round;
+mod phase_offboard;
+mod phase_delegated;
+mod phase_replay;
+mod phase_lightning;
+mod phase_exit;
+mod exit;
+
 use std::{
     fs,
     io::{self, Read, Write},
@@ -143,6 +155,12 @@ struct Request {
     args: Value,
     #[serde(default)]
     maximum_fee_sat: u64,
+}
+
+fn verify_exit_budget(frozen:u64,requested:u64,reserved:&[u64],next:u64)->Result<()> {
+    ensure!(frozen>0 && frozen==requested,"exit fee cap changed");
+    let used=reserved.iter().try_fold(0u64,|sum,fee|sum.checked_add(*fee)).context("exit fee sum overflow")?;
+    ensure!(used.checked_add(next).context("exit fee sum overflow")?<=frozen,"exit fee cap exhausted");Ok(())
 }
 
 fn hex(bytes: &[u8]) -> String {

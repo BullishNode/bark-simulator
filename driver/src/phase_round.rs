@@ -1,6 +1,7 @@
 //! One real interactive SDK round attempt races a retained arkoor or offboard.
 //! The transport gate captures SDK-generated requests before forwarding;
 //! private SDK round signing/forfeit safety code is never reimplemented here.
+use server_rpc::TryFromBytes;
 use super::{
     Request, evidence, hex, phase_protocol as retained,
     phase_transport::{ClientTransport, Gate, Plan, Validator},
@@ -199,7 +200,7 @@ pub async fn setup(
     let validator: Validator = Arc::new(move |method, wire| {
         if method == "SubmitPayment" {
             return validate_submit(
-                &mut validate_expected
+                &mut *validate_expected
                     .lock()
                     .map_err(|_| anyhow::anyhow!("round capture state poisoned"))?,
                 wire,
@@ -410,7 +411,7 @@ pub async fn execute(
     retained::save(
         &invocation.directory.join("sdk-round-state-id.json"),
         &serde_json::to_vec(
-            &json!({"round_state_id":round_state_id,"committed_fee_sat":fee,"input_coin_ids":ids}),
+            &json!({"round_state_id":round_state_id.to_string(),"committed_fee_sat":fee,"input_coin_ids":ids}),
         )?,
     )?;
     let mut events = wallet.subscribe_round_events().await?;
@@ -607,7 +608,7 @@ pub async fn execute(
         }
     }
     Ok(
-        json!({"phase_unknown":true,"trial_id":req.args["trial_id"],"competing_reply":arkoor_result,"sdk_round_state_id":round_state_id,
+        json!({"phase_unknown":true,"trial_id":req.args["trial_id"],"competing_reply":arkoor_result,"sdk_round_state_id":round_state_id.to_string(),
         "actual_fee_sat":Value::Null,"committed_round_fee_sat":fee,"reason":"independent confirmed round/forfeit/competing-path and fee audit required; SDK outer progress success is insufficient","restart_continuation":false,"customer_traffic_credit":false}),
     )
 }

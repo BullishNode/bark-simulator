@@ -2,6 +2,7 @@
 //! Exact SDK frames/attestations are fsynced before either request is forwarded.
 //! Arrival order is observed, never inferred from client leg names. Completion
 //! and once-only financial arbitration require independent evidence collectors.
+use server_rpc::TryFromBytes;
 use super::{
     Request, evidence, phase_protocol as retained,
     phase_transport::{ClientTransport, Gate, Plan, Validator},
@@ -114,7 +115,7 @@ pub async fn setup(
     let validator: Validator = Arc::new(move |method, wire| {
         if method == "SubmitRoundParticipation" {
             return validate(
-                &mut captured
+                &mut *captured
                     .lock()
                     .map_err(|_| anyhow::anyhow!("delegated capture state poisoned"))?,
                 wire,
@@ -283,7 +284,7 @@ pub async fn execute(
                     &invocation.directory.join(format!("sdk-{leg}-state.json")),
                     &serde_json::to_vec(&state)?,
                 )?;
-                json!({"leg_id":leg,"round_state_id":id,"unlock_hash":unlock,"kind":"sdk_delegated_state_persisted","reply_at_ns":retained::now_ns(),"forfeit_sent_claim":false})
+                json!({"leg_id":leg,"round_state_id":id.to_string(),"unlock_hash":unlock,"kind":"sdk_delegated_state_persisted","reply_at_ns":retained::now_ns(),"forfeit_sent_claim":false})
             }
             Err(error) => {
                 json!({"leg_id":leg,"kind":"sdk_delegated_error","error":format!("{error:#}"),"reply_at_ns":retained::now_ns(),"financial_outcome_unknown":true})
