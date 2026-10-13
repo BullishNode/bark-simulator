@@ -15,6 +15,7 @@ from .raw_cases import RAW_CASES
 from .recovery import report as recovery_report
 from .padding import report as padding_report, csv_values as padding_csv_values
 from .entitlements import unclaimed_expired_report
+from .fee_watch import report as fee_watch_report, csv_values as fee_watch_csv_values
 
 
 # Primitive operations can exercise part of a behavior. Their availability and
@@ -240,6 +241,7 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
             "scope":"durable intent history; successive refresh amounts are not additive capital"},
         "tree_padding":padding_report(store),
         "log_capture":log_capture_report(store),
+        "fee_watch":fee_watch_report(store),
         "expired_unclaimed_outputs":unclaimed_expired_report(store,snapshots[-1]['height'])
             if snapshots and type(snapshots[-1].get('height')) is int else {"status":"unknown_height","inventory_consistent":False},
         "owner_funded_renewal":{kind:[json.loads(r[0]) for r in store.db.execute('SELECT payload FROM event WHERE kind=? ORDER BY sequence',(kind,))]
@@ -284,6 +286,13 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
         +'. Padding is not a customer entitlement or an additional asset.')
     markdown = f"# Bark operator report\n\n**{mode}**\n\n{summary}\n\n"
     markdown += padding_summary+"\n\n"
+    fee_sample=result['fee_watch']['latest_simulator_tick']
+    fee_reference=fee_sample['estimate']['sat_per_vbyte'] if fee_sample else None
+    fee_summary=(f"Independent current fee reference: {fee_reference if fee_reference is not None else 'unknown'} sat/vB. "
+        f"Recorded summary occurrences: {result['fee_watch']['server_diagnostics']['summary_occurrences']}; "
+        "unique daemon ticks and individual server waiting ages unknown. "
+        "Rates are comparisons, not a declared policy verdict or additive operator costs.")
+    markdown += fee_summary+"\n\n"
     markdown += f"Known payout recipient fees: {fees[0]} sat. Operator change fees: {fees[1]} sat.\n\n"
     markdown += "Observations (facts and missing evidence, not scenario verdicts):\n\n"
     markdown += "\n".join(f"- [{o['severity']}, {o['status']}] {o['summary']} Evidence: {json.dumps(o['evidence'],sort_keys=True)}" for o in result["observations"]) + "\n\n"
@@ -349,6 +358,7 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
 <title>Bark operator observations</title><style>body{{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem}}table{{border-collapse:collapse;width:100%}}td,th{{padding:.6rem;border-bottom:1px solid #ccc;text-align:left}}pre{{white-space:pre-wrap}}.banner{{padding:1rem;background:#fff0bd}}</style>
 <h1>Bark operator observations</h1><p class=banner>{mode}</p><h2>Capital</h2><pre>{html.escape(summary)}</pre><p>{html.escape(padding_summary)}</p>
 {chart}
+<p>{html.escape(fee_summary)}</p>
 <p>Minimum required capital: unknown. A funded successful run does not prove a minimum.</p>
 <p>Campaign active seconds ({html.escape(clock['active_seconds_scope'])}): {clock['active_seconds']}. Legacy clock seconds: {clock['legacy_clock_seconds']}; original campaign counter: {clock['campaign_active_seconds']}.</p>
 <h2>Observations</h2><ul>{observations_html}</ul>
@@ -358,11 +368,11 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
     atomic_text(store.root / "index.html", document)
     temp = store.root / "capital.csv.tmp"
     with temp.open("w", newline="", encoding="utf-8") as file:
-        fields = ["observed_at", "height", "complete", "rounds_confirmed_sat", "rounds_unconfirmed_sat", "tree_locked_sat", "tree_padding_locked_sat", "tree_padding_unclaimed", "tree_padding_swept", "watchman_confirmed_sat", "ln_spendable_msat", "ln_receivable_msat"]
+        fields = ["observed_at", "height", "complete", "rounds_confirmed_sat", "rounds_unconfirmed_sat", "tree_locked_sat", "tree_padding_locked_sat", "tree_padding_unclaimed", "tree_padding_swept", "watchman_confirmed_sat", "ln_spendable_msat", "ln_receivable_msat", "independent_fee_reference_sat_vbyte", "fee_watch_observed_transaction_count", "fee_watch_above_current_reference_count", "fee_watch_gap_count"]
         writer = csv.DictWriter(file, fields)
         writer.writeheader()
         for record in snapshot_records:
-            values={**json.loads(record['payload']),**padding_csv_values(store,record['id'])}
+            values={**json.loads(record['payload']),**padding_csv_values(store,record['id']),**fee_watch_csv_values(store,record['id'])}
             writer.writerow({key: values.get(key) for key in fields})
     os.replace(temp, store.root / "capital.csv")
     store.export_events(full=full)

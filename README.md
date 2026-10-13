@@ -26,10 +26,10 @@ The demo uses synthetic data and writes its report under `runs/demo/`.
 
 ## Native driver
 
-The driver requires Rust, a C/C++ toolchain, CMake, Protocol Buffers (`protoc`), and a compatible Bark SDK checkout in `source/`. The currently tested SDK revision is `d47c6a4d115b30bf56219d69251fa9238d13f32d`; Cargo dependencies are fixed in `driver/Cargo.lock`.
+The driver requires Rust, a C/C++ toolchain, CMake, Protocol Buffers (`protoc`), and a compatible Bark SDK checkout in `source/`. The currently tested SDK revision is `8f2286ee7e1631b0ceccd1631ec3b728a1bb0a52`; Cargo dependencies are fixed in `driver/Cargo.lock`.
 
 ```sh
-git -C source checkout d47c6a4d115b30bf56219d69251fa9238d13f32d
+git -C source checkout 8f2286ee7e1631b0ceccd1631ec3b728a1bb0a52
 CARGO_TARGET_DIR="$PWD/target" cargo build --manifest-path driver/Cargo.toml --locked
 CARGO_TARGET_DIR="$PWD/target" cargo test --manifest-path driver/Cargo.toml --locked
 ```

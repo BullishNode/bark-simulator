@@ -102,12 +102,20 @@ class TargetEpochTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.declare(declaration)
 
     def test_direct_controller_lease_blocks_epoch_until_independently_reconciled(self):
-        self.store.acquire_actor_lease('actor-04','controller-1','qualified profile')
-        with self.assertRaises(ValueError):self.declare()
-        self.store.finish_actor_lease('actor-04','controller-1','outcome_unknown')
+        self.store.db.execute("DELETE FROM meta WHERE key='paused'")
+        self.assertTrue(self.store.acquire_actor_lease('actor-04','controller-1','qualified profile'))
+        self.store.db.execute("INSERT INTO meta VALUES ('paused','declared target upgrade')")
         with self.assertRaises(ValueError):self.declare()
         self.store.finish_actor_lease('actor-04','controller-1','completed')
         self.declare()
+
+    def test_unknown_direct_controller_lease_cannot_be_treated_as_quiescent(self):
+        self.store.db.execute("DELETE FROM meta WHERE key='paused'")
+        self.assertTrue(self.store.acquire_actor_lease('actor-04','controller-1','qualified profile'))
+        self.store.finish_actor_lease('actor-04','controller-1','outcome_unknown')
+        self.store.db.execute("INSERT INTO meta VALUES ('paused','declared target upgrade')")
+        with self.assertRaises(ValueError):self.declare()
+        with self.assertRaises(ValueError):self.store.finish_actor_lease('actor-04','controller-1','completed')
 
     def test_legacy_private_controller_unknown_blocks_global_epoch(self):
         self.store.db.execute('CREATE TABLE noah_control(id TEXT PRIMARY KEY, actor TEXT, state TEXT)')

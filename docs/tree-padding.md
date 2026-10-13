@@ -6,7 +6,7 @@ They have no participant or mailbox entitlement. Their value comes from the
 operator's round funding and is already part of the tree backing.
 
 The public decoder is pinned to SDK commit
-`d47c6a4d115b30bf56219d69251fa9238d13f32d`. It strictly decodes a full VTXO,
+`8f2286ee7e1631b0ceccd1631ec3b728a1bb0a52`. It strictly decodes a full VTXO,
 rejects trailing bytes and the wrong server key, and identifies padding only
 when all of these match:
 

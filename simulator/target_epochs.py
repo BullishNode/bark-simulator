@@ -16,6 +16,7 @@ from .model import SIGNET_GENESIS, canonical, integer, public_payload, timestamp
 
 IMMUTABLE_META = ('mode', 'fee_budget_sat', 'wallet_root', 'target_identity',
                   'fixture_funding_plan', 'owner_renewal_declaration',
+                  'owner_renewal_funding_source',
                   'seed_recovery_declaration', 'campaign_seed', 'campaign_realism',
                   'ramp_plan', 'realism_started_at')
 IMMUTABLE_FAMILIES = ('owner_renewal_declaration:', 'owner_renewal_funding_source:')
@@ -136,6 +137,11 @@ def declare(store, declaration):
         funding = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='funding_batch'").fetchone()
         if funding and store.db.execute("SELECT 1 FROM funding_batch WHERE state IN ('broadcasting','outcome_unknown') LIMIT 1").fetchone():
             raise ValueError('reconcile funding broadcasts and unknowns before an epoch')
+        if store.db.execute("SELECT 1 FROM actor_lease WHERE state IN ('active','outcome_unknown') LIMIT 1").fetchone():
+            raise ValueError('reconcile direct client controller leases before an epoch')
+        private = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='noah_control'").fetchone()
+        if private and store.db.execute("SELECT 1 FROM noah_control WHERE state IN ('started','outcome_unknown') LIMIT 1").fetchone():
+            raise ValueError('reconcile private client controller actions before an epoch')
         for actor in ('actor-03', 'actor-09', 'actor-10'):
             row = store.db.execute('SELECT online FROM actor WHERE id=?', (actor,)).fetchone()
             if row is None or row[0] != 0:

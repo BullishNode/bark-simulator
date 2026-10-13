@@ -89,6 +89,17 @@ def observe(store: Store):
             'A frozen refresh replacement remains unclaimed close to its expiry.')
         add(key,'warning',summary,**finding)
 
+    from .fee_watch import report as fee_watch_report
+    fee_diagnostics=fee_watch_report(store)['server_diagnostics']
+    returned=fee_diagnostics['latest_returned_summary']
+    if returned:
+        add('captured_server_waiting_binding','info',
+            'Returned server summary counters lack individual payout identities and unique tick ages.',
+            returned_summary=returned['event'],window_reference=returned['window_reference'],
+            coverage_gaps=returned['gaps'],unique_daemon_ticks=None,
+            server_waiting_reason=None,same_reason_age_ticks=None,
+            scope='captured aggregate observation; not current identified payout state')
+
     # Only lifecycle transitions add events. Repeated checks update last_seen and
     # retain the latest evidence without flooding the log with the same warning.
     now = time.time()

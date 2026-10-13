@@ -339,6 +339,19 @@ class Engine:
                         limit=self.config.log_rows_per_page,maximum_bytes=self.config.log_maximum_bytes)
                 except Exception as error:
                     self.store.trace_capture('log.capture.gap',{'kind':'configuration_or_collector_unavailable','error_type':type(error).__name__})
+            # Independent diagnostic each snapshot, even when inventory work failed.
+            from .fee_watch import collect as collect_fee_watch
+            fee_latest=self.store.db.execute('SELECT id FROM snapshot ORDER BY id DESC LIMIT 1').fetchone()
+            if fee_latest:
+                try:
+                    if len(self.config.proof_command)!=4:
+                        raise ValueError('independent Core observer unavailable')
+                    fee_chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],
+                        self.config.expected_genesis,capture=self.store.trace_sample,consumer='payout-fee-watch')
+                    await collect_fee_watch(self.store,fee_chain,'snapshot:'+str(fee_latest['id']),
+                        target_blocks=6,mode='economical',transaction_limit=2)
+                except Exception as error:
+                    self.store.trace_capture('fee.watch.gap',{'snapshot_id':fee_latest['id'],'reason':type(error).__name__})
             if self.store.trace is not None:self.store.trace.archive()
             observe(self.store)
             if once or last_report is None or self.store.get_meta("paused") or time.monotonic() - last_report >= 300:

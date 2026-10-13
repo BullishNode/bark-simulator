@@ -30,7 +30,7 @@ The fixed marker is the public-key policy with key
 `02dfa52f6690299d2d6a08323083e290597b56fee125063e5f4e2957731639c42c`,
 a 330-sat amount, the unlock hash `deadbeef` repeated eight times and no arkoor
 transition. Its source is pinned to SDK commit
-`d47c6a4d115b30bf56219d69251fa9238d13f32d`. These leaves have no participant
+`8f2286ee7e1631b0ceccd1631ec3b728a1bb0a52`. These leaves have no participant
 entitlement. A server state remains an observation; independently resolve the
 signed owner and settlement arbitration for every remaining customer candidate.
 See [padding attribution](tree-padding.md) for separate counts and capital limits.
