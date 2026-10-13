@@ -105,6 +105,7 @@ class PhaseTrialTests(unittest.TestCase):
         self.store.db.execute('INSERT INTO settlement_check VALUES (?,?,?,?)',(txid,'amounts_checked',None,1))
         self.store.db.execute('INSERT INTO chain_payout VALUES (?,?)',(txid,canonical({'txid':txid,'confirmations':2,'fee_sat':150,'inputs':[{'amount_sat':10000}],'outputs':[{'script':script,'amount_sat':4900},{'script':'0014'+'88'*20,'amount_sat':4950}]})))
         self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32;action=self.controller.release(trial)
+        self.controller.delivery_prepared(trial,action,{'wire_sha256':'a1'*32,'intent_hash':self.controller.intent(trial)['intent_hash'],'saved_successor_ids':['d1'*32+':0'],'original_wallet_opened':False})
         self.store.db.execute('UPDATE action SET actual_fee_sat=0 WHERE id=?',(action,))
         self.controller.reply(trial,'delivery',{'kind':'expiry_settled_refusal','wire_sha256':'a1'*32})
         row={'id':'d1'*32+':0','spend_state':state,'onchain_spent_txid':'f0'*32,'oor_spent_txid':None,'spent_in_round':None,'offboarded_in':None}
@@ -134,7 +135,7 @@ class PhaseTrialTests(unittest.TestCase):
         self.store.db.execute('UPDATE action SET actual_fee_sat=0 WHERE id=?',(action,))
         return trial
     def test_one_signed_registered_race_winner_closes_exact_principal_once(self):
-        trial=self.winning_race();verdict=self.controller.judge(trial)
+        trial=self.winning_race();self.controller.reconcile_coin(trial,self.controller.row(trial)['release_action'],{'coin_id':'d2'*32+':0','state':'absent','code':'NotFound','rpc':'GetVtxo','server_pubkey':self.config.expected_server_pubkey,'wire_sha256':'d3'*32,'response_sha256':'d4'*32,'observed_at_ns':500});verdict=self.controller.judge(trial)
         self.assertEqual('verified',verdict['state']);self.assertEqual(5000,verdict['financial_identity']['registered_successor_sat'])
         self.assertEqual(0,verdict['financial_identity']['identity_residual_sat']);before=self.store.db.execute('SELECT count(*) FROM event').fetchone()[0]
         self.assertEqual(verdict,self.controller.judge(trial));self.assertEqual(before,self.store.db.execute('SELECT count(*) FROM event').fetchone()[0])
@@ -142,7 +143,7 @@ class PhaseTrialTests(unittest.TestCase):
         trial=self.winning_race(path_txid='cf'*32);verdict=self.controller.judge(trial)
         self.assertEqual('pending',verdict['state']);self.assertIn('exact signed prepared spending path unavailable',verdict['unknowns'])
     def test_race_winner_cannot_coexist_with_original_payout(self):
-        trial=self.winning_race();self.store.db.execute('INSERT INTO checked_settlement VALUES (?,?,?,?,?,?)',(self.coin,'ea'*32,'actor-11','0014'+'77'*20,5000,'{}'))
+        trial=self.winning_race();self.controller.reconcile_coin(trial,self.controller.row(trial)['release_action'],{'coin_id':'d2'*32+':0','state':'absent','code':'NotFound','rpc':'GetVtxo','server_pubkey':self.config.expected_server_pubkey,'wire_sha256':'d3'*32,'response_sha256':'d4'*32,'observed_at_ns':500});self.store.db.execute('INSERT INTO checked_settlement VALUES (?,?,?,?,?,?)',(self.coin,'ea'*32,'actor-11','0014'+'77'*20,5000,'{}'))
         with self.assertRaises(InvariantError):self.controller.judge(trial)
     def test_sequential_submissions_are_not_qualified_as_a_race(self):
         trial=self.winning_race();self.store.db.execute('DELETE FROM phase_reply WHERE trial_id=?',(trial,))

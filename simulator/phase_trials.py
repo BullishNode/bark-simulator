@@ -35,6 +35,7 @@ REQUIREMENTS={
 SCHEMA='''CREATE TABLE IF NOT EXISTS phase_trial(id TEXT PRIMARY KEY,scenario TEXT NOT NULL,actor TEXT NOT NULL,intent_hash TEXT NOT NULL UNIQUE,intent TEXT NOT NULL,state TEXT NOT NULL,release_action TEXT,updated_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS phase_preparation(trial_id TEXT NOT NULL REFERENCES phase_trial(id),leg_id TEXT NOT NULL,digest TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(trial_id,leg_id));
 CREATE TABLE IF NOT EXISTS phase_reply(trial_id TEXT NOT NULL REFERENCES phase_trial(id),leg_id TEXT NOT NULL,digest TEXT NOT NULL,payload TEXT NOT NULL,observed_at REAL NOT NULL,PRIMARY KEY(trial_id,leg_id,digest));
+CREATE TABLE IF NOT EXISTS phase_reconciliation(trial_id TEXT NOT NULL REFERENCES phase_trial(id),coin_id TEXT NOT NULL,payload TEXT NOT NULL,observed_at REAL NOT NULL,PRIMARY KEY(trial_id,coin_id));
 CREATE TABLE IF NOT EXISTS phase_verdict(trial_id TEXT PRIMARY KEY REFERENCES phase_trial(id),payload TEXT NOT NULL,updated_at REAL NOT NULL);'''
 
 
@@ -133,6 +134,30 @@ class Controller:
         if any(not hash64(value) for value in sessions) or len(set(sessions))!=len(sessions):
             raise InvariantError('competing signing sessions must use distinct exact public nonces')
         return self.prepare(trial,prepared)
+    def delivery_prepared(self,trial,action_id,prepared):
+        public_payload(prepared);intent=self.intent(trial)
+        if self.row(trial)['release_action']!=action_id or intent['scenario']!='D24' or prepared.get('intent_hash')!=intent['intent_hash']:
+            raise InvariantError('delayed registration preparation differs from released intent')
+        if prepared.get('original_wallet_opened') is not False or prepared.get('saved_successor_ids')!=intent['context']['saved_successor_ids'] or not hash64(prepared.get('wire_sha256')):
+            raise InvariantError('delayed registration changed paid successors or original-wallet rule')
+        leg={**prepared,'leg_id':'delivery','rpc':'RegisterVtxoTransactions'};checksum=digest(leg)
+        old=self.store.db.execute('SELECT digest FROM phase_preparation WHERE trial_id=? AND leg_id=?',(trial,'delivery')).fetchone()
+        if old and old[0]!=checksum:raise InvariantError('actual delayed registration request changed')
+        with self.atomic():
+            self.store.db.execute('INSERT OR IGNORE INTO phase_preparation VALUES (?,?,?,?)',(trial,'delivery',checksum,canonical(leg)))
+            self.store._event('phase_delivery_preparation_frozen',{'trial_id':trial,**leg})
+    def reconcile_coin(self,trial,action_id,observed):
+        public_payload(observed);intent=self.intent(trial)
+        if self.row(trial)['release_action']!=action_id:raise InvariantError('reconciliation belongs to another action')
+        ids={v['coin_id'] for p in self.preparations(trial) for v in p.get('outputs',[])}
+        if observed.get('coin_id') not in ids or observed.get('rpc')!='GetVtxo' or observed.get('server_pubkey')!=intent['server_pubkey']:
+            raise InvariantError('read-only reconciliation differs from exact frozen candidate')
+        if not hash64(observed.get('wire_sha256')) or not hash64(observed.get('response_sha256')) or type(observed.get('observed_at_ns')) is not int or observed['observed_at_ns']<=0 or observed.get('state') not in {'absent','present','unknown'}:
+            raise EvidenceGap('exact pinned read-only request/reply evidence missing')
+        if observed['state']=='absent' and observed.get('code')!='NotFound':raise InvariantError('transport failure is not output absence')
+        with self.atomic():
+            self.store.db.execute('INSERT OR REPLACE INTO phase_reconciliation VALUES (?,?,?,?)',(trial,observed['coin_id'],canonical(observed),time.time()))
+            self.store._event('phase_coin_reconciliation',{'trial_id':trial,**observed})
     def linked_coin(self,identity,intent):
         row=self.store.db.execute('SELECT c.*,k.actor FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey WHERE c.id=?',(identity,)).fetchone()
         if row is None:return None
@@ -190,12 +215,64 @@ class Controller:
         known=next((p for p in self.preparations(trial) if p['leg_id']==leg),None)
         if known and known['wire_sha256']!=observed.get('wire_sha256'):raise InvariantError('phase reply belongs to another signed request')
         with self.atomic():
-            self.store.db.execute('INSERT OR IGNORE INTO phase_reply VALUES (?,?,?,?,?)',(trial,leg,digest(observed),canonical(observed),time.time()))
+            self.store.db.execute('INSERT OR IGNORE INTO phase_reply VALUES (?,?,?,?,?)',(trial,leg,digest({**observed,'leg_id':leg}),canonical({**observed,'leg_id':leg}),time.time()))
             self.store._event('phase_reply_observed',{'trial_id':trial,'leg_id':leg,**observed,'live_qualified':False})
+    def race_identity(self,trial,intent,prepared,replies,winners):
+        if len(winners)!=1:raise EvidenceGap('one independently signed exact branch required')
+        intervals=[]
+        for leg in prepared:
+            reply=next((r for r in replies if r.get('leg_id')==leg['leg_id'] and r.get('wire_sha256')==leg['wire_sha256']),None)
+            if reply is None or type(reply.get('submitted_at_ns')) is not int or type(reply.get('reply_at_ns')) is not int or not 0<reply['submitted_at_ns']<reply['reply_at_ns']:
+                raise EvidenceGap('actual per-leg dispatch/reply interval missing')
+            intervals.append((reply['submitted_at_ns'],reply['reply_at_ns']))
+        if len(intervals)!=2 or max(v[0] for v in intervals)>=min(v[1] for v in intervals):raise EvidenceGap('actual requests did not overlap')
+        chosen=next(p for p in prepared if p['leg_id']==winners[0]['leg_id'])
+        others=[p for p in prepared if p['leg_id']!=chosen['leg_id']]
+        if len(others)!=1:raise EvidenceGap('two exact prepared competing branches required')
+        for expected in chosen['outputs']:
+            coin=self.linked_coin(expected['coin_id'],intent)
+            proof=json.loads(coin['proof'])
+            if any(not any(node.get('txid')==spend['txid'] and spend['coin_id'] in node.get('inputs',[]) for node in proof.get('path',[])) for spend in chosen['input_spends']):
+                raise EvidenceGap('exact signed prepared spending path unavailable')
+        loser=others[0]
+        refusal=next((r for r in replies if r.get('leg_id')==loser['leg_id'] and r.get('kind')=='protocol_refusal' and r.get('wire_sha256')==loser['wire_sha256'] and r.get('code')=='InvalidArgument' and set(r.get('rejected_coin_ids',[])).intersection(v['coin_id'] for v in intent['inputs'])),None)
+        if refusal is None:raise EvidenceGap('exact competing-input protocol refusal unavailable')
+        for expected in loser['outputs']:
+            observation=self.store.db.execute('SELECT payload FROM phase_reconciliation WHERE trial_id=? AND coin_id=?',(trial,expected['coin_id'])).fetchone()
+            if observation is None:raise EvidenceGap('exact losing-output read-only reconciliation unavailable')
+            observed=json.loads(observation[0])
+            if observed.get('observed_at_ns',0)<max(v[1] for v in intervals):raise EvidenceGap('losing-output reconciliation predates actual race replies')
+            if observed.get('state')!='absent':raise EvidenceGap('prepared losing output is present or unknown; secondary liability reconciliation required')
+        latest=self.store.db.execute('SELECT MAX(observed_at) FROM phase_reply WHERE trial_id=?',(trial,)).fetchone()[0]
+        def fresh(identity):
+            row=self.store.db.execute("SELECT payload,observed_at FROM server_item WHERE kind='coins' AND id=?",(identity,)).fetchone()
+            if row is None or latest is None or row['observed_at']<latest:raise EvidenceGap('fresh exact post-race input/successor state unavailable')
+            return json.loads(row['payload'])
+        for spend in chosen['input_spends']:
+            row=fresh(spend['coin_id'])
+            if row.get('spend_state')!='spent' or row.get('oor_spent_txid')!=spend['txid']:raise EvidenceGap('original input does not name the exact winning spend')
+            if row.get('onchain_spent_txid') or row.get('spent_in_round') or row.get('offboarded_in'):raise InvariantError('winning cooperative spend also has a chain or exchange claim')
+            if self.store.db.execute('SELECT 1 FROM checked_settlement WHERE coin_id=?',(spend['coin_id'],)).fetchone():raise InvariantError('original input was paid as well as cooperatively spent')
+        successor=0
+        for expected in chosen['outputs']:
+            row=fresh(expected['coin_id'])
+            if row.get('spend_state')!='spendable':raise EvidenceGap('signed winner is not yet a registered active entitlement')
+            if row.get('oor_spent_txid') or row.get('onchain_spent_txid') or row.get('spent_in_round') or row.get('offboarded_in'):raise EvidenceGap('winner advanced beyond this isolated arbitration; successor reconciliation required')
+            if self.store.db.execute('SELECT 1 FROM checked_settlement WHERE coin_id=?',(expected['coin_id'],)).fetchone():raise InvariantError('active race successor was also paid')
+            successor+=expected['amount_sat']
+        if successor!=intent['principal_sat']:raise InvariantError('race successor principal is not conserved')
+        action=self.store.db.execute('SELECT actual_fee_sat FROM action WHERE id=?',(self.row(trial)['release_action'],)).fetchone()
+        if action is None or action[0] is None:raise EvidenceGap('independently booked attempt fee unavailable')
+        if action[0]!=0:raise InvariantError('race fee is inconsistent with exact full-principal signed outputs')
+        return {'opening_principal_sat':intent['principal_sat'],'registered_successor_sat':successor,'original_payout_sat':0,'attempt_fee_sat':0,'identity_residual_sat':0,
+            'winning_leg_id':chosen['leg_id'],'losing_wire_sha256':loser['wire_sha256'],'scope':'signed exact input-spend path plus fresh current server arbitration and checked payout ledger through post-reply observation; customer receipt and traffic credit are separate'}
+
     def paid_delivery_identity(self,trial,intent,replies):
         paid=self.original_payouts(intent)
         latest=self.store.db.execute('SELECT MAX(observed_at) FROM phase_reply WHERE trial_id=?',(trial,)).fetchone()[0]
-        if not any(r.get('kind')=='expiry_settled_refusal' for r in replies):raise EvidenceGap('actual expiry-settled guard is unobserved')
+        known=next((p for p in self.preparations(trial) if p.get('leg_id')=='delivery'),None)
+        if known is None:raise EvidenceGap('exact wallet-free registration request checkpoint missing')
+        if not any(r.get('kind')=='expiry_settled_refusal' and r.get('wire_sha256')==known['wire_sha256'] for r in replies):raise EvidenceGap('actual expiry-settled guard is unobserved')
         action=self.store.db.execute('SELECT actual_fee_sat FROM action WHERE id=?',(self.row(trial)['release_action'],)).fetchone()
         if action is None or action[0] is None:raise EvidenceGap('independently booked attempt fee unavailable')
         if action[0]!=0:raise InvariantError('wallet-free registration charged a fee')
@@ -239,16 +316,27 @@ class Controller:
     def judge(self,trial):
         intent=self.intent(trial);prepared=self.preparations(trial);unknowns=[];winners=[]
         for leg in prepared:
+            if not leg.get('outputs'):continue
             matched=[]
             for expected in leg['outputs']:
                 coin=self.linked_coin(expected['coin_id'],intent)
-                if coin and (coin['pubkey'],coin['amount_sat'])==(expected['pubkey'],expected['amount_sat']):matched.append(coin['id'])
+                if coin and (coin['pubkey'],coin['amount_sat'])==(expected['pubkey'],expected['amount_sat']):
+                    proof=json.loads(coin['proof'])
+                    exact=all(any(node.get('txid')==spend['txid'] and spend['coin_id'] in node.get('inputs',[]) for node in proof.get('path',[])) for spend in leg['input_spends'])
+                    if exact:matched.append(coin['id'])
+                    else:unknowns.append('exact signed prepared spending path unavailable')
             if len(matched)==len(leg['outputs']):winners.append({'leg_id':leg['leg_id'],'signed_output_ids':matched})
             else:unknowns.append('signed_successor_linkage')
         replies=[json.loads(r[0]) for r in self.store.db.execute('SELECT payload FROM phase_reply WHERE trial_id=?',(trial,))]
         if any(r.get('kind') in {'transport_unknown','generic_refusal'} for r in replies):unknowns.append('ambiguous_protocol_outcome')
         if intent['scenario'] in {'D18','D19','D20','D26'}:unknowns.append('round_forfeit_and_confirmed_outputs' if intent['scenario']=='D18' else 'exact_chain_or_exchange_arbitration')
         financial=None
+        if intent['scenario']=='D17':
+            try:financial=self.race_identity(trial,intent,prepared,replies,winners)
+            except EvidenceGap as error:unknowns.append(str(error))
+            except InvariantError:
+                self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','phase contradiction')");raise
+            if financial is not None:unknowns=[]
         if intent['scenario']=='D24':
             try:financial=self.paid_delivery_identity(trial,intent,replies)
             except EvidenceGap as error:unknowns.append(str(error))

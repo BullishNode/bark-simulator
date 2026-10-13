@@ -10,6 +10,7 @@ use ark::arkoor::{
 };
 use ark::{ProtocolEncoding, Vtxo, VtxoId, VtxoPolicy};
 use bark::Wallet;
+use bitcoin::hex::FromHex;
 use bitcoin::{
     Amount, Network,
     hashes::{Hash, sha256},
@@ -39,6 +40,21 @@ fn now() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis()
+}
+fn now_ns() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+}
+fn metadata(map: &tonic::metadata::MetadataMap) -> Value {
+    json!(
+        map.clone()
+            .into_headers()
+            .iter()
+            .map(|(name, value)| json!({"name":name.as_str(),"value_hex":hex(value.as_bytes())}))
+            .collect::<Vec<_>>()
+    )
 }
 fn save(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = fs::OpenOptions::new()
@@ -126,9 +142,15 @@ fn signed_reply(
     keys: &[Keypair],
     reply: Result<tonic::Response<protos::ArkoorPackageCosignResponse>, tonic::Status>,
     wire_hash: &str,
+    submitted_at_ns: u128,
 ) -> Result<Value> {
+    let reply_at_ns = now_ns();
     match reply {
         Ok(response) => {
+            save(
+                &directory.join(format!("{leg}-response-metadata.json")),
+                &serde_json::to_vec(&metadata(response.metadata()))?,
+            )?;
             let response = response.into_inner();
             let bytes = response.encode_to_vec();
             save(&directory.join(format!("{leg}-response.bin")), &bytes)?;
@@ -146,20 +168,20 @@ fn signed_reply(
                 outputs.push(json!({"id":coin.id().to_string(),"pubkey":coin.user_pubkey().to_string(),"amount_sat":coin.amount().to_sat(),"signed_vtxo":hex(&bytes),"signed_hash":hash(&bytes)}));
             }
             Ok(
-                json!({"leg_id":leg,"kind":"sdk_signed_successors","wire_sha256":wire_hash,"response_sha256":hash(&bytes),"outputs":outputs,"independent_proof_required":true}),
+                json!({"leg_id":leg,"kind":"sdk_signed_successors","submitted_at_ns":submitted_at_ns,"reply_at_ns":reply_at_ns,"wire_sha256":wire_hash,"response_sha256":hash(&bytes),"outputs":outputs,"independent_proof_required":true}),
             )
         }
         Err(status) => {
             // Status code/message alone never prove money stayed untouched.
             let bytes = serde_json::to_vec(
-                &json!({"utc_unix_ms":now(),"code":format!("{:?}",status.code()),"message":status.message(),"details_hex":hex(status.details())}),
+                &json!({"utc_unix_ms":now(),"code":format!("{:?}",status.code()),"message":status.message(),"details_hex":hex(status.details()),"metadata":metadata(status.metadata())}),
             )?;
             save(
                 &directory.join(format!("{leg}-response-error.json")),
                 &bytes,
             )?;
             Ok(
-                json!({"leg_id":leg,"kind":if status.is_rejection(){"protocol_refusal"}else{"transport_unknown"},"wire_sha256":wire_hash,"response_sha256":hash(&bytes),"code":format!("{:?}",status.code()),"rejected_coin_ids":status.rejected_vtxos().iter().map(|id|id.to_string()).collect::<Vec<_>>(),"error_message_sha256":hash(status.message().as_bytes()),"independent_proof_required":true}),
+                json!({"leg_id":leg,"submitted_at_ns":submitted_at_ns,"reply_at_ns":reply_at_ns,"kind":if status.is_rejection(){"protocol_refusal"}else{"transport_unknown"},"wire_sha256":wire_hash,"response_sha256":hash(&bytes),"code":format!("{:?}",status.code()),"rejected_coin_ids":status.rejected_vtxos().iter().map(|id|id.to_string()).collect::<Vec<_>>(),"error_message_sha256":hash(status.message().as_bytes()),"independent_proof_required":true}),
             )
         }
     }
@@ -201,6 +223,47 @@ pub async fn race_arkoor(
         );
         keys.push(wallet.get_vtxo_key(&coin).await?);
         inputs.push(coin);
+    }
+    for (index, (coin, key)) in inputs.iter().zip(keys.iter()).enumerate() {
+        let attestation = ark::attestations::VtxoStatusAttestation::new(coin.id(), key);
+        let body = protos::GetVtxoStatusRequest {
+            vtxo_id: coin.id().to_bytes().to_vec(),
+            attestation: attestation.serialize(),
+        };
+        let wire = body.encode_to_vec();
+        save(
+            &directory.join(format!("input-{index}-status-request.bin")),
+            &wire,
+        )?;
+        let response = match rpc.get_vtxo_status(body).await {
+            Ok(response) => response,
+            Err(status) => {
+                let bytes = serde_json::to_vec(
+                    &json!({"code":format!("{:?}",status.code()),"message":status.message(),"details_hex":hex(status.details()),"metadata":metadata(status.metadata())}),
+                )?;
+                save(
+                    &directory.join(format!("input-{index}-status-error.json")),
+                    &bytes,
+                )?;
+                return Ok(
+                    json!({"phase_unknown":true,"actual_fee_sat":Value::Null,"reason":"exact input preflight failed; retained phase fence; no spend retry","customer_traffic_credit":false}),
+                );
+            }
+        };
+        save(
+            &directory.join(format!("input-{index}-status-metadata.json")),
+            &serde_json::to_vec(&metadata(response.metadata()))?,
+        )?;
+        let response = response.into_inner();
+        save(
+            &directory.join(format!("input-{index}-status-response.bin")),
+            &response.encode_to_vec(),
+        )?;
+        if response.spend_state != protos::VtxoSpendState::Spendable as i32 {
+            return Ok(
+                json!({"phase_unknown":true,"actual_fee_sat":Value::Null,"reason":"exact input was not Spendable before either race request; retained once-only fence","customer_traffic_credit":false}),
+            );
+        }
     }
     let amount = inputs.iter().try_fold(0u64, |sum, v| {
         sum.checked_add(v.amount().to_sat())
@@ -271,6 +334,30 @@ pub async fn race_arkoor(
         &serde_json::to_vec(&prepared)?,
     )?;
     evidence(req, "phase_preparations_frozen", prepared.clone())?;
+    let input_ids = items
+        .iter()
+        .map(|item| VtxoId::from_str(item["coin_id"].as_str().unwrap()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let movement = wallet
+        .movements_mgr()
+        .new_movement_with_update(
+            bark::subsystem::Subsystem::ARKOOR,
+            "phase_same_input_race",
+            bark::movement::update::MovementUpdate::new().consumed_vtxos(&input_ids),
+        )
+        .await?;
+    save(
+        &directory.join("sdk-movement.json"),
+        &serde_json::to_vec(
+            &json!({"movement_id":movement,"input_coin_ids":ids,"customer_traffic_credit":false}),
+        )?,
+    )?;
+    wallet.lock_vtxos(&input_ids, Some(movement.into())).await?;
+    evidence(
+        req,
+        "phase_client_principal_fenced",
+        json!({"trial_id":req.args["trial_id"],"movement_id":movement,"input_coin_ids":ids,"principal_sat":amount,"customer_traffic_credit":false}),
+    )?;
     save(
         &directory.join("dispatched"),
         &now().to_string().into_bytes(),
@@ -279,6 +366,11 @@ pub async fn race_arkoor(
     // Process each reply in its own future: persist successful Full successors
     // immediately, even if the competing RPC is still awaiting its reply.
     let left_future = async {
+        let started = now_ns();
+        save(
+            &directory.join("left-dispatch.json"),
+            &serde_json::to_vec(&json!({"submitted_at_ns":started}))?,
+        )?;
         let reply = rpc.request_arkoor_cosign(left_body).await;
         signed_reply(
             &directory,
@@ -287,9 +379,15 @@ pub async fn race_arkoor(
             &keys,
             reply,
             prepared["legs"][0]["wire_sha256"].as_str().unwrap(),
+            started,
         )
     };
     let right_future = async {
+        let started = now_ns();
+        save(
+            &directory.join("right-dispatch.json"),
+            &serde_json::to_vec(&json!({"submitted_at_ns":started}))?,
+        )?;
         let reply = second_rpc.request_arkoor_cosign(right_body).await;
         signed_reply(
             &directory,
@@ -298,12 +396,121 @@ pub async fn race_arkoor(
             &keys,
             reply,
             prepared["legs"][1]["wire_sha256"].as_str().unwrap(),
+            started,
         )
     };
     let (left_result, right_result) = tokio::join!(left_future, right_future);
     // Both completed futures have persisted their replies before errors escape.
     let left_result = left_result?;
     let right_result = right_result?;
+    for (index, result) in [&left_result, &right_result].iter().enumerate() {
+        if result["kind"] != "protocol_refusal" {
+            continue;
+        }
+        for (number, candidate) in prepared["legs"][index]["outputs"]
+            .as_array()
+            .context("frozen losing outputs")?
+            .iter()
+            .enumerate()
+        {
+            let identity =
+                VtxoId::from_str(candidate["coin_id"].as_str().context("losing output ID")?)?;
+            let body = protos::GetVtxoRequest {
+                vtxo_id: identity.to_bytes().to_vec(),
+            };
+            let wire = body.encode_to_vec();
+            let prefix = format!("reconcile-{index}-{number}");
+            save(&directory.join(format!("{prefix}-request.bin")), &wire)?;
+            let observed = match rpc.get_vtxo(body).await {
+                Ok(response) => {
+                    save(
+                        &directory.join(format!("{prefix}-metadata.json")),
+                        &serde_json::to_vec(&metadata(response.metadata()))?,
+                    )?;
+                    let bytes = response.into_inner().encode_to_vec();
+                    save(&directory.join(format!("{prefix}-response.bin")), &bytes)?;
+                    json!({"state":"present","code":"Ok","response_sha256":hash(&bytes)})
+                }
+                Err(status) => {
+                    let bytes = serde_json::to_vec(
+                        &json!({"code":format!("{:?}",status.code()),"message":status.message(),"details_hex":hex(status.details()),"metadata":metadata(status.metadata())}),
+                    )?;
+                    save(&directory.join(format!("{prefix}-error.json")), &bytes)?;
+                    json!({"state":if status.code()==tonic::Code::NotFound{"absent"}else{"unknown"},"code":format!("{:?}",status.code()),"response_sha256":hash(&bytes)})
+                }
+            };
+            let mut observed = observed.as_object().unwrap().clone();
+            observed.insert("coin_id".into(), json!(identity.to_string()));
+            observed.insert("rpc".into(), json!("GetVtxo"));
+            observed.insert("server_pubkey".into(), json!(req.expected_server_pubkey));
+            observed.insert("wire_sha256".into(), json!(hash(&wire)));
+            observed.insert("observed_at_ns".into(), json!(now_ns()));
+            evidence(
+                req,
+                "phase_coin_reconciliation",
+                json!({"trial_id":req.args["trial_id"],"observation":observed}),
+            )?;
+        }
+    }
+    if left_result["kind"] == "sdk_signed_successors"
+        || right_result["kind"] == "sdk_signed_successors"
+    {
+        // A completed SDK signature consumes the original input regardless of
+        // delivery. Keep the actual SDK wallet from showing stale spendable
+        // principal while the independent campaign audit remains unresolved.
+        wallet.mark_vtxos_as_spent(&input_ids).await?;
+        evidence(
+            req,
+            "phase_client_inputs_consumed",
+            json!({"trial_id":req.args["trial_id"],"movement_id":movement,"input_coin_ids":ids,"independent_audit_pending":true,"customer_traffic_credit":false}),
+        )?;
+    }
+    let successes = [&left_result, &right_result]
+        .into_iter()
+        .filter(|r| r["kind"] == "sdk_signed_successors")
+        .collect::<Vec<_>>();
+    let refused = [&left_result, &right_result]
+        .into_iter()
+        .filter(|r| r["kind"] == "protocol_refusal" && r["code"] == "InvalidArgument")
+        .count();
+    if successes.len() == 1 && refused == 1 {
+        let signed = successes[0]["outputs"]
+            .as_array()
+            .context("completed signed outputs")?;
+        let vtxos = signed
+            .iter()
+            .map(|v| {
+                Vec::<u8>::from_hex(v["signed_vtxo"].as_str().context("signed bytes")?)
+                    .map_err(anyhow::Error::new)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let registration = protos::RegisterVtxoTransactionsRequest { vtxos };
+        let bytes = registration.encode_to_vec();
+        save(&directory.join("winner-registration-request.bin"), &bytes)?;
+        let outcome = match rpc.register_vtxo_transactions(registration).await {
+            Ok(response) => {
+                save(
+                    &directory.join("winner-registration-metadata.json"),
+                    &serde_json::to_vec(&metadata(response.metadata()))?,
+                )?;
+                let bytes = response.into_inner().encode_to_vec();
+                save(&directory.join("winner-registration-response.bin"), &bytes)?;
+                json!({"kind":"registration_reply","response_sha256":hash(&bytes),"independent_current_state_required":true})
+            }
+            Err(status) => {
+                let bytes = serde_json::to_vec(
+                    &json!({"code":format!("{:?}",status.code()),"message":status.message(),"details_hex":hex(status.details()),"metadata":metadata(status.metadata())}),
+                )?;
+                save(&directory.join("winner-registration-error.json"), &bytes)?;
+                json!({"kind":"registration_unknown","response_sha256":hash(&bytes),"independent_current_state_required":true})
+            }
+        };
+        evidence(
+            req,
+            "phase_winner_registration_observed",
+            json!({"trial_id":req.args["trial_id"],"request_sha256":hash(&bytes),"outcome":outcome}),
+        )?;
+    }
     save(
         &directory.join("result.json"),
         &serde_json::to_vec(&json!([left_result.clone(), right_result.clone()]))?,
@@ -400,7 +607,7 @@ pub async fn register_saved(
     evidence(
         req,
         "phase_delayed_registration_frozen",
-        json!({"trial_id":req.args["trial_id"],"wire_sha256":hash(&wire),"saved_successor_ids":ids,"original_actor":frozen["actor"],"courier_actor":courier,"original_wallet_opened":false}),
+        json!({"trial_id":req.args["trial_id"],"intent_hash":req.args["intent_hash"],"wire_sha256":hash(&wire),"saved_successor_ids":ids,"original_actor":frozen["actor"],"courier_actor":courier,"original_wallet_opened":false}),
     )?;
     save(
         &directory.join("dispatched"),
@@ -414,7 +621,7 @@ pub async fn register_saved(
         }
         Err(status) => {
             let bytes = serde_json::to_vec(
-                &json!({"utc_unix_ms":now(),"code":format!("{:?}",status.code()),"message":status.message(),"details_hex":hex(status.details())}),
+                &json!({"utc_unix_ms":now(),"code":format!("{:?}",status.code()),"message":status.message(),"details_hex":hex(status.details()),"metadata":metadata(status.metadata())}),
             )?;
             save(&directory.join("error.json"), &bytes)?;
             json!({"kind":if status.is_expiry_settled(){"expiry_settled_refusal"}else if status.is_rejection(){"generic_refusal"}else{"transport_unknown"},"wire_sha256":hash(&wire),"response_sha256":hash(&bytes),"code":format!("{:?}",status.code()),"message_sha256":hash(status.message().as_bytes())})
