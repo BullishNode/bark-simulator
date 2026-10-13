@@ -7,6 +7,8 @@ them. No operation discovers an origin, funds a phone or opens an absent wallet.
 from __future__ import annotations
 
 import asyncio
+import base64
+import datetime as dt
 import hashlib
 import http.client
 import json
@@ -25,6 +27,7 @@ from .trace import readonly,verify_partition
 NOAH_COMMIT='8e68ba5c3f032d9fd55e2f2f1f2af1441395eff0'
 SECTIONS=('origin','source','chain','phones','forwarder','capital')
 MAX_RESPONSE=2*1024*1024
+MAX_PROTECTED=8*1024*1024
 SCHEMA='''CREATE TABLE IF NOT EXISTS noah_intent(
  id TEXT PRIMARY KEY,intent TEXT NOT NULL,state TEXT NOT NULL,payment_hash TEXT UNIQUE,
  proof TEXT,result TEXT,updated_at REAL NOT NULL);
@@ -154,8 +157,12 @@ class HTTPSNoahTransport:
             try:
                 connection.request(method,parsed.path+('?' +parsed.query if parsed.query else ''),encoded,headers)
                 response=connection.getresponse();raw=response.read(MAX_RESPONSE+1)
-                if response.status!=200 or len(raw)>MAX_RESPONSE:raise ValueError('owned backend request refused or bounded')
-                return decode_object(raw.decode())
+                headers=list(response.getheaders())
+                if response.status!=200 or len(raw)>MAX_RESPONSE:raise _PrivateHTTPError(response.status,headers,raw)
+                try:decoded=decode_object(raw.decode())
+                except (ValueError,UnicodeError,RuntimeError):raise _PrivateHTTPError(response.status,headers,raw) from None
+                return _ObservedReply(decoded,{'status':response.status,'headers':headers,
+                    'body_base64':base64.b64encode(raw).decode(),'representation':'exact HTTP application response body'})
             finally:connection.close()
         return await asyncio.to_thread(exchange)
 
@@ -166,8 +173,33 @@ class NativeInvoiceVerifier:
         self.path=Path(path);self.sha256=_hex(sha256)
     async def __call__(self,invoice,amount,metadata,network,now):
         if self.path.is_symlink() or _digest_bytes(self.path.read_bytes())!=self.sha256:raise ValueError('native verifier pin differs')
-        result=await json_command([str(self.path)],{'invoice':invoice,'amount_msat':amount,'metadata':metadata,'network':network,'now':int(now)},timeout=10)
-        public_payload(result);return result
+        observations=[]
+        def capture(stream):
+            def append(record):observations.append({'stream':stream,**{key:value for key,value in record.items() if key!='raw'},
+                'body_base64':base64.b64encode(record['raw']).decode()})
+            return append
+        try:
+            result=await json_command([str(self.path)],{'invoice':invoice,'amount_msat':amount,'metadata':metadata,'network':network,'now':int(now)},timeout=10,
+                on_stdout_raw=capture('stdout'),on_stderr_raw=capture('stderr'))
+        except Exception as error:raise _PrivateVerifierError(observations,type(error).__name__) from None
+        public_payload(result);return _ObservedReply(result,{'streams':observations,'representation':'actual native public checker output'})
+
+
+class _ObservedReply(dict):
+    def __init__(self,value,observation):super().__init__(value);self.observation=observation
+
+
+class _PrivateHTTPError(ValueError):
+    def __init__(self,status,headers,raw):
+        super().__init__('owned backend request refused or bounded')
+        self.observation={'status':status,'headers':headers,'body_base64':base64.b64encode(raw).decode(),
+            'truncated':len(raw)>MAX_RESPONSE,'representation':'actual HTTP error body'}
+
+
+class _PrivateVerifierError(ValueError):
+    def __init__(self,observations,kind):
+        super().__init__('native invoice compatibility check failed')
+        self.observation={'streams':observations,'error_type':kind}
 
 
 def _digest_bytes(value):return hashlib.sha256(value).hexdigest()
@@ -211,6 +243,41 @@ class NoahAdapter:
         if self.readiness()['status']!='ready_for_dispatch':raise ValueError('Noah readiness unqualified')
         if self.store.get_meta('paused'):raise ValueError('campaign paused')
 
+    def protect(self,kind,payload,*,actor=None,action_id=None):
+        """Retain private observations on this host; public records hold refs only."""
+        if re.fullmatch('[a-z][a-z0-9_.-]{0,79}',kind) is None:raise ValueError('invalid protected observation kind')
+        directory=self.store.root/'noah-protected';directory.mkdir(mode=0o700,exist_ok=True)
+        if directory.is_symlink() or directory.stat().st_mode&0o077:raise ValueError('protected artifact directory is not private')
+        utc=dt.datetime.fromtimestamp(self.clock(),dt.timezone.utc).isoformat()
+        document={'schema_version':1,'utc':utc,'kind':kind,'actor':actor,'action_id':action_id,'payload':payload}
+        encoded=canonical(document).encode()
+        if len(encoded)>MAX_PROTECTED:raise ValueError('protected observation exceeds bound')
+        path=directory/(uuid.uuid4().hex+'.json')
+        descriptor=os.open(path,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+        with os.fdopen(descriptor,'wb') as out:out.write(encoded);out.flush();os.fsync(out.fileno())
+        reference={'path':'noah-protected/'+path.name,'sha256':_digest_bytes(encoded),'bytes':len(encoded),
+            'utc':utc,'kind':kind,'actor':actor,'action_id':action_id}
+        self.store.event('noah_protected_artifact',reference)
+        return reference
+
+    def read_protected(self,reference,*,kind,actor=None,action_id=None):
+        """Only private auditors may dereference; never send the result to logs."""
+        if (not isinstance(reference,dict) or set(reference)!={'path','sha256','bytes','utc','kind','actor','action_id'}
+                or re.fullmatch(r'noah-protected/[0-9a-f]{32}\.json',reference.get('path','')) is None
+                or (reference['kind'],reference['actor'],reference['action_id'])!=(kind,actor,action_id)):
+            raise ValueError('protected reference context differs')
+        _hex(reference['sha256']);integer(reference['bytes'],'protected bytes',1)
+        path=self.store.root/reference['path']
+        if path.is_symlink() or path.parent.is_symlink() or path.stat().st_mode&0o077:raise ValueError('protected artifact replaced or exposed')
+        if reference['bytes']>MAX_PROTECTED or path.stat().st_size!=reference['bytes']:raise ValueError('protected artifact size differs')
+        encoded=path.read_bytes()
+        if _digest_bytes(encoded)!=reference['sha256']:raise ValueError('protected artifact hash differs')
+        document=decode_object(encoded.decode())
+        if (document['schema_version']!=1 or document['utc']!=reference['utc']
+                or (document['kind'],document['actor'],document['action_id'])!=(kind,actor,action_id)):
+            raise ValueError('protected artifact identity differs')
+        return document
+
     def _phone(self,actor,*,require_online=False):
         self._ready()
         found=[p for p in self.manifest['phones'] if p['actor']==actor]
@@ -223,37 +290,56 @@ class NoahAdapter:
                 raise ValueError('phone is absent; no wallet or private enrollment call allowed')
         return found[0]
 
-    async def _request(self,method,path,body=None,bearer=None):
+    async def _request(self,method,path,body=None,bearer=None,*,actor=None,action_id=None):
         self._ready()
         if self.transport is None:raise ValueError('owned transport not configured')
-        return await self.transport(method,self.manifest['origin']['https_origin']+path,body,bearer)
+        if isinstance(self.transport,HTTPSNoahTransport) and self.store.get_meta('mode')!='live':raise ValueError('synthetic state cannot contact an owned live backend')
+        url=self.manifest['origin']['https_origin']+path
+        reference=self.protect('http.request',{'method':method,'url':url,'body':body,'bearer':bearer,
+            'representation':'actual decoded outgoing protocol request'},actor=actor,action_id=action_id)
+        self.store.trace_capture('noah.http.request',{'artifact':reference},actor=actor,action_id=action_id)
+        try:response=await self.transport(method,url,body,bearer)
+        except Exception as error:
+            reference=self.protect('http.error',getattr(error,'observation',{'error_type':type(error).__name__,'available_error_text':str(error)}),actor=actor,action_id=action_id)
+            self.store.trace_capture('noah.http.error',{'artifact':reference},actor=actor,action_id=action_id)
+            raise
+        reference=self.protect('http.response',getattr(response,'observation',{'decoded_response':response,
+            'representation':'actual returned decoded protocol object; wire bytes unavailable'}),actor=actor,action_id=action_id)
+        self.store.trace_capture('noah.http.response',{'artifact':reference},actor=actor,action_id=action_id)
+        return response
 
     async def enroll(self,actor,signer,expo_token,*,expiry):
         phone=self._phone(actor,require_online=True);now=int(self.clock());integer(expiry,'mailbox expiry',now+1)
         if expiry>now+90*86400 or not isinstance(expo_token,str) or re.fullmatch(r'(Expo|Exponent)PushToken\[[A-Za-z0-9_-]{1,100}\]',expo_token) is None:
             raise ValueError('Expo token or mailbox expiry invalid')
-        challenge=await self._request('GET','/v0/getk1')
+        challenge=await self._request('GET','/v0/getk1',actor=actor)
         k1=challenge.get('k1');match=re.fullmatch(r'[0-9a-f]{64}_([0-9]{1,20})',k1 or '')
         if challenge.get('tag')!='login' or not match or not 0<=now-int(match[1])<=600:
             raise ValueError('invalid issued login challenge')
         # Private signer output is never passed to trace/event capture.
-        material=await signer(k1,expiry)
+        try:material=await signer(k1,expiry)
+        except Exception as error:
+            reference=self.protect('signer.error',{'error_type':type(error).__name__,'available_error_text':str(error)},actor=actor)
+            self.store.trace_capture('noah.signer.error',{'artifact':reference},actor=actor)
+            raise
+        reference=self.protect('signer.response',material,actor=actor)
+        self.store.trace_capture('noah.signer.response',{'artifact':reference},actor=actor)
         if (set(material)!={'key','sig','mailbox_id','expiry','encoded'} or material['key']!=phone['auth_pubkey']
                 or material['mailbox_id']!=phone['mailbox_id'] or material['expiry']!=expiry
                 or not isinstance(material['sig'],str) or re.fullmatch(r'30[0-9a-f]{136,144}',material['sig']) is None
                 or not isinstance(material['encoded'],str) or re.fullmatch(r'[0-9a-f]{210}',material['encoded']) is None):
             raise ValueError('private wallet enrollment material differs')
-        login=await self._request('POST','/v0/auth/login',{key:material[key] for key in ('key','sig')}|{'k1':k1})
+        login=await self._request('POST','/v0/auth/login',{key:material[key] for key in ('key','sig')}|{'k1':k1},actor=actor)
         token=login.get('access_token')
         if login.get('token_type')!='Bearer' or not isinstance(token,str) or not token or integer(login.get('expires_in_seconds'),'token lifetime',1)>259200:
             raise ValueError('login did not issue a bounded bearer')
         registered=await self._request('POST','/v0/register',{'ln_address':phone['username']+'@'+self.manifest['origin']['lnurl_domain'],
-            'ark_address':phone['ark_address'],'device_info':None},token)
+            'ark_address':phone['ark_address'],'device_info':None},token,actor=actor)
         if registered.get('status')!='OK' or registered.get('lightning_address')!=phone['username']+'@'+self.manifest['origin']['lnurl_domain']:
             raise ValueError('authenticated registration differs')
         for path,body in (('/v0/register_push_token',{'push_token':expo_token}),('/v0/mailbox/authorize',{key:material[key] for key in ('mailbox_id','expiry','encoded')})):
-            if (await self._request('POST',path,body,token)).get('success') is not True:raise ValueError('phone authorization not accepted')
-        info=await self._request('POST','/v0/user_info',{},token)
+            if (await self._request('POST',path,body,token,actor=actor)).get('success') is not True:raise ValueError('phone authorization not accepted')
+        info=await self._request('POST','/v0/user_info',{},token,actor=actor)
         if info.get('lightning_address')!=registered['lightning_address'] or info.get('user_status')!='active':raise ValueError('authenticated identity differs')
         self.store.event('noah_phone_enrolled',{'actor':actor,'auth_pubkey':phone['auth_pubkey'],'ark_address':phone['ark_address'],
             'mailbox_id':phone['mailbox_id'],'mailbox_grant_sha256':_digest(material['encoded']),'expiry':expiry,
@@ -272,9 +358,9 @@ class NoahAdapter:
         if session is None or session[1]<=self.clock():raise ValueError('private bearer expired or absent; explicit real login required')
         with self.store.transaction():
             self.store.db.execute("UPDATE noah_push SET state='submission_started' WHERE actor=? AND transaction_id=?",(actor,body['transaction_id']))
-            self.store._event('noah_phone_submission_started',{'actor':actor,'transaction_id':body['transaction_id'],
+            self.store._event('noah_phone_submission_started',{'actor':actor,'transaction_ref_sha256':_digest(body['transaction_id']),
                 'invoice_sha256':row['invoice_digest'],'payment_hash':row['payment_hash']})
-        return await self._request('POST','/v0/lnurlp/submit_invoice',body,session[0])
+        return await self._request('POST','/v0/lnurlp/submit_invoice',body,session[0],actor=actor)
 
     def intent(self,identifier):
         row=self.store.db.execute('SELECT * FROM noah_intent WHERE id=?',(identifier,)).fetchone()
@@ -333,7 +419,7 @@ class NoahAdapter:
             self.store._event('noah_payment_intent',{'intent_id':identifier,**intended})
         path='/.well-known/lnurlp/'+phone['username'];query={} if ark_server is None else {'ark':ark_server}
         try:
-            first=await self._request('GET',path+('?' +urlencode(query) if query else ''))
+            first=await self._request('GET',path+('?' +urlencode(query) if query else ''),actor=payer,action_id=identifier)
             expected=self.manifest['origin']['https_origin']+path
             if first.get('callback')!=expected or first.get('tag')!='payRequest':raise ValueError('same owned LNURL callback required')
             if not integer(first.get('minSendable'),'minimum msat',1)<=amount_msat<=integer(first.get('maxSendable'),'maximum msat',1):
@@ -348,7 +434,7 @@ class NoahAdapter:
             self.store.event('noah_lnurl_parameters',{'intent_id':identifier,'metadata':metadata,'metadata_sha256':_digest(metadata),
                 'callback':expected,'min_sendable_msat':first['minSendable'],'max_sendable_msat':first['maxSendable'],'observed_at':self.clock()})
             self._state(identifier,'invoice_requested')
-            reply=await self._request('GET',path+'?'+urlencode({'amount':amount_msat,**query}))
+            reply=await self._request('GET',path+'?'+urlencode({'amount':amount_msat,**query}),actor=payer,action_id=identifier)
             if ark_server is not None:
                 if first.get('ark')!=phone['ark_address'] or reply.get('ark')!=phone['ark_address'] or reply.get('pr')!='':
                     raise ValueError('negotiated Ark recipient differs')
@@ -356,7 +442,13 @@ class NoahAdapter:
                 return {**result,'transport':'ark_lnurl'}
             invoice=reply.get('pr')
             if not isinstance(invoice,str) or not invoice or len(invoice.encode())>65536 or self.invoice_verifier is None:raise ValueError('actual invoice verifier required')
-            proof=await self.invoice_verifier(invoice,amount_msat,metadata,'signet',self.clock())
+            try:proof=await self.invoice_verifier(invoice,amount_msat,metadata,'signet',self.clock())
+            except Exception as error:
+                reference=self.protect('invoice.verifier.error',getattr(error,'observation',{'error_type':type(error).__name__,'available_error_text':str(error)}),actor=payer,action_id=identifier)
+                self.store.trace_capture('noah.invoice.verifier.error',{'artifact':reference},actor=payer,action_id=identifier)
+                raise ValueError('native invoice compatibility failed') from None
+            reference=self.protect('invoice.verifier.response',getattr(proof,'observation',{'actual_decoded_proof':proof}),actor=payer,action_id=identifier)
+            self.store.trace_capture('noah.invoice.verifier.response',{'artifact':reference},actor=payer,action_id=identifier)
             public_payload(proof)
             expected_proof={'amount_msat':amount_msat,'network':'signet','metadata_sha256':_digest(metadata),
                 'invoice_sha256':_digest(invoice),'signature_checked':True,'node_pubkey':self.manifest['chain']['lightning_node_pubkey']}
@@ -405,9 +497,12 @@ class NoahAdapter:
         request=self.payment_request(identifier)
         self._state(identifier,'dispatched',result={'payment_hash':row['payment_hash'],'economic_retry_allowed':False})
         try:
+            self.protect('native.request',request,actor=row['intent']['payer'],action_id=identifier)
             response=await submit(request)
+            self.protect('native.response',response,actor=row['intent']['payer'],action_id=identifier)
             if response.get('payment_hash')!=row['payment_hash']:raise ValueError('native payment hash differs')
-        except Exception:
+        except Exception as error:
+            self.protect('native.error',{'error_type':type(error).__name__,'available_error_text':str(error)},actor=row['intent']['payer'],action_id=identifier)
             return self._state(identifier,'outcome_unknown',result={'payment_hash':row['payment_hash'],'reason':'payment reply absent or invalid; only same-hash reconciliation permitted'})
         # ACK/paid flag is not a signed recipient outcome or independent fee proof.
         return self._state(identifier,'outcome_unknown',result={'payment_hash':row['payment_hash'],'native_ack':True,'reason':'independent receipt/refund and fee proof required'})
@@ -415,7 +510,12 @@ class NoahAdapter:
     async def reconcile(self,identifier,query_status):
         row=self.intent(identifier)
         if row['state'] not in {'dispatched','outcome_unknown'} or not row['payment_hash']:return row
-        result=await query_status(row['payment_hash'])
+        self.protect('native.status.request',{'payment_hash':row['payment_hash'],'read_only':True},actor=row['intent']['payer'],action_id=identifier)
+        try:result=await query_status(row['payment_hash'])
+        except Exception as error:
+            self.protect('native.status.error',{'error_type':type(error).__name__,'available_error_text':str(error)},actor=row['intent']['payer'],action_id=identifier)
+            raise
+        self.protect('native.status.response',result,actor=row['intent']['payer'],action_id=identifier)
         if not isinstance(result,dict) or result.get('payment_hash')!=row['payment_hash']:raise ValueError('status response is for another immutable hash')
         state=result.get('state')
         if state not in {'pending','succeeded','failed','unknown'}:raise ValueError('unsupported independent payment state')
@@ -423,38 +523,64 @@ class NoahAdapter:
             'qualification':'node status alone does not prove intended recipient collection/refund, final ownership or fees'})
         return row
 
-    async def consume_push(self,actor,envelope,expo_token,*,invoice,claim,submit=None):
+    async def consume_push(self,actor,envelope,expo_token,*,invoice,claim,submit=None,delivery_bytes=None):
+        if not isinstance(actor,str) or re.fullmatch('noah-phone-[A-Za-z0-9_-]{1,64}',actor) is None:raise ValueError('invalid declared phone label')
+        if delivery_bytes is None:
+            payload={'decoded_original':envelope,'representation':'actual decoded original transport object; wire bytes unavailable'}
+        else:
+            if not isinstance(delivery_bytes,bytes) or len(delivery_bytes)>MAX_RESPONSE:raise ValueError('bounded original delivery bytes required')
+            payload={'body_base64':base64.b64encode(delivery_bytes).decode(),'representation':'exact original delivery body'}
+        reference=self.protect('original.push',payload,actor=actor)
+        self.store.trace_capture('noah.original.push',{'artifact':reference},actor=actor)
+        if delivery_bytes is not None and decode_object(delivery_bytes.decode())!=envelope:raise ValueError('original delivery body differs')
         self._phone(actor,require_online=True)
         data=_expo_data(envelope,expo_token);kind=data.get('notification_type')
         if kind=='lightning_invoice_request':
             transaction=data['transaction_id'];amount=data['amount']
         elif kind=='lightning_claim_request':transaction='claim-'+data['payment_hash'];amount=data['amount_sat']*1000
         else:raise ValueError('original push requires separate qualified handler')
-        raw=envelope['data'].encode() if isinstance(envelope['data'],str) else canonical(data).encode()
-        reference=self.store.trace_capture('noah.original.push',{'actor':actor,'data':data,'payload_sha256':_digest_bytes(raw)},actor=actor,raw=raw)
-        if reference is None:raise ValueError('original push capture unavailable')
         row=self.store.db.execute('SELECT * FROM noah_push WHERE actor=? AND transaction_id=?',(actor,transaction)).fetchone()
         if row:
             if row['amount_msat']!=amount:raise ValueError('original push immutable amount changed')
             return {'state':row['state'],'payment_hash':row['payment_hash'],'outcome_verified':False}
         with self.store.transaction():
             self.store.db.execute("INSERT INTO noah_push VALUES (?,?,?,'dispatched',NULL,NULL)",(actor,transaction,amount))
-            self.store._event('noah_original_push_intent',{'actor':actor,'notification_type':kind,'transaction_id':transaction,'amount_msat':amount,'original_payload':reference})
+            self.store._event('noah_original_push_intent',{'actor':actor,'notification_type':kind,'transaction_ref_sha256':_digest(transaction),'amount_msat':amount,'original_payload':reference})
         async def freeze_invoice(value):
-            created=await invoice(value);payment_hash=_hex(created.get('payment_hash'));actual=created.get('invoice')
+            try:created=await invoice(value)
+            except Exception as error:
+                self.protect('phone.invoice.error',{'error_type':type(error).__name__,'available_error_text':str(error)},actor=actor)
+                raise
+            invoice_reference=self.protect('phone.invoice.response',created,actor=actor)
+            payment_hash=_hex(created.get('payment_hash'));actual=created.get('invoice')
             if not isinstance(actual,str) or not actual:raise ValueError('actual phone invoice missing')
             digest=_digest(actual)
             with self.store.transaction():
                 self.store.db.execute('UPDATE noah_push SET payment_hash=?,invoice_digest=? WHERE actor=? AND transaction_id=?',(payment_hash,digest,actor,transaction))
-                self.store._event('noah_phone_invoice_created',{'actor':actor,'transaction_id':transaction,'amount_msat':amount,'payment_hash':payment_hash,'invoice_sha256':digest})
+                self.store._event('noah_phone_invoice_created',{'actor':actor,'transaction_ref_sha256':_digest(transaction),'amount_msat':amount,'payment_hash':payment_hash,'invoice_sha256':digest,'artifact':invoice_reference})
             return created
         if submit is None:
             async def submit(body):return await self.submit_invoice(actor,body)
-        try:result=await consume_expo_push(envelope,expo_token,invoice=freeze_invoice,submit=submit,claim=claim)
+        async def observed_submit(body):
+            self.protect('phone.submission.request',body,actor=actor)
+            try:result=await submit(body)
+            except Exception as error:
+                self.protect('phone.submission.error',{'error_type':type(error).__name__,'available_error_text':str(error)},actor=actor)
+                raise
+            self.protect('phone.submission.response',result,actor=actor)
+            return result
+        async def observed_claim():
+            try:result=await claim()
+            except Exception as error:
+                self.protect('phone.claim.error',{'error_type':type(error).__name__,'available_error_text':str(error)},actor=actor)
+                raise
+            self.protect('phone.claim.response',result,actor=actor)
+            return result
+        try:result=await consume_expo_push(envelope,expo_token,invoice=freeze_invoice,submit=observed_submit,claim=observed_claim)
         except Exception:result={'state':'outcome_unknown','outcome_verified':False}
         with self.store.transaction():
             self.store.db.execute('UPDATE noah_push SET state=? WHERE actor=? AND transaction_id=?',(result['state'],actor,transaction))
-            self.store._event('noah_original_push_result',{'actor':actor,'transaction_id':transaction,**result})
+            self.store._event('noah_original_push_result',{'actor':actor,'transaction_ref_sha256':_digest(transaction),**result})
         return result
 
 
