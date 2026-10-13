@@ -143,3 +143,12 @@ class PhaseTrialTests(unittest.TestCase):
     def test_race_winner_cannot_coexist_with_original_payout(self):
         trial=self.winning_race();self.store.db.execute('INSERT INTO checked_settlement VALUES (?,?,?,?,?,?)',(self.coin,'ea'*32,'actor-11','0014'+'77'*20,5000,'{}'))
         with self.assertRaises(InvariantError):self.controller.judge(trial)
+    def test_sequential_submissions_are_not_qualified_as_a_race(self):
+        trial=self.winning_race();self.store.db.execute('DELETE FROM phase_reply WHERE trial_id=?',(trial,))
+        self.controller.reply(trial,'left',{'kind':'sdk_signed_successors','wire_sha256':'a1'*32,'submitted_at_ms':100,'reply_at_ms':110})
+        self.controller.reply(trial,'right',{'kind':'protocol_refusal','wire_sha256':'a2'*32,'code':'InvalidArgument','rejected_coin_ids':[self.coin],'submitted_at_ms':120,'reply_at_ms':130})
+        self.assertEqual('pending',self.controller.judge(trial)['state'])
+    def test_full_signed_ancestry_with_unrelated_prepared_spends_does_not_create_incident(self):
+        trial=self.trial();self.prepared(trial)
+        for prefix,actor in [('d1','actor-04'),('d2','actor-06')]:self.add_output(prefix*32+':0',self.keys[actor],[self.coin])
+        self.assertEqual('pending',self.controller.judge(trial)['state']);self.assertIsNone(self.store.get_meta('paused'))
