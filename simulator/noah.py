@@ -107,7 +107,7 @@ def _checked_manifest(manifest,*,enrollment=False):
         raise ValueError('fork server and SDK pins differ')
     phones=manifest['phones']
     if not isinstance(phones,list) or not 1<=len(phones)<=200:raise ValueError('bounded declared phones required')
-    actors=set();names=set();addresses=set()
+    actors=set();names=set();addresses=set();auth_keys=set();mailboxes=set();fallbacks=set()
     for phone in phones:
         if (set(phone)!={'actor','username','auth_pubkey','ark_address','mailbox_id','fallback_script'}
                 or re.fullmatch('noah-phone-[A-Za-z0-9_-]{1,64}',phone['actor']) is None
@@ -116,8 +116,11 @@ def _checked_manifest(manifest,*,enrollment=False):
         if not isinstance(phone['ark_address'],str) or not phone['ark_address']:raise ValueError('registered Ark destination missing')
         if not isinstance(phone['fallback_script'],str) or re.fullmatch('[0-9a-f]{2,20000}',phone['fallback_script']) is None:
             raise ValueError('fallback script missing')
-        if phone['actor'] in actors or phone['username'] in names or phone['ark_address'] in addresses:raise ValueError('duplicate phone identity or destination')
+        if (phone['actor'] in actors or phone['username'] in names or phone['ark_address'] in addresses
+                or phone['auth_pubkey'] in auth_keys or phone['mailbox_id'] in mailboxes
+                or phone['fallback_script'] in fallbacks):raise ValueError('duplicate phone identity or destination')
         actors.add(phone['actor']);names.add(phone['username']);addresses.add(phone['ark_address'])
+        auth_keys.add(phone['auth_pubkey']);mailboxes.add(phone['mailbox_id']);fallbacks.add(phone['fallback_script'])
     forwarder=manifest['forwarder']
     if type(forwarder['enabled']) is not bool or type(forwarder['ready']) is not bool:raise ValueError('forwarding mode must be explicit')
     if forwarder['enabled']:
