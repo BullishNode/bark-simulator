@@ -17,7 +17,7 @@ def queue_rotation(store,config,actor,new_script):
     record=store.db.execute('SELECT * FROM owner_record WHERE actor=? ORDER BY seq DESC LIMIT 1',(actor,)).fetchone()
     if record is None:raise EvidenceGap('independently verified original signed record missing')
     if record['script']==new_script:raise EvidenceGap('rotation must declare another owned destination')
-    payouts=[dict(r) for r in store.db.execute('SELECT coin_id,txid,actor,script,amount_sat FROM checked_settlement WHERE actor=? AND script=? ORDER BY coin_id',(actor,record['script']))]
+    payouts=[dict(r) for r in store.db.execute('SELECT coin_id,txid,actor,script,amount_sat FROM checked_settlement WHERE actor=? AND script=? AND amount_sat>0 ORDER BY coin_id LIMIT 16',(actor,record['script']))]
     if not payouts:raise EvidenceGap('rotation requires a checked payout to the original destination')
     intent={'schema_version':1,'actor':actor,'server_pubkey':config.expected_server_pubkey,'network':'signet',
         'mailbox':record['mailbox'],'old_script':record['script'],'old_sequence':record['seq'],

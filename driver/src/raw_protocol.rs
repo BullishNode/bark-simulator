@@ -54,6 +54,7 @@ fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
         .open(path)?;
     file.write_all(bytes)?;
     file.sync_all()?;
+    fs::File::open(path.parent().context("private artifact parent")?)?.sync_all()?;
     Ok(())
 }
 fn scope(wallet_dir: &Path, req: &Request) -> Result<PathBuf> {
@@ -64,6 +65,7 @@ fn scope(wallet_dir: &Path, req: &Request) -> Result<PathBuf> {
     );
     fs::create_dir_all(&parent)?;
     fs::set_permissions(&parent, fs::Permissions::from_mode(0o700))?;
+    fs::File::open(wallet_dir)?.sync_all()?;
     let path = parent.join(hashed(req.action_id.as_bytes()));
     ensure!(
         !path.is_symlink(),
@@ -105,6 +107,7 @@ fn stage(
         "request_hash":request_hash,"wire_encoding":if rpc.starts_with("SDK."){ "sdk_intent_json" }else{ "protobuf" },"intent":intent,"automatic_retry":false}))?,
     )?;
     fs::File::open(path)?.sync_all()?;
+    fs::File::open(path.parent().context("private preparation parent")?)?.sync_all()?;
     evidence(
         req,
         "raw_protocol_request_frozen",
@@ -1004,8 +1007,21 @@ pub async fn rotate(
     // The pinned SDK persists the proposed owned destination before registration
     // and bounds its reconciliation loop at three requests. Never reserve a new
     // address or repeat this method after a lost reply.
-    wallet.set_fallback_destination(script.clone()).await?;
+    let registered = wallet.set_fallback_destination(script.clone()).await;
+    private_write(
+        &path.join("sdk-operation.json"),
+        &serde_json::to_vec(
+            &json!({"utc_unix_ms":millis(),"sdk_method":"set_fallback_destination","ok":registered.is_ok(),"error":registered.as_ref().err().map(|e|format!("{e:#}")),"raw_inner_rpc_capture":"unavailable"}),
+        )?,
+    )?;
+    registered?;
     let after = wallet.fallback_destination().await?;
+    private_write(
+        &path.join("sdk-after-state.json"),
+        &serde_json::to_vec(
+            &json!({"utc_unix_ms":millis(),"script":hex(after.spk.as_bytes()),"sequence":after.seq}),
+        )?,
+    )?;
     ensure!(
         after.spk == script && after.seq > before.seq,
         InvariantFailure("rotation SDK returned another script or non-increasing sequence")
