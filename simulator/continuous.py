@@ -8,6 +8,7 @@ from .model import InvariantError,canonical,integer
 from .raw_cases import next_case
 from .recycling import plan as recycle_plan
 from .renewal import queue_board as queue_owner_renewal
+from .store import CampaignPaused
 
 # These are ordinary users becoming permanently silent, separate from protocol
 # attackers. The next cohort repeats the same independently seeded profiles.
@@ -106,6 +107,10 @@ def schedule(store,config,snapshot):
     decisions={}
     try:
         _schedule(store,config,snapshot,decisions)
+    except CampaignPaused:
+        # A declared pause may commit after the read guard. Keep the process
+        # and preparation handles while the transactional queue fence holds.
+        return
     finally:
         store.event('scheduler_tick',{'actors':list(decisions.values()),
             'pause':store.get_meta('paused'),

@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS observation(
 """
 
 
+class CampaignPaused(ValueError):
+    """An atomic queue fence, including pauses committed by another process."""
+
+
 class Store:
     def __init__(self, root: Path, mode: str, fee_budget_sat: int | None = None):
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -145,7 +149,7 @@ class Store:
         due = at if due_at is None else timestamp(due_at, "action due time")
         with (nullcontext() if self.db.in_transaction else self.transaction()):
             if self.get_meta("paused"):
-                raise ValueError("campaign paused after an incident")
+                raise CampaignPaused("campaign dispatch paused")
             if self.get_meta("fee_budget_sat") is None:
                 raise ValueError("an explicit fee budget is required for actions")
             used = self.db.execute("SELECT COALESCE(SUM(COALESCE(actual_fee_sat,fee_reservation_sat)),0) FROM action WHERE state!='canceled'").fetchone()[0]

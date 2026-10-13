@@ -271,7 +271,6 @@ class Engine:
                     await collect_operator_scripts(self.store,self.config,chain)
                     chain.consumer='settlements'
                     await collect_settlements(self.store,chain)
-                    if self.recovery: await self.recovery.tick()
                     chain.consumer='fees'
                     await collect_fees(self.store,chain)
                     chain.consumer='recycling'
@@ -282,6 +281,14 @@ class Engine:
                 self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','ownership contradiction')")
             except Exception as error:
                 self.store.event("inventory_gap",{"reason":type(error).__name__})
+            if self.recovery:
+                try:
+                    await self.recovery.tick()
+                except InvariantError as error:
+                    self.store.event("ownership_incident",{"reason":str(error)})
+                    self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','ownership contradiction')")
+                except Exception as error:
+                    self.store.event("recovery_gap",{"reason":type(error).__name__})
             if self.store.trace is not None:self.store.trace.archive()
             observe(self.store)
             if once or last_report is None or self.store.get_meta("paused") or time.monotonic() - last_report >= 300:
