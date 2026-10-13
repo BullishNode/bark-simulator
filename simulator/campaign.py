@@ -168,8 +168,14 @@ def collect_ark_receipts(store: Store, now: float | None = None):
         credited.add(action['id']); claimed.add((recipient, movement['id']))
 
 
-def traffic_ready(store: Store, now: float | None = None) -> bool:
+def traffic_ready(store: Store, now: float | None = None, financial_pins=None) -> bool:
     """Both verified customer rails must remain inside their own recent windows."""
+    if store.get_meta('final_financial_epoch') is not None:
+        from . import final_campaign
+        try:
+            return final_campaign.traffic_ready(store, time.time() if now is None else now, financial_pins)
+        except (ValueError, KeyError):
+            return False
     started = store.get_meta("real_campaign_started")
     if started is None:
         return False
@@ -213,6 +219,7 @@ class CampaignClock:
         self.maximum_gap = maximum_gap_seconds
         self.previous_time = None
         self.previous_healthy = False
+        self.financial_epoch = store.get_meta('final_financial_epoch')
         encoded = canonical(asdict(plan))
         with store.transaction():
             existing = store.get_meta("ramp_plan")
@@ -233,9 +240,19 @@ class CampaignClock:
                     "lightning_window_seconds":LIGHTNING_WINDOW_SECONDS,
                     "ark_requires_signed_recipient_receipt":True, "legacy_history_preserved":True})
 
-    def tick(self, *, healthy: bool, real_campaign_started: bool):
+    def tick(self, *, healthy: bool, real_campaign_started: bool, financial_pins=None):
         now = self.clock()
+        current_epoch = self.store.get_meta('final_financial_epoch')
+        if current_epoch != self.financial_epoch:
+            self.previous_time, self.previous_healthy = None, False
+            self.financial_epoch = current_epoch
         eligible = healthy and real_campaign_started and not self.store.get_meta("paused")
+        if self.store.get_meta('final_financial_epoch') is not None:
+            from . import final_campaign
+            try:
+                eligible = eligible and final_campaign.pins_match(self.store, financial_pins)
+            except (ValueError, KeyError):
+                eligible = False
         delta = 0
         if self.previous_time is not None and self.previous_healthy and eligible:
             elapsed = now - self.previous_time

@@ -292,13 +292,15 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
             "active_seconds":float(store.get_meta("qualified_campaign_active_seconds")
                 if store.get_meta("qualified_campaign_active_seconds") is not None
                 else store.get_meta("campaign_active_seconds") or "0"),
-            "active_seconds_scope":"qualified dual-rail clock" if store.get_meta("qualified_campaign_active_seconds") is not None
+            "active_seconds_scope":"final financial epoch; independent Ark/internal/external Lightning" if store.get_meta("final_financial_epoch") is not None else "qualified dual-rail exploratory clock" if store.get_meta("qualified_campaign_active_seconds") is not None
                 else "legacy clock; qualification rule not migrated",
             "qualified_campaign_active_seconds":float(store.get_meta("qualified_campaign_active_seconds"))
                 if store.get_meta("qualified_campaign_active_seconds") is not None else None,
             "legacy_clock_seconds":float(store.get_meta("legacy_clock_seconds") or "0"),
             "campaign_active_seconds":float(store.get_meta("campaign_active_seconds") or "0"),
-            "ramp_applied":store.get_meta("ramp_applied")=="true"},
+            "ramp_prepared":store.get_meta("ramp_applied")=="true",
+            "ramp_applied":store.get_meta("ramp_applied")=="true" if store.get_meta('final_financial_epoch') is None else _final_ramp_status(store).get('qualified',False),
+            "final_epoch":_final_campaign_status(store)},
         "payout_fees":payout_fee_summary, "payout_recipient_fees_sat": fees[0], "payout_operator_change_fees_sat": fees[1],
         "fee_budget_sat": int(store.get_meta("fee_budget_sat") or 0),
         "known_action_fees_sat": known_fees, "unreconciled_action_fee_reserves_sat": unresolved,
@@ -413,3 +415,19 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
     os.replace(temp, store.root / "capital.csv")
     store.export_events(full=full)
     return result
+
+
+def _final_ramp_status(store):
+    from .final_campaign import ramp_status
+    try:return ramp_status(store)
+    except (ValueError,KeyError):return {'state':'unqualified','qualified':False}
+
+
+def _final_campaign_status(store):
+    from .final_campaign import epoch
+    try:value=epoch(store)
+    except (ValueError,KeyError):return {'state':'unqualified','active_seconds':0}
+    if value is None:return {'state':'exploratory','active_seconds':0}
+    return {'state':'declared','id':value['id'],'pins':value['pins'],
+            'active_seconds':float(store.get_meta('qualified_campaign_active_seconds') or '0'),
+            'ramp':_final_ramp_status(store)}

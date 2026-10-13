@@ -404,6 +404,7 @@ class Engine:
         last_report = None
         while True:
             ready=False
+            snapshot={}
             try:
                 snapshot = await self.observe()
             except Exception as error:
@@ -434,7 +435,10 @@ class Engine:
                     await self.dispatch_batch()
             if self.campaign_clock:
                 collect_ark_receipts(self.store)
-                self.campaign_clock.tick(healthy=ready and lightning_ready(snapshot) and traffic_ready(self.store),real_campaign_started=self.store.get_meta("real_campaign_started") is not None)
+                if self.store.get_meta('final_financial_epoch') is not None:
+                    from .final_campaign import collect_traffic
+                    collect_traffic(self.store,snapshot.get('financial_pins'))
+                self.campaign_clock.tick(healthy=ready and lightning_ready(snapshot) and traffic_ready(self.store,financial_pins=snapshot.get("financial_pins")),real_campaign_started=self.store.get_meta("real_campaign_started") is not None,financial_pins=snapshot.get("financial_pins"))
             try:
                 if self.config.active:
                     await collect_public_proofs(self.store,self.config)
