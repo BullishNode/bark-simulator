@@ -35,7 +35,7 @@ from .entitlements import record_submitted as record_delegated, collect as colle
 from .operator_scripts import collect as collect_operator_scripts
 
 OPERATIONS = {"create", "snapshot", "sync", "address", "board", "send_arkoor", "refresh",
-              "refresh_delegated", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES)
+              "refresh_delegated", "refresh_scheduled", "fallback_rotate", "exit", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES)
 
 
 def catalog():
@@ -167,6 +167,10 @@ class Engine:
             self.store.finish(action["id"], "outcome_unknown", {"reason": "driver response identity mismatch"})
         elif response.get("actual_fee_sat") is not None and (type(response["actual_fee_sat"]) is not int or response["actual_fee_sat"] < 0):
             self.store.finish(action["id"], "outcome_unknown", {"reason": "invalid fee evidence"})
+        elif response.get("status") == "ok" and action["operation"] == "exit":
+            # Submission/CSV progress is not confirmed recovered-output proof.
+            # Continue only the original frozen action and cap; never replay start.
+            self.store.finish(action["id"],"outcome_unknown",response)
         elif response.get("status") == "ok":
             verified = None
             try:

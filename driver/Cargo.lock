@@ -311,6 +311,7 @@ dependencies = [
  "bdk_wallet",
  "bip39",
  "bitcoin",
+ "chrono",
  "env_logger",
  "serde",
  "serde_json",

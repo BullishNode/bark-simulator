@@ -122,9 +122,13 @@ def record_actor_result(store: Store, actor: str, operation: str, data: dict):
             details["board_submitted"] = True
             details["snapshot_at"] = 0
             details["needs_sync"] = True
-        elif operation in {"send_arkoor","refresh","refresh_delegated","offboard_all","pay_invoice"}:
+        elif operation in {"send_arkoor","refresh","refresh_delegated","refresh_scheduled","offboard_all","pay_invoice"}:
             details["snapshot_at"] = 0
             details["needs_sync"] = True
+        elif operation == "fallback_rotate":
+            if data.get("exact_server_record_match") is not True:raise ValueError("fallback rotation is not confirmed")
+            integer(data["fallback_seq"],"fallback sequence")
+            details.update(fallback_script=data["fallback_script"],fallback_seq=data["fallback_seq"],snapshot_at=0)
         elif operation == "invoice":
             details["latest_invoice"] = data["invoice"]
             details["invoice_at"] = time.time()

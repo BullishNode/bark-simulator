@@ -30,7 +30,7 @@ pub async fn enrollment_material(wallet:&Wallet,k1:&str,expiry_unix:i64,expected
     ensure!(key.public_key().to_string()==expected_auth_pubkey && address.policy().user_pubkey()==key.public_key(),
         "Noah authentication key differs from linked index0");
     let expiry=chrono::DateTime::from_timestamp(expiry_unix,0).context("mailbox expiry out of range")?;
-    let grant=wallet.mailbox_authorization(expiry);
+    let grant=wallet.mailbox_authorization(expiry.with_timezone(&chrono::Local));
     ensure!(grant.verify() && grant.mailbox().serialize_hex()==expected_mailbox_id,"Noah mailbox identity differs");
     let hash=bitcoin::sign_message::signed_msg_hash(k1);
     let signature=SECP.sign_ecdsa(&Message::from_digest(hash.to_byte_array()),&key.secret_key());

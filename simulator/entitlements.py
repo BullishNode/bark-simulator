@@ -109,7 +109,7 @@ def _inputs(store, actor, proposal, outputs, fee):
 
 
 def _record(store, action):
-    if (action['operation'] != 'refresh_delegated' or action['state'] not in
+    if (action['operation'] not in {'refresh_delegated','refresh_scheduled'} or action['state'] not in
             {'completed','dispatched','outcome_unknown'}):
         return None
     data = json.loads(action['result'] or '{}').get('data',{})
@@ -144,7 +144,7 @@ def _record(store, action):
 def record_submitted(store, action_id):
     """Completion hook: accounting gaps never turn a valid SDK reply unknown."""
     action = store.db.execute('SELECT * FROM action WHERE id=?',(action_id,)).fetchone()
-    if action is None or action['operation'] != 'refresh_delegated':return
+    if action is None or action['operation'] not in {'refresh_delegated','refresh_scheduled'}:return
     with (nullcontext() if store.db.in_transaction else store.transaction()):
         try:
             _record(store,action)
@@ -395,7 +395,7 @@ def _reconcile(store, action, row):
 
 def collect(store, limit=4):
     """Advance persisted evidence only. Unknown/dispatched actions retain fees."""
-    rows = store.db.execute("""SELECT * FROM action WHERE operation='refresh_delegated'
+    rows = store.db.execute("""SELECT * FROM action WHERE operation IN ('refresh_delegated','refresh_scheduled')
         AND state IN ('completed','dispatched','outcome_unknown') ORDER BY id""").fetchall()
     after = store.get_meta('delegated_entitlement_cursor') or ''
     rows = [r for r in rows if r['id']>after] + [r for r in rows if r['id']<=after]

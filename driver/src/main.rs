@@ -1,3 +1,8 @@
+mod exit;
+mod native_intent;
+mod fallback_rotation;
+mod scheduled_refresh;
+
 use std::{
     fs,
     io::{self, Read, Write},
@@ -147,6 +152,12 @@ struct Request {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn verify_exit_budget(frozen:u64,requested:u64,reserved:&[u64],next:u64)->Result<()> {
+    ensure!(frozen>0 && frozen==requested,"exit fee cap changed");
+    let used=reserved.iter().try_fold(0u64,|sum,fee|sum.checked_add(*fee)).context("exit fee sum overflow")?;
+    ensure!(used.checked_add(next).context("exit fee sum overflow")?<=frozen,"exit fee cap exhausted");Ok(())
 }
 
 fn verify_recycle_input(psbt:&bitcoin::Psbt,source:&Value)->Result<()> {
@@ -408,7 +419,16 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         "wallet server identity mismatch"
     );
     observed_wallet_operation(async {
+    if exit::has_unfinished_intent(path)? && !matches!(req.operation.as_str(),"exit"|"snapshot") {
+        return Ok(json!({"blocked":true,"reason":"original exit intent owns this wallet; only explicit same-intent continuation or snapshot allowed","actual_fee_sat":0}));
+    }
+    if native_intent::has_unresolved_rotation(path)? && !matches!(req.operation.as_str(),"fallback_rotate"|"snapshot") {
+        return Ok(json!({"blocked":true,"reason":"frozen fallback rotation needs exact reconciliation","actual_fee_sat":0}));
+    }
     match req.operation.as_str() {
+        "exit" => exit::execute(&wallet,&mut rpc,path,req,network).await,
+        "fallback_rotate" => fallback_rotation::execute(&wallet,&mut rpc,path,req,network).await,
+        "refresh_scheduled" => scheduled_refresh::execute(&wallet,path,req).await,
         "create" => {
             let fallback = wallet.fallback_destination().await?;
             let onchain = wallet.onchain().context("missing onchain wallet")?;
