@@ -185,6 +185,30 @@ class Controller:
             for leg in legs:self.store.db.execute('INSERT OR IGNORE INTO phase_preparation VALUES (?,?,?,?)',(trial,leg['leg_id'],digest(leg),canonical(leg)))
             self.store._event('phase_delegated_preparations_frozen',{'trial_id':trial,'legs':legs,'live_qualified':False})
         return prepared
+    def captured_legs(self,trial,action_id,prepared,event):
+        public_payload(prepared);intent=self.intent(trial)
+        if self.row(trial)['release_action']!=action_id or prepared.get('trial_id')!=trial or prepared.get('intent_hash')!=intent['intent_hash']:
+            raise InvariantError('native checkpoint differs from released action/intent')
+        legs=prepared.get('legs',[])
+        for leg in legs:
+            old=self.store.db.execute('SELECT digest FROM phase_preparation WHERE trial_id=? AND leg_id=?',(trial,leg['leg_id'])).fetchone()
+            if old and old[0]!=digest(leg):raise InvariantError('native signing checkpoint changed after freeze')
+        with self.atomic():
+            for leg in legs:self.store.db.execute('INSERT OR IGNORE INTO phase_preparation VALUES (?,?,?,?)',(trial,leg['leg_id'],digest(leg),canonical(leg)))
+            self.store._event(event,{'trial_id':trial,**prepared,'live_qualified':False,'customer_traffic_credit':False})
+        return prepared
+    def lightning_prepared(self,trial,action_id,prepared):
+        from .phase_lightning import validate_prepared
+        intent=self.intent(trial);validate_prepared(intent,prepared.get('legs',[]))
+        return self.captured_legs(trial,action_id,prepared,'phase_lightning_preparations_frozen')
+    def exit_prepared(self,trial,action_id,prepared):
+        from .phase_exit import validate_package
+        intent=self.intent(trial);validate_package(self.store,intent,prepared)
+        leg=prepared.get('cooperative_leg',{})
+        if leg.get('input_coin_ids')!=[v['coin_id'] for v in intent['inputs']] or leg.get('rpc')!='RequestArkoorCosign' or not hash64(leg.get('wire_sha256')):
+            raise InvariantError('exit cooperative leg differs from exact frozen original set')
+        for output in leg.get('outputs',[]):self.output_inputs(output,intent)
+        return self.captured_legs(trial,action_id,{**prepared,'legs':[leg]},'phase_exit_preparations_frozen')
     def delivery_prepared(self,trial,action_id,prepared):
         public_payload(prepared);intent=self.intent(trial)
         if self.row(trial)['release_action']!=action_id or intent['scenario']!='D24' or prepared.get('intent_hash')!=intent['intent_hash']:
