@@ -334,3 +334,26 @@ class FinalCollectorTests(unittest.TestCase):
         self.event('ark_transfer_verified',{'action_id':'ark','verified_at':102})
         self.assertEqual(0,collect_traffic(self.store,None))
         self.assertEqual(0,self.store.db.execute('SELECT COUNT(*) FROM final_traffic').fetchone()[0])
+
+class OriginalPinBindingRegressions(unittest.TestCase):
+    setUp=FinalEpochEvidenceTests.setUp
+    tearDown=FinalEpochEvidenceTests.tearDown
+    action=FinalEpochEvidenceTests.action
+    event=FinalEpochEvidenceTests.event
+    credit=FinalEpochEvidenceTests.credit
+
+    def test_matching_current_pins_cannot_relabel_wrong_original_proof(self):
+        self.action('ark','send_arkoor',at=101)
+        seq=self.event('ark_transfer_verified',{'action_id':'ark','recipient_actor':'actor-02',
+            'verified_at':101,'financial_pins':{**PINS,'sdk_commit':'9'*40}})
+        with self.assertRaisesRegex(ValueError,'original.*pin'):
+            self.credit('ark','ark',seq)
+        self.assertEqual(0,self.store.db.execute('SELECT COUNT(*) FROM final_traffic').fetchone()[0])
+
+    def test_unpinned_original_intent_cannot_gain_a_current_pin_label(self):
+        self.action('ark','send_arkoor',at=101)
+        seq=self.event('ark_transfer_verified',{'action_id':'ark','recipient_actor':'actor-02',
+            'verified_at':101,'financial_pins':PINS})
+        with self.assertRaisesRegex(ValueError,'original.*pin'):
+            self.credit('ark','ark',seq)
+        self.assertEqual(0,self.store.db.execute('SELECT COUNT(*) FROM final_traffic').fetchone()[0])
