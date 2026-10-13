@@ -75,7 +75,8 @@ def decode_transaction(encoded):
     stripped.extend(take(4))
     if offset!=len(raw):raise ValueError('trailing transaction bytes')
     txid=hashlib.sha256(hashlib.sha256(stripped).digest()).digest()[::-1].hex()
-    return {'txid':txid,'inputs':inputs,'outputs':outputs}
+    weight=len(stripped)*3+len(raw)
+    return {'txid':txid,'inputs':inputs,'outputs':outputs,'size':len(raw),'weight':weight,'vsize':(weight+3)//4}
 
 
 def archived_transactions(directory):

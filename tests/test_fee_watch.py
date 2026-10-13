@@ -89,6 +89,23 @@ class FeeWatchTests(unittest.TestCase):
         self.store.event('confirmed_payout_amounts_checked', {'txid': self.tx['txid'], 'recipient_fee_sat': 60, 'operator_fee_sat': 40})
         row = self.collect()['transactions'][0]
         self.assertEqual(60, row['recipient_fee_sat']); self.assertEqual(40, row['operator_fee_sat'])
+        self.assertIsNotNone(row['allocation_event_sequence'])
+
+    def test_historical_csv_has_only_its_own_reference_and_no_backfill(self):
+        from simulator.fee_watch import csv_values
+        self.collect('snapshot:1')
+        self.core.estimate={'errors':['Insufficient data']}
+        self.collect('snapshot:2')
+        self.assertEqual('1.001',csv_values(self.store,1)['independent_fee_reference_sat_vbyte'])
+        self.assertIsNone(csv_values(self.store,2)['independent_fee_reference_sat_vbyte'])
+        self.assertEqual({},csv_values(self.store,3))
+
+    def test_malformed_candidate_remains_named_gap_without_losing_reference(self):
+        self.store.db.execute('INSERT INTO server_item VALUES (?,?,?,?)',
+            ('settlements','bad',canonical({'txid':'bad'}),100))
+        value=self.collect()
+        self.assertEqual('1.001',value['estimate']['sat_per_vbyte'])
+        self.assertTrue(any(item['bucket']=='candidate_identity' for item in value['unknowns']))
 
     def window(self, duplicate=False):
         summary = {'target': 'server::expiry_payout', 'timestamp': '2026-10-12T23:01:19.831Z',
@@ -131,3 +148,36 @@ class FeeWatchTests(unittest.TestCase):
         self.core.expected = 'other-genesis'
         with self.assertRaises(ValueError): self.collect()
         self.assertEqual([], self.core.calls)
+
+    def test_actual_chain_identity_failure_prevents_transaction_measurement(self):
+        self.core.identity = lambda: {'chain': 'main', 'blocks': 100, 'bestblockhash': 'a' * 64, 'initialblockdownload': False}
+        value = self.collect()
+        self.assertEqual([], value['transactions'])
+        self.assertEqual([], self.core.calls)
+
+    def test_current_reference_is_held_when_the_tip_changes_during_sampling(self):
+        calls = []
+        def identity():
+            calls.append(1)
+            return {'chain': 'signet', 'blocks': 100 + len(calls), 'bestblockhash': str(len(calls)) * 64, 'initialblockdownload': False}
+        self.core.identity = identity
+        value = self.collect()
+        self.assertEqual(100, value['transactions'][0]['mining_fee_sat'])
+        self.assertIsNone(value['transactions'][0]['above_current_reference'])
+
+    def test_witness_size_is_derived_from_raw_bytes_not_the_reported_fee_rate(self):
+        raw = '02000000' + '0001' + self.raw[8:-8] + '01' + '01' + 'aa' + self.raw[-8:]
+        decoded = decode_transaction(raw)
+        self.assertEqual(self.tx['txid'], decoded['txid'])
+        self.assertEqual(len(bytes.fromhex(self.raw)) * 4 + 5, decoded['weight'])
+        self.assertEqual((decoded['weight'] + 3) // 4, decoded['vsize'])
+
+    def test_real_claim_log_is_only_a_candidate_and_repeated_occurrences_do_not_add_cost(self):
+        from simulator.fee_watch import record_window, _candidates, report
+        event = {'target': 'server::watchman', 'timestamp': '2026-10-12T23:04:52.800Z',
+                 'message': 'Broadcast claim transaction', 'slog_id': 'ClaimBroadcast',
+                 'slog_data': {'txid': self.tx['txid'], 'fee': 33239, 'fee_rate': 50096}}
+        window = {'component': 'watchmand', 'response': {'lines': [{'line_index': 0, 'redacted': False, 'returned_line': json.dumps(event)}]}}
+        for sequence in (1, 2): record_window(self.store, 'watchmand', sequence, window, {'seq': sequence})
+        self.assertEqual(1, len(_candidates(self.store)))
+        self.assertEqual([], report(self.store)['known_transaction_facts'])

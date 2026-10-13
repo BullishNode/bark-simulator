@@ -13,7 +13,7 @@ class ChainReader:
         self.cache={}
         self.capture,self.consumer=capture,consumer
     def call(self,method,*args):
-        if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','getdescriptorinfo','deriveaddresses','validateaddress'}:raise ValueError('read-only RPC required')
+        if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress'}:raise ValueError('read-only RPC required')
         token=base64.b64encode(self.credential.read_text().strip().encode()).decode()
         req=urllib.request.Request(self.url,json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':args}).encode(),{'Authorization':'Basic '+token,'Content-Type':'application/json'})
         raw=None

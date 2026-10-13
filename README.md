@@ -61,3 +61,6 @@ proof imports, historical operator change checks and declared seed-only recovery
 
 Use [public evidence exports](docs/observability.md), the [record index](docs/index.md)
 and the [query cookbook](docs/cookbook.md) to inspect traffic and accounting evidence.
+
+[Fee observations](docs/fee-watch.md) explain independent current-rate comparisons,
+raw mining-fee verification and the limits of anonymous payout tick summaries.
