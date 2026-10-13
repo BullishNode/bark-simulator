@@ -53,3 +53,5 @@ See [the analysis cookbook](cookbook.md) and [export and audit](observability.md
 
 [Round padding](tree-padding.md) explains why protocol padding is excluded from
 customer candidates and how its operator backing attribution stays separate.
+
+See [daemon and service logs](logs.md) for bounded window capture, native journal cursors and retained gaps.

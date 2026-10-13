@@ -169,9 +169,31 @@ async def collect(store, config, chain, *, batch_size=2048, limit=2):
     integer(batch_size, 'descriptor batch size', 1)
     if batch_size > 4096: raise ValueError('descriptor derivation batch exceeds bound')
     await asyncio.to_thread(chain.identity)
+    remote = None
+    if getattr(config, 'operator_bridge_enabled', False):
+        from .operator_bridge import observe, match
+        try:
+            remote, bridge_reference = await observe(store, config)
+        except Exception as error:
+            # Keep prior ownership evidence; a bridge failure cannot declare a
+            # new descriptor or make an unverified change output ours.
+            reason = str(error) if isinstance(error, EvidenceGap) else type(error).__name__
+            state = canonical({'path': 'rounds_descriptor bridge', 'reason': reason})
+            if store.get_meta('operator_descriptor_bridge_gap') != state:
+                with store.transaction():
+                    store.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', ('operator_descriptor_bridge_gap', state))
+                    store._event('operator_descriptor_pending', json.loads(state))
+            return
     for path in config.operator_descriptors:
         try:
+            if remote is not None:
+                value = _read(path)
+                _declaration(config, value)
+                match(value, remote)
             digest = await _register(store, config, chain, path)
+            if remote is not None:
+                store.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',
+                                 ('operator_descriptor_bridge_evidence_' + digest, canonical(bridge_reference)))
             await _derive(store, chain, digest, batch_size)
             await _anchor(store, chain, digest)
             await _payout_changes(store, chain, digest, limit)

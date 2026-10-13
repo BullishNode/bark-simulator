@@ -217,7 +217,7 @@ def export_bundle(store, out, *, actor=None, payout=None, after=None, before=Non
             for record in iter_records(trace_root, after=after, before=before):
                 if record['seq']>trace_limits.get(record['partition'],0):continue
                 if (actor or payout) and record['actor'] not in actors and record['action_id'] not in action_ids:
-                    if record['kind'] not in {'observer.sample.raw', 'target.log', 'chain.rpc'} and not _contains(record['payload'], references): continue
+                    if record['kind'] not in {'observer.sample.raw', 'target.log', 'target.log.window', 'target.rounds_descriptor', 'operator.bridge.call', 'operator.bridge.stdout', 'operator.bridge.stderr', 'service.log', 'chain.rpc', 'log.capture.gap', 'log.capture.declared', 'log.capture.opening', 'log.producer.call', 'log.producer.stdout', 'log.producer.stderr', 'log.producer.rejected'} and not _contains(record['payload'], references): continue
                 raw = record.pop('raw')
                 value = {**record, 'raw_base64': base64.b64encode(raw).decode() if raw is not None else None}
                 stream.write(canonical(_public(value)) + '\n'); counts['trace'] += 1

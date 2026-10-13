@@ -4,11 +4,12 @@
 No arbitrary shell/SQL/path/RPC names accepted. This bridge has no client seed or
 mailbox key. Independent chain verification is performed on the simulator host.
 """
-import json,os,re,subprocess,sys,time,tomllib
+import datetime,json,os,re,selectors,subprocess,sys,time,tomllib
 from pathlib import Path
 DEPLOY=Path('/home/ubuntu/abandon-signet-fallback/deploy')
 CONTAINER='abandon-signet-fallback-fb-captaind-1'
 MAX_BYTES=2*1024*1024
+DESCRIPTOR=Path(__file__).with_name('rounds-wallet-descriptor.json')
 
 def run(argv):
     result=subprocess.run(argv,cwd=DEPLOY,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=20,check=True)
@@ -21,6 +22,16 @@ def request(raw):
     if len(raw)>4096:raise ValueError('request bound exceeded')
     value=json.loads(raw)
     if not isinstance(value,dict):raise ValueError('invalid bridge request')
+    if value.get('kind')=='rounds_descriptor':
+        if set(value)!={'kind'}:raise ValueError('descriptor takes no arguments')
+        return 'rounds_descriptor',None
+    if value.get('kind')=='logs':
+        if set(value)-{'kind','service','seconds','tail','max_bytes'}:raise ValueError('invalid logs request')
+        if value.get('service') not in {'captaind','watchmand'}:raise ValueError('unsupported log service')
+        for field,default,lower,upper in [('seconds',300,1,86400),('tail',200,1,1000),('max_bytes',65536,4096,262144)]:
+            value.setdefault(field,default)
+            if type(value[field]) is not int or not lower<=value[field]<=upper:raise ValueError('log request bound')
+        return 'logs',value
     if value.get('kind')=='binding_check':
         if set(value)!={'kind','mailboxes','keys'}:raise ValueError('invalid binding request')
         for field,limit in [('mailboxes',2),('keys',32)]:
@@ -35,6 +46,50 @@ def request(raw):
     if not isinstance(after,str) or not re.fullmatch(r'[a-zA-Z0-9:_-]{0,128}',after):raise ValueError('invalid cursor')
     if kind=='snapshot' and after:raise ValueError('snapshot takes no cursor')
     return kind,after
+
+def logs(value):
+    ending=datetime.datetime.now(datetime.timezone.utc)
+    beginning=ending-datetime.timedelta(seconds=value['seconds'])
+    container='abandon-signet-fallback-fb-'+value['service']+'-1'
+    command=['sudo','-n','docker','logs','--since',beginning.isoformat(),
+        '--until',ending.isoformat(),'--tail',str(value['tail']),container]
+    data=bytearray();truncated=False;timed_out=False
+    # Read a finite Docker log request with a byte and wall-clock limit.
+    # Kill only this child command if it exceeds either bound.
+    with subprocess.Popen(command,cwd=DEPLOY,stdout=subprocess.PIPE,stderr=subprocess.STDOUT) as child:
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(child.stdout,selectors.EVENT_READ)
+                deadline=time.monotonic()+20
+                while True:
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0:timed_out=True;break
+                    if not selector.select(remaining):timed_out=True;break
+                    chunk=os.read(child.stdout.fileno(),min(4096,value['max_bytes']+1-len(data)))
+                    if not chunk:break
+                    data.extend(chunk)
+                    if len(data)>value['max_bytes']:truncated=True;break
+            if truncated or timed_out:child.kill()
+            child.wait(timeout=5)
+            if child.returncode!=0 and not (truncated or timed_out):raise ValueError('logs unavailable')
+        finally:
+            if child.poll() is None:child.kill();child.wait(timeout=5)
+    text=bytes(data[:value['max_bytes']]).decode(errors='replace')
+    # Keep public event details, but remove named credentials and preimages.
+    sensitive=re.compile(r'(secret|password|rpc_pass|private[_ ]key|mailbox[_ ]key|preimage|mnemonic|authorization|credential)',re.I)
+    def redact(item):
+        if isinstance(item,dict):return {k:('[redacted]' if sensitive.search(k) else redact(v)) for k,v in item.items()}
+        if isinstance(item,list):return [redact(v) for v in item]
+        if isinstance(item,str):return '[redacted sensitive text]' if sensitive.search(item) else item
+        return item
+    lines=[]
+    for line in text.splitlines():
+        try:lines.append(json.dumps(redact(json.loads(line)),allow_nan=False))
+        except (ValueError,TypeError):lines.append(redact(line))
+    return {'kind':'logs','service':value['service'],'from_utc':beginning.isoformat(),
+        'until_utc':ending.isoformat(),'tail':value['tail'],'max_bytes':value['max_bytes'],
+        'source_bytes':min(len(data),value['max_bytes']),'truncated':truncated,'timed_out':timed_out,
+        'lines':lines,'complete':False,'validation_scope':'bounded read-only log tail; gaps and truncation must not count as complete event coverage'}
 
 def page(kind,after):
     # Lexicographic cyclic inventories: the caller restarts from '' after each
@@ -64,6 +119,8 @@ def page(kind,after):
         'validation_scope':'trusted server claims; independently verify chain, backing, signatures and rightful ownership'}
 
 def collect(kind,after):
+    if kind=='logs':return logs(after)
+    if kind=='rounds_descriptor':return {'kind':kind,'declaration':json.loads(DESCRIPTOR.read_text())}
     if kind=='binding_check':
         def byte_array(items):return 'ARRAY['+','.join("decode('"+item+"','hex')" for item in items)+']::bytea[]'
         mailboxes=byte_array(after['mailboxes']);keys=byte_array(after['keys'])

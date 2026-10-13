@@ -69,6 +69,12 @@ class Config:
     recovery_fee_rate_sat_vb: int = 3
     recovery_timeout_seconds: int = 86400
     operator_descriptors: tuple[Path, ...] = ()
+    operator_bridge_enabled: bool = False
+    log_target_enabled: bool = False
+    log_local_sources: tuple[str, ...] = ()
+    log_since_us: int | None = None
+    log_rows_per_page: int = 64
+    log_maximum_bytes: int = 131072
     server_policy_command: tuple[str, ...] = ()
     expected_padding_pubkey: str = PADDING_PUBKEY
     expected_padding_unlock_hash: str = PADDING_UNLOCK_HASH
@@ -95,6 +101,16 @@ class Config:
     def load(cls, path: Path):
         data = tomllib.loads(path.read_text())
         target, runtime = data["target"], data["runtime"]
+        logs=data.get('logs',{})
+        if not isinstance(logs,dict) or set(logs)-{'target','local_sources','since_us','rows_per_page','maximum_bytes'} or type(logs.get('target',False)) is not bool:
+            raise ValueError('invalid declared log capture settings')
+        local_sources=logs.get('local_sources',[])
+        if not isinstance(local_sources,list) or len(local_sources)>2 or any(not isinstance(v,str) or v not in {'simulator','observer'} for v in local_sources) or len(local_sources)!=len(set(local_sources)):
+            raise ValueError('local logs require unique declared service aliases')
+        since_us=integer(logs['since_us'],'log opening UTC') if 'since_us' in logs else None
+        log_rows=integer(logs.get('rows_per_page',64),'log page rows',1)
+        log_bytes=integer(logs.get('maximum_bytes',131072),'log page bytes',1024)
+        if log_rows>256 or log_bytes>262144:raise ValueError('log page resource bound')
         for name, expected in [('padding_pubkey',PADDING_PUBKEY),('padding_unlock_hash',PADDING_UNLOCK_HASH),('padding_amount_sat',PADDING_AMOUNT_SAT)]:
             if target.get(name,expected)!=expected:
                 raise ValueError('round padding constants must match the pinned SDK')
@@ -153,10 +169,12 @@ class Config:
         proof_bundles = declared_paths(proofs.get('bundles', []), paths[1])
         from .operator_scripts import declaration_paths
         operator = data.get('operator', {})
-        if not isinstance(operator, dict) or set(operator) - {'descriptors'}:
+        if not isinstance(operator, dict) or set(operator) - {'descriptors', 'bridge'} or type(operator.get('bridge', False)) is not bool:
             raise ValueError('operator supports declared public descriptors only')
         operator_descriptors = declaration_paths(operator.get('descriptors', []), paths[1])
-        return cls(server_policy_command=tuple(policy), state_dir=paths[0], observer_command=tuple(runtime["observer_command"]),
+        if operator.get('bridge', False) and (not operator_descriptors or not runtime.get('inventory_command') or not trace.get('enabled', True)):
+            raise ValueError('operator bridge requires public descriptors, inventory command and trace')
+        return cls(log_target_enabled=logs.get('target',False),log_local_sources=tuple(local_sources),log_since_us=since_us,log_rows_per_page=log_rows,log_maximum_bytes=log_bytes,server_policy_command=tuple(policy), state_dir=paths[0], observer_command=tuple(runtime["observer_command"]),
                    driver_command=tuple(runtime.get("driver_command", [])), wallet_root=paths[1],
                    expected_genesis=target["genesis"], expected_container=container,
                    expected_image=image, expected_server_pubkey=pubkey,
@@ -168,7 +186,7 @@ class Config:
                    recovery_destination=recovery_destination, recovery_maximum_fee_sat=recovery_maximum_fee_sat,
                    recovery_fee_rate_sat_vb=integer(recovery.get('fee_rate_sat_vb', 3), 'recovery fee rate', 1),
                    recovery_timeout_seconds=integer(recovery.get('timeout_seconds', 86400), 'recovery timeout', 1),
-                   operator_descriptors=operator_descriptors,
+                   operator_descriptors=operator_descriptors, operator_bridge_enabled=operator.get('bridge', False),
                    proof_bundles=proof_bundles, proof_command=tuple(runtime.get("proof_command",[])), inventory_command=tuple(runtime.get("inventory_command",[])),
                    funding_wallet=data.get("funding",{}).get("wallet",""),funding_credential_file=data.get("funding",{}).get("credential_file",""),
                    board_amount_sat=integer(runtime.get("board_amount_sat", 12000), "board amount", 1),

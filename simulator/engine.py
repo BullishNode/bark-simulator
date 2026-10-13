@@ -12,6 +12,7 @@ from .observations import observe
 from .process import json_command
 from .report import generate
 from .store import Store
+from .log_capture import configured_sources as configured_log_sources,collect_sources as collect_logs
 from .padding import collect as collect_padding, collect_backing as collect_padding_backing, capture_snapshot as capture_padding_snapshot
 from .ownership import record_candidates, record_verified, retry_public_candidates, verify_client_evidence, record_server_page
 from .model import InvariantError,canonical
@@ -319,6 +320,12 @@ class Engine:
                 padding_snapshot=json.loads(padding_latest['payload'])
                 if type(padding_snapshot.get('height')) is int:
                     capture_padding_snapshot(self.store,padding_latest['id'],padding_snapshot)
+            if self.config.log_target_enabled or self.config.log_local_sources:
+                try:
+                    await collect_logs(self.store,configured_log_sources(self.store,self.config),
+                        limit=self.config.log_rows_per_page,maximum_bytes=self.config.log_maximum_bytes)
+                except Exception as error:
+                    self.store.trace_capture('log.capture.gap',{'kind':'configuration_or_collector_unavailable','error_type':type(error).__name__})
             if self.store.trace is not None:self.store.trace.archive()
             observe(self.store)
             if once or last_report is None or self.store.get_meta("paused") or time.monotonic() - last_report >= 300:

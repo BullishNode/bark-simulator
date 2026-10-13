@@ -208,6 +208,7 @@ def atomic_text(path: Path, text: str):
 
 
 def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
+    from .log_capture import report as log_capture_report
     if full:
         store.verify_event_chain()
     if evaluate:
@@ -238,6 +239,7 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
                 for r in store.db.execute('SELECT action_id,actor_id,state,input_coin_ids,replacement_ids,round_txid,server_round_id FROM delegated_entitlement ORDER BY updated_at DESC,action_id LIMIT 1000')],
             "scope":"durable intent history; successive refresh amounts are not additive capital"},
         "tree_padding":padding_report(store),
+        "log_capture":log_capture_report(store),
         "expired_unclaimed_outputs":unclaimed_expired_report(store,snapshots[-1]['height'])
             if snapshots and type(snapshots[-1].get('height')) is int else {"status":"unknown_height","inventory_consistent":False},
         "owner_funded_renewal":{kind:[json.loads(r[0]) for r in store.db.execute('SELECT payload FROM event WHERE kind=? ORDER BY sequence',(kind,))]
