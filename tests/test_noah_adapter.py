@@ -33,6 +33,7 @@ class NoahAdapterTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         self.store=Store(self.root/'state','synthetic',5000);self.store.attach_trace()
+        self.store.actor('noah-phone-01','noah-phone');self.store.actor('noah-payer-01','noah-payer')
         self.manifest=manifest(self.store);self.calls=[];self.phone=self.manifest['phones'][0]
         self.metadata=canonical([['text/identifier','alice@noah.fixture.example'],['text/plain','Paying satoshis to alice@noah.fixture.example']])
         self.first={'callback':'https://noah.fixture.example/.well-known/lnurlp/alice','minSendable':1000,'maxSendable':1000000000,'metadata':self.metadata,'tag':'payRequest','commentAllowed':280}
