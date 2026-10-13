@@ -18,7 +18,7 @@ class PhaseTrialTests(unittest.TestCase):
     def tearDown(self):self.store.close();self.tmp.cleanup()
     def trial(self,scenario='D17',**kw):
         from simulator.phase_trials import Controller
-        self.controller=Controller(self.store,self.config)
+        self.controller=Controller(self.store,self.config,nonce_verifier=lambda _trial,_leg:True)
         context={'input_coin_ids':[self.coin],'recipients':[{'actor':'actor-04','pubkey':self.keys['actor-04']},{'actor':'actor-06','pubkey':self.keys['actor-06']}],**kw}
         return self.controller.declare(scenario,'actor-11',context)
     def prepared(self,trial,nonce='process_only'):
@@ -68,7 +68,7 @@ class PhaseTrialTests(unittest.TestCase):
         trial=self.trial('D24',courier_actor='actor-12',saved_successor_ids=['d1'*32+':0'])
         self.add_output('d1'*32+':0',self.keys['actor-04'],[self.coin])
         with self.assertRaises(EvidenceGap):self.controller.release(trial)
-        self.store.db.execute('INSERT INTO checked_settlement VALUES (?,?,?,?,?,?)',(self.coin,'ee'*32,'actor-11','0014'+'77'*20,5000,'{}'))
+        self.store.db.execute('INSERT INTO checked_settlement VALUES (?,?,?,?,?,?)',('d1'*32+':0','ee'*32,'actor-11','0014'+'77'*20,5000,'{}'))
         self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32
         action=self.controller.release(trial);row=self.store.db.execute('SELECT * FROM action WHERE id=?',(action,)).fetchone()
         self.assertEqual('actor-12',row['actor_id']);self.assertEqual('phase_register_saved',row['operation'])
