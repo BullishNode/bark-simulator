@@ -26,7 +26,7 @@ SCENARIO_OPERATIONS = {
     **{case:{'send_arkoor'} for case in
        ('H07','H08','H09','H10','H11','H12','H30','H32','D37')},
     **{case:{'refresh'} for case in ('H17','H18','H19')},
-    'H20': {'refresh_delegated'},
+    'H20': {'refresh_delegated','refresh_scheduled'},
     **{case:{'sync'} for case in ('H23','H24','H25','H31')},
     'H26': {'seed_recovery'},
     'H28': {'create'}, 'H33': {'offboard_all'}, 'H34': {'exit'},
@@ -55,7 +55,7 @@ WITH relevant_events AS MATERIALIZED (
    AND EXISTS(SELECT 1 FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey
     WHERE c.id=json_extract(e.payload,'$.coin_id') AND k.actor=a.actor_id
     AND substr(json_extract(c.proof,'$.chain_anchor'),1,64)=json_extract(e.payload,'$.txid')))
-  OR (a.operation IN ('refresh','refresh_delegated','pay_invoice')
+  OR (a.operation IN ('refresh','refresh_delegated','refresh_scheduled','pay_invoice')
    AND EXISTS(SELECT 1 FROM movement_evidence m WHERE m.actor=a.actor_id
     AND m.movement_id=json_extract(e.payload,'$.movement_id')
     AND json_extract(m.payload,'$.status')='successful'

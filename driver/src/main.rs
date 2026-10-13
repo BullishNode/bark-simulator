@@ -346,6 +346,10 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
     _actor_lock
         .try_lock()
         .context("another driver owns this actor")?;
+    if let Some(original_action_id)=native_intent::conflicting_wallet_intent(path,req)? {
+        return Ok(json!({"blocked":true,"reason":"frozen native intent requires exact independent reconciliation",
+            "original_action_id":original_action_id,"actual_fee_sat":0,"wallet_opened":false}));
+    }
     if req.operation == "create" {
         if !mnemonic_file.exists() {
             let mnemonic = bip39::Mnemonic::generate(12)?;
@@ -421,9 +425,6 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
     observed_wallet_operation(async {
     if exit::has_unfinished_intent(path)? && !matches!(req.operation.as_str(),"exit"|"snapshot") {
         return Ok(json!({"blocked":true,"reason":"original exit intent owns this wallet; only explicit same-intent continuation or snapshot allowed","actual_fee_sat":0}));
-    }
-    if native_intent::has_unresolved_rotation(path)? && !matches!(req.operation.as_str(),"fallback_rotate"|"snapshot") {
-        return Ok(json!({"blocked":true,"reason":"frozen fallback rotation needs exact reconciliation","actual_fee_sat":0}));
     }
     match req.operation.as_str() {
         "exit" => exit::execute(&wallet,&mut rpc,path,req,network).await,

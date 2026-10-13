@@ -44,6 +44,17 @@ class RoundAdoptionTests(unittest.TestCase):
         from simulator.round_adoption import queue_confirmed
         return queue_confirmed(self.s,self.c,self.snapshot,now=now,decoder=self.decoder)
     def queued(self):return self.s.db.execute("SELECT * FROM action WHERE state='queued'").fetchall()
+    def test_scheduled_refresh_is_observed_but_generic_sync_cannot_redelegate_it(self):
+        from simulator.round_adoption import candidate_rounds,near_expiry_findings
+        self.s.db.execute("UPDATE action SET operation='refresh_scheduled' WHERE id='refresh'")
+        candidates=candidate_rounds(self.s,self.c,decoder=self.decoder)
+        self.assertEqual(1,len(candidates))
+        decision=self.queue()
+        self.assertEqual('held',decision['outcome'])
+        self.assertEqual('frozen_scheduled_intent',decision['reason'])
+        self.assertEqual([],self.queued())
+        self.assertTrue(near_expiry_findings(self.s,self.c,self.snapshot,decoder=self.decoder))
+
     def test_confirmed_locked_refresh_queues_sync_before_dry_or_hourly_cadence(self):
         decision=self.queue();self.assertEqual('round_confirmed_sync',decision['rule_id']);self.assertEqual('queued',decision['outcome'])
         action=self.queued()[0];self.assertEqual((self.actor,'sync',2000),(action['actor_id'],action['operation'],action['fee_reservation_sat']))

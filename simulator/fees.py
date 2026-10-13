@@ -38,7 +38,7 @@ def movement_fee(store, action):
     """
     operation, actor = action['operation'], action['actor_id']
     data = json.loads(action['result'])['data']
-    if operation in {'refresh','refresh_delegated'}:
+    if operation in {'refresh','refresh_delegated','refresh_scheduled'}:
         proposal = _proposal(store, action, 'refresh_proposal')
         participation = proposal['participation']
         input_ids = []
@@ -83,7 +83,7 @@ def movement_fee(store, action):
     outputs = _owned(store, actor, movement['output_vtxos'])
     gross = sum(c['amount_sat'] for c in inputs)
     net = sum(c['amount_sat'] for c in outputs)
-    if operation in {'refresh','refresh_delegated'}:
+    if operation in {'refresh','refresh_delegated','refresh_scheduled'}:
         expected = []
         for output in participation['outputs']:
             policy = output['policy']
@@ -381,7 +381,7 @@ async def collect(store,chain,limit=4):
         except Exception:pass
         store.db.execute("INSERT OR REPLACE INTO meta VALUES ('offboard_fee_cursor',?)",(action['id'],))
     rows=store.db.execute("""SELECT * FROM action WHERE operation IN
-        ('refresh','refresh_delegated','pay_invoice','sync') AND state='completed'
+        ('refresh','refresh_delegated','refresh_scheduled','pay_invoice','sync') AND state='completed'
         AND actual_fee_sat IS NULL ORDER BY id""").fetchall()
     after=store.get_meta('movement_fee_cursor') or ''
     rows=[r for r in rows if r['id']>after]+[r for r in rows if r['id']<=after]

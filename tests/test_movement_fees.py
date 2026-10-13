@@ -65,6 +65,26 @@ class MovementFeeTests(unittest.TestCase):
         self.assertEqual(100,result['actual_fee_sat'])
         self.assertEqual((10000,9900,0),(result['signed_input_sat'],result['signed_output_sat'],result['transferred_sat']))
 
+    def test_scheduled_refresh_charge_uses_original_signed_values_once(self):
+        self.s.db.execute("UPDATE action SET operation='refresh_scheduled',scenario_id='H20' WHERE id='cost'")
+        result=movement_fee(self.s,self.row())
+        self.assertEqual((10000,9900,100),(result['signed_input_sat'],result['signed_output_sat'],result['actual_fee_sat']))
+        class Chain:
+            def identity(self):raise AssertionError('signed movement needs no new chain call')
+        asyncio.run(collect(self.s,Chain()));asyncio.run(collect(self.s,Chain()))
+        self.assertEqual(100,self.row()['actual_fee_sat'])
+        self.assertEqual(1,self.s.db.execute("SELECT COUNT(*) FROM event WHERE kind='client_fee_reconciled'").fetchone()[0])
+        from simulator.report import generate
+        case=next(r for r in generate(self.s,evaluate=False)['coverage'] if r['id']=='H20')
+        self.assertEqual(1,case['verified_actions'])
+        self.assertEqual('not_qualified',case['scenario_verdict'])
+
+    def test_unadopted_scheduled_refresh_keeps_original_fee_reservation(self):
+        self.s.db.execute("UPDATE action SET operation='refresh_scheduled' WHERE id='cost'")
+        self.movement['status']='pending';self.save_movement()
+        with self.assertRaises(EvidenceGap):movement_fee(self.s,self.row())
+        self.assertIsNone(self.row()['actual_fee_sat'])
+
     def test_pending_round_keeps_reservation(self):
         self.movement['status']='pending';self.save_movement()
         with self.assertRaises(EvidenceGap):movement_fee(self.s,self.row())

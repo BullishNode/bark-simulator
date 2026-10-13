@@ -25,14 +25,31 @@ pub(super) fn persist(root:&Path,req:&Request,intent:&Intent)->Result<()> {
  let mut writer=fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
  writer.write_all(&serde_json::to_vec(intent)?)?;writer.sync_all()?;fs::rename(tmp,file)?;fs::File::open(root)?.sync_all()?;Ok(())
 }
-pub(super) fn has_unresolved_rotation(root:&Path)->Result<bool>{
+fn holds_wallet(intent:&Intent)->bool {
+ matches!(intent.operation.as_str(),"fallback_rotate"|"refresh_scheduled") && intent.state!="completed"
+}
+fn conflicts(intent:&Intent,req:&Request)->bool {
+ if !holds_wallet(intent) || req.operation=="snapshot" {return false;}
+ // A generic sync can rebuild/redelegate SDK round states. Only the exact
+ // original inspection is admitted until independent reconciliation closes it.
+ !(req.operation==intent.operation && req.action_id==intent.action_id
+   && req.expected_server_pubkey==intent.server_pubkey && req.maximum_fee_sat==intent.fee_cap_sat
+   && terms(req)==intent.args && req.args.get("phase").and_then(Value::as_str)==Some("inspect"))
+}
+fn read_intents(root:&Path)->Result<Vec<Intent>> {
+ let mut intents=Vec::new();
  for entry in fs::read_dir(root)? {let entry=entry?;let name=entry.file_name();let name=name.to_string_lossy();
   if name.starts_with("sim-native-") && name.ends_with(".json"){
    let m=fs::symlink_metadata(entry.path())?;ensure!(m.is_file() && !m.file_type().is_symlink() && m.permissions().mode()&0o077==0 && m.len()<=1024*1024,"unsafe native intent");
-   let intent:Intent=serde_json::from_slice(&fs::read(entry.path())?)?;
-   if intent.operation=="fallback_rotate" && intent.state!="completed" {return Ok(true);}
+   intents.push(serde_json::from_slice(&fs::read(entry.path())?)?);
   }
- }Ok(false)
+ }Ok(intents)
+}
+#[cfg(test)] fn has_unresolved_intent(root:&Path)->Result<bool>{Ok(read_intents(root)?.iter().any(holds_wallet))}
+pub(super) fn conflicting_wallet_intent(root:&Path,req:&Request)->Result<Option<String>> {
+ for intent in read_intents(root)? {
+  if conflicts(&intent,req) {return Ok(Some(intent.action_id));}
+ }Ok(None)
 }
 #[cfg(test)] mod tests{
  use super::*;use serde_json::json;
@@ -42,8 +59,26 @@ pub(super) fn has_unresolved_rotation(root:&Path)->Result<bool>{
   let req=Request{operation:"refresh_scheduled".into(),action_id:"original-schedule".into(),actor_dir:None,expected_server_pubkey:"server".into(),
    args:json!({"phase":"start","input_vtxo_ids":["coin"],"scheduled_height":123}),maximum_fee_sat:100};
   let mut intent=freeze(&req,json!({"committed_fee_sat":12}));intent.state="submitted".into();persist(&root,&req,&intent).unwrap();
-  let held=has_unresolved_rotation(&root).unwrap();fs::remove_dir_all(&root).unwrap();
+  let held=has_unresolved_intent(&root).unwrap();fs::remove_dir_all(&root).unwrap();
   assert!(held,"an ACKed scheduled refresh must retain its exact-input wallet hold across restart");
+ }
+ #[test] fn a_new_action_cannot_supersede_frozen_scheduled_inputs_or_rotation(){
+  for operation in ["refresh_scheduled","fallback_rotate"] {
+   let mut original=Request{operation:operation.into(),action_id:"original".into(),actor_dir:None,expected_server_pubkey:"server".into(),
+    args:json!({"phase":"start","input_vtxo_ids":["coin"],"scheduled_height":123}),maximum_fee_sat:100};
+   let mut intent=freeze(&original,json!({}));intent.state="submitted".into();
+   assert!(conflicts(&intent,&original)); // start cannot replay even its original ID
+   original.args["phase"]=json!("inspect");assert!(!conflicts(&intent,&original));
+   original.action_id="different".into();assert!(conflicts(&intent,&original));
+   original.action_id="original".into();original.maximum_fee_sat=101;assert!(conflicts(&intent,&original));
+   original.maximum_fee_sat=100;original.args["scheduled_height"]=json!(124);assert!(conflicts(&intent,&original));
+   for mutation in ["refresh_scheduled","refresh_delegated","refresh","send_arkoor","offboard_all","exit","sync","fallback_rotate"] {
+    original.operation=mutation.into();original.args["phase"]=json!("start");assert!(conflicts(&intent,&original),"{mutation} must preserve {operation}");
+   }
+   original.operation="snapshot".into();assert!(!conflicts(&intent,&original));
+   original.operation="sync".into();intent.state="outcome_unknown".into();assert!(conflicts(&intent,&original));
+   intent.state="completed".into();assert!(!conflicts(&intent,&original));
+  }
  }
  #[test] fn terms_do_not_change_under_inspection_but_cap_source_and_inputs_do(){
   let req=Request{operation:"refresh_scheduled".into(),action_id:"original".into(),actor_dir:None,expected_server_pubkey:"server".into(),

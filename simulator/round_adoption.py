@@ -127,7 +127,7 @@ def _outputs(store,action,intent,server,decoder,*,complete=True):
     if (complete and actual!=intent['outputs']) or not actual or any(count>intent['outputs'][key] for key,count in actual.items()):return []
     if len({coin['chain_anchor'].split(':')[0] for coin in matches})!=1:return []
     # Distinct unresolved proposals cannot claim the same frozen output tuple.
-    for other in store.db.execute("SELECT * FROM action WHERE operation IN ('refresh','refresh_delegated') AND id<>? AND actual_fee_sat IS NULL AND state IN ('completed','dispatched','outcome_unknown')",(action['id'],)):
+    for other in store.db.execute("SELECT * FROM action WHERE operation IN ('refresh','refresh_delegated','refresh_scheduled') AND id<>? AND actual_fee_sat IS NULL AND state IN ('completed','dispatched','outcome_unknown')",(action['id'],)):
         try:competing=_intent(store,other)
         except InvariantError:raise
         except (EvidenceGap,KeyError,TypeError,ValueError):continue
@@ -138,7 +138,7 @@ def _outputs(store,action,intent,server,decoder,*,complete=True):
 def candidate_rounds(store,config,*,decoder=None):
     """No wallet reads and no new ownership claims; caller supplies actual tip."""
     result=[]
-    for action in store.db.execute("SELECT * FROM action WHERE operation IN ('refresh','refresh_delegated') AND state='completed' AND actual_fee_sat IS NULL ORDER BY created_at,id"):
+    for action in store.db.execute("SELECT * FROM action WHERE operation IN ('refresh','refresh_delegated','refresh_scheduled') AND state='completed' AND actual_fee_sat IS NULL ORDER BY created_at,id"):
         try:intent=_intent(store,action)
         except InvariantError:raise
         except (EvidenceGap,KeyError,TypeError,ValueError):continue
@@ -156,7 +156,7 @@ def candidate_rounds(store,config,*,decoder=None):
         decoded=decode_transaction(value['raw_tx'])
         if decoded['txid']!=anchor:raise InvariantError('nursery raw funding transaction identity differs')
         if any(int(coin['chain_anchor'].split(':')[1])>=len(decoded['outputs']) for coin in outputs):raise InvariantError('decoded replacement anchor output is absent')
-        result.append({'actor':action['actor_id'],'refresh_action_id':action['id'],'round_txid':anchor,
+        result.append({'actor':action['actor_id'],'refresh_action_id':action['id'],'refresh_operation':action['operation'],'round_txid':anchor,
             'confirmed_height':height,'expected_output_coin_ids':[coin['coin_id'] for coin in outputs],
             'replacement_outputs':outputs,'pending_movement_id':locked['id'],'input_coin_ids':intent['inputs'],
             'proposal_event_sequence':intent['proposal_sequence'],'input_signed_hashes':[coin['signed_hash'] for coin in intent['input_coins']],'nursery_observed_at':nursery['observed_at'],
@@ -205,6 +205,11 @@ def queue_confirmed(store,config,snapshot,*,now=None,decoder=None,decisions=None
         detail=json.loads(details['details'])
         if detail.get('permanent_absence') or not detail.get('created') or not detail.get('ark_address'):continue
         if store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('queued','dispatched','outcome_unknown')",(actor,)).fetchone():continue
+        if candidate['refresh_operation']=='refresh_scheduled':
+            # Generic SDK sync can rebuild a Redelegating state and supersede
+            # this frozen schedule. Preserve observations and require the
+            # explicit original-intent reconciliation controller.
+            hold(candidate,'frozen_scheduled_intent');continue
         parameters=runtime_parameters(store,actor)
         candidate={**candidate,'sdk_parameters':parameters}
         if parameters is None:
@@ -247,7 +252,7 @@ def near_expiry_findings(store,config,snapshot,*,decoder=None):
     if type(height) is not int or height<0:return []
     threshold=integer(getattr(config,'round_unclaimed_warning_blocks',6),'unclaimed round warning blocks',1)
     result=[]
-    for action in store.db.execute("SELECT * FROM action WHERE operation IN ('refresh','refresh_delegated') AND state IN ('completed','dispatched','outcome_unknown') ORDER BY created_at,id"):
+    for action in store.db.execute("SELECT * FROM action WHERE operation IN ('refresh','refresh_delegated','refresh_scheduled') AND state IN ('completed','dispatched','outcome_unknown') ORDER BY created_at,id"):
         try:intent=_intent(store,action)
         except InvariantError:raise
         except (EvidenceGap,KeyError,TypeError,ValueError):continue
@@ -304,7 +309,7 @@ async def collect_input_params(store,config,*,limit=8):
     if not executable.is_absolute() or executable.is_symlink():raise ValueError('safe declared SDK decoder executable required')
     with executable.open('rb') as stream:verifier_hash=hashlib.file_digest(stream,'sha256').hexdigest()
     _initialize(store);seen=set();count=0
-    for action in store.db.execute("SELECT * FROM action WHERE operation IN ('refresh','refresh_delegated') AND state IN ('completed','dispatched','outcome_unknown') AND actual_fee_sat IS NULL ORDER BY created_at DESC,id"):
+    for action in store.db.execute("SELECT * FROM action WHERE operation IN ('refresh','refresh_delegated','refresh_scheduled') AND state IN ('completed','dispatched','outcome_unknown') AND actual_fee_sat IS NULL ORDER BY created_at DESC,id"):
         try:intent=_intent(store,action)
         except InvariantError:raise
         except (EvidenceGap,KeyError,ValueError,TypeError):continue
@@ -378,7 +383,7 @@ def record_sync_diagnostic(store,action_id,diagnostic):
     _initialize(store)
     action=store.db.execute('SELECT actor_id,operation FROM action WHERE id=?',(action_id,)).fetchone()
     if action is None:raise ValueError('SDK diagnostic lacks its original action')
-    if action['operation'] not in {'sync','refresh','refresh_delegated'}:return
+    if action['operation'] not in {'sync','refresh','refresh_delegated','refresh_scheduled'}:return
     encoded=canonical(diagnostic)
     existing=store.db.execute('SELECT payload FROM round_sync_diagnostic WHERE action_id=?',(action_id,)).fetchone()
     if existing:
