@@ -286,6 +286,40 @@ class NoahDurablePushTests(unittest.IsolatedAsyncioTestCase):
         adapter=self.adapter();self.store.actor('noah-phone-01','noah-phone');self.store.set_online('noah-phone-01',False)
         async def fail(*args):self.fail('absent wallet call')
         with self.assertRaises(ValueError):await adapter.consume_push('noah-phone-01',{'to':['ExpoPushToken[phone]'],'data':canonical({'notification_type':'lightning_claim_request','payment_hash':HASH,'amount_sat':5000})},'ExpoPushToken[phone]',invoice=fail,submit=fail,claim=fail)
+    async def test_exact_original_delivery_is_protected_and_absent_delivery_still_recorded(self):
+        adapter=self.adapter();self.store.set_online('noah-phone-01',False)
+        envelope={'to':['ExpoPushToken[private-recipient]'],'data':canonical({'notification_type':'lightning_claim_request','payment_hash':HASH,'amount_sat':5000})}
+        raw=(json.dumps(envelope,indent=2)+'\n').encode()
+        async def fail(*args):self.fail('absent wallet call')
+        with self.assertRaises(ValueError):await adapter.consume_push('noah-phone-01',envelope,'ExpoPushToken[private-recipient]',invoice=fail,submit=fail,claim=fail,delivery_bytes=raw)
+        records=list(self.store.trace.records());deliveries=[r for r in records if r['kind']=='noah.original.push']
+        self.assertEqual(1,len(deliveries));self.assertIsNone(deliveries[0]['raw'])
+        reference=deliveries[0]['payload']['artifact']
+        preserved=adapter.read_protected(reference,kind='original.push',actor='noah-phone-01')
+        import base64
+        self.assertEqual(raw,base64.b64decode(preserved['payload']['body_base64']))
+        self.assertEqual(0,(self.store.root/reference['path']).stat().st_mode&0o077)
+        public=json.dumps(records,default=str)+' '.join(row['payload'] for row in self.store.db.execute('SELECT payload FROM event'))
+        self.assertNotIn('ExpoPushToken[private-recipient]',public);self.assertNotIn('notification_type',json.dumps(deliveries[0]['payload']))
+        changed=copy.deepcopy(reference);changed['sha256']='00'*32
+        with self.assertRaises(ValueError):adapter.read_protected(changed,kind='original.push',actor='noah-phone-01')
+    async def test_http_authentication_and_signer_observations_are_protected_only(self):
+        token='never-public-bearer';sig='30'+'aa'*70;encoded=PUB+'11'*72;k1='aa'*32+'_1000'
+        async def replies(method,url,body,bearer):
+            if url.endswith('/getk1'):return {'tag':'login','k1':k1}
+            if url.endswith('/auth/login'):return {'access_token':token,'token_type':'Bearer','expires_at':'2030-01-01T00:00:00Z','expires_in_seconds':259200}
+            if url.endswith('/register'):return {'status':'OK','lightning_address':'alice@noah.fixture.example','user_status':'active'}
+            if url.endswith('/user_info'):return {'lightning_address':'alice@noah.fixture.example','user_status':'active'}
+            return {'success':True}
+        async def signer(challenge,expiry):return {'key':PUB,'sig':sig,'mailbox_id':PUB,'expiry':expiry,'encoded':encoded}
+        adapter=self.adapter(replies);await adapter.enroll('noah-phone-01',signer,'ExpoPushToken[private-recipient]',expiry=1500)
+        records=list(self.store.trace.records());observations=[r for r in records if r['kind'].startswith('noah.http.') or r['kind']=='noah.signer.response']
+        self.assertEqual(13,len(observations))
+        self.assertTrue(all(r['raw'] is None and 'artifact' in r['payload'] for r in observations))
+        public=json.dumps(records,default=str)+' '.join(row['payload'] for row in self.store.db.execute('SELECT payload FROM event'))
+        for secret in (token,sig,encoded,'ExpoPushToken[private-recipient]'):self.assertNotIn(secret,public)
+        protected=' '.join(path.read_text() for path in (self.store.root/'noah-protected').glob('*.json'))
+        for actual in (token,sig,encoded,'ExpoPushToken[private-recipient]'):self.assertIn(actual,protected)
 
 
 class NoahCoverageTests(unittest.TestCase):
