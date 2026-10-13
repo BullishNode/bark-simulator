@@ -106,13 +106,16 @@ class NoahAdapterTests(unittest.IsolatedAsyncioTestCase):
         async def submit(request):return {'payment_hash':HASH,'paid':True}
         await adapter.dispatch('payment-1',submit)
         self.assertEqual('outcome_unknown',adapter.intent('payment-1')['state'])
+        async def status(payment_hash):return {'payment_hash':payment_hash,'state':'succeeded'}
+        await adapter.reconcile('payment-1',status)
+        self.assertEqual('outcome_unknown',adapter.intent('payment-1')['state'])
     async def test_unknown_payer_hold_prevents_another_invoice_request(self):
         adapter=self.adapter();await adapter.negotiate('payment-1','noah-payer-01','noah-phone-01',5000000,binding=self.binding)
         async def lost(request):raise TimeoutError()
         await adapter.dispatch('payment-1',lost)
         with self.assertRaises(ValueError):await adapter.negotiate('payment-2','noah-payer-01','noah-phone-01',5000000,binding=self.binding)
         self.assertEqual(2,len(self.calls))
-    async def test_real_gone_recipient_allows_forwarder_protocol_without_wallet_call(self):
+    async def test_gone_recipient_protocol_uses_existing_binding_without_wallet_call(self):
         self.store.actor('noah-phone-01','noah-phone');self.store.set_online('noah-phone-01',False)
         adapter=self.adapter()
         result=await adapter.negotiate('payment-1','noah-payer-01','noah-phone-01',5000000,binding=self.binding)
@@ -120,9 +123,6 @@ class NoahAdapterTests(unittest.IsolatedAsyncioTestCase):
         async def signer(*args):self.fail('absent phone signing call')
         with self.assertRaises(ValueError):await adapter.enroll('noah-phone-01',signer,'ExpoPushToken[phone]',expiry=1500)
         self.assertFalse(self.store.online('noah-phone-01'))
-        async def status(payment_hash):return {'payment_hash':payment_hash,'state':'succeeded'}
-        await adapter.reconcile('payment-1',status)
-        self.assertEqual('outcome_unknown',adapter.intent('payment-1')['state'])
     async def test_manifest_or_evidence_drift_holds(self):
         adapter=self.adapter();self.assertEqual('ready_for_dispatch',adapter.readiness()['status'])
         changed=copy.deepcopy(self.manifest);changed['capital']['per_action_fee_sat']=2000
@@ -147,6 +147,24 @@ class NoahAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual('ark_negotiated',result['state']);self.assertEqual('ark_lnurl',result['transport'])
         self.assertTrue(all('ark='+PUB in row[1] for row in self.calls));self.assertIsNone(result['payment_hash'])
         with self.assertRaises(ValueError):adapter.payment_request('ark-1')
+    async def test_journal_intent_and_frozen_proof_drift_hold_dispatch(self):
+        adapter=self.adapter();await adapter.negotiate('payment-1','noah-payer-01','noah-phone-01',5000000,binding=self.binding)
+        row=adapter.intent('payment-1');altered=copy.deepcopy(row['intent']);altered['maximum_fee_sat']+=1
+        self.store.db.execute('UPDATE noah_intent SET intent=? WHERE id=?',(canonical(altered),'payment-1'))
+        with self.assertRaises(ValueError):adapter.payment_request('payment-1')
+        self.store.db.execute('UPDATE noah_intent SET intent=? WHERE id=?',(canonical(row['intent']),'payment-1'))
+        altered=copy.deepcopy(row['proof']);altered['payment_hash']='ff'*32
+        self.store.db.execute('UPDATE noah_intent SET proof=?,payment_hash=? WHERE id=?',(canonical(altered),altered['payment_hash'],'payment-1'))
+        with self.assertRaises(ValueError):adapter.payment_request('payment-1')
+    async def test_absent_payer_and_dispatched_original_action_hold(self):
+        self.store.actor('noah-payer-01','noah-payer');self.store.set_online('noah-payer-01',False)
+        with self.assertRaises(ValueError):await self.adapter().negotiate('payment-1','noah-payer-01','noah-phone-01',5000000,binding=self.binding)
+        self.assertEqual([],self.calls)
+    async def test_native_verifier_rejects_each_wrong_public_field(self):
+        baseline=copy.deepcopy(self.proof)
+        for field,value in [('signature_checked',False),('network','bitcoin'),('amount_msat',5001000),('expires_at',999),('node_pubkey','03'+'33'*32),('invoice_sha256','ff'*32)]:
+            self.proof=copy.deepcopy(baseline);self.proof[field]=value
+            with self.assertRaises(ValueError):await self.adapter().negotiate('invalid-'+field,'noah-payer-01','noah-phone-01',5000000,binding=self.binding)
 
 
 class NoahEnrollmentTests(unittest.IsolatedAsyncioTestCase):
@@ -162,7 +180,7 @@ class NoahEnrollmentTests(unittest.IsolatedAsyncioTestCase):
                 return {'access_token':token,'token_type':'Bearer','expires_at':'2030-01-01T00:00:00Z','expires_in_seconds':259200}
             self.assertEqual(token,bearer)
             if url.endswith('/register'):return {'status':'OK','event':'REGISTERED','lightning_address':'alice@noah.fixture.example','user_status':'active'}
-            if url.endswith('/user/info'):return {'lightning_address':'alice@noah.fixture.example','user_status':'active'}
+            if url.endswith('/user_info'):return {'lightning_address':'alice@noah.fixture.example','user_status':'active'}
             return {'success':True}
         async def signer(challenge,expiry):
             self.assertEqual(k1,challenge)
@@ -170,7 +188,7 @@ class NoahEnrollmentTests(unittest.IsolatedAsyncioTestCase):
         adapter=self.adapter(replies)
         result=await adapter.enroll('noah-phone-01',signer,'ExpoPushToken[phone-01]',expiry=1500)
         self.assertEqual('enrolled',result['state'])
-        self.assertEqual(['/v0/getk1','/v0/auth/login','/v0/register','/v0/register_push_token','/v0/mailbox/authorize','/v0/user/info'],[row[1].split('noah.fixture.example')[1] for row in self.calls])
+        self.assertEqual(['/v0/getk1','/v0/auth/login','/v0/register','/v0/register_push_token','/v0/mailbox/authorize','/v0/user_info'],[row[1].split('noah.fixture.example')[1] for row in self.calls])
         journal=' '.join(row['payload'] for row in self.store.db.execute('SELECT payload FROM event'))
         for secret in (token,sig,encoded,'ExpoPushToken[phone-01]'):self.assertNotIn(secret,journal)
     async def test_bad_k1_never_sent_to_vulnerable_login(self):
