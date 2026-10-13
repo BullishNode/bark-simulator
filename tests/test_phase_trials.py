@@ -1,0 +1,84 @@
+"""Phase orchestration uses exact inputs and independent financial evidence."""
+import hashlib,json,tempfile,unittest
+from pathlib import Path
+from types import SimpleNamespace
+from simulator.engine import initialize
+from simulator.store import Store
+from simulator.model import canonical,InvariantError
+from simulator.ownership import EvidenceGap
+
+class PhaseTrialTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.store=Store(Path(self.tmp.name),'synthetic',100000);initialize(self.store)
+        self.config=SimpleNamespace(network='signet',expected_server_pubkey='02'+'33'*32,phase_enabled=False,phase_manifest_sha256=None)
+        self.coin='aa'*32+':0';self.keys={'actor-11':'02'+'11'*32,'actor-04':'02'+'44'*32,'actor-06':'02'+'66'*32}
+        for actor,key in self.keys.items():self.store.db.execute('INSERT INTO owner_key VALUES (?,?,?,?)',(key,actor,'mailbox-'+actor,'{}'))
+        proof={'id':self.coin,'user_pubkey':self.keys['actor-11'],'amount_sat':5000,'signed_path_valid':True,'anchor_confirmations':2,'ancestor_ids':[]}
+        self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',(self.coin,self.keys['actor-11'],5000,hashlib.sha256(b'source').hexdigest(),b'source'.hex(),canonical(proof)))
+    def tearDown(self):self.store.close();self.tmp.cleanup()
+    def trial(self,scenario='D17',**kw):
+        from simulator.phase_trials import Controller
+        self.controller=Controller(self.store,self.config)
+        context={'input_coin_ids':[self.coin],'recipients':[{'actor':'actor-04','pubkey':self.keys['actor-04']},{'actor':'actor-06','pubkey':self.keys['actor-06']}],**kw}
+        return self.controller.declare(scenario,'actor-11',context)
+    def prepared(self,trial,nonce='process_only'):
+        return self.controller.prepare(trial,{'trial_id':trial,'intent_hash':self.controller.intent(trial)['intent_hash'],
+            'legs':[{'leg_id':'left','rpc':'RequestArkoorCosign','input_coin_ids':[self.coin],'wire_sha256':'a1'*32,'nonce_retention':nonce,'private_checkpoint_sha256':'b1'*32,'input_spends':[{'coin_id':self.coin,'txid':'c1'*32}],'outputs':[{'coin_id':'d1'*32+':0','pubkey':self.keys['actor-04'],'amount_sat':5000}]},
+                    {'leg_id':'right','rpc':'RequestArkoorCosign','input_coin_ids':[self.coin],'wire_sha256':'a2'*32,'nonce_retention':nonce,'private_checkpoint_sha256':'b2'*32,'input_spends':[{'coin_id':self.coin,'txid':'c2'*32}],'outputs':[{'coin_id':'d2'*32+':0','pubkey':self.keys['actor-06'],'amount_sat':5000}]}]})
+    def add_output(self,identity,key,parents):
+        proof={'id':identity,'user_pubkey':key,'amount_sat':5000,'signed_path_valid':True,'anchor_confirmations':2,'ancestor_ids':parents}
+        self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',(identity,key,5000,hashlib.sha256(identity.encode()).hexdigest(),identity.encode().hex(),canonical(proof)))
+    def test_same_input_pair_is_one_principal_and_one_fee_cap(self):
+        trial=self.trial();intent=self.controller.intent(trial)
+        self.assertEqual(5000,intent['principal_sat']);self.assertEqual(2000,intent['maximum_fee_sat'])
+        self.assertEqual(trial,self.trial());self.store.verify_event_chain()
+    def test_identical_recipient_or_foreign_input_is_refused_before_preparation(self):
+        with self.assertRaises(InvariantError):self.trial(recipients=[{'actor':'actor-04','pubkey':self.keys['actor-04']}]*2)
+        self.store.db.execute('UPDATE owner_key SET actor="actor-06" WHERE pubkey=?',(self.keys['actor-11'],))
+        with self.assertRaises(InvariantError):self.trial()
+    def test_missing_manifest_and_process_only_nonces_never_release(self):
+        trial=self.trial();self.prepared(trial)
+        with self.assertRaises(EvidenceGap):self.controller.release(trial)
+        self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32
+        with self.assertRaises(EvidenceGap):self.controller.release(trial)
+        self.assertEqual(0,self.store.db.execute('SELECT count(*) FROM action').fetchone()[0])
+    def test_preparation_cannot_change_frozen_inputs_or_destinations(self):
+        trial=self.trial()
+        with self.assertRaises(InvariantError):self.controller.prepare(trial,{'trial_id':trial,'intent_hash':'ff'*32,'legs':[]})
+    def test_two_independently_signed_competing_successors_are_an_incident(self):
+        trial=self.trial();self.prepared(trial)
+        for prefix,actor in [('d1','actor-04'),('d2','actor-06')]:self.add_output(prefix*32+':0',self.keys[actor],[self.coin])
+        with self.assertRaises(InvariantError):self.controller.judge(trial)
+        self.assertEqual('phase contradiction',self.store.get_meta('paused'))
+    def test_equal_amount_unrelated_receipt_is_not_a_winner(self):
+        trial=self.trial();self.prepared(trial)
+        self.add_output('d1'*32+':0',self.keys['actor-04'],['bb'*32+':0'])
+        verdict=self.controller.judge(trial);self.assertEqual('pending',verdict['state']);self.assertIn('signed_successor_linkage',verdict['unknowns'])
+    def test_lost_reply_retains_fee_and_input_fence_without_second_release(self):
+        trial=self.trial();self.prepared(trial,'durable');self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32
+        first=self.controller.release(trial);self.assertEqual(first,self.controller.release(trial))
+        self.controller.reply(trial,'left',{'kind':'transport_unknown','wire_sha256':'a1'*32})
+        self.assertEqual('pending',self.controller.judge(trial)['state'])
+        self.assertEqual(98000,self.store.remaining_fee_budget())
+    def test_round_acceptance_is_not_a_finished_refresh_winner(self):
+        trial=self.trial('D18');intent=self.controller.intent(trial)
+        self.assertEqual(['RequestArkoorCosign','SubmitPayment'],intent['rpcs'])
+        result=self.controller.judge(trial);self.assertEqual('pending',result['state']);self.assertIn('round_forfeit_and_confirmed_outputs',result['unknowns'])
+    def test_delayed_registration_requires_all_original_payouts_checked(self):
+        trial=self.trial('D24',courier_actor='actor-12',saved_successor_ids=['d1'*32+':0'])
+        self.add_output('d1'*32+':0',self.keys['actor-04'],[self.coin])
+        with self.assertRaises(EvidenceGap):self.controller.release(trial)
+        self.store.db.execute('INSERT INTO checked_settlement VALUES (?,?,?,?,?,?)',(self.coin,'ee'*32,'actor-11','0014'+'77'*20,5000,'{}'))
+        self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32
+        action=self.controller.release(trial);row=self.store.db.execute('SELECT * FROM action WHERE id=?',(action,)).fetchone()
+        self.assertEqual('actor-12',row['actor_id']);self.assertEqual('phase_register_saved',row['operation'])
+        self.assertEqual(0,row['fee_reservation_sat'])
+    def test_generic_refusal_does_not_qualify_delayed_delivery(self):
+        trial=self.trial('D24',courier_actor='actor-12',saved_successor_ids=['d1'*32+':0'])
+        self.add_output('d1'*32+':0',self.keys['actor-04'],[self.coin])
+        self.controller.reply(trial,'delivery',{'kind':'generic_refusal','wire_sha256':'aa'*32})
+        self.assertEqual('pending',self.controller.judge(trial)['state'])
+    def test_remaining_cases_have_real_prerequisites_without_a_malformed_alias(self):
+        from simulator.phase_trials import requirements
+        for scenario in ['D19','D20','D26','D27','D28','D33','D34','D36']:
+            self.assertTrue(requirements(scenario));self.assertNotIn('RawMalformed',' '.join(requirements(scenario)))
