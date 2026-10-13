@@ -1,26 +1,25 @@
 //! Genuine phase trials; opaque SDK nonces never leave their signing process.
 //! Each submitted wire request is frozen before submission. Reopening a fence
 //! holds the outcome unknown; it never regenerates nonces or retries a spend.
-use super::{Request, evidence, hex};
-use anyhow::{Context, Result, ensure};
+use super::{evidence, hex, Request};
+use anyhow::{ensure, Context, Result};
 use ark::arkoor::{
-    ArkoorDestination,
     package::{ArkoorPackageBuilder, ArkoorPackageCosignResponse},
-    state,
+    state, ArkoorDestination,
 };
 use ark::{ProtocolEncoding, Vtxo, VtxoId, VtxoPolicy};
 use bark::Wallet;
 use bitcoin::hex::FromHex;
 use bitcoin::{
-    Amount, Network,
-    hashes::{Hash, sha256},
+    hashes::{sha256, Hash},
     secp256k1::{Keypair, PublicKey},
+    Amount, Network,
 };
 use prost::Message;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use server_rpc::{
-    StatusExt,
     protos::{self, ark_service_client::ArkServiceClient},
+    StatusExt,
 };
 use std::{
     fs,
@@ -48,13 +47,12 @@ pub(super) fn now_ns() -> u128 {
         .as_nanos()
 }
 fn metadata(map: &tonic::metadata::MetadataMap) -> Value {
-    json!(
-        map.clone()
-            .into_headers()
-            .iter()
-            .map(|(name, value)| json!({"name":name.as_str(),"value_hex":hex(value.as_bytes())}))
-            .collect::<Vec<_>>()
-    )
+    json!(map
+        .clone()
+        .into_headers()
+        .iter()
+        .map(|(name, value)| json!({"name":name.as_str(),"value_hex":hex(value.as_bytes())}))
+        .collect::<Vec<_>>())
 }
 pub(super) fn save(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = fs::OpenOptions::new()
@@ -133,7 +131,7 @@ pub(super) fn body_checkpoint(
         "wire_sha256":hash(&body.encode_to_vec()),"private_checkpoint_sha256":hash(&body.encode_to_vec()),
         "nonce_retention":"single_process","signing_session_sha256":hash(&serde_json::to_vec(&builder.cosign_request().requests.iter().map(|r|r.user_pub_nonces.iter().map(|n|hex(&n.serialize())).collect::<Vec<_>>()).collect::<Vec<_>>()).unwrap()),
         "restart_continuation":false,"input_spends":builder.input_spend_info().map(|(id,txid)|json!({"coin_id":id.to_string(),"txid":txid.to_string()})).collect::<Vec<_>>(),
-        "outputs":builder.build_unsigned_vtxos().map(|v|json!({"coin_id":v.id().to_string(),"pubkey":v.user_pubkey().to_string(),"amount_sat":v.amount().to_sat()})).collect::<Vec<_>>()})
+        "outputs":builder.build_unsigned_vtxos().map(|v|json!({"coin_id":v.id().to_string(),"pubkey":v.user_pubkey().to_string(),"amount_sat":v.amount().to_sat(),"input_coin_ids":v.ancestor_ids().iter().map(|id|id.to_string()).filter(|id|input_ids.contains(id)).collect::<Vec<_>>()})).collect::<Vec<_>>()})
 }
 pub(super) fn signed_reply(
     directory: &Path,

@@ -126,6 +126,10 @@ class Controller:
             if not round_submission and ([v.get('coin_id') for v in spends]!=ids or any(not hash64(v.get('txid')) for v in spends)):raise EvidenceGap('exact unsigned input spending identities missing')
             outputs=leg.get('outputs',[])
             if not round_submission and (not outputs or len({v['coin_id'] for v in outputs})!=len(outputs)):raise EvidenceGap('exact unsigned successor IDs missing')
+            if not round_submission:
+                coverage=set()
+                for output in outputs:coverage.update(self.output_inputs(output,intent))
+                if coverage!=set(ids):raise InvariantError('prepared successor lineage omits frozen inputs')
             if sum(integer(v['amount_sat'],'prepared output principal') for v in outputs)>intent['principal_sat']:raise InvariantError('prepared branch inflates principal')
             if intent['scenario']=='D17' and any(v['pubkey']!=intent['context']['recipients'][index]['pubkey'] for v in outputs):raise InvariantError('prepared race changes registered destination')
             old=self.store.db.execute('SELECT digest FROM phase_preparation WHERE trial_id=? AND leg_id=?',(trial,leg['leg_id'])).fetchone()
@@ -170,23 +174,35 @@ class Controller:
         with self.atomic():
             self.store.db.execute('INSERT OR REPLACE INTO phase_reconciliation VALUES (?,?,?,?)',(trial,observed['coin_id'],canonical(observed),time.time()))
             self.store._event('phase_coin_reconciliation',{'trial_id':trial,**observed})
-    def linked_coin(self,identity,intent):
+    def output_inputs(self,output,intent):
+        frozen=[v['coin_id'] for v in intent['inputs']]
+        inputs=output.get('input_coin_ids',frozen if len(frozen)==1 else None)
+        if not isinstance(inputs,list) or not inputs:raise EvidenceGap('exact per-output SDK unsigned input lineage missing')
+        if len(inputs)!=len(set(inputs)) or not set(inputs).issubset(frozen):raise InvariantError('unsigned output lineage differs from frozen inputs')
+        return inputs
+    def exact_path(self,proof,leg,output,intent):
+        expected=set(self.output_inputs(output,intent))
+        return all(any(node.get('txid')==spend['txid'] and spend['coin_id'] in node.get('inputs',[]) for node in proof.get('path',[])) for spend in leg['input_spends'] if spend['coin_id'] in expected)
+    def linked_coin(self,identity,intent,expected=None):
         row=self.store.db.execute('SELECT c.*,k.actor FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey WHERE c.id=?',(identity,)).fetchone()
         if row is None:return None
         proof=json.loads(row['proof'])
         if proof.get('signed_path_valid') is not True or proof.get('anchor_confirmations',0)<1:return None
-        if not {v['coin_id'] for v in intent['inputs']}.issubset(proof.get('ancestor_ids',[])):return None
+        lineage={v['coin_id'] for v in intent['inputs']}.intersection(proof.get('ancestor_ids',[]))
+        if not lineage or (expected is not None and lineage!=set(self.output_inputs(expected,intent))):return None
         if hashlib.sha256(bytes.fromhex(row['signed_vtxo'])).hexdigest()!=row['signed_hash']:raise InvariantError('signed successor bytes changed')
         return dict(row)
     def original_payouts(self,intent):
         found=[]
         subjects=intent['inputs']
         if intent['scenario']=='D24':
-            subjects=[]
+            subjects=[];covered=set()
             for identity in intent['context']['saved_successor_ids']:
                 successor=self.linked_coin(identity,intent)
                 if successor is None:raise EvidenceGap('paid successor lacks exact signed parent linkage')
+                covered.update(set(v['coin_id'] for v in intent['inputs']).intersection(json.loads(successor['proof']).get('ancestor_ids',[])))
                 subjects.append({'coin_id':identity,'amount_sat':successor['amount_sat']})
+            if covered!={v['coin_id'] for v in intent['inputs']} or sum(v['amount_sat'] for v in subjects)!=intent['principal_sat']:raise EvidenceGap('saved successor package does not cover the exact frozen input principal')
         for coin in subjects:
             row=self.store.db.execute('SELECT * FROM checked_settlement WHERE coin_id=?',(coin['coin_id'],)).fetchone()
             if row is None:raise EvidenceGap('original payout is not independently checked and confirmed')
@@ -242,9 +258,9 @@ class Controller:
         others=[p for p in prepared if p['leg_id']!=chosen['leg_id']]
         if len(others)!=1:raise EvidenceGap('two exact prepared competing branches required')
         for expected in chosen['outputs']:
-            coin=self.linked_coin(expected['coin_id'],intent)
+            coin=self.linked_coin(expected['coin_id'],intent,expected)
             proof=json.loads(coin['proof'])
-            if any(not any(node.get('txid')==spend['txid'] and spend['coin_id'] in node.get('inputs',[]) for node in proof.get('path',[])) for spend in chosen['input_spends']):
+            if not self.exact_path(proof,chosen,expected,intent):
                 raise EvidenceGap('exact signed prepared spending path unavailable')
         loser=others[0]
         refusal=next((r for r in replies if r.get('leg_id')==loser['leg_id'] and r.get('kind')=='protocol_refusal' and r.get('wire_sha256')==loser['wire_sha256'] and r.get('code')=='InvalidArgument' and set(r.get('rejected_coin_ids',[])).intersection(v['coin_id'] for v in intent['inputs'])),None)
@@ -331,10 +347,10 @@ class Controller:
             if not leg.get('outputs'):continue
             matched=[]
             for expected in leg['outputs']:
-                coin=self.linked_coin(expected['coin_id'],intent)
+                coin=self.linked_coin(expected['coin_id'],intent,expected)
                 if coin and (coin['pubkey'],coin['amount_sat'])==(expected['pubkey'],expected['amount_sat']):
                     proof=json.loads(coin['proof'])
-                    exact=all(any(node.get('txid')==spend['txid'] and spend['coin_id'] in node.get('inputs',[]) for node in proof.get('path',[])) for spend in leg['input_spends'])
+                    exact=self.exact_path(proof,leg,expected,intent)
                     if exact:matched.append(coin['id'])
                     else:unknowns.append('exact signed prepared spending path unavailable')
             if len(matched)==len(leg['outputs']):winners.append({'leg_id':leg['leg_id'],'signed_output_ids':matched})
