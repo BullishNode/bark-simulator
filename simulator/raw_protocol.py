@@ -92,6 +92,8 @@ def queue_probe(store,config,actor,scenario,context):
         source=store.db.execute('SELECT * FROM action WHERE id=?',(source_action,)).fetchone()
         if source is None or source['state']!='completed' or source['operation'] not in {'invoice','pay_invoice'}:
             raise EvidenceGap('actual invoice/send checkpoint required; unknown outcome stays fenced')
+        expected_operation='pay_invoice' if scenario in {'D29','D30'} else 'invoice'
+        if source['operation']!=expected_operation:raise EvidenceGap('probe source is not its exact send/receive checkpoint')
         data=json.loads(source['result']).get('data',{})
         if data.get('payment_hash')!=payment_hash:raise InvariantError('probe payment hash differs from original action')
         if scenario!='D16' and source['actor_id']!=actor:raise InvariantError('probe checkpoint belongs to another actor')
@@ -156,7 +158,7 @@ def validate_response(action,data):
     if (probe.get('rpc_attempted') is not True or probe.get('guard')!=intent['expected_guard']
             or probe.get('code') not in ({'Ok'} if intent['expected_guard']=='replay_candidate' else {'InvalidArgument'})):
         raise EvidenceGap('actual intended guard or same-path idempotent reply not observed')
-    if probe.get('actual_fee_sat')!=0:raise EvidenceGap('negative protocol fee remains unknown')
+    if type(probe.get('actual_fee_sat')) is not int or probe.get('actual_fee_sat')!=0:raise EvidenceGap('negative protocol fee remains unknown')
     return {'action_id':action['id'],'scenario':intent['scenario'],'intent_hash':args['intent_hash'],
         'response_hash':probe['response_hash'],'request_hash':probe['request_hash'],'response_message_hash':probe['response_message_hash'],
         'rpc':probe['rpc'],'guard':probe['guard'],'code':probe['code'],'native_state_unchanged':True,
