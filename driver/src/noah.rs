@@ -6,11 +6,15 @@
 use anyhow::{Context,Result,ensure};
 use ark::{ProtocolEncoding,SECP};
 use bark::Wallet;
-use bitcoin::{hashes::Hash,secp256k1::Message};
+use bitcoin::{Network,hashes::Hash,secp256k1::{Message,PublicKey}};
 use serde_json::{Value,json};
-use std::time::{SystemTime,UNIX_EPOCH};
+use std::{str::FromStr,time::{SystemTime,UNIX_EPOCH}};
 
-pub async fn enrollment_material(wallet:&Wallet,k1:&str,expiry_rfc3339:&str)->Result<Value> {
+pub async fn enrollment_material(wallet:&Wallet,k1:&str,expiry_rfc3339:&str,expected_server_pubkey:&str)->Result<Value> {
+    ensure!(wallet.network().await?==Network::Signet,"Noah enrollment requires an owned signet phone");
+    let expected=PublicKey::from_str(expected_server_pubkey)?;
+    ensure!(expected.to_string()==expected_server_pubkey,"server pin is not canonical");
+    ensure!(wallet.require_ark_info().await?.server_pubkey==expected,"Noah phone server differs from manifest");
     let (random,stamp)=k1.split_once('_').context("issued k1 format missing")?;
     ensure!(random.len()==64 && random.bytes().all(|b|b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
         && !stamp.is_empty() && stamp.bytes().all(|b|b.is_ascii_digit()) && stamp.len()<=20,"invalid issued k1");
