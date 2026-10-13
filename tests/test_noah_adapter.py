@@ -197,6 +197,47 @@ class NoahEnrollmentTests(unittest.IsolatedAsyncioTestCase):
         async def signer(*args):self.fail('unexpected signing')
         with self.assertRaises(ValueError):await self.adapter(replies).enroll('noah-phone-01',signer,'ExpoPushToken[phone-01]',expiry=1500)
         self.assertEqual(1,len(self.calls))
+    async def test_original_push_submission_uses_private_enrollment_session_and_known_invoice(self):
+        token='private-session-for-original-push';k1='aa'*32+'_1000';transaction='00000000-0000-4000-8000-000000000002'
+        async def replies(method,url,body,bearer):
+            if url.endswith('/getk1'):return {'tag':'login','k1':k1}
+            if url.endswith('/auth/login'):return {'access_token':token,'token_type':'Bearer','expires_at':'2030-01-01T00:00:00Z','expires_in_seconds':259200}
+            self.assertEqual(token,bearer)
+            if url.endswith('/register'):return {'status':'OK','lightning_address':'alice@noah.fixture.example','user_status':'active'}
+            if url.endswith('/user_info'):return {'lightning_address':'alice@noah.fixture.example','user_status':'active'}
+            if url.endswith('/submit_invoice'):self.assertEqual({'transaction_id':transaction,'invoice':self.invoice},body)
+            return {'success':True}
+        async def signer(challenge,expiry):return {'key':PUB,'sig':'30'+'aa'*70,'mailbox_id':PUB,'expiry':expiry,'encoded':PUB+'11'*72}
+        adapter=self.adapter(replies);await adapter.enroll('noah-phone-01',signer,'ExpoPushToken[phone]',expiry=1500)
+        async def invoice(amount):return {'invoice':self.invoice,'payment_hash':HASH}
+        async def claim():self.fail('unexpected claim')
+        envelope={'to':['ExpoPushToken[phone]'],'data':canonical({'notification_type':'lightning_invoice_request','transaction_id':transaction,'amount':5000000})}
+        result=await adapter.consume_push('noah-phone-01',envelope,'ExpoPushToken[phone]',invoice=invoice,claim=claim)
+        self.assertEqual('invoice_submitted',result['state'])
+        with self.assertRaises(ValueError):await adapter.submit_invoice('noah-phone-01',{'transaction_id':transaction,'invoice':'different-invoice'})
+        with self.assertRaises(ValueError):await adapter.submit_invoice('noah-phone-01',{'transaction_id':'00000000-0000-4000-8000-000000000003','invoice':self.invoice})
+        journal=' '.join(row['payload'] for row in self.store.db.execute('SELECT payload FROM event'))
+        self.assertNotIn(token,journal)
+
+
+class NoahForwarderReadinessTests(unittest.IsolatedAsyncioTestCase):
+    setUp=NoahAdapterTests.setUp
+    tearDown=NoahAdapterTests.tearDown
+    adapter=NoahAdapterTests.adapter
+    def observe_changed(self,section):
+        self.manifest['evidence'][section]=self.store.trace_capture('noah.readiness.'+section,{'observed':copy.deepcopy(self.manifest[section]),'verified':True,'method':'independent_observation'})
+    async def test_enabled_forwarder_requires_exact_owned_route_identity_record_and_own_capital(self):
+        self.manifest['forwarder']={'enabled':True,'identity':'noah-forwarder-01','ready':True,
+            'barkd_url':'http://noah-barkd-signet.internal:3000','auth_pubkey':PUB,'mailbox_id':PUB,'fallback_script':'0014'+'33'*20}
+        self.observe_changed('forwarder')
+        self.assertEqual('unqualified',self.adapter().readiness()['status'])
+        self.manifest['capital']['actor_principal_sat']['noah-forwarder-01']=5000;self.manifest['capital']['principal_sat']=25000;self.observe_changed('capital')
+        self.manifest['forwarder']['barkd_url']='http://stock-bark.internal:3000';self.observe_changed('forwarder')
+        self.assertEqual('unqualified',self.adapter().readiness()['status'])
+        self.manifest['forwarder']['barkd_url']='http://noah-barkd-signet.internal:3000';self.manifest['forwarder']['mailbox_id']=None;self.observe_changed('forwarder')
+        self.assertEqual('unqualified',self.adapter().readiness()['status'])
+        self.manifest['forwarder']['mailbox_id']=PUB;self.observe_changed('forwarder')
+        self.assertEqual('ready_for_dispatch',self.adapter().readiness()['status'])
 
 
 class NoahPushTests(unittest.IsolatedAsyncioTestCase):
