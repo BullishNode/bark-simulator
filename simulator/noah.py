@@ -85,6 +85,37 @@ def _reference(store,reference,kind,*,actor=None):
     return json.loads(row['payload'])
 
 
+def _actor(value):
+    # IDs1–40 belong to the original/ramp cohorts;200 phones need three digits.
+    if not isinstance(value,str) or not re.fullmatch(r'actor-[0-9]{2,3}',value):
+        raise ValueError('fresh reserved native actor required')
+    index=int(value[6:])
+    if not 41<=index<=999 or value!=f'actor-{index:02d}':
+        raise ValueError('original/ramp or noncanonical actor refused')
+    return value
+
+
+def _compatibility(store,chain,source):
+    if len({chain[k] for k in ('captaind_commit','phone_sdk_commit','forwarder_sdk_commit')})==1:return
+    if chain['phone_sdk_commit']!=chain['forwarder_sdk_commit']:
+        raise ValueError('phone and forwarder SDK pins differ')
+    proof=_reference(store,chain.get('compatibility'),'noah.protocol.compatibility')
+    expected={k:v for k,v in chain.items() if k!='compatibility'}
+    if (set(proof)!={'verified','method','chain','live_identity_checked','server_binary_sha256','driver_binary_sha256','source_sha256'}
+            or proof['verified'] is not True or proof['live_identity_checked'] is not True
+            or proof['method']!='independent_protocol_compatibility_audit' or proof['chain']!=expected):
+        raise ValueError('independent live server/SDK compatibility evidence differs')
+    if (_hex(proof['server_binary_sha256'])!=_hex(chain['server_binary_sha256'])
+            or _hex(proof['driver_binary_sha256'])!=_hex(source['driver_binary_sha256'])):
+        raise ValueError('qualified executable pins differ')
+    sources=proof['source_sha256']
+    if not isinstance(sources,dict) or set(sources)!={'bark','lib','server-rpc'}:
+        raise ValueError('all SDK/protocol source comparisons required')
+    for hashes in sources.values():
+        if not isinstance(hashes,dict) or set(hashes)!={'server','sdk'}:raise ValueError('source comparison missing')
+        if _hex(hashes['server'])!=_hex(hashes['sdk']):raise ValueError('SDK/protocol source changed')
+
+
 def _checked_manifest(manifest,*,enrollment=False):
     if not isinstance(manifest,dict) or set(manifest)!={'schema_version',*SECTIONS,'evidence'} or manifest['schema_version']!=1:
         raise ValueError('complete readiness manifest required')
@@ -103,14 +134,14 @@ def _checked_manifest(manifest,*,enrollment=False):
     if chain['network']!='signet' or chain['genesis']!=SIGNET_GENESIS:raise ValueError('signet identity required')
     _pubkey(chain['server_pubkey']);_pubkey(chain['lightning_node_pubkey'])
     for key in ('captaind_commit','phone_sdk_commit','forwarder_sdk_commit'):_hex(chain[key],40)
-    if len({chain[key] for key in ('captaind_commit','phone_sdk_commit','forwarder_sdk_commit')})!=1:
-        raise ValueError('fork server and SDK pins differ')
+    if len({chain[key] for key in ('captaind_commit','phone_sdk_commit','forwarder_sdk_commit')})!=1 and 'compatibility' not in chain:
+        raise ValueError('qualified server/SDK compatibility evidence required')
     phones=manifest['phones']
     if not isinstance(phones,list) or not 1<=len(phones)<=200:raise ValueError('bounded declared phones required')
     actors=set();names=set();addresses=set();auth_keys=set();mailboxes=set();fallbacks=set()
     for phone in phones:
         if (set(phone)!={'actor','username','auth_pubkey','ark_address','mailbox_id','fallback_script'}
-                or re.fullmatch('noah-phone-[A-Za-z0-9_-]{1,64}',phone['actor']) is None
+                or _actor(phone['actor'])!=phone['actor']
                 or re.fullmatch('[a-z0-9_.-]{2,64}',phone['username']) is None):raise ValueError('new immutable phone identity required')
         _pubkey(phone['auth_pubkey']);_pubkey(phone['mailbox_id'])
         if not isinstance(phone['ark_address'],str) or not phone['ark_address']:raise ValueError('registered Ark destination missing')
@@ -124,7 +155,7 @@ def _checked_manifest(manifest,*,enrollment=False):
     forwarder=manifest['forwarder']
     if type(forwarder['enabled']) is not bool or type(forwarder['ready']) is not bool:raise ValueError('forwarding mode must be explicit')
     if forwarder['enabled']:
-        if not forwarder['ready'] or not isinstance(forwarder['identity'],str) or not forwarder['identity'].startswith('noah-forwarder-'):
+        if not forwarder['ready'] or not isinstance(forwarder['identity'],str) or _actor(forwarder['identity'])!=forwarder['identity']:
             raise ValueError('forwarder not independently ready')
         if forwarder.get('barkd_url')!='http://noah-barkd-signet.internal:3000':raise ValueError('owned pinned signet forwarding route required')
         _pubkey(forwarder.get('auth_pubkey'));_pubkey(forwarder.get('mailbox_id'))
@@ -140,7 +171,7 @@ def _checked_manifest(manifest,*,enrollment=False):
     allocations=capital['actor_principal_sat']
     if not isinstance(allocations,dict) or not actors<=set(allocations):raise ValueError('phone capital declaration missing')
     if forwarder['enabled'] and forwarder['identity'] not in allocations:raise ValueError('separate forwarder capital missing')
-    if any(re.fullmatch('noah-(phone|payer|forwarder)-[A-Za-z0-9_-]{1,64}',actor) is None for actor in allocations):
+    if any(_actor(actor)!=actor for actor in allocations):
         raise ValueError('old simulator capital cannot be reassigned')
     if sum(integer(value,'actor principal',minimum) for value in allocations.values())>total:raise ValueError('allocation exceeds capital')
     if set(manifest['evidence'])!=set(SECTIONS):raise ValueError('independent readiness observations missing')
@@ -244,6 +275,7 @@ class NoahAdapter:
     def readiness(self,*,enrollment=False):
         try:
             _checked_manifest(self.manifest,enrollment=enrollment)
+            _compatibility(self.store,self.manifest['chain'],self.manifest['source'])
             if self.store.get_meta('mode')=='live':
                 if (not isinstance(self.transport,HTTPSNoahTransport) or self.transport.origin!=self.manifest['origin']['https_origin']
                         or self.transport.ca_sha256!=self.manifest['origin']['ca_sha256']
@@ -428,6 +460,7 @@ class NoahAdapter:
         return {**dict(row),'intent':intent,'proof':proof,'result':json.loads(row['result']) if row['result'] else None}
 
     def _payer(self,actor,identifier):
+        if self.store.actor_namespace(actor)!='noah':raise ValueError('payer is not a separately declared Noah actor')
         row=self.store.db.execute('SELECT online,details FROM actor WHERE id=?',(actor,)).fetchone()
         if row is None or not row['online']:raise ValueError('declared payer is not an online created actor')
         detail=json.loads(row['details'])
@@ -449,7 +482,7 @@ class NoahAdapter:
         if amount_msat%1000 or amount_msat>1000000000:raise ValueError('exact bounded whole-sat amount required')
         if not isinstance(identifier,str) or re.fullmatch('[A-Za-z0-9_-]{1,100}',identifier) is None:raise ValueError('invalid immutable intent id')
         capital=self.manifest['capital']
-        if re.fullmatch('noah-payer-[A-Za-z0-9_-]{1,64}',payer) is None or payer not in capital['actor_principal_sat']:
+        if _actor(payer)!=payer or payer not in capital['actor_principal_sat']:
             raise ValueError('separately allocated payer missing')
         if amount_msat//1000+capital['per_action_fee_sat']>capital['actor_principal_sat'][payer]:raise ValueError('payment exceeds declared actor capital')
         if ark_server is not None and ark_server!=self.manifest['chain']['server_pubkey']:raise ValueError('Ark server key mismatch')
@@ -576,7 +609,7 @@ class NoahAdapter:
         return row
 
     async def consume_push(self,actor,envelope,expo_token,*,invoice,claim,submit=None,delivery_bytes=None):
-        if not isinstance(actor,str) or re.fullmatch('noah-phone-[A-Za-z0-9_-]{1,64}',actor) is None:raise ValueError('invalid declared phone label')
+        _actor(actor)
         if delivery_bytes is None:
             payload={'decoded_original':envelope,'representation':'actual decoded original transport object; wire bytes unavailable'}
         else:

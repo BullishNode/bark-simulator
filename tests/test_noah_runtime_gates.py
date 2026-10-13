@@ -3,7 +3,7 @@ import copy
 import unittest
 
 import test_noah_adapter as fixtures
-from test_noah_inbox import NoahInboxTests
+import test_noah_inbox as inboxfixtures
 
 SERVER='7596c0dc1005c619c4c9528f9e408f005ed7793c'
 
@@ -27,17 +27,17 @@ class UpdatedInboxGates(unittest.IsolatedAsyncioTestCase):
     setUp=fixtures.NoahAdapterTests.setUp
     tearDown=fixtures.NoahAdapterTests.tearDown
     adapter=fixtures.NoahAdapterTests.adapter
-    inbox=NoahInboxTests.inbox
+    inbox=inboxfixtures.NoahInboxTests.inbox
     async def test_qualified_new_nginx_configuration_is_used_not_stale_constant(self):
         inbox,adapter=self.inbox()
-        self.manifest['source']['phone_transport']={'spool_source_sha256':'35'*32,'nginx_sha256':'36'*32}
+        self.manifest['source']['phone_transport']={'spool_source_sha256':'45'*32,'nginx_sha256':'46'*32}
         self.manifest['evidence']['source']=self.store.trace_capture('noah.readiness.source',{
             'observed':copy.deepcopy(self.manifest['source']),'verified':True,'method':'independent_observation'})
         proof={'verified':True,'method':'independent_transport_audit','https_origin':self.manifest['origin']['https_origin'],
             **self.manifest['source']['phone_transport'],'backend_manifest_sha256':'34'*32,
             'token_mode':'opaque_native_auth','pull_path':'/test/phone/pushes','token_path':'/test/phone/token'}
         inbox.qualification=self.store.trace_capture('noah.phone.transport',proof)
-        inbox._ready('noah-phone-01')
+        inbox._ready('actor-41')
 
 class CompatibleEpochGates(unittest.IsolatedAsyncioTestCase):
     setUp=fixtures.NoahAdapterTests.setUp
@@ -45,6 +45,9 @@ class CompatibleEpochGates(unittest.IsolatedAsyncioTestCase):
     def test_qualified_unchanged_protocol_server_upgrade_can_keep_exact_sdk(self):
         from simulator.noah import NoahAdapter
         value=copy.deepcopy(self.manifest);value['chain']['captaind_commit']=SERVER
+        value['chain']['server_binary_sha256']='37'*32
+        value['source']['driver_binary_sha256']='38'*32
+        value['evidence']['source']=self.store.trace_capture('noah.readiness.source',{'observed':copy.deepcopy(value['source']),'verified':True,'method':'independent_observation'})
         proof={'verified':True,'method':'independent_protocol_compatibility_audit',
             'chain':copy.deepcopy(value['chain']), 'live_identity_checked':True,
             'server_binary_sha256':'37'*32,'driver_binary_sha256':'38'*32,

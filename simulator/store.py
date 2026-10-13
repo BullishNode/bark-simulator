@@ -145,9 +145,9 @@ class Store:
         row = self.db.execute("SELECT online FROM actor WHERE id=?", (actor_id,)).fetchone()
         return bool(row[0]) if row else False
 
-    @staticmethod
-    def actor_namespace(actor: str) -> str:
-        return 'noah' if actor.startswith('noah-') else 'ordinary'
+    def actor_namespace(self,actor: str) -> str:
+        row=self.db.execute('SELECT role FROM actor WHERE id=?',(actor,)).fetchone()
+        return 'noah' if row and row['role'] in {'noah','noah-phone','noah-payer','noah-forwarder'} else 'ordinary'
 
     def actor_held(self, actor: str, *, owner: str | None = None) -> bool:
         row=self.db.execute("SELECT owner,state FROM actor_lease WHERE actor=? AND state IN ('active','outcome_unknown')",(actor,)).fetchone()

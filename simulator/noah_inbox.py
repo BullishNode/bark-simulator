@@ -10,8 +10,6 @@ import uuid
 from .model import canonical,integer
 from .noah import _hex,_reference
 
-SPOOL_SHA256='409d5c2331f36a678a7fd4a6bcefcf613acfd99020fc235105cf5ed0e3c8342a'
-NGINX_SHA256='4bf092c6772888edbf44da03bb6e6203a58ab2646163e06cfb1f83ff78025dc0'
 SCHEMA='''CREATE TABLE IF NOT EXISTS noah_inbox_token(
  actor TEXT PRIMARY KEY,artifact TEXT NOT NULL,digest TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS noah_inbox_cursor(actor TEXT PRIMARY KEY,cursor INTEGER NOT NULL);
@@ -39,9 +37,12 @@ class NoahInbox:
     def _ready(self,actor):
         self.adapter._phone(actor,require_online=True,enrollment=True)
         observed=_reference(self.store,self.qualification,'noah.phone.transport')
+        pins=self.adapter.manifest['source'].get('phone_transport')
+        if not isinstance(pins,dict) or set(pins)!={'spool_source_sha256','nginx_sha256'}:raise ValueError('qualified transport source pins missing')
+        for value in pins.values():_hex(value)
         expected={'verified':True,'method':'independent_transport_audit',
             'https_origin':self.adapter.manifest['origin']['https_origin'],
-            'spool_source_sha256':SPOOL_SHA256,'nginx_sha256':NGINX_SHA256,
+            **pins,
             'token_mode':'opaque_native_auth','pull_path':'/test/phone/pushes','token_path':'/test/phone/token'}
         if set(observed)!={*expected,'backend_manifest_sha256'} or any(observed.get(k)!=v for k,v in expected.items()):
             raise ValueError('independent phone transport contract differs')
