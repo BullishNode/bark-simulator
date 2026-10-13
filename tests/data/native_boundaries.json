@@ -1,0 +1,26 @@
+[
+  {
+    "seq": 1,
+    "utc": 1700000000.0,
+    "schema_version": 1,
+    "kind": "driver.event",
+    "actor": "actor-08",
+    "action_id": "lost",
+    "payload": "{\"action_id\":\"lost\",\"data\":{\"evidence\":{\"binding\":{\"key_link_signature_valid\":true,\"mailbox_pk\":\"mailbox\",\"record_signature_valid\":true,\"seq\":1,\"spk\":\"owner-script\"},\"coins\":[],\"movements\":[]},\"fresh\":true},\"event\":\"client_evidence_before\",\"kind\":\"driver_event\",\"operation\":\"snapshot\"}",
+    "raw": null,
+    "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "hash": "a05ab7305a45532ea8bcf641edc8e0625ecd7280ffe320e41bf5e7c38886245d"
+  },
+  {
+    "seq": 2,
+    "utc": 1700000000.0,
+    "schema_version": 1,
+    "kind": "driver.event",
+    "actor": "actor-08",
+    "action_id": "lost",
+    "payload": "{\"action_id\":\"lost\",\"data\":{\"evidence\":{\"binding\":{\"key_link_signature_valid\":true,\"mailbox_pk\":\"mailbox\",\"record_signature_valid\":true,\"seq\":1,\"spk\":\"owner-script\"},\"coins\":[],\"movements\":[]},\"fresh\":true},\"event\":\"client_evidence_after\",\"kind\":\"driver_event\",\"operation\":\"snapshot\"}",
+    "raw": null,
+    "previous_hash": "a05ab7305a45532ea8bcf641edc8e0625ecd7280ffe320e41bf5e7c38886245d",
+    "hash": "eba855cf5b90b948f6085c307d87b89cd6cf65dffed8c0013e7761cf01d76936"
+  }
+]

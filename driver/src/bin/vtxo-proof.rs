@@ -101,6 +101,7 @@ fn verify() -> Result<()> {
     };
     let anchor = coin.chain_anchor();
     let funding = client.get_raw_transaction(&anchor.txid, None)?;
+    ensure!(funding.compute_txid() == anchor.txid, "backing transaction ID mismatch");
     coin.validate(&funding).context("signed path invalid")?;
     let confirmations = client
         .get_raw_transaction_info(&anchor.txid, None)?

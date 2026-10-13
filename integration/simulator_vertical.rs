@@ -743,3 +743,7 @@ mod round_adoption {
 mod round_padding {
     include!(concat!(env!("SIMULATOR_WORKSPACE"), "/integration/round_padding.rs"));
 }
+
+mod unilateral_exit {
+    include!(concat!(env!("SIMULATOR_WORKSPACE"), "/integration/unilateral_exit.rs"));
+}
