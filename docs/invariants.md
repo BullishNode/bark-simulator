@@ -2,6 +2,8 @@
 
 Each campaign binds its state to a wallet root, network, server key, and executable identity. State and wallet leases prevent multiple dispatchers from using the same wallets.
 
+Deployment changes require an independently qualified epoch inside the existing campaign. A historical image mismatch between the original manifest and preserved metadata requires an explicit reconciliation with evidence for both values; it never qualifies the historical switch. The reconciliation event and registry must agree. Removing either record or editing the metadata blocks binding. Original events, funding declarations, balances and signed expiries remain intact; detecting a complete database rollback also requires the external preserved-history evidence.
+
 Direct controllers acquire durable actor ownership under the same SQLite writer transaction used by native claims. Active or unknown actor leases and unfinished private enrollment block ordinary queueing and dispatch. Unknown ownership never expires automatically. Ordinary scheduling, grants, recovery and recycling exclude Noah participants; their explicit namespace does not establish payment readiness or transfer ordinary capital. Noah dispatch requires its separate qualified controller and protected evidence path.
 
 Actions reserve a configured fee allowance. Interrupted requests and ambiguous SDK errors remain unknown outcomes. Silence does not prove failure, release a reservation, or authorize retry. Confirmed evidence closes fees once; service charges and mining fees are reported separately.

@@ -167,6 +167,90 @@ class TargetEpochTests(unittest.TestCase):
         self.store.db.execute('UPDATE target_epoch SET identity=?',(canonical(undeclared),))
         with self.assertRaises(ValueError):self.store.bind_target(undeclared)
 
+    def legacy_declaration(self):
+        import hashlib
+        event=self.store.db.execute("SELECT sequence,hash,payload FROM event WHERE kind='target_manifest' ORDER BY sequence LIMIT 1").fetchone()
+        metadata=canonical(self.new)
+        self.store.db.execute("UPDATE meta SET value=? WHERE key='target_identity'",(metadata,))
+        return dict(id='observed-legacy-image-1',first_manifest_sequence=event['sequence'],
+            first_manifest_hash=event['hash'],first_manifest_identity=json.loads(event['payload']),
+            metadata_identity=self.new,metadata_sha256=hashlib.sha256(metadata.encode()).hexdigest(),
+            observed_at=time.time(),receipt_hashes={'before_upgrade_identity':'a'*64,
+                'preserved_campaign_history':'b'*64},historical_transition_qualified=False)
+
+    def test_explicit_legacy_reconciliation_preserves_both_recorded_identities(self):
+        from simulator.target_epochs import reconcile_legacy_identity
+        declaration=self.legacy_declaration()
+        with self.assertRaises(ValueError):self.store.bind_target(self.new)
+        original=canonical(self.old)
+        self.assertTrue(reconcile_legacy_identity(self.store,declaration))
+        self.assertFalse(reconcile_legacy_identity(self.store,declaration))
+        self.store.bind_target(self.new)
+        self.assertEqual(original,self.store.db.execute("SELECT payload FROM event WHERE kind='target_manifest' ORDER BY sequence LIMIT 1").fetchone()[0])
+        self.assertEqual(canonical(self.new),self.store.get_meta('target_identity'))
+        self.store.verify_event_chain()
+        epoch=self.declaration();epoch['previous_identity']=self.new
+        epoch['identity']={**self.new,'image_digest':'sha256:'+'8'*64}
+        self.declare(epoch);self.store.bind_target(epoch['identity'])
+
+    def test_legacy_record_does_not_authorize_later_metadata_mutation_or_record_edit(self):
+        from simulator.target_epochs import reconcile_legacy_identity
+        declaration=self.legacy_declaration();reconcile_legacy_identity(self.store,declaration)
+        altered={**self.new,'image_digest':'sha256:'+'9'*64}
+        self.store.db.execute("UPDATE meta SET value=? WHERE key='target_identity'",(canonical(altered),))
+        with self.assertRaises(ValueError):self.store.bind_target(altered)
+        self.store.db.execute("UPDATE meta SET value=? WHERE key='target_identity'",(canonical(self.new),))
+        declaration['receipt_hashes']['before_upgrade_identity']='c'*64
+        with self.assertRaises(ValueError):reconcile_legacy_identity(self.store,declaration)
+        self.store.db.execute("UPDATE event SET payload='{}' WHERE kind='legacy_target_identity_reconciled'")
+        with self.assertRaises(ValueError):self.store.bind_target(self.new)
+
+    def test_legacy_reconciliation_cannot_change_keys_or_claim_a_historical_upgrade_pass(self):
+        from simulator.target_epochs import reconcile_legacy_identity
+        declaration=self.legacy_declaration()
+        declaration['historical_transition_qualified']=True
+        with self.assertRaises(ValueError):reconcile_legacy_identity(self.store,declaration)
+        declaration['historical_transition_qualified']=False
+        declaration['first_manifest_identity']['server_pubkey']='02'+'9'*64
+        with self.assertRaises(ValueError):reconcile_legacy_identity(self.store,declaration)
+
+    def test_legacy_reconciliation_requires_paused_quiescent_campaign(self):
+        from simulator.target_epochs import reconcile_legacy_identity
+        declaration=self.legacy_declaration()
+        self.store.db.execute("DELETE FROM meta WHERE key='paused'")
+        with self.assertRaises(ValueError):reconcile_legacy_identity(self.store,declaration)
+
+        self.store.queue('legacy-unknown','actor-01','H01','sync',{},0)
+        self.store.db.execute("UPDATE action SET state='outcome_unknown'")
+        self.store.db.execute("INSERT INTO meta VALUES ('paused','declared target upgrade')")
+        with self.assertRaises(ValueError):reconcile_legacy_identity(self.store,declaration)
+
+    def test_deleted_legacy_event_cannot_roll_back_metadata_or_redeclare(self):
+        from simulator.target_epochs import reconcile_legacy_identity
+        declaration=self.legacy_declaration();reconcile_legacy_identity(self.store,declaration)
+        self.store.db.execute("DELETE FROM event WHERE kind='legacy_target_identity_reconciled'")
+        self.store.db.execute("UPDATE meta SET value=? WHERE key='target_identity'",(canonical(self.old),))
+        self.store.verify_event_chain()  # A truncated prefix alone cannot detect rollback.
+        with self.assertRaises(ValueError):self.store.bind_target(self.old)
+        self.store.db.execute("UPDATE meta SET value=? WHERE key='target_identity'",(canonical(self.new),))
+        with self.assertRaises(ValueError):reconcile_legacy_identity(self.store,declaration)
+
+    def test_deleted_or_edited_legacy_registry_fails_closed(self):
+        from simulator.target_epochs import reconcile_legacy_identity
+        declaration=self.legacy_declaration();reconcile_legacy_identity(self.store,declaration)
+        self.store.db.execute("UPDATE legacy_target_reconciliation SET event_hash=?",('e'*64,))
+        with self.assertRaises(ValueError):self.store.bind_target(self.new)
+        self.store.db.execute('DROP TABLE legacy_target_reconciliation')
+        with self.assertRaises(ValueError):self.store.bind_target(self.new)
+
+    def test_legacy_reconciliation_rejects_stale_or_missing_audit_receipts(self):
+        from simulator.target_epochs import reconcile_legacy_identity
+        declaration=self.legacy_declaration()
+        declaration['observed_at']=time.time()-601
+        with self.assertRaises(ValueError):reconcile_legacy_identity(self.store,declaration)
+        declaration['observed_at']=time.time();declaration['receipt_hashes']={}
+        with self.assertRaises(ValueError):reconcile_legacy_identity(self.store,declaration)
+
     def test_deleted_epoch_registry_cannot_restore_original_target(self):
         self.declare()
         self.store.db.execute('DROP TABLE target_epoch')

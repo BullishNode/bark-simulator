@@ -31,6 +31,12 @@ FIELDS = {'id', 'previous_identity', 'identity', 'observed_at', 'sdk_commit',
 SCHEMA = '''CREATE TABLE IF NOT EXISTS target_epoch(
  sequence INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE,
  declaration TEXT NOT NULL, identity TEXT NOT NULL)'''
+LEGACY_SCHEMA = '''CREATE TABLE IF NOT EXISTS legacy_target_reconciliation(
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+ declaration TEXT NOT NULL, event_sequence INTEGER NOT NULL, event_hash TEXT NOT NULL)'''
+LEGACY_FIELDS = {'id', 'first_manifest_sequence', 'first_manifest_hash',
+                 'first_manifest_identity', 'metadata_identity', 'metadata_sha256',
+                 'observed_at', 'receipt_hashes', 'historical_transition_qualified'}
 
 
 def declaration_hashes(store):
@@ -43,8 +49,22 @@ def active_identity(store):
     # Registry rows are a view of the append-only financial history. Dropping
     # or editing that view must never authorize an undeclared image or rollback.
     original = store.get_meta('target_identity')
-    original_event = store.db.execute("SELECT payload FROM event WHERE kind='target_manifest' ORDER BY sequence LIMIT 1").fetchone()
-    if original_event and original != original_event[0]:
+    original_event = store.db.execute("SELECT * FROM event WHERE kind='target_manifest' ORDER BY sequence LIMIT 1").fetchone()
+    legacy = list(store.db.execute("SELECT * FROM event WHERE kind='legacy_target_identity_reconciled' ORDER BY sequence"))
+    registry_exists = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy_target_reconciliation'").fetchone()
+    registry = list(store.db.execute('SELECT * FROM legacy_target_reconciliation')) if registry_exists else []
+    if len(registry) != len(legacy):
+        raise ValueError('legacy target registry differs from preserved reconciliation evidence')
+    if len(legacy) > 1:
+        raise ValueError('legacy target reconciliation must be unique')
+    if legacy:
+        _event_frame(legacy[0])
+        row = registry[0]
+        if (row['singleton'] != 1 or row['declaration'] != legacy[0]['payload']
+                or row['event_sequence'] != legacy[0]['sequence'] or row['event_hash'] != legacy[0]['hash']):
+            raise ValueError('legacy target reconciliation registry changed')
+        _legacy_binding(store, json.loads(legacy[0]['payload']))
+    elif original_event and original != original_event['payload']:
         raise ValueError('original target metadata differs from preserved manifest evidence')
     declarations = [row[0] for row in store.db.execute("SELECT payload FROM event WHERE kind='target_epoch_declared' ORDER BY sequence")]
     table = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='target_epoch'").fetchone()
@@ -60,6 +80,93 @@ def active_identity(store):
             raise ValueError('target epoch registry or predecessor has changed')
         current = declaration['identity']
     return current
+
+
+def _event_frame(row):
+    expected = hashlib.sha256(canonical([row['sequence'], row['observed_at'],
+        row['kind'], row['payload'], row['previous_hash']]).encode()).hexdigest()
+    if expected != row['hash']:
+        raise ValueError('preserved target reconciliation event frame changed')
+
+
+def _legacy_binding(store, declaration):
+    public_payload(declaration)
+    if not isinstance(declaration, dict) or set(declaration) != LEGACY_FIELDS:
+        raise ValueError('complete explicit legacy target reconciliation required')
+    if not isinstance(declaration['id'], str) or re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,99}', declaration['id']) is None:
+        raise ValueError('legacy reconciliation requires an immutable identifier')
+    if declaration['historical_transition_qualified'] is not False:
+        raise ValueError('reconciliation cannot qualify the historical image switch')
+    _identity(declaration['first_manifest_identity'])
+    _identity(declaration['metadata_identity'])
+    for key in IDENTITY_FIELDS - {'image_digest'}:
+        if declaration['first_manifest_identity'][key] != declaration['metadata_identity'][key]:
+            raise ValueError('legacy reconciliation cannot change signet, server key or target host')
+    _hashes(declaration['receipt_hashes'], {'before_upgrade_identity', 'preserved_campaign_history'})
+    timestamp(declaration['observed_at'], 'legacy audit time')
+    event = store.db.execute("SELECT * FROM event WHERE kind='target_manifest' ORDER BY sequence LIMIT 1").fetchone()
+    if event is None:
+        raise ValueError('legacy reconciliation requires the original target event')
+    _event_frame(event)
+    if (integer(declaration['first_manifest_sequence'], 'original target sequence', 1) != event['sequence']
+            or declaration['first_manifest_hash'] != event['hash']
+            or declaration['first_manifest_identity'] != json.loads(event['payload'])):
+        raise ValueError('legacy reconciliation differs from the preserved original manifest')
+    original = store.get_meta('target_identity')
+    if (original is None or declaration['metadata_identity'] != json.loads(original)
+            or declaration['metadata_sha256'] != hashlib.sha256(original.encode()).hexdigest()):
+        raise ValueError('legacy reconciliation differs from the exact preserved metadata')
+    if declaration['first_manifest_identity'] == declaration['metadata_identity']:
+        raise ValueError('legacy reconciliation requires a recorded historical difference')
+
+
+def reconcile_legacy_identity(store, declaration):
+    """Acknowledge a qualified caller's observed legacy gap; change no old data.
+
+    Receipt contents must be independently checked by the owner. This records
+    the known pre-upgrade metadata as the baseline for future epochs, and never
+    retrospectively qualifies or conceals the older image switch.
+    """
+    with store.transaction():
+        _legacy_binding(store, declaration)
+        existing = list(store.db.execute("SELECT * FROM event WHERE kind='legacy_target_identity_reconciled' ORDER BY sequence"))
+        if existing:
+            active_identity(store)
+            if len(existing) != 1 or existing[0]['payload'] != canonical(declaration):
+                raise ValueError('legacy target reconciliation is immutable')
+            return False
+        registry_exists = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy_target_reconciliation'").fetchone()
+        if registry_exists and store.db.execute('SELECT 1 FROM legacy_target_reconciliation LIMIT 1').fetchone():
+            raise ValueError('legacy target reconciliation event was removed')
+        if store.db.execute("SELECT 1 FROM event WHERE kind='target_epoch_declared' LIMIT 1").fetchone():
+            raise ValueError('legacy baseline must be reconciled before new epochs')
+        if not 0 <= time.time() - declaration['observed_at'] <= 600:
+            raise ValueError('legacy reconciliation requires a fresh independent audit')
+        _require_quiescent(store)
+        store.db.execute(LEGACY_SCHEMA)
+        store._event('legacy_target_identity_reconciled', declaration)
+        event = store.db.execute("SELECT sequence,hash FROM event WHERE kind='legacy_target_identity_reconciled'").fetchone()
+        store.db.execute('INSERT INTO legacy_target_reconciliation VALUES (1,?,?,?)',
+                         (canonical(declaration), event['sequence'], event['hash']))
+    return True
+
+
+def _require_quiescent(store):
+    if not store.get_meta('paused'):
+        raise ValueError('pause dispatch before declaring an epoch')
+    if store.db.execute("SELECT 1 FROM action WHERE state IN ('dispatched','outcome_unknown') LIMIT 1").fetchone():
+        raise ValueError('reconcile in-flight and unknown client actions before an epoch')
+    for table, states in [('seed_recovery', ('preparing','prepare_unknown','broadcasting','outcome_unknown')),
+                          ('funding_batch', ('broadcasting','outcome_unknown')),
+                          ('actor_lease', ('active','outcome_unknown')),
+                          ('noah_control', ('started','outcome_unknown'))]:
+        exists = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+        if exists and store.db.execute('SELECT 1 FROM '+table+' WHERE state IN ('+','.join('?' for _ in states)+') LIMIT 1', states).fetchone():
+            raise ValueError('reconcile client state before an epoch: '+table)
+    for actor in ('actor-03', 'actor-09', 'actor-10'):
+        row = store.db.execute('SELECT online FROM actor WHERE id=?', (actor,)).fetchone()
+        if row is None or row[0] != 0:
+            raise ValueError('original permanently absent clients must remain closed')
 
 
 def _identity(value):
@@ -123,29 +230,11 @@ def declare(store, declaration):
             return False
         if not 0 <= time.time() - declaration['observed_at'] <= 600:
             raise ValueError('epoch requires a fresh independent audit')
-        if not store.get_meta('paused'):
-            raise ValueError('pause dispatch before declaring an epoch')
+        _require_quiescent(store)
         if current != declaration['previous_identity']:
             raise ValueError('epoch predecessor differs from the active deployment')
         if declaration_hashes(store) != declaration['declaration_hashes']:
             raise ValueError('original campaign declarations changed during qualification')
-        if store.db.execute("SELECT 1 FROM action WHERE state IN ('dispatched','outcome_unknown') LIMIT 1").fetchone():
-            raise ValueError('reconcile in-flight and unknown client actions before an epoch')
-        recovery = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='seed_recovery'").fetchone()
-        if recovery and store.db.execute("SELECT 1 FROM seed_recovery WHERE state IN ('preparing','prepare_unknown','broadcasting','outcome_unknown') LIMIT 1").fetchone():
-            raise ValueError('reconcile seed preparations and recovery unknowns before an epoch')
-        funding = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='funding_batch'").fetchone()
-        if funding and store.db.execute("SELECT 1 FROM funding_batch WHERE state IN ('broadcasting','outcome_unknown') LIMIT 1").fetchone():
-            raise ValueError('reconcile funding broadcasts and unknowns before an epoch')
-        if store.db.execute("SELECT 1 FROM actor_lease WHERE state IN ('active','outcome_unknown') LIMIT 1").fetchone():
-            raise ValueError('reconcile direct client controller leases before an epoch')
-        private = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='noah_control'").fetchone()
-        if private and store.db.execute("SELECT 1 FROM noah_control WHERE state IN ('started','outcome_unknown') LIMIT 1").fetchone():
-            raise ValueError('reconcile private client controller actions before an epoch')
-        for actor in ('actor-03', 'actor-09', 'actor-10'):
-            row = store.db.execute('SELECT online FROM actor WHERE id=?', (actor,)).fetchone()
-            if row is None or row[0] != 0:
-                raise ValueError('original permanently absent clients must remain closed')
         store.db.execute('INSERT INTO target_epoch(id,declaration,identity) VALUES (?,?,?)',
                          (declaration['id'], encoded, canonical(declaration['identity'])))
         store._event('target_epoch_declared', declaration)
