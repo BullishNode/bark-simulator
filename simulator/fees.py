@@ -135,14 +135,39 @@ def receive_fee(store,action):
     """
     actor=action['actor_id'];data=json.loads(action['result'])['data']
     count=integer(data['receive_count_before'],'pending receive count')
-    if not count or data['receive_count_after']!=0:raise EvidenceGap('receive claims not completely resolved')
+    hashes = _receive_hashes(data)
+    args=json.loads(action['args']);target=args.get('receive_payment_hash')
+    if target is not None:
+        intents=store.db.execute("SELECT payload FROM event WHERE kind='action_intent' AND json_extract(payload,'$.action_id')=?",(action['id'],)).fetchall()
+        if len(intents)!=1 or json.loads(intents[0][0]).get('args')!=args:
+            raise InvariantError('targeted receive differs from frozen action intent')
+        if (not isinstance(target,str) or len(target)!=64
+                or any(c not in '0123456789abcdef' for c in target)):
+            raise InvariantError('frozen receive target is malformed')
+        if (data.get('bounded_receive_sync') is not True or hashes is None
+                or ('target_receive_terminal' in data and data['target_receive_terminal'] is not True)
+                or data.get('receive_canceled_payment_hashes',[])!=[]
+                or data.get('selected_receive_payment_hashes')!=[target]
+                or target not in hashes[0] or hashes[1]!=hashes[0]-{target}):
+            raise EvidenceGap('targeted receive boundary is unresolved or changed unrelated checkpoints')
+        before_history=_sync_movements(data['before_evidence'])
+        after_history=_sync_movements(data['evidence'])
+        if any(m.get('payment_hash')!=target and canonical(after_history.get(identity))!=canonical(m)
+                for identity,m in before_history.items()):
+            raise EvidenceGap('targeted receive changed unrelated movement history')
+        if any(identity not in before_history and m.get('payment_hash')!=target
+                for identity,m in after_history.items()):
+            raise EvidenceGap('targeted receive has an unrelated new movement')
+        count=1
+    elif not count or data['receive_count_after']!=0:
+        raise EvidenceGap('receive claims not completely resolved')
     before={m['id'] for m in data['before_evidence']['movements'] if m.get('status')=='successful'}
     after=[m for m in data['evidence']['movements'] if m.get('subsystem')=='bark.lightning_receive'
         and m.get('status')=='successful' and m['id'] not in before]
     if len(after)!=count:raise EvidenceGap('sync boundary does not prove every claim completion')
     if len({m['id'] for m in after})!=len(after):raise InvariantError('receive sync repeats a movement')
-    hashes = _receive_hashes(data)
-    if hashes is not None and (hashes[1] or hashes[0] != {m['payment_hash'] for m in after}):
+    expected_hashes={target} if target is not None else hashes[0] if hashes is not None else None
+    if expected_hashes is not None and expected_hashes!={m['payment_hash'] for m in after}:
         raise EvidenceGap('successful claims differ from native pending identities')
     total=0;claims=[]
     for movement in after:
@@ -157,12 +182,19 @@ def receive_fee(store,action):
         invoices=store.db.execute("""SELECT id,args,result FROM action WHERE actor_id=? AND operation='invoice'
             AND state='completed' AND json_extract(result,'$.data.payment_hash')=?""",(actor,movement.get('payment_hash'))).fetchall()
         if len(invoices)!=1:raise EvidenceGap('receive lacks unique frozen invoice')
-        invoice=invoices[0];principal=integer(json.loads(invoice['args'])['amount_sat'],'frozen invoice principal',1)
+        invoice=invoices[0]
+        if target is not None and args.get('recipient_invoice_action',invoice['id'])!=invoice['id']:
+            raise InvariantError('receive target differs from frozen recipient invoice')
+        principal=integer(json.loads(invoice['args'])['amount_sat'],'frozen invoice principal',1)
         fee=principal-net;ceiling=integer(json.loads(invoice['result'])['data']['estimated_claim_fee_sat'],'frozen receive quote')
         if fee<0 or fee!=movement['offchain_fee_sat']:raise InvariantError('receive principal or charge differs from frozen invoice')
         for row in store.db.execute("SELECT payload FROM event WHERE kind='client_fee_reconciled' AND json_extract(payload,'$.actor')=?",(actor,)):
             prior=json.loads(row[0])
-            if movement['id'] in prior.get('receive_movement_ids',[]) and prior['action_id']!=action['id']:
+            assigned=prior.get('claims',[])
+            if prior['action_id']!=action['id'] and (movement['id'] in prior.get('receive_movement_ids',[])
+                    or any(c.get('payment_hash')==movement['payment_hash']
+                        or c.get('invoice_action_id')==invoice['id']
+                        or set(c.get('output_coin_ids',[])) & set(movement['output_vtxos']) for c in assigned)):
                 raise InvariantError('receive claim assigned to another sync')
         total+=fee;claims.append({'movement_id':movement['id'],'invoice_action_id':invoice['id'],'payment_hash':movement['payment_hash'],
             'principal_sat':principal,'signed_output_sat':net,'service_charge_sat':fee,'invoice_estimated_charge_sat':ceiling,'invoice_estimate_variance_sat':fee-ceiling,'output_coin_ids':movement['output_vtxos']})
