@@ -29,8 +29,11 @@ class NoahController:
         self.qualification=qualification
         self.store.db.executescript(SCHEMA)
 
-    def _qualified(self,actor,*,owner=None):
-        phone=self.adapter._phone(actor,require_online=True,enrollment=True)
+    def _qualified(self,actor,*,owner=None,payer=False):
+        if payer:
+            self.adapter._payer(actor,owner)
+            phone=None
+        else:phone=self.adapter._phone(actor,require_online=True,enrollment=True)
         if self.store.actor_held(actor,owner=owner):raise ValueError("actor belongs to an unresolved private controller")
         observation=_reference(self.store,self.qualification,'noah.native.qualification')
         expected={'schema_version':1,'verified':True,'method':'independent_native_sdk_audit',
@@ -128,3 +131,28 @@ class NoahController:
             raise ValueError('phone setup unresolved; independent reconciliation required') from None
         self._finish(identifier,actor,'completed')
         return result
+
+    async def consume(self,inbox,actor,cursor,engine):
+        """Run only the captured original invoice/claim push for an awake phone."""
+        from .noah import _expo_data
+        _,wallet=self._qualified(actor)
+        if wallet!=engine.config.wallet_root/actor:raise ValueError('native phone wallet differs from qualified enrollment')
+        if inbox.adapter is not self.adapter or engine.store is not self.store:
+            raise ValueError('phone job controller context differs')
+        original=inbox.original(actor,cursor);token=inbox._token(actor)
+        envelope=original['payload'];data=_expo_data(envelope,token)
+        identifier=f'noah-job-{actor}-{cursor}'
+        fee=self.adapter.manifest['capital']['per_action_fee_sat']
+        async def invoice(amount):
+            return await engine.noah_action(self.adapter,actor,identifier,'invoice',{'amount_sat':amount},fee)
+        async def claim():
+            return await engine.noah_action(self.adapter,actor,identifier,'claim_lightning',{'receive_payment_hash':data['payment_hash']},fee)
+        return await self.adapter.consume_push(actor,envelope,token,invoice=invoice,claim=claim)
+
+    async def dispatch(self,identifier,engine):
+        """Pay one strictly validated frozen invoice; ACK remains unknown."""
+        async def submit(request):
+            _,wallet=self._qualified(request['actor'],owner=identifier,payer=True)
+            if wallet!=engine.config.wallet_root/request['actor']:raise ValueError('native payer wallet differs from qualified identity')
+            return await engine.noah_action(self.adapter,request['actor'],identifier,request['operation'],request['args'],request['maximum_fee_sat'])
+        return await self.adapter.dispatch(identifier,submit)

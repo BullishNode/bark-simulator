@@ -561,9 +561,10 @@ class NoahAdapter:
             self._state(identifier,'compatibility_failure',result={'stage':'invoice/recipient compatibility','reason':'contract or independent proof failed; no payment dispatched'})
             raise ValueError('Noah LNURL/invoice compatibility failed') from None
 
-    def payment_request(self,identifier):
+    def payment_request(self,identifier,*,_dispatched=False):
         self._ready();row=self.intent(identifier)
-        if row['state']!='invoice_frozen' or row['intent']['transport']!='lightning':raise ValueError('no dispatchable frozen Lightning intent')
+        allowed={'invoice_frozen','dispatched'} if _dispatched else {'invoice_frozen'}
+        if row['state'] not in allowed or row['intent']['transport']!='lightning':raise ValueError('no dispatchable frozen Lightning intent')
         proof=row['proof']
         self._payer(row['intent']['payer'],identifier)
         if proof['expires_at']<=self.clock():raise ValueError('frozen invoice expired; never replace automatically')
