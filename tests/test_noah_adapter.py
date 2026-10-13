@@ -166,6 +166,18 @@ class NoahAdapterTests(unittest.IsolatedAsyncioTestCase):
         for field,value in [('signature_checked',False),('network','bitcoin'),('amount_msat',5001000),('expires_at',999),('node_pubkey','03'+'33'*32),('invoice_sha256','ff'*32)]:
             self.proof=copy.deepcopy(baseline);self.proof[field]=value
             with self.assertRaises(ValueError):await self.adapter().negotiate('invalid-'+field,'noah-payer-01','noah-phone-01',5000000,binding=self.binding)
+    async def test_native_checker_process_refusal_is_compatibility_failure_not_unclassified_unknown(self):
+        from simulator.noah import NativeInvoiceVerifier
+        from simulator.process import CommandError
+        from unittest.mock import patch
+        path=self.root/'offline-verifier';path.write_bytes(b'pinned synthetic executable fixture');path.chmod(0o700)
+        adapter=self.adapter();adapter.invoice_verifier=NativeInvoiceVerifier(path,hashlib.sha256(path.read_bytes()).hexdigest())
+        async def refuse(*args,**kwargs):
+            if kwargs.get('on_stderr_raw'):kwargs['on_stderr_raw']({'raw':b'LNURL metadata hash missing','bytes':27,'truncated':False})
+            raise CommandError('command exited with status1')
+        with patch('simulator.noah.json_command',refuse):
+            with self.assertRaises(ValueError):await adapter.negotiate('native-refusal','noah-payer-01','noah-phone-01',5000000,binding=self.binding)
+        self.assertEqual('compatibility_failure',adapter.intent('native-refusal')['state'])
 
 
 class NoahEnrollmentTests(unittest.IsolatedAsyncioTestCase):
