@@ -155,6 +155,12 @@ fn receive_sync_selection(fees: &[u64], maximum_fee_sat: u64, start: usize) -> R
 }
 
 fn receive_sync_start(hashes: &[String], args: &Value) -> Result<usize> {
+    if let Some(target)=args.get("receive_payment_hash") {
+        let target=target.as_str().context("target receive hash must be a string")?;
+        ensure!(target.len()==64 && target.bytes().all(|c|c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
+            "target receive hash must be lowercase hex");
+        return hashes.iter().position(|h|h==target).context("target checkpoint is not pending");
+    }
     let Some(hint) = args.get("receive_sync_start_after") else { return Ok(0); };
     let hint=hint.as_str().context("receive poll cursor must be a payment hash")?;
     ensure!(hint.len()==64 && hint.bytes().all(|c|c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
@@ -162,6 +168,10 @@ fn receive_sync_start(hashes: &[String], args: &Value) -> Result<usize> {
     // A completed claim can remove the cursor from the pending list. Restart
     // at the first remaining original checkpoint; never create an invoice.
     Ok(hashes.iter().position(|h|h==hint).map(|i|(i+1)%hashes.len()).unwrap_or(0))
+}
+
+fn cancellation_is_terminal(was_awaiting: bool, checkpoint_removed: bool, status: protos::LightningReceiveStatus) -> bool {
+    was_awaiting && checkpoint_removed && status==protos::LightningReceiveStatus::Canceled
 }
 
 fn lightning_fee_ceiling(schedule: &ark::fees::FeeSchedule, amount: Amount) -> Result<Amount> {
@@ -334,6 +344,15 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             json!({"mailbox_pk":mailbox.to_string(),"serialized":hex(&response.record),
             "actual_fee_sat":0,"read_only":true}),
         );
+    }
+    if req.operation == "lightning_receive_status" {
+        let hash=sha256::Hash::from_str(req.args["payment_hash"].as_str().context("payment hash required")?)?;
+        let response=rpc.check_lightning_receive(protos::CheckLightningReceiveRequest {
+            hash:hash.to_byte_array().to_vec(),wait:false,
+        }).await?.into_inner();
+        let status=protos::LightningReceiveStatus::try_from(response.status)?;
+        return Ok(json!({"payment_hash":hash.to_string(),"state":format!("{:?}",status),
+            "read_only":true,"actual_fee_sat":0}));
     }
     if req.operation == "lightning_payment_status" {
         let hash = sha256::Hash::from_str(
@@ -535,8 +554,11 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 receive_fees.push(q.fee.to_sat());
             }
             let start=receive_sync_start(&receive_payment_hashes_before,&req.args)?;
-            let selected=receive_sync_selection(&receive_fees,req.maximum_fee_sat,start)?;
-            let bounded_receive_sync=selected.len()!=pending_receives.len();
+            let targeted=req.args.get("receive_payment_hash").is_some();
+            let selected=if targeted {
+                if receive_fees[start]<=req.maximum_fee_sat {vec![start]} else {vec![]}
+            } else {receive_sync_selection(&receive_fees,req.maximum_fee_sat,start)?};
+            let bounded_receive_sync=targeted || selected.len()!=pending_receives.len();
             if !pending_receives.is_empty() && selected.is_empty() {
                 return Ok(
                     json!({"blocked":true,"reason":"pending receive fees exceed this sync reserve"}),
@@ -550,17 +572,42 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 "receive_sync_start_after":req.args.get("receive_sync_start_after"),
                 "selected_payment_hashes":selected_hashes,"selected_fee_ceiling_sat":selected_fee_ceiling,
                 "all_pending_fee_ceiling_sat":receive_ceiling,"maximum_fee_sat":req.maximum_fee_sat}))?;
-            if bounded_receive_sync {
-                // Drive only these original persisted checkpoints. Full sync and
-                // mailbox processing can claim every receive, exceeding this
-                // action's frozen reserve. Nothing is deleted by the adapter;
-                // the SDK checks server status before reaping expired invoices.
-                for index in selected {
-                    wallet.try_claim_lightning_receive(pending_receives[index].payment_hash,false).await?;
+            let mut canceled=Vec::new();
+            let mut target_terminal=false;
+            for index in selected {
+                let recv=&pending_receives[index];
+                let was_awaiting=matches!(recv.progress,bark::actions::lightning::receive::Progress::AwaitingPayment);
+                let deadline=tokio::time::Instant::now()+std::time::Duration::from_secs(180);
+                loop {
+                    match wallet.try_claim_lightning_receive(recv.payment_hash,false).await {
+                        Ok(bark::actions::lightning::receive::LightningReceiveState::Settled(_))=>{
+                            target_terminal=true;break;
+                        },
+                        Ok(_)=>{},
+                        Err(error)=>{
+                            // SDK8f reports cancellation through anyhow. Never interpret
+                            // its text as terminal evidence: verify the typed server state
+                            // and removal of an originally money-free checkpoint.
+                            let status=rpc.check_lightning_receive(protos::CheckLightningReceiveRequest {
+                                hash:recv.payment_hash.to_byte_array().to_vec(),wait:false,
+                            }).await?.into_inner();
+                            let status=protos::LightningReceiveStatus::try_from(status.status)?;
+                            let removed=wallet.lightning_receive_checkpoint(recv.payment_hash).await?.is_none();
+                            if cancellation_is_terminal(was_awaiting,removed,status) {
+                                canceled.push(recv.payment_hash.to_string());
+                                evidence(req,"receive_canceled",json!({"payment_hash":recv.payment_hash.to_string(),
+                                    "server_status":"canceled","checkpoint_before":"AwaitingPayment",
+                                    "checkpoint_removed":true,"actual_fee_sat":Value::Null}))?;
+                                target_terminal=true;break;
+                            }
+                            return Err(error);
+                        },
+                    }
+                    if !targeted || tokio::time::Instant::now()+std::time::Duration::from_secs(20)>deadline {break;}
+                    tokio::time::sleep(std::time::Duration::from_secs(20)).await;
                 }
-            } else {
-                wallet.sync().await;
             }
+            if !bounded_receive_sync {wallet.sync().await;}
             // A short-lived adapter has no daemon driving unfinished rounds.
             // Lightweight sync only handles completed rounds' confirmations;
             // reuse the SDK's maintenance progression for existing intents.
@@ -580,11 +627,12 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                     "receive_payment_hashes_before":receive_payment_hashes_before,
                     "receive_payment_hashes_after":receive_payment_hashes_after,
                     "bounded_receive_sync":bounded_receive_sync,
+                    "receive_canceled_payment_hashes":canceled,"target_receive_terminal":target_terminal,
                     "selected_receive_payment_hashes":selected_hashes,
                     "selected_receive_fee_ceiling_sat":selected_fee_ceiling,
                     "all_pending_receive_fee_ceiling_sat":receive_ceiling,
                     "actual_fee_sat":if no_new_receive {json!(0)} else {Value::Null},
-                    "fee_scope":"no new receive claim; costs of existing persisted actions remain on those actions",
+                    "fee_scope":"new receive fees require signed claim reconciliation; costs of existing persisted actions remain on those actions",
                     "before_evidence":before,"evidence":coin_evidence(&wallet).await?}),
             )
         }
@@ -1638,6 +1686,26 @@ mod tests {
         assert!(selection.iter().map(|i|fees[*i]).sum::<u64>()<=300);
         assert!(receive_sync_selection(&[2001],2000,0).unwrap().is_empty());
         assert!(receive_sync_selection(&[u64::MAX,1],u64::MAX,0).is_err());
+    }
+
+    #[test]
+    fn funded_receive_target_preempts_stale_cursor() {
+        let hashes=(0..20).map(|i|format!("{i:064x}")).collect::<Vec<_>>();
+        let args=json!({"receive_payment_hash":hashes[19],"receive_sync_start_after":hashes[0]});
+        assert_eq!(receive_sync_start(&hashes,&args).unwrap(),19);
+        assert!(receive_sync_start(&hashes,&json!({"receive_payment_hash":"f".repeat(64)})).is_err());
+        assert!(receive_sync_start(&hashes,&json!({"receive_payment_hash":"not-a-hash"})).is_err());
+    }
+
+    #[test]
+    fn cancellation_requires_all_three_native_facts() {
+        use protos::LightningReceiveStatus as S;
+        assert!(cancellation_is_terminal(true,true,S::Canceled));
+        assert!(!cancellation_is_terminal(false,true,S::Canceled));
+        assert!(!cancellation_is_terminal(true,false,S::Canceled));
+        for status in [S::Created,S::Accepted,S::HtlcsReady,S::Settled] {
+            assert!(!cancellation_is_terminal(true,true,status));
+        }
     }
 
     #[test]

@@ -56,6 +56,12 @@ For a continuous workload, declare a unique public `campaign_seed` in `[runtime]
 
 When pending Lightning receives exceed one sync's fee reservation, the driver polls at most 32 original checkpoints within that reservation. The next pass starts after the previous completed pass's last selected payment hash, so an unchanged backlog cannot repeatedly exclude its last invoice. Unknown actions remain held. A bounded receive pass defers full wallet synchronization; completion alone does not establish receiver readiness, payment success, or a reconciled fee.
 
+New internal Lightning invoices are created only for an affordable, recently observed payer and a ready recipient. A fresh `pool_status` observation must prove confirmed unspent pool capacity beyond the pool expiry margin before invoicing and again before payment dispatch. Missing evidence holds new payment work; a quiet log tail is not readiness. Pool capacity is a scheduling observation, not a reservation.
+
+The payer proposal starts a separate durable receiver sync for its exact frozen payment hash. This sync polls every 20 seconds within a bounded 180-second window while the payer runs. It does not poll unrelated invoices, raise the fee reservation, recreate an invoice or replay the payer. A canceled checkpoint completes only after the driver verifies typed server cancellation, an originally `AwaitingPayment` state and checkpoint removal; its fee stays unknown until independent accounting closes it. Ordinary refresh follows the SDK refreshable balance instead of refreshing every hour.
+
+Live payout fee totals come from the active confirmed-chain settlement verifier, once per transaction. Recipient and operator portions must sum to the raw mining fee. Transactions without complete fee proof stay excluded, and absent proof is reported as unknown rather than zero.
+
 Keep wallet directories, mnemonics, RPC credentials, local configurations, and campaign databases private. The repository contains source and configuration templates.
 
 See [accounting and state invariants](docs/invariants.md) and [verification](docs/verification.md) for the evidence requirements and current test coverage. Deployment templates are in `deploy/`.

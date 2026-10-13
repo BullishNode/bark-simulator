@@ -9,7 +9,9 @@ class ContinuousTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.s=Store(Path(self.tmp.name),'synthetic',1000000);initialize(self.s)
         self.c=SimpleNamespace(board_amount_sat=12000,action_fee_reserve_sat=2000)
-        self.snapshot={'height':100,'capabilities':{'lightning_configured':False}}
+        self.snapshot={'height':100,'capabilities':{'lightning_configured':False},'identity':{'genesis':'g','server_pubkey':'s'},'tip_hash':'tip',
+            'pool_status':{'schema_version':1,'observed_at':time.time(),'height':100,'tip_hash':'tip','genesis':'g','server_pubkey':'s',
+                'complete':True,'stable_tip':True,'pool_pre_expiry_blocks':10,'pool':{'confirmed_eligible_count':8,'confirmed_eligible_amount_sat':80000,'minimum_eligible_expiry_height':148}}}
         for i in range(1,13):self.detail(f'actor-{i:02}')
     def detail(self,actor,**extra):
         d={'created':True,'ark_address':'ark-'+actor,'snapshot_at':time.time(),'registered_spendable_sat':0,'onchain_confirmed_sat':0,'needs_sync':False}
@@ -167,8 +169,14 @@ class ContinuousTests(unittest.TestCase):
         schedule(self.s,self.c,self.snapshot)
         self.assertEqual('send_arkoor',self.action()['operation'])
 
-    def test_hourly_refresh_still_runs_for_an_older_board(self):
+    def test_old_board_does_not_refresh_before_sdk_threshold(self):
         self.boarded_actor(age=3601)
+        schedule(self.s,self.c,self.snapshot)
+        self.assertEqual('send_arkoor',self.action()['operation'])
+
+    def test_sdk_refreshable_balance_triggers_refresh(self):
+        self.boarded_actor(age=3601)
+        self.detail('actor-01',registered_spendable_sat=0,needs_refresh_sat=12000,board_submitted=True)
         schedule(self.s,self.c,self.snapshot)
         self.assertEqual('refresh',self.action()['operation'])
 
@@ -187,13 +195,15 @@ class ContinuousTests(unittest.TestCase):
         self.assertEqual('send_arkoor',self.action()['operation'])
 
 
-    def test_empty_online_lightning_recipient_can_invoice_before_funding(self):
+    def test_empty_online_lightning_recipient_can_invoice_with_ready_payer(self):
+        self.detail('actor-12',registered_spendable_sat=12000)
         self.snapshot['capabilities']['lightning_configured']=True
         schedule(self.s,self.c,self.snapshot)
         self.assertEqual(('actor-06','invoice'),(self.action()['actor_id'],self.action()['operation']))
         self.assertEqual(2000,self.action()['fee_reservation_sat'])
-        self.assertEqual({'amount_sat':2000},json.loads(self.action()['args']))
+        self.assertEqual({'amount_sat':2000,'planned_payer_actor':'actor-12'},json.loads(self.action()['args']))
     def test_empty_absent_recipient_rotates_without_opening_it(self):
+        self.detail('actor-12',registered_spendable_sat=12000)
         self.snapshot['capabilities']['lightning_configured']=True;self.s.set_online('actor-06',False)
         schedule(self.s,self.c,self.snapshot)
         self.assertEqual(('actor-08','invoice'),(self.action()['actor_id'],self.action()['operation']))
@@ -260,6 +270,7 @@ class ReceiveThenDisappearTests(unittest.TestCase):
             self.s.db.execute('DELETE FROM action');self.s.db.execute('DELETE FROM movement_evidence')
 
     def test_lightning_workload_moves_to_online_peer_after_first_recipient_leaves(self):
+        self.detail('actor-12',registered_spendable_sat=12000)
         self.s.set_online('actor-06',False)
         self.detail('actor-08',registered_spendable_sat=5000,board_submitted=True)
         self.snapshot['capabilities']['lightning_configured']=True

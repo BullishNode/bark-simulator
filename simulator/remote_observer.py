@@ -92,6 +92,9 @@ async def collect(args):
         public_command([str(args.driver)],node='public-server',method='info',request={'operation':'info','expected_server_pubkey':args.server_pubkey},timeout=20,capture=capture),
         asyncio.to_thread(core.call,'getblockchaininfo'),asyncio.to_thread(core.call,'getblockhash',0),
         lightning('abandon-simulation-lightning-internal-1',capture=capture),lightning('abandon-simulation-lightning-external-1',capture=capture))
+    try:
+        pool_status=await public_command(ssh,node='target',method='pool_status',request={'kind':'pool_status'},timeout=15,capture=capture)
+    except Exception as error:pool_status={'complete':False,'reason':type(error).__name__}
     if genesis!=SIGNET_GENESIS or remote['genesis']!=SIGNET_GENESIS or remote['network']!='signet':raise ValueError('independent/target genesis mismatch')
     if info.get('status')!='ok' or info['data']['network']!='signet' or info['data']['server_pubkey']!=args.server_pubkey:raise ValueError('server handshake mismatch')
     points=remote['wallet']['rounds']['confirmed_utxos'];value=None;gap=None;owned_scripts=[]
@@ -123,7 +126,7 @@ async def collect(args):
         'timings':{'payout_enabled':remote['timings']['enabled'],'min_payout_sat':remote['timings']['min_payout_sat'],
             'grace_blocks':remote['timings']['grace_blocks'],'sweep_min_confs':remote['timings']['sweep_min_confs'],
             **{k:info['data'][k] for k in ['vtxo_lifetime','required_board_confirmations','round_interval_secs']}},
-        'lightning':{'operator':internal,'fixture_peer':external},'complete':False,
+        'pool_status':pool_status,'lightning':{'operator':internal,'fixture_peer':external},'complete':False,
         'capabilities':{'lightning_configured':remote['lightning_configured'],'full_capital_attribution':False},
         'unknown_buckets':['customer liabilities and ownership graph','unique locked backing attribution','operator input reservations','watchman and realized fees'],
         'independent_chain':{'height':ending['blocks'],'headers':ending['headers'],'ibd':ending['initialblockdownload']}}

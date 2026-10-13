@@ -9,7 +9,7 @@ from pathlib import Path
 from .config import Config
 from .model import public_payload, timestamp
 from .observations import observe
-from .process import json_command
+from .process import json_command, public_command_capture
 from .report import generate
 from .store import Store
 from .log_capture import configured_sources as configured_log_sources,collect_sources as collect_logs
@@ -137,6 +137,24 @@ class Engine:
             }
         latest = self.store.db.execute("SELECT id,payload FROM snapshot ORDER BY id DESC LIMIT 1").fetchone()
         snapshot = json.loads(latest["payload"]) if latest else {}
+        if action['operation']=='pay_invoice':
+            recipient=action['args'].get('recipient_actor')
+            if recipient and (not self.store.online(recipient)
+                    or not self.store.ordinary_actor_available(recipient)
+                    or self.store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('queued','dispatched','outcome_unknown')",(recipient,)).fetchone()):
+                self.store.finish(action['id'],'blocked',{'reason':'receiver cannot drive frozen hash; no payer call'},0)
+                return True
+            from .pool_readiness import ready as pool_ready
+            try:
+                pool=await json_command(list(self.config.inventory_command),{'kind':'pool_status'},timeout=15,
+                    **public_command_capture(self.store,'pool.status',{'kind':'pool_status'},action_id=action['id']))
+                snapshot={**snapshot,'pool_status':pool}
+            except Exception as error:
+                self.store.finish(action['id'],'blocked',{'reason':'positive pool observation unavailable','error_type':type(error).__name__},0)
+                return True
+            if not pool_ready(snapshot,action['args'].get('amount_sat',0)):
+                self.store.finish(action['id'],'blocked',{'reason':'confirmed usable pool is not proven','pool_status':pool},0)
+                return True
         context = {"snapshot_id":latest["id"] if latest else None, "height":snapshot.get("height"),
                    "tip_hash":snapshot.get("tip_hash"), "mode":self.store.get_meta("mode")}
         self.store.trace_capture('driver.call',{'phase':'request','request':request,'context':context},
@@ -146,6 +164,7 @@ class Engine:
         started = time.monotonic()
 
         boundary_frames=[]
+        receiver_tasks=[]
 
         def progress(event):
             if event.get("action_id") != action["id"]:
@@ -157,6 +176,10 @@ class Engine:
                 event={**event,'data':{'fresh':event.get('data',{}).get('fresh'),'trace_ref':trace_ref}}
             self.store.event("driver_evidence", {**event,"context":context})
             kind=event.get('event');data=event.get('data',{});trial=action['args'].get('trial_id')
+            if kind=='lightning_proposal' and action['operation']=='pay_invoice':
+                from .receive_sync import queue_payment_receiver
+                receiver=queue_payment_receiver(self.store,self.config,action,data['payment_hash'])
+                if receiver:receiver_tasks.append(asyncio.create_task(self.dispatch_one(receiver)))
             if trial:
                 if kind=='phase_preparations_frozen':self.phases.native_prepared(trial,action['id'],data)
                 elif kind=='phase_delayed_registration_frozen':self.phases.delivery_prepared(trial,action['id'],data)
@@ -190,6 +213,7 @@ class Engine:
         except Exception as error:
             self.store.finish(action["id"], "outcome_unknown", {"reason": type(error).__name__,
                 "duration_ms": round((time.monotonic() - started) * 1000)})
+            if receiver_tasks:await asyncio.gather(*receiver_tasks)
             return True
         if response.get("action_id") != action["id"]:
             self.store.finish(action["id"], "outcome_unknown", {"reason": "driver response identity mismatch"})
@@ -252,6 +276,7 @@ class Engine:
             self.store.finish(action["id"], "outcome_unknown", response)
         else:
             self.store.finish(action["id"], "failed", {"reason": "unexpected driver outcome", "response": response})
+        if receiver_tasks:await asyncio.gather(*receiver_tasks)
         return True
 
     def prepare_campaign_funding(self,snapshot):

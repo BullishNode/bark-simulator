@@ -58,18 +58,19 @@ class LivenessRegressions(unittest.TestCase):
     def payer(self, amount):
         self.snapshot['capabilities']['lightning_configured'] = True
         self.detail('actor-05', registered_spendable_sat=amount,
-                    board_submitted=True, snapshot_at=time.time()-181)
+                    board_submitted=True, snapshot_at=time.time())
         self.detail('actor-06', latest_invoice='fixture-invoice', invoice_action_id='invoice-peer')
         for actor in ['actor-05', 'actor-06']:
             self.s.queue('sync-'+actor, actor, 'H01', 'sync', {}, 0)
             self.s.db.execute("UPDATE action SET state='completed',actual_fee_sat=0 WHERE id=?", ('sync-'+actor,))
-        self.s.queue('invoice-peer', 'actor-06', 'H40', 'invoice', {}, 0)
-        self.s.db.execute("UPDATE action SET state='completed',actual_fee_sat=0 WHERE id='invoice-peer'")
+        self.s.queue('invoice-peer', 'actor-06', 'H40', 'invoice', {'amount_sat':2000,'planned_payer_actor':'actor-05'}, 0)
+        self.s.db.execute("UPDATE action SET state='completed',actual_fee_sat=0,result=? WHERE id='invoice-peer'",(json.dumps({'data':{'invoice':'fixture-invoice','payment_hash':'a'*64}}),))
 
     def test_payer_cannot_queue_two_thousand_plus_reserve_from_three_thousand(self):
         self.payer(3000)
         schedule(self.s, self.c, self.snapshot)
-        self.assertEqual('snapshot', self.action()['operation'])
+        self.assertIsNone(self.action())
+        self.assertEqual(0,self.s.db.execute("SELECT COUNT(*) FROM action WHERE operation='pay_invoice'").fetchone()[0])
 
     def test_four_thousand_payer_can_queue_payment(self):
         self.payer(4000)

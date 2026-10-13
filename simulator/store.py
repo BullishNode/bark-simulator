@@ -210,13 +210,14 @@ class Store:
             self._event("action_intent", {"action_id": action_id, "actor": actor, "scenario": scenario,
                                           "operation": operation, "args": args, "fee_reservation_sat": fee_reservation_sat, "due_at": due})
 
-    def claim(self, supported: set[str], *, namespace: str = 'ordinary'):
+    def claim(self, supported: set[str], *, namespace: str = 'ordinary', action_id: str | None = None):
         if namespace not in {'ordinary','noah'}:raise ValueError('explicit participant namespace required')
         with self.transaction():
             if self.get_meta("paused"):
                 return None
             rows = self.db.execute("SELECT a.* FROM action a JOIN actor u ON u.id=a.actor_id WHERE a.state='queued' AND a.due_at<=? AND u.online=1 ORDER BY a.due_at,a.id", (time.time(),)).fetchall()
             for row in rows:
+                if action_id is not None and row['id']!=action_id:continue
                 if self.actor_namespace(row['actor_id'])!=namespace or self.actor_held(row['actor_id']):continue
                 if row["operation"] not in supported:
                     continue

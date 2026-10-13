@@ -114,68 +114,78 @@ def lightning_recipient(store):
     # Losing an ordinary recipient must not end the entire workload. A new
     # invoice is created on another online independently seeded existing wallet.
     for peer,detail in online_lightning_candidates(store):
-        if receive_fee_block(store,peer) is not None:continue
+        if receive_fee_block(store,peer) is not None or detail.get('needs_sync'):continue
+        if store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('dispatched','outcome_unknown')",(peer,)).fetchone():continue
         # A successful bounded pass still defers full sync/mailbox adoption.
         # Preserve that receiver and its original invoices while another online
         # peer handles new traffic; partial progress is not receive readiness.
         latest=store.db.execute("SELECT state,result FROM action WHERE actor_id=? AND operation='sync' ORDER BY created_at DESC LIMIT 1",(peer,)).fetchone()
-        if latest and latest['state']=='completed' and json.loads(latest['result'] or '{}').get('data',{}).get('bounded_receive_sync') is True:continue
+        if latest and latest['state']=='completed':
+            data=json.loads(latest['result'] or '{}').get('data',{})
+            if data.get('bounded_receive_sync') is True or data.get('receive_count_after',0)!=0:continue
         return peer,detail
     return None,{}
 
-def queue_liquidity_transfer(store,config,snapshot,decisions):
-    """Restore a payer's affordability using existing owned client capital.
+def lightning_payer(store,config,exclude=None):
+    now=time.time();candidates=[]
+    for row in store.db.execute('SELECT id,details FROM actor WHERE online=1'):
+        actor=row['id'];detail=json.loads(row['details']);stamp=detail.get('snapshot_at',0)
+        if actor==exclude or actor in {'actor-03','actor-09','actor-10'} or not store.ordinary_actor_available(actor):continue
+        if detail.get('needs_sync') or not detail.get('created') or not detail.get('ark_address'):continue
+        if type(stamp) not in (int,float) or not 0<=now-stamp<=180:continue
+        if store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('queued','dispatched','outcome_unknown')",(actor,)).fetchone():continue
+        balance=integer(detail.get('registered_spendable_sat',0),'payer balance')
+        if balance>=2000+config.action_fee_reserve_sat:candidates.append((balance,actor,detail))
+    if not candidates:return None,{}
+    _,actor,detail=sorted(candidates,key=lambda item:(-item[0],item[1]))[0]
+    return actor,detail
 
-    A cached balance is a scheduling observation; the native sender still
-    rechecks its actual signed inputs and fee cap. An uncertain transfer or
-    missing recipient receipt stays pending rather than becoming another send.
-    """
-    if not getattr(config,'active',False) or not snapshot.get('capabilities',{}).get('lightning_configured'):return False
-    now=time.time();reserve=integer(config.action_fee_reserve_sat,'liquidity transfer fee reserve')
-    payer='actor-05'
-    def eligible(actor,details):
-        if actor in {'actor-03','actor-09','actor-10'} or not store.online(actor) or not store.ordinary_actor_available(actor):return False
-        if store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state='queued'",(actor,)).fetchone():return False
-        stamp=details.get('snapshot_at',0)
-        return (details.get('created') and details.get('ark_address') and not details.get('needs_sync')
-                and not details.get('permanent_absence') and type(stamp) in (int,float) and stamp>0 and 0<=now-stamp<=180)
-    with _transaction(store):
-        row=store.db.execute('SELECT details FROM actor WHERE id=?',(payer,)).fetchone()
-        if row is None:return False
-        target=json.loads(row[0])
-        if not eligible(payer,target):return False
-        spendable=integer(target.get('registered_spendable_sat',0),'payer spendable')
-        if spendable>=2000+reserve:return False
-        # Prior original intents must have known fees and a validated recipient
-        # receipt before another transfer. Freshness must follow that outcome.
-        for previous in store.db.execute("SELECT id,state,actual_fee_sat,updated_at FROM action WHERE json_extract(args,'$.purpose')='replenish_lightning_payer'"):
-            if previous['state']=='canceled':continue
-            if (previous['state']!='completed' or previous['actual_fee_sat'] is None
-                    or target['snapshot_at']<=previous['updated_at']):return False
-            if not store.db.execute("SELECT 1 FROM event WHERE kind='ark_transfer_verified' AND json_extract(payload,'$.action_id')=?",(previous['id'],)).fetchone():return False
-        amount=4000+reserve-spendable
-        keep_sat=3000
-        donors=[]
-        for row in store.db.execute('SELECT id,details FROM actor ORDER BY id'):
-            actor=row['id'];detail=json.loads(row['details'])
-            if actor==payer or not eligible(actor,detail):continue
-            balance=integer(detail.get('registered_spendable_sat',0),'donor spendable')
-            if balance>=amount+reserve+keep_sat:donors.append((balance,actor,detail))
-        if not donors or store.remaining_fee_budget()<reserve:return False
-        balance,actor,detail=sorted(donors,key=lambda item:(-item[0],item[1]))[0]
-        action_id=f"continuous-{store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]+1:08}"
-        args={'destination':target['ark_address'],'amount_sat':amount,'recipient_actor':payer,
-            'purpose':'replenish_lightning_payer','source_snapshot_at':detail['snapshot_at'],
-            'recipient_snapshot_at':target['snapshot_at']}
-        store.queue(action_id,actor,'H07','send_arkoor',args,reserve)
-        evidence={'actor':actor,'recipient_actor':payer,'action_id':action_id,'amount_sat':amount,
-            'fee_reservation_sat':reserve,'observed_sender_spendable_sat':balance,
-            'observed_recipient_spendable_sat':spendable,'minimum_sender_retained_sat':keep_sat,
-            'source_snapshot_at':detail['snapshot_at'],'recipient_snapshot_at':target['snapshot_at'],
-            'external_injection_sat':0,'recycling_credit_sat':0,'outcome':'pending native send and signed recipient receipt'}
-        store._event('client_liquidity_transfer_intent',evidence)
-        decisions[actor]={'actor':actor,'rule_id':'lightning_payer_liquidity','outcome':'queued','operation':'send_arkoor','inputs':evidence}
+def queue_lightning_pair(store,config,snapshot,decisions):
+    """An invoice belongs to one ready payer; unused legacy invoices stay intact."""
+    from .pool_readiness import ready as pool_ready
+    if not snapshot.get('capabilities',{}).get('lightning_configured') or not pool_ready(snapshot,2000):return False
+    for row in store.db.execute("SELECT * FROM action WHERE operation='invoice' AND state='completed' ORDER BY created_at,id"):
+        args=json.loads(row['args']);payer=args.get('planned_payer_actor')
+        if not payer:continue
+        if store.db.execute("SELECT 1 FROM action WHERE operation='pay_invoice' AND json_extract(args,'$.recipient_invoice_action')=?",(row['id'],)).fetchone():continue
+        if time.time()-row['updated_at']>120:continue
+        actor=row['actor_id']
+        if not store.online(actor) or not store.ordinary_actor_available(actor):continue
+        if store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('queued','dispatched','outcome_unknown')",(actor,)).fetchone():continue
+        selected,_=lightning_payer(store,config,exclude=actor)
+        if selected!=payer:continue
+        data=json.loads(row['result'] or '{}').get('data',{})
+        if not data.get('invoice') or not data.get('payment_hash'):continue
+        identity=f"continuous-{store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]+1:08}"
+        store.queue(identity,payer,'H40','pay_invoice',{'invoice':data['invoice'],'amount_sat':2000,
+            'recipient_actor':actor,'recipient_invoice_action':row['id']},config.action_fee_reserve_sat)
+        decisions[payer]={'actor':payer,'rule_id':'ready_lightning_pair','outcome':'queued','operation':'pay_invoice','inputs':{'recipient_actor':actor,'invoice_action_id':row['id']}}
         return True
+    actor,detail=lightning_recipient(store)
+    if not actor or detail.get('needs_sync'):return False
+    latest=store.db.execute("SELECT result FROM action WHERE actor_id=? AND operation='sync' AND state='completed' ORDER BY created_at DESC,id DESC LIMIT 1",(actor,)).fetchone()
+    if latest and json.loads(latest['result'] or '{}').get('data',{}).get('receive_count_after',0)!=0:return False
+    recent=store.db.execute("SELECT MAX(created_at) FROM action WHERE operation='invoice' AND state!='canceled'").fetchone()[0]
+    if recent and time.time()-recent<1800:return False
+    payer,_=lightning_payer(store,config,exclude=actor)
+    if not payer:return False
+    identity=f"continuous-{store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]+1:08}"
+    if store.remaining_fee_budget()<3*config.action_fee_reserve_sat:return False
+    store.queue(identity,actor,'H40','invoice',{'amount_sat':2000,'planned_payer_actor':payer},config.action_fee_reserve_sat)
+    decisions[actor]={'actor':actor,'rule_id':'ready_lightning_invoice','outcome':'queued','operation':'invoice','inputs':{'planned_payer_actor':payer}}
+    return True
+
+def lightning_pair_hold(store,actor):
+    # Preserve a ready pair through the short invoice-to-submission window.
+    # This holds ordinary scheduling only; it never overrides actor leases.
+    return store.db.execute("""SELECT 1 FROM action invoice WHERE invoice.operation='invoice'
+        AND invoice.state IN ('queued','dispatched','completed') AND invoice.created_at>?
+        AND (invoice.actor_id=? OR json_extract(invoice.args,'$.planned_payer_actor')=?)
+        AND json_type(invoice.args,'$.planned_payer_actor')='text'
+        AND NOT EXISTS(SELECT 1 FROM action pay WHERE pay.operation='pay_invoice'
+            AND json_extract(pay.args,'$.recipient_invoice_action')=invoice.id
+            AND pay.state NOT IN ('queued','dispatched','outcome_unknown')) LIMIT 1""",
+        (time.time()-120,actor,actor)).fetchone() is not None
 
 def schedule(store,config,snapshot):
     decisions={}
@@ -210,7 +220,7 @@ def _schedule(store,config,snapshot,decisions,rng=None):
         key=('round-held:'+decision['inputs']['refresh_action_id']) if decision['outcome']=='held' else decision['actor']
         decisions[key]=decision
     if round_decision and round_decision['outcome']=='queued':return
-    if queue_liquidity_transfer(store,config,snapshot,decisions):return
+    if queue_lightning_pair(store,config,snapshot,decisions):return
     actors=store.db.execute("SELECT a.* FROM actor a WHERE online=1 ORDER BY COALESCE((SELECT MAX(updated_at) FROM action WHERE actor_id=a.id),0),a.id").fetchall()
     for actor in actors:
         name=actor['id'];d=json.loads(actor['details'])
@@ -226,6 +236,7 @@ def _schedule(store,config,snapshot,decisions,rng=None):
         def decide(rule,outcome='held'):
             decisions[name]['rule_id']=rule;decisions[name]['outcome']=outcome
         if store.actor_held(name):decide('private_actor_lease');continue
+        if lightning_pair_hold(store,name):decide('planned_lightning_pair');continue
         busy=store.db.execute("SELECT state FROM action WHERE actor_id=? AND state IN ('dispatched','outcome_unknown') ORDER BY CASE state WHEN 'outcome_unknown' THEN 0 ELSE 1 END LIMIT 1",(name,)).fetchone()
         if busy:decide('unknown_outcome' if busy['state']=='outcome_unknown' else 'native_inflight');continue
         if rng and store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state='queued'",(name,)).fetchone():
@@ -319,20 +330,12 @@ def _schedule(store,config,snapshot,decisions,rng=None):
             decide('periodic_sync')
             if queue('H01','sync',fee=config.action_fee_reserve_sat):return
             continue
-        # Receiving needs no existing Ark principal: its fee comes from the
-        # incoming payment. Native invoice/sync checks retain the same ceilings.
-        if name==lightning_recipient(store)[0] and snapshot.get('capabilities',{}).get('lightning_configured') and due('invoice',1800,last('invoice')):
-            decide('invoice_cadence')
-            if queue('H40','invoice',{'amount_sat':2000},config.action_fee_reserve_sat):return
-            continue
         # Refreshable coins cannot fund a send yet. Keep their native state as
         # a scheduling input and restore spendability before the dry-wallet gate.
         # Sync debt and the read after a mutation were handled above.
         refreshable=d.get('needs_refresh_sat',0)
-        refreshed_at=max(last('board'),last('refresh'),last('refresh_delegated'))
-        if refreshable>0 or (last('board') and due('refresh',3600,refreshed_at)
-                             and balance>=1000+config.action_fee_reserve_sat):
-            decide('refreshable_balance' if refreshable>0 else 'hourly_refresh')
+        if refreshable>0:
+            decide('refreshable_balance')
             operation='refresh_delegated' if name in {'actor-07','actor-08'} else 'refresh'
             if queue('H20' if operation.endswith('delegated') else 'H17',operation,fee=config.action_fee_reserve_sat):return
             continue
@@ -351,24 +354,6 @@ def _schedule(store,config,snapshot,decisions,rng=None):
             decide('one_shot_offboard')
             if queue('H33','offboard_all',fee=10000):return
             continue
-        if name=='actor-05' and snapshot.get('capabilities',{}).get('lightning_configured'):
-            recipient_actor,recipient=lightning_recipient(store)
-            invoice=recipient.get('latest_invoice');invoice_id=recipient.get('invoice_action_id')
-            attempted={json.loads(x['args']).get('recipient_invoice_action') for x in history if x['operation']=='pay_invoice'}
-            if invoice and invoice_id not in attempted:
-                decide('lightning_payment')
-                if balance<2000+config.action_fee_reserve_sat:
-                    decide('payer_affordability')
-                    if due('snapshot',180,d.get('snapshot_at',0)):queue('H01','snapshot');return
-                    continue
-                if queue('H40','pay_invoice',{'invoice':invoice,'amount_sat':2000,'recipient_actor':recipient_actor,'recipient_invoice_action':invoice_id},config.action_fee_reserve_sat):return
-                continue
-        # Refresh once per hour, with actual frozen SDK fee/input proof. Delegated
-        # and interactive clients alternate through separately observed outcomes.
-        # A newly confirmed board already has a fresh lifetime. Refreshing it
-        # immediately locks the whole balance through another round before the
-        # client has made its first payment. Start the hourly cadence at the
-        # latest board or refresh, including an explicitly journaled reboard.
         # Diverse amounts/peers are deterministic from durable action history.
         sends=sum(x['operation']=='send_arkoor' for x in history)
         if due('send_arkoor',600,last('send_arkoor')):

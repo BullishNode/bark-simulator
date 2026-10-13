@@ -21,6 +21,7 @@ class BoundedReceiveSyncTests(unittest.TestCase):
         detail=json.loads(self.s.db.execute("SELECT details FROM actor WHERE id='actor-06'").fetchone()[0])
         self.assertFalse(detail['needs_sync'])
     def test_known_fee_block_does_not_immediately_repeat_unchanged_sync(self):
+        self.detail('actor-12',registered_spendable_sat=12000)
         self.snapshot['capabilities']['lightning_configured']=True
         self.detail('actor-06',needs_sync=True)
         self.s.queue('fee-block','actor-06','H01','sync',{},2000)
