@@ -17,7 +17,7 @@ from .model import InvariantError, btc_to_sat, canonical, integer, public_payloa
 from .process import json_command
 from .bundle_audit import decode_transaction
 
-SDK_COMMIT = 'd47c6a4d115b30bf56219d69251fa9238d13f32d'
+SDK_COMMIT = '8f2286ee7e1631b0ceccd1631ec3b728a1bb0a52'
 PADDING_PUBKEY = '02dfa52f6690299d2d6a08323083e290597b56fee125063e5f4e2957731639c42c'
 PADDING_UNLOCK_HASH = 'deadbeef' * 8
 PADDING_AMOUNT_SAT = 330

@@ -315,6 +315,11 @@ class RecoveryController:
                     or unspent['scriptPubKey']['hex'] != source['script']):
                 self._held(row, 'frozen payout input is unavailable'); return
         with self.store.transaction():
+            # A maintenance pause or client lease may commit while the
+            # independent input reads are in progress. Fence the durable
+            # dispatch intent within the same transaction as these checks.
+            if self.store.get_meta('paused') or not self.store.ordinary_actor_available(row['actor']):
+                return
             self.store.db.execute("UPDATE seed_recovery SET state='broadcasting',updated_at=? WHERE id=?", (time.time(), row['id']))
             self.store.db.execute("UPDATE action SET state='dispatched',updated_at=? WHERE id=?", (time.time(), row['id']))
             self.store._event('seed_recovery_broadcast_intent', {'recovery_id': row['id'], 'action_id': row['id'], 'txid': row['txid']})

@@ -9,7 +9,7 @@ from .raw_cases import next_case
 from .recycling import plan as recycle_plan
 from .renewal import queue_board as queue_owner_renewal
 from .realism import Rng,hazard,_transaction
-from .store import CampaignPaused
+from .store import ActorHeld, CampaignPaused
 
 # These are ordinary users becoming permanently silent, separate from protocol
 # attackers. The next cohort repeats the same independently seeded profiles.
@@ -120,9 +120,9 @@ def schedule(store,config,snapshot):
             queued=sum(store.ordinary_actor_available(r[0]) for r in store.db.execute("SELECT DISTINCT a.actor_id FROM action a JOIN actor u ON u.id=a.actor_id WHERE a.state='queued' AND u.online=1 AND a.due_at<=? AND NOT EXISTS(SELECT 1 FROM action busy WHERE busy.actor_id=a.actor_id AND busy.state IN ('dispatched','outcome_unknown'))",(time.time(),)))
             slots=max(0,slots-queued)
         for _ in range(slots):_schedule(store,config,snapshot,decisions,rng)
-    except CampaignPaused:
-        # An external pause can commit after our initial guard. The atomic
-        # queue fence still wins; retain this process and its preparation jobs.
+    except (CampaignPaused, ActorHeld):
+        # A pause or direct lease can commit after our initial guard. The
+        # atomic queue fence wins; retain this process and preparation jobs.
         return
     finally:
         store.event('scheduler_tick',{'actors':list(decisions.values()),

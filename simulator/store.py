@@ -46,6 +46,10 @@ class CampaignPaused(ValueError):
     """An atomic queue fence, including pauses committed by another process."""
 
 
+class ActorHeld(ValueError):
+    """A direct controller acquired this actor before an atomic queue intent."""
+
+
 class Store:
     def __init__(self, root: Path, mode: str, fee_budget_sat: int | None = None):
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -191,7 +195,7 @@ class Store:
         with (nullcontext() if self.db.in_transaction else self.transaction()):
             if namespace not in {'ordinary','noah'} or self.actor_namespace(actor)!=namespace:
                 raise ValueError('action participant namespace differs from explicit dispatcher')
-            if self.actor_held(actor):raise ValueError('actor belongs to an unresolved private controller')
+            if self.actor_held(actor):raise ActorHeld('actor belongs to an unresolved private controller')
             if self.get_meta("paused"):
                 raise CampaignPaused("campaign dispatch paused")
             if self.get_meta("fee_budget_sat") is None:

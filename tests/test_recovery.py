@@ -284,6 +284,32 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         future.set_result(self.prepared); await self.drive()
         self.assertEqual(1, self.sends())
 
+    async def test_pause_committed_during_gettxout_blocks_broadcast_intent(self):
+        from unittest.mock import patch
+        await self.drive(2)
+        self.assertEqual('prepared', self.recoveries()[0]['state'])
+        self.assertEqual(0, self.sends())
+        second = Store(self.store.root, 'synthetic')
+        original = self.rpc.call
+        paused_during_read = []
+        def pause_during_gettxout(method, *args, **kwargs):
+            if method == 'gettxout':
+                with second.transaction():
+                    second.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','declared maintenance review')")
+                paused_during_read.append(True)
+            return original(method, *args, **kwargs)
+        try:
+            with patch.object(self.rpc, 'call', side_effect=pause_during_gettxout):
+                await self.controller.tick()
+            self.assertTrue(paused_during_read)
+            self.assertEqual('declared maintenance review', self.store.get_meta('paused'))
+            self.assertEqual(0, self.sends())
+            self.assertEqual('prepared', self.recoveries()[0]['state'])
+            self.assertEqual('queued', self.store.db.execute('SELECT state FROM action').fetchone()[0])
+            self.assertIsNone(self.store.db.execute("SELECT 1 FROM event WHERE kind='seed_recovery_broadcast_intent'").fetchone())
+        finally:
+            second.close()
+
     async def test_orphaned_prepare_is_held_and_never_automatically_restarted(self):
         future = asyncio.Future()
         async def blocked(*args): return await future

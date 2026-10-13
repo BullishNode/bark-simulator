@@ -71,6 +71,24 @@ class MaintenancePauseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, self.store.db.execute('SELECT count(*) FROM action').fetchone()[0])
         self.assertIsNone(self.store.claim({'create'}))
 
+    async def test_legitimate_lease_acquired_during_schedule_keeps_preparation_alive(self):
+        from simulator.store import Store
+        second = Store(self.store.root, 'synthetic')
+        original = self.store.queue
+        def lease_after_guard(*args, **kwargs):
+            self.assertTrue(second.acquire_actor_lease(args[1], 'private-controller-race', 'synthetic review'))
+            return original(*args, **kwargs)
+        try:
+            with patch.object(self.store, 'queue', side_effect=lease_after_guard):
+                await self.engine.run(once=True)
+            self.assertTrue(self.store.actor_held('actor-01'))
+            self.assertEqual('preparing', self.fixture.recoveries()[0]['state'])
+            self.assertFalse(next(iter(self.controller.jobs.values())).cancelled())
+            self.assertEqual(1, self.store.db.execute('SELECT count(*) FROM action').fetchone()[0])
+            self.assertEqual(0, self.fixture.sends())
+        finally:
+            second.close()
+
     async def test_external_maintenance_pause_does_not_exit_or_cancel_preparation(self):
         await self.racing_pause('declared target upgrade')
 
