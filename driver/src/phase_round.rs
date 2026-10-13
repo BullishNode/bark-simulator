@@ -1,4 +1,4 @@
-//! One real interactive SDK round attempt races one retained arkoor builder.
+//! One real interactive SDK round attempt races a retained arkoor or offboard.
 //! The transport gate captures SDK-generated requests before forwarding;
 //! private SDK round signing/forfeit safety code is never reimplemented here.
 use super::{
@@ -24,6 +24,66 @@ use std::{
 };
 use tonic::transport::Channel;
 
+enum Partner {
+    Arkoor {
+        builder: retained::Prepared,
+        keys: Vec<bitcoin::secp256k1::Keypair>,
+        body: protos::ArkoorPackageCosignRequest,
+        checkpoint: Value,
+    },
+    Offboard(super::phase_offboard::Partner),
+}
+impl Partner {
+    fn checkpoint(&self) -> Value {
+        match self {
+            Self::Arkoor { checkpoint, .. } => checkpoint.clone(),
+            Self::Offboard(partner) => partner.checkpoint.clone(),
+        }
+    }
+    async fn dispatch(
+        self,
+        wallet: &Wallet,
+        rpc: &mut ArkServiceClient<Channel>,
+        req: &Request,
+        directory: &Path,
+    ) -> Result<Value> {
+        match self {
+            Self::Offboard(partner) => partner.finish(wallet, rpc, req, directory).await,
+            Self::Arkoor {
+                builder,
+                keys,
+                body,
+                checkpoint,
+            } => {
+                let started = retained::now_ns();
+                let wire = body.encode_to_vec();
+                retained::save(
+                    &directory.join("arkoor-dispatched.json"),
+                    &serde_json::to_vec(
+                        &json!({"wire_sha256":retained::hash(&wire),"submitted_at_ns":started}),
+                    )?,
+                )?;
+                let reply = rpc.request_arkoor_cosign(body).await;
+                let result = retained::signed_reply(
+                    directory,
+                    "arkoor",
+                    builder,
+                    &keys,
+                    reply,
+                    checkpoint["wire_sha256"].as_str().context("wire hash")?,
+                    started,
+                    retained::now_ns(),
+                )?;
+                evidence(
+                    req,
+                    "phase_reply_observed",
+                    json!({"trial_id":req.args["trial_id"],"leg_id":"arkoor","reply":result}),
+                )?;
+                Ok(result)
+            }
+        }
+    }
+}
 #[derive(Default)]
 struct Expected {
     participation: Option<RoundParticipation>,
@@ -119,9 +179,16 @@ pub async fn setup(
     req: &Request,
     private_root: &Path,
 ) -> Result<Option<Invocation>> {
-    let frozen = retained::intent(req, "D18")?;
+    let scenario = req.args["phase_intent"]["scenario"]
+        .as_str()
+        .context("round race scenario")?;
     ensure!(
-        req.operation == "phase_execute_d18",
+        matches!(scenario, "D18" | "D19"),
+        "round race scenario differs"
+    );
+    let frozen = retained::intent(req, scenario)?;
+    ensure!(
+        req.operation == format!("phase_execute_{}", scenario.to_lowercase()),
         "round phase operation differs"
     );
     let Some(directory) = retained::fence(private_root, req)? else {
@@ -198,7 +265,14 @@ pub async fn execute(
     invocation: &Invocation,
     actor: &str,
 ) -> Result<Value> {
-    let frozen = retained::intent(req, "D18")?;
+    let scenario = req.args["phase_intent"]["scenario"]
+        .as_str()
+        .context("round race scenario")?;
+    ensure!(
+        matches!(scenario, "D18" | "D19"),
+        "round race scenario differs"
+    );
+    let frozen = retained::intent(req, scenario)?;
     let maximum_wait = frozen["context"]["maximum_wait_seconds"]
         .as_u64()
         .unwrap_or(900);
@@ -272,31 +346,59 @@ pub async fn execute(
         expected.participation = Some(participation.clone());
         expected.committed_fee_sat = fee;
     }
-    let recipients = frozen["context"]["recipients"]
-        .as_array()
-        .context("declared registered arkoor recipient")?;
-    ensure!(
-        !recipients.is_empty(),
-        "registered arkoor recipient required"
-    );
-    let destination =
-        PublicKey::from_str(recipients[0]["pubkey"].as_str().context("registered key")?)?;
-    let builder = ArkoorPackageBuilder::new_with_checkpoints(
-        inputs,
-        vec![ArkoorDestination {
-            total_amount: Amount::from_sat(input),
-            policy: VtxoPolicy::new_pubkey(destination),
-        }],
-    )?
-    .generate_user_nonces(&keys)?;
-    let body = protos::ArkoorPackageCosignRequest::from(builder.cosign_request());
-    let wire = body.encode_to_vec();
-    retained::save(&invocation.directory.join("arkoor-request.bin"), &wire)?;
+    let partner = if scenario == "D19" {
+        Partner::Offboard(
+            super::phase_offboard::prepare(
+                wallet,
+                rpc,
+                req,
+                &invocation.directory,
+                &inputs,
+                &keys,
+                fee,
+            )
+            .await?,
+        )
+    } else {
+        let recipients = frozen["context"]["recipients"]
+            .as_array()
+            .context("declared registered arkoor recipient")?;
+        ensure!(
+            !recipients.is_empty(),
+            "registered arkoor recipient required"
+        );
+        let destination =
+            PublicKey::from_str(recipients[0]["pubkey"].as_str().context("registered key")?)?;
+        let builder = ArkoorPackageBuilder::new_with_checkpoints(
+            inputs,
+            vec![ArkoorDestination {
+                total_amount: Amount::from_sat(input),
+                policy: VtxoPolicy::new_pubkey(destination),
+            }],
+        )?
+        .generate_user_nonces(&keys)?;
+        let body = protos::ArkoorPackageCosignRequest::from(builder.cosign_request());
+        retained::save(
+            &invocation.directory.join("arkoor-request.bin"),
+            &body.encode_to_vec(),
+        )?;
+        let ids = items
+            .iter()
+            .map(|v| v["coin_id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        let checkpoint = retained::body_checkpoint(&builder, &body, "arkoor", &ids);
+        Partner::Arkoor {
+            builder,
+            keys,
+            body,
+            checkpoint,
+        }
+    };
+    let partner_checkpoint = partner.checkpoint();
     let ids = items
         .iter()
         .map(|v| v["coin_id"].as_str().unwrap().to_string())
         .collect::<Vec<_>>();
-    let arkoor = retained::body_checkpoint(&builder, &body, "arkoor", &ids);
     // join_next_round stores the real SDK intent, not a manually synthesized
     // SubmitPayment. Nonces will live in the same Wallet/process below.
     let stored = wallet
@@ -349,41 +451,22 @@ pub async fn execute(
             .frozen_submit
             .clone()
             .context("exact SDK round request not frozen")?;
-        let prepared = json!({"trial_id":req.args["trial_id"],"intent_hash":req.args["intent_hash"],"legs":[arkoor,round]});
+        let prepared = json!({"trial_id":req.args["trial_id"],"intent_hash":req.args["intent_hash"],"legs":[partner_checkpoint,round]});
         retained::save(
             &invocation.directory.join("preparation.json"),
             &serde_json::to_vec(&prepared)?,
         )?;
         evidence(req, "phase_preparations_frozen", prepared)?;
         invocation.gate.release_once()?;
-        let started = retained::now_ns();
-        retained::save(
-            &invocation.directory.join("arkoor-dispatched.json"),
-            &serde_json::to_vec(
-                &json!({"wire_sha256":retained::hash(&wire),"submitted_at_ns":started}),
-            )?,
-        )?;
-        let reply = rpc.request_arkoor_cosign(body).await;
-        let result = retained::signed_reply(
-            &invocation.directory,
-            "arkoor",
-            builder,
-            &keys,
-            reply,
-            &retained::hash(&wire),
-            started,
-        )?;
-        evidence(
-            req,
-            "phase_reply_observed",
-            json!({"trial_id":req.args["trial_id"],"leg_id":"arkoor","reply":result}),
-        )?;
+        let result = partner
+            .dispatch(wallet, rpc, req, &invocation.directory)
+            .await?;
         Ok::<_, anyhow::Error>(result)
     };
     let (round_result, arkoor_result) = tokio::join!(round_progress, arkoor_future);
     // Both futures have completed or retained their failure artifacts. A normal
     // SDK outer Ok is deliberately not interpreted as successful refresh.
-    let result = json!({"round_outer_result":round_result.as_ref().map(|_|"ok").map_err(|e|format!("{e:#}")),"arkoor_result":arkoor_result.as_ref().map(|r|r.clone()).map_err(|e|format!("{e:#}"))});
+    let result = json!({"round_outer_result":round_result.as_ref().map(|_|"ok").map_err(|e|format!("{e:#}")),"competing_result":arkoor_result.as_ref().map(|r|r.clone()).map_err(|e|format!("{e:#}"))});
     retained::save(
         &invocation.directory.join("initial-results.json"),
         &serde_json::to_vec(&result)?,
@@ -523,7 +606,7 @@ pub async fn execute(
         }
     }
     Ok(
-        json!({"phase_unknown":true,"trial_id":req.args["trial_id"],"arkoor_reply":arkoor_result,"sdk_round_state_id":round_state_id,
+        json!({"phase_unknown":true,"trial_id":req.args["trial_id"],"competing_reply":arkoor_result,"sdk_round_state_id":round_state_id,
         "actual_fee_sat":Value::Null,"committed_round_fee_sat":fee,"reason":"independent confirmed round/forfeit/competing-path and fee audit required; SDK outer progress success is insufficient","restart_continuation":false,"customer_traffic_credit":false}),
     )
 }

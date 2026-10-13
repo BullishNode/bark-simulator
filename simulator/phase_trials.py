@@ -124,13 +124,17 @@ class Controller:
         for index,leg in enumerate(legs):
             if leg.get('rpc')!=intent['rpcs'][index] or leg.get('input_coin_ids')!=ids:raise InvariantError('prepared RPC/input set differs from frozen phase')
             if not hash64(leg.get('wire_sha256')) or not hash64(leg.get('private_checkpoint_sha256')):raise EvidenceGap('exact request and private checkpoint hashes required')
-            round_submission=intent['scenario']=='D18' and index==1
+            round_submission=intent['scenario'] in {'D18','D19'} and index==1
+            offboard=intent['scenario']=='D19' and index==0
+            if offboard:
+                from .phase_offboard import validate_quote
+                validate_quote(intent,leg)
             spends=leg.get('input_spends',[])
             if round_submission:self.validate_round_quote(intent,leg)
             if not round_submission and ([v.get('coin_id') for v in spends]!=ids or any(not hash64(v.get('txid')) for v in spends)):raise EvidenceGap('exact unsigned input spending identities missing')
             outputs=leg.get('outputs',[])
-            if not round_submission and (not outputs or len({v['coin_id'] for v in outputs})!=len(outputs)):raise EvidenceGap('exact unsigned successor IDs missing')
-            if not round_submission:
+            if not round_submission and not offboard and (not outputs or len({v['coin_id'] for v in outputs})!=len(outputs)):raise EvidenceGap('exact unsigned successor IDs missing')
+            if not round_submission and not offboard:
                 coverage=set()
                 for output in outputs:coverage.update(self.output_inputs(output,intent))
                 if coverage!=set(ids):raise InvariantError('prepared successor lineage omits frozen inputs')
@@ -138,6 +142,7 @@ class Controller:
             if intent['scenario']=='D17' and any(v['pubkey']!=intent['context']['recipients'][index]['pubkey'] for v in outputs):raise InvariantError('prepared race changes registered destination')
             old=self.store.db.execute('SELECT digest FROM phase_preparation WHERE trial_id=? AND leg_id=?',(trial,leg['leg_id'])).fetchone()
             if old and old[0]!=digest(leg):raise InvariantError('prepared leg was replaced after freeze')
+        if intent['scenario']=='D19' and sum(integer(leg.get('committed_fee_sat'),'conditional quote fee') for leg in legs)>intent['maximum_fee_sat']:raise InvariantError('combined offboard/round quotes exceed whole-trial cap')
         if len(legs)==2 and legs[0]['input_spends']==legs[1]['input_spends']:raise InvariantError('race must use distinct unsigned spends of identical inputs')
         with self.atomic():
             for leg in legs:self.store.db.execute('INSERT OR IGNORE INTO phase_preparation VALUES (?,?,?,?)',(trial,leg['leg_id'],digest(leg),canonical(leg)))
