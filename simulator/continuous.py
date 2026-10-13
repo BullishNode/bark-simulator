@@ -102,10 +102,18 @@ def absence_report(store):
             'security_qualification':'exact sweep path, whole source arbitration and seed-only recovery are separate required gates'})
     return result
 
+def receive_fee_block(store,actor):
+    row=store.db.execute("SELECT id,state,result,actual_fee_sat,updated_at FROM action WHERE actor_id=? AND operation='sync' ORDER BY created_at DESC LIMIT 1",(actor,)).fetchone()
+    if row is None or row['state']!='blocked' or row['actual_fee_sat']!=0:return None
+    data=json.loads(row['result'] or '{}').get('data',{})
+    if data.get('blocked') is True and data.get('reason')=='pending receive fees exceed this sync reserve':return row
+    return None
+
 def lightning_recipient(store):
     # Losing an ordinary recipient must not end the entire workload. A new
     # invoice is created on another online independently seeded existing wallet.
-    for peer,detail in online_lightning_candidates(store):return peer,detail
+    for peer,detail in online_lightning_candidates(store):
+        if receive_fee_block(store,peer) is None:return peer,detail
     return None,{}
 
 def schedule(store,config,snapshot):
@@ -207,7 +215,12 @@ def _schedule(store,config,snapshot,decisions,rng=None):
         # Consume only already declared, externally journaled funding. No implicit top-up.
         if d.get('needs_sync'):
             decide('sync_debt')
-            if time.time()-last('sync')>120 and queue('H01','sync',fee=config.action_fee_reserve_sat):return
+            blocked=receive_fee_block(store,name)
+            attempted=max(last('sync'),blocked['updated_at'] if blocked else 0)
+            if blocked:
+                decide('receive_sync_fee_hold')
+                decisions[name]['inputs']['blocked_action_id']=blocked['id']
+            if time.time()-attempted>120 and queue('H01','sync',fee=config.action_fee_reserve_sat):return
             continue
         # Always read after a mutation/sync, but don't let twelve serial
         # clients' periodic reads preempt every affordable money operation.

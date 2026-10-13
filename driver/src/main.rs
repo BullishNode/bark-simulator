@@ -123,6 +123,21 @@ async fn coin_evidence(wallet: &Wallet) -> Result<Value> {
     Ok(json!({"coins":public,"movements":movements,"binding":binding}))
 }
 
+fn receive_sync_selection(fees: &[u64], maximum_fee_sat: u64) -> Result<Vec<usize>> {
+    let _total = fees.iter().try_fold(0u64, |total, fee| total.checked_add(*fee))
+        .context("receive fee overflow")?;
+    let mut used=0u64;
+    let mut selected=Vec::new();
+    for (index,fee) in fees.iter().enumerate() {
+        if selected.len()==32 { break; }
+        if *fee<=maximum_fee_sat-used {
+            used+=fee;
+            selected.push(index);
+        }
+    }
+    Ok(selected)
+}
+
 fn lightning_fee_ceiling(schedule: &ark::fees::FeeSchedule, amount: Amount) -> Result<Amount> {
     schedule.validate()?;
     schedule
@@ -464,22 +479,41 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             let receive_count_before = pending_receives.len();
             let receive_payment_hashes_before = pending_receives.iter()
                 .map(|recv| recv.payment_hash.to_string()).collect::<Vec<_>>();
-            for recv in pending_receives {
+            let mut receive_fees=Vec::new();
+            for recv in &pending_receives {
                 let q = wallet
                     .estimate_lightning_receive_fee(recv.invoice.get_payment_amount(None)?)
                     .await?;
                 receive_ceiling = receive_ceiling
                     .checked_add(q.fee.to_sat())
                     .context("receive fee overflow")?;
+                receive_fees.push(q.fee.to_sat());
             }
-            if receive_ceiling > req.maximum_fee_sat {
+            let selected=receive_sync_selection(&receive_fees,req.maximum_fee_sat)?;
+            let bounded_receive_sync=selected.len()!=pending_receives.len();
+            if !pending_receives.is_empty() && selected.is_empty() {
                 return Ok(
                     json!({"blocked":true,"reason":"pending receive fees exceed this sync reserve"}),
                 );
             }
+            let selected_hashes=selected.iter().map(|i|pending_receives[*i].payment_hash.to_string()).collect::<Vec<_>>();
+            let selected_fee_ceiling=selected.iter().map(|i|receive_fees[*i]).sum::<u64>();
             let before = coin_evidence(&wallet).await?;
             evidence(req, "sync_before", before.clone())?;
-            wallet.sync().await;
+            evidence(req,"receive_sync_plan",json!({"bounded_receive_sync":bounded_receive_sync,
+                "selected_payment_hashes":selected_hashes,"selected_fee_ceiling_sat":selected_fee_ceiling,
+                "all_pending_fee_ceiling_sat":receive_ceiling,"maximum_fee_sat":req.maximum_fee_sat}))?;
+            if bounded_receive_sync {
+                // Drive only these original persisted checkpoints. Full sync and
+                // mailbox processing can claim every receive, exceeding this
+                // action's frozen reserve. Nothing is deleted by the adapter;
+                // the SDK checks server status before reaping expired invoices.
+                for index in selected {
+                    wallet.try_claim_lightning_receive(pending_receives[index].payment_hash,false).await?;
+                }
+            } else {
+                wallet.sync().await;
+            }
             // A short-lived adapter has no daemon driving unfinished rounds.
             // Lightweight sync only handles completed rounds' confirmations;
             // reuse the SDK's maintenance progression for existing intents.
@@ -498,6 +532,10 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                     "receive_count_before":receive_count_before,"receive_count_after":receive_count_after,
                     "receive_payment_hashes_before":receive_payment_hashes_before,
                     "receive_payment_hashes_after":receive_payment_hashes_after,
+                    "bounded_receive_sync":bounded_receive_sync,
+                    "selected_receive_payment_hashes":selected_hashes,
+                    "selected_receive_fee_ceiling_sat":selected_fee_ceiling,
+                    "all_pending_receive_fee_ceiling_sat":receive_ceiling,
                     "actual_fee_sat":if no_new_receive {json!(0)} else {Value::Null},
                     "fee_scope":"no new receive claim; costs of existing persisted actions remain on those actions",
                     "before_evidence":before,"evidence":coin_evidence(&wallet).await?}),
@@ -1465,6 +1503,30 @@ mod tests {
         }
         fees.lightning_send.ppm_expiry_table.reverse();
         assert!(lightning_fee_ceiling(&fees, amount).is_err());
+    }
+
+    #[test]
+    fn outstanding_invoices_can_progress_under_the_original_fee_cap() {
+        let selection = receive_sync_selection(&[150; 20], 2000).unwrap();
+        assert!(!selection.is_empty(), "twenty outstanding invoices must not deadlock sync");
+        assert_eq!(selection.len(), 13);
+        assert_eq!(selection.iter().map(|_|150u64).sum::<u64>(),1950);
+    }
+
+    #[test]
+    fn receive_selection_never_crosses_the_fee_cap_or_repeats_a_checkpoint() {
+        let fees=[2001,150,150,0];
+        let selection=receive_sync_selection(&fees,300).unwrap();
+        assert_eq!(selection,vec![1,2,3]);
+        assert!(selection.iter().map(|i|fees[*i]).sum::<u64>()<=300);
+        assert!(receive_sync_selection(&[2001],2000).unwrap().is_empty());
+        assert!(receive_sync_selection(&[u64::MAX,1],u64::MAX).is_err());
+    }
+
+    #[test]
+    fn zero_fee_receive_polling_remains_bounded() {
+        assert_eq!(receive_sync_selection(&[0;100],0).unwrap().len(),32);
+        assert!(receive_sync_selection(&[],0).unwrap().is_empty());
     }
 
     #[test]

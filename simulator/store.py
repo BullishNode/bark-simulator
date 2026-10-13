@@ -24,6 +24,7 @@ CREATE INDEX IF NOT EXISTS action_actor_history ON action(actor_id,created_at);
 CREATE TABLE IF NOT EXISTS negative_check(action_id TEXT PRIMARY KEY,state TEXT NOT NULL,payload TEXT NOT NULL,updated_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS event(sequence INTEGER PRIMARY KEY, observed_at REAL NOT NULL,
  kind TEXT NOT NULL, payload TEXT NOT NULL, previous_hash TEXT NOT NULL, hash TEXT NOT NULL UNIQUE);
+CREATE INDEX IF NOT EXISTS event_action_kind ON event(kind,json_extract(payload,'$.action_id'));
 CREATE TABLE IF NOT EXISTS snapshot(id INTEGER PRIMARY KEY, observed_at REAL NOT NULL, payload TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS snapshot_time ON snapshot(observed_at,id);
 CREATE TABLE IF NOT EXISTS entitlement(id TEXT PRIMARY KEY, owner TEXT NOT NULL REFERENCES actor(id),

@@ -116,7 +116,9 @@ def record_actor_result(store: Store, actor: str, operation: str, data: dict):
             # Mutations, incoming transfers and declared grants set this flag.
             details["needs_sync"] = details.get("needs_sync", False)
         elif operation == "sync":
-            details["needs_sync"] = False
+            # A receive-only bounded pass deferred mailbox and ordinary sync.
+            # Even zero remaining receives does not certify those steps ran.
+            details["needs_sync"] = data.get("bounded_receive_sync") is True
             details["snapshot_at"] = 0
         elif operation == "board":
             details["board_submitted"] = True
