@@ -224,3 +224,19 @@ class PhaseTrialTests(unittest.TestCase):
         with self.assertRaises(InvariantError):self.controller.delegated_prepared(trial,'native-action',prepared)
         prepared['legs'][1]['scheduled_height']=326200;prepared['legs'][1]['wire_sha256']=prepared['legs'][0]['wire_sha256']
         with self.assertRaises(InvariantError):self.controller.delegated_prepared(trial,'native-action',prepared)
+
+    def test_collected_lightning_preparation_binds_released_action_and_remains_pending(self):
+        from tests.test_phase_lightning import LightningPhaseTests
+        _,intent,legs=LightningPhaseTests().prepared()
+        trial=self.trial('D34',payment_hash=intent['context']['payment_hash'],sender_actor='actor-04',sender_htlc_ids=[legs[1]['input_coin_ids'][0]])
+        # Public collector checks its real trial input set, not another test's IDs.
+        legs[0]['input_coin_ids']=[self.coin];legs[0]['input_spends'][0]['coin_id']=self.coin;legs[0]['outputs'][0]['input_coin_ids']=[self.coin]
+        self.store.db.execute('UPDATE phase_trial SET release_action=? WHERE id=?',('native-action',trial))
+        prepared={'trial_id':trial,'intent_hash':self.controller.intent(trial)['intent_hash'],'legs':legs}
+        with self.assertRaises(InvariantError):self.controller.lightning_prepared(trial,'foreign-action',prepared)
+        self.controller.lightning_prepared(trial,'native-action',prepared)
+        self.assertEqual(2,len(self.controller.preparations(trial)));self.assertEqual('pending',self.controller.judge(trial)['state'])
+    def test_uncompiled_phase_adapters_cannot_be_released_from_source_presence(self):
+        trial=self.trial('D18');self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32
+        with self.assertRaises(EvidenceGap):self.controller.release(trial)
+        self.assertEqual(0,self.store.db.execute('SELECT count(*) FROM action').fetchone()[0])
