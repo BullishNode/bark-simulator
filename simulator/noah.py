@@ -77,7 +77,7 @@ def _reference(store,reference,kind,*,actor=None):
     return json.loads(row['payload'])
 
 
-def _checked_manifest(manifest):
+def _checked_manifest(manifest,*,enrollment=False):
     if not isinstance(manifest,dict) or set(manifest)!={'schema_version',*SECTIONS,'evidence'} or manifest['schema_version']!=1:
         raise ValueError('complete readiness manifest required')
     public_payload(manifest)
@@ -121,15 +121,16 @@ def _checked_manifest(manifest):
     elif forwarder['identity'] is not None or forwarder['ready']:raise ValueError('disabled forwarder identity differs')
     capital=manifest['capital']
     if re.fullmatch('noah-capital-[A-Za-z0-9_-]{1,80}',capital['allocation_id']) is None:raise ValueError('separate explicit Noah allocation required')
-    total=integer(capital['principal_sat'],'declared Noah principal',1)
-    for key in ('per_action_fee_sat','campaign_fee_sat'):integer(capital[key],key,1)
+    minimum=0 if enrollment else 1
+    total=integer(capital['principal_sat'],'declared Noah principal',minimum)
+    for key in ('per_action_fee_sat','campaign_fee_sat'):integer(capital[key],key,minimum)
     if capital['per_action_fee_sat']>capital['campaign_fee_sat']:raise ValueError('per-action fee exceeds campaign cap')
     allocations=capital['actor_principal_sat']
     if not isinstance(allocations,dict) or not actors<=set(allocations):raise ValueError('phone capital declaration missing')
     if forwarder['enabled'] and forwarder['identity'] not in allocations:raise ValueError('separate forwarder capital missing')
     if any(re.fullmatch('noah-(phone|payer|forwarder)-[A-Za-z0-9_-]{1,64}',actor) is None for actor in allocations):
         raise ValueError('old simulator capital cannot be reassigned')
-    if sum(integer(value,'actor principal',1) for value in allocations.values())>total:raise ValueError('allocation exceeds capital')
+    if sum(integer(value,'actor principal',minimum) for value in allocations.values())>total:raise ValueError('allocation exceeds capital')
     if set(manifest['evidence'])!=set(SECTIONS):raise ValueError('independent readiness observations missing')
     return manifest
 
@@ -212,35 +213,36 @@ class NoahAdapter:
         self._sessions={}  # Private bearer memory; never serialized into evidence.
         store.db.executescript(SCHEMA)
 
-    def readiness(self):
+    def readiness(self,*,enrollment=False):
         try:
-            _checked_manifest(self.manifest)
+            _checked_manifest(self.manifest,enrollment=enrollment)
             if self.store.get_meta('mode')=='live':
                 if (not isinstance(self.transport,HTTPSNoahTransport) or self.transport.origin!=self.manifest['origin']['https_origin']
                         or self.transport.ca_sha256!=self.manifest['origin']['ca_sha256']
                         or not self.transport.context.check_hostname or self.transport.context.verify_mode!=ssl.CERT_REQUIRED
-                        or not isinstance(self.invoice_verifier,NativeInvoiceVerifier)
-                        or self.invoice_verifier.sha256!=self.manifest['source'].get('invoice_verifier_sha256')):
+                        or (not enrollment and (not isinstance(self.invoice_verifier,NativeInvoiceVerifier)
+                        or self.invoice_verifier.sha256!=self.manifest['source'].get('invoice_verifier_sha256')))):
                     raise ValueError('live TLS/native verification prerequisites differ')
             for section in SECTIONS:
                 data=_reference(self.store,self.manifest['evidence'][section],'noah.readiness.'+section)
                 if (set(data)!={'observed','verified','method'} or data['verified'] is not True
                         or data['method']!='independent_observation' or data['observed']!=self.manifest[section]):
                     raise ValueError('independent readiness observation differs')
-            encoded=canonical(self.manifest);key='noah_readiness_manifest'
+            encoded=canonical(self.manifest);key='noah_enrollment_manifest' if enrollment else 'noah_readiness_manifest'
             old=self.store.get_meta(key)
             if old is not None and old!=encoded:raise ValueError('immutable readiness declaration changed')
             if old is None:
                 with self.store.transaction():
                     self.store.db.execute('INSERT INTO meta VALUES (?,?)',(key,encoded))
-                    self.store._event('noah_readiness_declared',{'manifest_sha256':_digest(encoded),'evidence':self.manifest['evidence'],
+                    self.store._event('noah_enrollment_declared' if enrollment else 'noah_readiness_declared',{'manifest_sha256':_digest(encoded),'evidence':self.manifest['evidence'],
                         'qualification':'recorded independent prerequisites; genuine journey qualification remains separate'})
-            return {'status':'ready_for_dispatch','manifest_sha256':_digest(encoded),'complete':False}
+            return {'status':'ready_for_enrollment' if enrollment else 'ready_for_dispatch','manifest_sha256':_digest(encoded),'complete':False}
         except (ValueError,TypeError,KeyError,OSError):
             return {'status':'unqualified','reason':'readiness manifest or independently checked identity/capital evidence missing or changed','complete':False}
 
-    def _ready(self):
-        if self.readiness()['status']!='ready_for_dispatch':raise ValueError('Noah readiness unqualified')
+    def _ready(self,*,enrollment=False):
+        expected='ready_for_enrollment' if enrollment else 'ready_for_dispatch'
+        if self.readiness(enrollment=enrollment)['status']!=expected:raise ValueError('Noah readiness unqualified')
         if self.store.get_meta('paused'):raise ValueError('campaign paused')
 
     def protect(self,kind,payload,*,actor=None,action_id=None):
@@ -278,8 +280,8 @@ class NoahAdapter:
             raise ValueError('protected artifact identity differs')
         return document
 
-    def _phone(self,actor,*,require_online=False):
-        self._ready()
+    def _phone(self,actor,*,require_online=False,enrollment=False):
+        self._ready(enrollment=enrollment)
         found=[p for p in self.manifest['phones'] if p['actor']==actor]
         if len(found)!=1:raise ValueError('recipient not declared')
         row=self.store.db.execute('SELECT online,details FROM actor WHERE id=?',(actor,)).fetchone()
@@ -290,8 +292,8 @@ class NoahAdapter:
                 raise ValueError('phone is absent; no wallet or private enrollment call allowed')
         return found[0]
 
-    async def _request(self,method,path,body=None,bearer=None,*,actor=None,action_id=None):
-        self._ready()
+    async def _request(self,method,path,body=None,bearer=None,*,actor=None,action_id=None,enrollment=False):
+        self._ready(enrollment=enrollment)
         if self.transport is None:raise ValueError('owned transport not configured')
         if isinstance(self.transport,HTTPSNoahTransport) and self.store.get_meta('mode')!='live':raise ValueError('synthetic state cannot contact an owned live backend')
         url=self.manifest['origin']['https_origin']+path
@@ -309,10 +311,10 @@ class NoahAdapter:
         return response
 
     async def enroll(self,actor,signer,expo_token,*,expiry):
-        phone=self._phone(actor,require_online=True);now=int(self.clock());integer(expiry,'mailbox expiry',now+1)
+        phone=self._phone(actor,require_online=True,enrollment=True);now=int(self.clock());integer(expiry,'mailbox expiry',now+1)
         if expiry>now+90*86400 or not isinstance(expo_token,str) or re.fullmatch(r'(Expo|Exponent)PushToken\[[A-Za-z0-9_-]{1,100}\]',expo_token) is None:
             raise ValueError('Expo token or mailbox expiry invalid')
-        challenge=await self._request('GET','/v0/getk1',actor=actor)
+        challenge=await self._request('GET','/v0/getk1',actor=actor,enrollment=True)
         k1=challenge.get('k1');match=re.fullmatch(r'[0-9a-f]{64}_([0-9]{1,20})',k1 or '')
         if challenge.get('tag')!='login' or not match or not 0<=now-int(match[1])<=600:
             raise ValueError('invalid issued login challenge')
@@ -329,17 +331,17 @@ class NoahAdapter:
                 or not isinstance(material['sig'],str) or re.fullmatch(r'30[0-9a-f]{136,144}',material['sig']) is None
                 or not isinstance(material['encoded'],str) or re.fullmatch(r'[0-9a-f]{210}',material['encoded']) is None):
             raise ValueError('private wallet enrollment material differs')
-        login=await self._request('POST','/v0/auth/login',{key:material[key] for key in ('key','sig')}|{'k1':k1},actor=actor)
+        login=await self._request('POST','/v0/auth/login',{key:material[key] for key in ('key','sig')}|{'k1':k1},actor=actor,enrollment=True)
         token=login.get('access_token')
         if login.get('token_type')!='Bearer' or not isinstance(token,str) or not token or integer(login.get('expires_in_seconds'),'token lifetime',1)>259200:
             raise ValueError('login did not issue a bounded bearer')
         registered=await self._request('POST','/v0/register',{'ln_address':phone['username']+'@'+self.manifest['origin']['lnurl_domain'],
-            'ark_address':phone['ark_address'],'device_info':None},token,actor=actor)
+            'ark_address':phone['ark_address'],'device_info':None},token,actor=actor,enrollment=True)
         if registered.get('status')!='OK' or registered.get('lightning_address')!=phone['username']+'@'+self.manifest['origin']['lnurl_domain']:
             raise ValueError('authenticated registration differs')
         for path,body in (('/v0/register_push_token',{'push_token':expo_token}),('/v0/mailbox/authorize',{key:material[key] for key in ('mailbox_id','expiry','encoded')})):
-            if (await self._request('POST',path,body,token,actor=actor)).get('success') is not True:raise ValueError('phone authorization not accepted')
-        info=await self._request('POST','/v0/user_info',{},token,actor=actor)
+            if (await self._request('POST',path,body,token,actor=actor,enrollment=True)).get('success') is not True:raise ValueError('phone authorization not accepted')
+        info=await self._request('POST','/v0/user_info',{},token,actor=actor,enrollment=True)
         if info.get('lightning_address')!=registered['lightning_address'] or info.get('user_status')!='active':raise ValueError('authenticated identity differs')
         self.store.event('noah_phone_enrolled',{'actor':actor,'auth_pubkey':phone['auth_pubkey'],'ark_address':phone['ark_address'],
             'mailbox_id':phone['mailbox_id'],'mailbox_grant_sha256':_digest(material['encoded']),'expiry':expiry,

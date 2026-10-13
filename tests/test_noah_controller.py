@@ -2,13 +2,14 @@
 import copy
 import unittest
 
-from test_noah_adapter import NoahAdapterTests, PUB, manifest
+import test_noah_adapter as fixtures
+PUB=fixtures.PUB
 
 
 class NoahBootstrapTests(unittest.IsolatedAsyncioTestCase):
-    setUp=NoahAdapterTests.setUp
-    tearDown=NoahAdapterTests.tearDown
-    adapter=NoahAdapterTests.adapter
+    setUp=fixtures.NoahAdapterTests.setUp
+    tearDown=fixtures.NoahAdapterTests.tearDown
+    adapter=fixtures.NoahAdapterTests.adapter
 
     def unfunded(self):
         self.manifest['capital'].update(principal_sat=0,per_action_fee_sat=0,campaign_fee_sat=0,
