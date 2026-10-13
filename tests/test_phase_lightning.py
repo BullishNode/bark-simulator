@@ -63,8 +63,17 @@ class WithheldRefundReadinessTests(unittest.TestCase):
     def test_deadline_equality_missing_paths_notfound_or_shallow_timeout_stay_held(self):
         import copy
         from simulator.phase_lightning import withheld_refund_ready
-        good=self.evidence();self.assertTrue(withheld_refund_ready(good)['ready'])
+        good=self.evidence()
+        import hashlib
+        from simulator.model import canonical
+        proofs={}
+        for path in good['paths']:
+            proof={k:v for k,v in path.items() if k!='raw_chain_proof_sha256'}
+            proof.update(payment_hash=good['payment_hash'],method='independent_raw_chain_path_audit')
+            checksum=hashlib.sha256(canonical(proof).encode()).hexdigest();path['raw_chain_proof_sha256']=checksum;proofs[checksum]=proof
+        self.assertTrue(withheld_refund_ready(good,proof_lookup=proofs.get)['ready'])
+        self.assertFalse(withheld_refund_ready(good)['ready'])
         for change in [{'height':120},{'paths':good['paths'][:1]}, {'paths':[{**good['paths'][0],'resolution':'not_found'},good['paths'][1]]},
             {'paths':[good['paths'][0],{**good['paths'][1],'confirmed_height':120}]}, {'paths':[good['paths'][0],{**good['paths'][1],'raw_chain_proof_sha256':None}]}]:
             evidence=copy.deepcopy(good);evidence.update(change)
-            self.assertFalse(withheld_refund_ready(evidence)['ready'])
+            self.assertFalse(withheld_refund_ready(evidence,proof_lookup=proofs.get)['ready'])

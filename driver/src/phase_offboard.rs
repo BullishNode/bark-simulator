@@ -38,7 +38,8 @@ pub(super) async fn prepare(
     round_fee_sat: u64,
 ) -> Result<Partner> {
     let frozen = retained::intent(req, "D19")?;
-    let info_reply = rpc.get_ark_info(protos::Empty {}).await?;
+    retained::negotiate(rpc,req,directory).await?;
+    let info_reply = rpc.get_ark_info(retained::pinned_request(req,protos::Empty {})?).await?;
     retained::save(
         &directory.join("offboard-ark-info.bin"),
         &info_reply.get_ref().encode_to_vec(),
@@ -113,7 +114,7 @@ pub(super) async fn prepare(
         &directory.join("offboard-prepare-request.bin"),
         &prepare.encode_to_vec(),
     )?;
-    let response = match rpc.prepare_offboard(prepare).await {
+    let response = match rpc.prepare_offboard(retained::pinned_request(req,prepare)?).await {
         Ok(reply) => reply,
         Err(status) => {
             retained::save(
@@ -205,7 +206,7 @@ impl Partner {
                 &json!({"submitted_at_ns":started,"wire_sha256":self.checkpoint["wire_sha256"]}),
             )?,
         )?;
-        let reply = rpc.finish_offboard(self.body).await;
+        let reply = rpc.finish_offboard(retained::pinned_request(req,self.body)?).await;
         let finished = retained::now_ns();
         let result = match reply {
             Ok(reply) => {

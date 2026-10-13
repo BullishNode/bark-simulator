@@ -63,7 +63,7 @@ impl Partner {
                         &json!({"wire_sha256":retained::hash(&wire),"submitted_at_ns":started}),
                     )?,
                 )?;
-                let reply = rpc.request_arkoor_cosign(body).await;
+                let reply = rpc.request_arkoor_cosign(retained::pinned_request(req,body)?).await;
                 let result = retained::signed_reply(
                     directory,
                     "arkoor",
@@ -273,6 +273,7 @@ pub async fn execute(
         "round race scenario differs"
     );
     let frozen = retained::intent(req, scenario)?;
+    retained::negotiate(rpc,req,&invocation.directory).await?;
     let maximum_wait = frozen["context"]["maximum_wait_seconds"]
         .as_u64()
         .unwrap_or(900);

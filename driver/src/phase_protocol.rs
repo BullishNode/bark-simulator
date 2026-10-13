@@ -19,7 +19,7 @@ use bitcoin::{
 use prost::Message;
 use serde_json::{Value, json};
 use server_rpc::{
-    StatusExt,
+    RequestExt, StatusExt,
     protos::{self, ark_service_client::ArkServiceClient},
 };
 use std::{
@@ -30,6 +30,29 @@ use std::{
     str::FromStr,
 };
 use tonic::transport::Channel;
+
+pub(super) fn protocol_version(req:&Request)->Result<u64> {
+    let version=req.args["phase_intent"]["context"]["protocol_version"].as_u64()
+        .context("frozen actual negotiated pver missing")?;
+    ensure!((server_rpc::MIN_PROTOCOL_VERSION..=server_rpc::MAX_PROTOCOL_VERSION).contains(&version),
+        "frozen negotiated pver outside compiled SDK range");Ok(version)
+}
+pub(super) fn pinned_request<T>(req:&Request,body:T)->Result<tonic::Request<T>> {
+    let mut request=tonic::Request::new(body);request.set_pver(protocol_version(req)?);Ok(request)
+}
+pub(super) async fn negotiate(rpc:&mut ArkServiceClient<Channel>,req:&Request,directory:&Path)->Result<()> {
+    let reply=rpc.handshake(protos::HandshakeRequest{bark_version:None}).await?;
+    let handshake=reply.into_inner();
+    save(&directory.join(format!("protocol-handshake-{}.bin",now_ns())),&handshake.encode_to_vec())?;
+    ensure!(handshake.min_protocol_version<=handshake.max_protocol_version
+        && handshake.min_protocol_version<=server_rpc::MAX_PROTOCOL_VERSION
+        && handshake.max_protocol_version>=server_rpc::MIN_PROTOCOL_VERSION,"actual handshake does not overlap compiled SDK");
+    let selected=std::cmp::min(server_rpc::MAX_PROTOCOL_VERSION,handshake.max_protocol_version);
+    ensure!(selected==protocol_version(req)?,"actual negotiated pver differs from frozen phase pin");
+    save(&directory.join(format!("protocol-negotiation-{}.json",now_ns())),&serde_json::to_vec(&json!({
+        "server_min":handshake.min_protocol_version,"server_max":handshake.max_protocol_version,"selected":selected,
+        "header":"pver","sdk_min":server_rpc::MIN_PROTOCOL_VERSION,"sdk_max":server_rpc::MAX_PROTOCOL_VERSION}))?)?;Ok(())
+}
 
 pub(super) type Prepared = ArkoorPackageBuilder<state::UserGeneratedNonces>;
 pub(super) fn hash(bytes: &[u8]) -> String {
@@ -97,6 +120,7 @@ pub(super) fn intent(req: &Request, scenario: &str) -> Result<Value> {
             && req.maximum_fee_sat <= 2000,
         "phase whole-trial fee cap differs"
     );
+    protocol_version(req)?;
     Ok(frozen)
 }
 pub(super) fn fence(root: &Path, req: &Request) -> Result<Option<PathBuf>> {
@@ -205,6 +229,7 @@ pub async fn race_arkoor(
     let Some(directory) = fence(private_root, req)? else {
         return Ok(unknown());
     };
+    negotiate(rpc,req,&directory).await?;
     let items = frozen["inputs"].as_array().context("frozen inputs")?;
     ensure!(!items.is_empty() && items.len() <= 16, "phase input bound");
     let mut inputs = Vec::new();
@@ -235,7 +260,7 @@ pub async fn race_arkoor(
             &directory.join(format!("input-{index}-status-request.bin")),
             &wire,
         )?;
-        let response = match rpc.get_vtxo_status(body).await {
+        let response = match rpc.get_vtxo_status(pinned_request(req,body)?).await {
             Ok(response) => response,
             Err(status) => {
                 let bytes = serde_json::to_vec(
@@ -371,7 +396,7 @@ pub async fn race_arkoor(
             &directory.join("left-dispatch.json"),
             &serde_json::to_vec(&json!({"submitted_at_ns":started}))?,
         )?;
-        let reply = rpc.request_arkoor_cosign(left_body).await;
+        let reply = rpc.request_arkoor_cosign(pinned_request(req,left_body)?).await;
         signed_reply(
             &directory,
             "left",
@@ -388,7 +413,7 @@ pub async fn race_arkoor(
             &directory.join("right-dispatch.json"),
             &serde_json::to_vec(&json!({"submitted_at_ns":started}))?,
         )?;
-        let reply = second_rpc.request_arkoor_cosign(right_body).await;
+        let reply = second_rpc.request_arkoor_cosign(pinned_request(req,right_body)?).await;
         signed_reply(
             &directory,
             "right",
@@ -421,7 +446,7 @@ pub async fn race_arkoor(
             let wire = body.encode_to_vec();
             let prefix = format!("reconcile-{index}-{number}");
             save(&directory.join(format!("{prefix}-request.bin")), &wire)?;
-            let observed = match rpc.get_vtxo(body).await {
+            let observed = match rpc.get_vtxo(pinned_request(req,body)?).await {
                 Ok(response) => {
                     save(
                         &directory.join(format!("{prefix}-metadata.json")),
@@ -487,7 +512,7 @@ pub async fn race_arkoor(
         let registration = protos::RegisterVtxoTransactionsRequest { vtxos };
         let bytes = registration.encode_to_vec();
         save(&directory.join("winner-registration-request.bin"), &bytes)?;
-        let outcome = match rpc.register_vtxo_transactions(registration).await {
+        let outcome = match rpc.register_vtxo_transactions(pinned_request(req,registration)?).await {
             Ok(response) => {
                 save(
                     &directory.join("winner-registration-metadata.json"),
@@ -555,6 +580,7 @@ pub async fn register_saved(
     let Some(directory) = fence(private_root, req)? else {
         return Ok(unknown());
     };
+    negotiate(rpc,req,&directory).await?;
     let saved = req.args["successors"]
         .as_array()
         .context("saved signed successors")?;
@@ -613,7 +639,7 @@ pub async fn register_saved(
         &directory.join("dispatched"),
         &now().to_string().into_bytes(),
     )?;
-    let result = match rpc.register_vtxo_transactions(body).await {
+    let result = match rpc.register_vtxo_transactions(pinned_request(req,body)?).await {
         Ok(response) => {
             let bytes = response.into_inner().encode_to_vec();
             save(&directory.join("response.bin"), &bytes)?;

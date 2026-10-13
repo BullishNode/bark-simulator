@@ -121,6 +121,7 @@ fn leg(
     })
 }
 async fn prepare(
+    rpc:&mut ArkServiceClient<Channel>,
     receiver: &Wallet,
     sender: Option<&Wallet>,
     req: &Request,
@@ -144,6 +145,7 @@ async fn prepare(
     let Some(directory) = retained::fence(private_root, req)? else {
         return Ok(None);
     };
+    retained::negotiate(rpc,req,&directory).await?;
     let hash = PaymentHash::from_str(
         frozen["context"]["payment_hash"]
             .as_str()
@@ -240,14 +242,19 @@ async fn prepare(
             .await?
             .context("actual sender SDK checkpoint missing")?;
         ensure!(
-            cp.invoice.payment_hash() == hash && cp.fee.to_sat() <= req.maximum_fee_sat,
+            cp.invoice.payment_hash() == hash
+                && Some(cp.fee.to_sat())==frozen["context"]["sender_committed_fee_sat"].as_u64()
+                && cp.fee.to_sat()<=frozen["context"]["sender_original_fee_reservation_sat"].as_u64().context("original sender reservation missing")?,
             "sender same-hash checkpoint or original fee ceiling differs"
         );
-        let (htlcs, revocation) = match &cp.progress {
-            pay::Progress::RevocableHtlcs { htlcs, revocation } => (htlcs, revocation),
-            _ => anyhow::bail!(
-                "actual revocable sender checkpoint required; no fabricated failure or nonce retry"
-            ),
+        let (htlcs,revocation_key)=match &cp.progress {
+            pay::Progress::HtlcReceived(htlcs)|pay::Progress::PaymentInitiated(htlcs)=>
+                (htlcs,cp.revocation_key.context("pending legacy checkpoint has no prederived revocation key; no derivation permitted")?),
+            pay::Progress::RevocableHtlcs{htlcs,revocation}=>{
+                ensure!(cp.revocation_key.is_none_or(|key|key==revocation.key),"existing revocation key differs from frozen derivation");
+                (htlcs,revocation.key)
+            },
+            _=>anyhow::bail!("actual unused prepared sender checkpoint required; no fabricated failure or stuck-attempt retry"),
         };
         let ids = &htlcs.vtxo_ids;
         ensure!(
@@ -260,7 +267,7 @@ async fn prepare(
         let (coins, keys, _) =
             hydrate(sender, ids, hash, &req.expected_server_pubkey, false).await?;
         ensure!(
-            sender.pubkey_keypair(&revocation.key).await?.is_some(),
+            sender.pubkey_keypair(&revocation_key).await?.is_some(),
             "SDK revocation key not owned by declared sender"
         );
         retained::save(
@@ -270,7 +277,7 @@ async fn prepare(
         let refund = leg(
             coins,
             keys,
-            VtxoPolicy::new_pubkey(revocation.key),
+            VtxoPolicy::new_pubkey(revocation_key),
             "refund",
             "RequestLightningPayHtlcRevocation",
             hash,
@@ -301,6 +308,7 @@ async fn prepare(
     }))
 }
 async fn register(
+    req:&Request,
     rpc: &mut ArkServiceClient<Channel>,
     directory: &Path,
     name: &str,
@@ -322,7 +330,7 @@ async fn register(
         &directory.join(format!("{name}-register-request.bin")),
         &body.encode_to_vec(),
     )?;
-    let outcome = match rpc.register_vtxo_transactions(body).await {
+    let outcome = match rpc.register_vtxo_transactions(retained::pinned_request(req,body)?).await {
         Ok(response) => json!({"accepted":true,"metadata":format!("{:?}",response.metadata())}),
         Err(error) => {
             json!({"accepted":false,"error":format!("{error:?}"),"financial_outcome_unknown":true})
@@ -411,7 +419,7 @@ pub async fn execute(
     private_root: &Path,
     actor: &str,
 ) -> Result<Value> {
-    let Some(prepared) = prepare(receiver, sender, req, private_root, actor).await? else {
+    let Some(prepared) = prepare(rpc,receiver, sender, req, private_root, actor).await? else {
         return Ok(
             json!({"phase_unknown":true,"actual_fee_sat":Value::Null,"reason":"existing phase fence; no nonce regeneration or retry"}),
         );
@@ -453,7 +461,7 @@ pub async fn execute(
                 &directory.join(format!("withhold-{sequence}-request.bin")),
                 &request.encode_to_vec(),
             )?;
-            let observation = match rpc.check_lightning_receive(request).await {
+            let observation = match rpc.check_lightning_receive(retained::pinned_request(req,request)?).await {
                 Ok(reply) => {
                     retained::save(
                         &directory.join(format!("withhold-{sequence}-reply.bin")),
@@ -475,7 +483,7 @@ pub async fn execute(
                 json!({"trial_id":req.args["trial_id"],"payment_hash":hash.to_string(),"height":height.to_u32(),"deadline":deadline,"claim_dispatch_count":0,"frozen_receiver_principal_sat":claim.checkpoint["input_principal_sat"],"actual_locked_principal_requires_independent_server_arbitration":true}),
             )?;
             sequence += 1;
-            if height.to_u32() >= deadline {
+            if height.to_u32() > deadline {
                 reached = true;
                 break;
             }
@@ -487,7 +495,7 @@ pub async fn execute(
         // Retained builder drops without signing/submission; never resumed from
         // captured public nonces. Wallet's real prepared receive stays held.
         return Ok(
-            json!({"phase_unknown":true,"actual_fee_sat":Value::Null,"scenario":scenario,"deadline_reached":reached,"claim_dispatch_count":0,"customer_traffic_credit":false,"required_audit":"actual current locked HTLC/refund liability through measured block observations; retained SDK prepared receive never dispatched"}),
+            json!({"phase_unknown":true,"actual_fee_sat":Value::Null,"scenario":scenario,"deadline_reached":reached,"sender_refund_authorized":false,"claim_dispatch_count":0,"customer_traffic_credit":false,"required_audit":"deadline alone never authorizes sender refund; every original granted path must be independently swept or exited plus revoked timeout at configured sweep depth; retained claim never dispatched"}),
         );
     }
     let refund = refund.context("actual retained sender refund package")?;
@@ -505,7 +513,7 @@ pub async fn execute(
         let refund_future = async {
             let started = retained::now_ns();
             let reply = refund_rpc
-                .request_lightning_pay_htlc_revocation(refund.body)
+                .request_lightning_pay_htlc_revocation(retained::pinned_request(req,refund.body)?)
                 .await;
             retained::signed_reply(
                 &directory,
@@ -520,7 +528,7 @@ pub async fn execute(
         };
         let claim_future = async {
             let started = retained::now_ns();
-            let reply = claim_rpc.claim_lightning_receive(claim_body).await;
+            let reply = claim_rpc.claim_lightning_receive(retained::pinned_request(req,claim_body)?).await;
             retained::signed_reply(
                 &directory,
                 "claim",
@@ -536,7 +544,7 @@ pub async fn execute(
         (refund?, claim?)
     } else {
         let started = retained::now_ns();
-        let reply = rpc.request_lightning_pay_htlc_revocation(refund.body).await;
+        let reply = rpc.request_lightning_pay_htlc_revocation(retained::pinned_request(req,refund.body)?).await;
         let result = retained::signed_reply(
             &directory,
             "refund",
@@ -552,14 +560,14 @@ pub async fn execute(
             "phase_lightning_reply_observed",
             json!({"trial_id":req.args["trial_id"],"reply":result}),
         )?;
-        register(rpc, &directory, "refund", &result).await?;
+        register(req,rpc, &directory, "refund", &result).await?;
         ensure!(
             result["kind"] == "sdk_signed_successors",
             "no matching complete signed sender refund; claim remains held"
         );
         refund_authorized(&directory, req, &refund.checkpoint, &result).await?;
         let started = retained::now_ns();
-        let reply = rpc.claim_lightning_receive(claim_body).await;
+        let reply = rpc.claim_lightning_receive(retained::pinned_request(req,claim_body)?).await;
         let claimed = retained::signed_reply(
             &directory,
             "claim",
@@ -594,9 +602,9 @@ pub async fn execute(
     });
     if one_signed && all_known {
         if scenario == "D34" {
-            register(rpc, &directory, "refund", &refund_result).await?
+            register(req,rpc, &directory, "refund", &refund_result).await?
         }
-        register(rpc, &directory, "claim", &claim_result).await?;
+        register(req,rpc, &directory, "claim", &claim_result).await?;
     } else {
         evidence(
             req,

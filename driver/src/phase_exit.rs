@@ -45,6 +45,7 @@ pub async fn execute(
             json!({"phase_unknown":true,"actual_fee_sat":Value::Null,"reason":"existing phase fence; independent chain/arbitration reconciliation; no signing retry"}),
         );
     };
+    retained::negotiate(rpc,req,&directory).await?;
     let mut inputs = Vec::new();
     let mut keys = Vec::new();
     let mut ids = Vec::new();
@@ -172,7 +173,7 @@ pub async fn execute(
     };
     let cooperative_future = async {
         let started = retained::now_ns();
-        let response = cooperative_rpc.request_arkoor_cosign(body).await;
+        let response = cooperative_rpc.request_arkoor_cosign(retained::pinned_request(req,body)?).await;
         retained::signed_reply(
             &directory,
             "arkoor",

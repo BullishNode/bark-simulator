@@ -82,3 +82,57 @@ def refund_authorization(store,intent,refund):
 def registration_allowed(replies):
     """Complete single winner plus known competing refusal; no blind follow-up."""
     return len(replies)==2 and sum(v.get('kind')=='sdk_signed_successors' for v in replies)==1 and all(v.get('kind') in {'sdk_signed_successors','protocol_refusal'} for v in replies)
+
+
+def sender_refund_terms(checkpoint):
+    """Read genuine SDK serde progress; never invoke failure or derive a key."""
+    progress=checkpoint.get('progress')
+    if not isinstance(progress,dict) or len(progress)!=1:raise EvidenceGap('genuine prepared sender HTLC checkpoint required')
+    stage,value=next(iter(progress.items()))
+    if stage in {'HtlcReceived','PaymentInitiated'}:
+        htlcs=value;key=checkpoint.get('revocation_key')
+        if key is None:raise EvidenceGap('pending legacy checkpoint lacks its prederived revocation key')
+    elif stage=='RevocableHtlcs':
+        htlcs=value.get('htlcs',{});key=value.get('revocation',{}).get('key')
+        if checkpoint.get('revocation_key') not in (None,key):raise InvariantError('existing revocation differs from its prederived key')
+    else:raise EvidenceGap('sender state has no unused genuine refund preparation')
+    import re
+    if not isinstance(key,str) or not re.fullmatch('(02|03)[0-9a-f]{64}',key):raise EvidenceGap('exact native prederived revocation key required')
+    ids=htlcs.get('vtxo_ids') if isinstance(htlcs,dict) else None
+    if not isinstance(ids,list) or not ids or len(ids)>16 or any(not isinstance(v,str) for v in ids) or len(set(ids))!=len(ids):raise EvidenceGap('exact prepared sender HTLC identities required')
+    return key,list(ids)
+
+
+def withheld_refund_ready(evidence,*,proof_lookup=None):
+    """After receiver expiry, every granted path must be irrevocably resolved.
+
+    Root supplies independently checked raw-chain proof lookup; a provided hash,
+    deadline, server NotFound or driver boolean cannot authorize a refund.
+    This is refund readiness only; signed refund/adoption/fees remain separate.
+    """
+    reasons=[]
+    if proof_lookup is None:reasons.append('independent path proof lookup unavailable')
+    try:
+        height=integer(evidence.get('height'),'current independently observed height')
+        deadline=integer(evidence.get('receiver_deadline'),'signed receiver deadline',1)
+        depth=integer(evidence.get('sweep_min_confirmations'),'actual configured sweep depth',1)
+        if height<=deadline:reasons.append('receiver can still claim at or before its deadline')
+        granted=evidence.get('granted_ids');paths=evidence.get('paths',[])
+        if not isinstance(granted,list) or not granted or len(granted)!=len(set(granted)):raise EvidenceGap('complete original granted set missing')
+        if len(paths)!=len(granted) or {p.get('coin_id') for p in paths}!=set(granted):raise EvidenceGap('complete exact granted path resolutions missing')
+        for path in paths:
+            if path.get('resolution') not in {'swept','exited_timeout'}:raise EvidenceGap('path remains claimable or resolution is unknown')
+            confirmed=integer(path.get('confirmed_height'),'independent resolution confirmation height',1)
+            if confirmed+depth>height+1:raise EvidenceGap('path resolution has insufficient required sweep depth')
+            checksum=path.get('raw_chain_proof_sha256')
+            if not hash64(checksum):raise EvidenceGap('independent exact raw-chain path proof missing')
+            if proof_lookup is not None:
+                proof=proof_lookup(checksum)
+                if (not isinstance(proof,dict) or hashlib.sha256(canonical(proof).encode()).hexdigest()!=checksum or proof.get('coin_id')!=path['coin_id'] or proof.get('payment_hash')!=evidence.get('payment_hash')
+                        or proof.get('resolution')!=path['resolution'] or proof.get('confirmed_height')!=confirmed
+                        or proof.get('method')!='independent_raw_chain_path_audit'):
+                    raise EvidenceGap('independent path proof identity/hash/resolution differs')
+        if not hash64(evidence.get('payment_hash')):raise EvidenceGap('exact payment hash missing')
+    except (ValueError,TypeError,KeyError,EvidenceGap) as error:reasons.append(str(error))
+    return {'ready':not reasons,'reasons':reasons,'payment_hash':evidence.get('payment_hash'),
+        'refund_dispatched':False,'financial_outcome_verified':False,'scope':'complete irrevocable granted-path readiness only; refund signed outputs and fee/adoption proof remain required'}

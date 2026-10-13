@@ -170,6 +170,7 @@ pub async fn execute(
             json!({"phase_unknown":true,"actual_fee_sat":Value::Null,"reason":"existing replay fence; independent reconciliation required; no resend"}),
         );
     };
+    retained::negotiate(rpc,req,&directory).await?;
     let readiness = &req.args["forfeit_readiness"];
     let capsule = object(
         private_root,
@@ -191,7 +192,7 @@ pub async fn execute(
         "phase_cached_forfeit_frozen",
         json!({"trial_id":req.args["trial_id"],"rpc":"ForfeitVtxos","wire_sha256":readiness["wire_sha256"],"typed_request_sha256":retained::hash(&wire),"private_bundle_sha256":readiness["private_bundle_sha256"],"unlock_hash":readiness["unlock_hash"],"input_coin_ids":readiness["input_coin_ids"],"cancellation_sha256":readiness["cancellation_sha256"],"original_wallet_opened":false,"new_signing_session":false,"submitted_at_ns":started}),
     )?;
-    let result = rpc.forfeit_vtxos(body).await;
+    let result = rpc.forfeit_vtxos(super::phase_protocol::pinned_request(req,body)?).await;
     let finished = retained::now_ns();
     let observed = match result {
         Ok(reply) => {
