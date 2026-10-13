@@ -144,8 +144,7 @@ def _schedule(store,config,snapshot,decisions,rng=None):
     actors=store.db.execute("SELECT a.* FROM actor a WHERE online=1 ORDER BY COALESCE((SELECT MAX(updated_at) FROM action WHERE actor_id=a.id),0),a.id").fetchall()
     for actor in actors:
         name=actor['id'];d=json.loads(actor['details'])
-        if not store.ordinary_actor_available(name):continue
-        if rng and store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('queued','dispatched','outcome_unknown')",(name,)).fetchone():continue
+        if store.actor_namespace(name)!='ordinary':continue
         latest={row['operation']:row['latest'] for row in store.db.execute(
             "SELECT operation,MAX(updated_at) AS latest FROM action WHERE actor_id=? AND state='completed' GROUP BY operation",(name,))}
         if any(d.get('actor')==name and d.get('reason') in {'sdk_exitability_window','sdk_input_parameters_unknown','sdk_parameters_mismatch'} for d in decisions.values()):continue
@@ -156,6 +155,11 @@ def _schedule(store,config,snapshot,decisions,rng=None):
             'last_board':latest.get('board'),'budget':store.remaining_fee_budget()}}
         def decide(rule,outcome='held'):
             decisions[name]['rule_id']=rule;decisions[name]['outcome']=outcome
+        if store.actor_held(name):decide('private_actor_lease');continue
+        busy=store.db.execute("SELECT state FROM action WHERE actor_id=? AND state IN ('dispatched','outcome_unknown') ORDER BY CASE state WHEN 'outcome_unknown' THEN 0 ELSE 1 END LIMIT 1",(name,)).fetchone()
+        if busy:decide('unknown_outcome' if busy['state']=='outcome_unknown' else 'native_inflight');continue
+        if rng and store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state='queued'",(name,)).fetchone():
+            decide('queued_action');continue
         rail=RECEIVE_ABSENCE.get(name)
         if rail and arm_receive_absence(store,name,rail):decide('receive_absence','offline');continue
         history=store.db.execute('SELECT * FROM action WHERE actor_id=? ORDER BY created_at DESC',(name,)).fetchall()
