@@ -82,3 +82,17 @@ class PhaseTrialTests(unittest.TestCase):
         from simulator.phase_trials import requirements
         for scenario in ['D19','D20','D26','D27','D28','D33','D34','D36']:
             self.assertTrue(requirements(scenario));self.assertNotIn('RawMalformed',' '.join(requirements(scenario)))
+
+    def test_d17_queues_one_native_process_without_invented_restartable_nonces(self):
+        trial=self.trial();self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32
+        action=self.controller.release(trial)
+        row=self.store.db.execute('SELECT * FROM action WHERE id=?',(action,)).fetchone()
+        self.assertEqual('phase_execute_d17',row['operation']);self.assertEqual(2000,row['fee_reservation_sat'])
+        self.assertTrue(json.loads(row['args'])['native_prepare_before_submit'])
+        self.assertEqual(action,self.controller.release(trial))
+    def test_native_preparations_must_bind_distinct_sessions_to_released_action(self):
+        trial=self.trial();self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32
+        action=self.controller.release(trial);prepared=self.prepared(trial,'single_process')
+        with self.assertRaises(InvariantError):self.controller.native_prepared(trial,'foreign-action',prepared)
+        for leg in prepared['legs']:leg['signing_session_sha256']='f1'*32
+        with self.assertRaises(InvariantError):self.controller.native_prepared(trial,action,prepared)
