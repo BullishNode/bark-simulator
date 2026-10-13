@@ -36,7 +36,7 @@ CARGO_TARGET_DIR="$PWD/target" cargo build --manifest-path driver/Cargo.toml --l
 CARGO_TARGET_DIR="$PWD/target" cargo test --manifest-path driver/Cargo.toml --locked
 ```
 
-This builds `bark-sim-driver`, `vtxo-proof`, `seed-restore`, `server-policy-proof`, `noah-private`, and `sweep-proof-trial`. The native driver accepts signet and local regtest configurations; it refuses mainnet. Helper availability does not qualify a live scenario; Noah payments require the independently checked readiness described in [Owned Noah journeys](docs/noah.md).
+This builds `bark-sim-driver`, `vtxo-proof`, `seed-restore`, `server-policy-proof`, `noah-private`, `sweep-proof-trial`, and the offline `noah-public-proof` invoice verifier. The native driver accepts signet and local regtest configurations; it refuses mainnet. Helper availability does not qualify a live scenario; Noah payments require the independently checked readiness described in [Owned Noah journeys](docs/noah.md).
 
 ## Configuration and execution
 
