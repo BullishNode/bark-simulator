@@ -104,7 +104,7 @@ fn stage(
         &path.join("intent.json"),
         &serde_json::to_vec(&json!({"utc_unix_ms":millis(),"action_id":req.action_id,
         "actor":intent["actor"],"operation":req.operation,"intent_hash":req.args["intent_hash"],"rpc":rpc,
-        "request_hash":request_hash,"wire_encoding":if rpc.starts_with("SDK."){ "sdk_intent_json" }else{ "protobuf" },"intent":intent,"automatic_retry":false}))?,
+        "request_hash":request_hash,"protocol_version":if matches!(rpc,"SubmitPayment"|"PrepareLightningReceiveClaim"|"RequestLightningPayHtlcCosign"|"ClaimLightningReceive"){json!(server_rpc::MAX_PROTOCOL_VERSION)}else{Value::Null},"wire_encoding":if rpc.starts_with("SDK."){ "sdk_intent_json" }else{ "protobuf" },"intent":intent,"automatic_retry":false}))?,
     )?;
     fs::File::open(path)?.sync_all()?;
     fs::File::open(path.parent().context("private preparation parent")?)?.sync_all()?;
