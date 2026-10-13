@@ -161,3 +161,14 @@ class PhaseTrialTests(unittest.TestCase):
         trial=self.checked_delivery();action=self.controller.row(trial)['release_action']
         self.controller.delivery_prepared(trial,action,{'wire_sha256':'a1'*32,'intent_hash':self.controller.intent(trial)['intent_hash'],'saved_successor_ids':['d1'*32+':0'],'original_wallet_opened':False})
         with self.assertRaises(InvariantError):self.controller.reply(trial,'delivery',{'kind':'expiry_settled_refusal','wire_sha256':'bb'*32})
+    def test_round_submission_freezes_requested_outputs_without_inventing_unfunded_coin_ids(self):
+        trial=self.trial('D18');intent=self.controller.intent(trial)
+        legs=[{'leg_id':'arkoor','rpc':'RequestArkoorCosign','input_coin_ids':[self.coin],'wire_sha256':'a1'*32,'nonce_retention':'single_process','restart_continuation':False,'signing_session_sha256':'b1'*32,'private_checkpoint_sha256':'a1'*32,'input_spends':[{'coin_id':self.coin,'txid':'c1'*32}],'outputs':[{'coin_id':'d1'*32+':0','pubkey':self.keys['actor-04'],'amount_sat':5000}]},
+              {'leg_id':'round','rpc':'SubmitPayment','input_coin_ids':[self.coin],'wire_sha256':'a2'*32,'nonce_retention':'single_process','restart_continuation':False,'signing_session_sha256':'b2'*32,'private_checkpoint_sha256':'a2'*32,'input_spends':[],'outputs':[],'requested_outputs':[{'pubkey':self.keys['actor-11'],'amount_sat':4800}],'committed_fee_sat':200,'round_attempt':{'round_seq':15,'attempt_seq':0}}]
+        prepared=self.controller.prepare(trial,{'trial_id':trial,'intent_hash':intent['intent_hash'],'legs':legs})
+        self.assertEqual([],prepared['legs'][1]['outputs']);self.assertEqual(200,prepared['legs'][1]['committed_fee_sat'])
+        self.assertEqual('pending',self.controller.judge(trial)['state'])
+    def test_round_requested_value_and_fee_cannot_exceed_whole_trial_cap(self):
+        trial=self.trial('D18');intent=self.controller.intent(trial)
+        # The wrong gross/net quote must fail before any round signing session.
+        with self.assertRaises(InvariantError):self.controller.validate_round_quote(intent,{'requested_outputs':[{'pubkey':self.keys['actor-11'],'amount_sat':3000}],'committed_fee_sat':2001,'round_attempt':{'round_seq':15,'attempt_seq':0}})
