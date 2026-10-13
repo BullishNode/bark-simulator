@@ -37,3 +37,21 @@ class BoundedReceiveSyncTests(unittest.TestCase):
         schedule(self.s,self.c,self.snapshot)
         self.assertFalse(self.action())
         self.assertEqual(2000,self.s.db.execute("SELECT fee_reservation_sat FROM action WHERE id='lost'").fetchone()[0])
+
+    def test_completed_partial_receive_sync_does_not_advertise_receiver_readiness(self):
+        self.detail('actor-06',needs_sync=True)
+        self.s.queue('partial','actor-06','H01','sync',{},2000)
+        self.s.db.execute("UPDATE action SET state='completed',result=? WHERE id='partial'",(json.dumps({'data':{'bounded_receive_sync':True,'receive_count_after':20,'all_pending_receive_fee_ceiling_sat':2080,'selected_receive_fee_ceiling_sat':1976}}),))
+        self.assertEqual('actor-08',lightning_recipient(self.s)[0])
+        self.assertTrue(self.s.online('actor-06'))
+        self.assertIsNone(self.s.db.execute("SELECT actual_fee_sat FROM action WHERE id='partial'").fetchone()[0])
+
+    def test_full_original_sync_can_restore_receiver_selection(self):
+        self.detail('actor-06',needs_sync=True)
+        self.s.queue('partial','actor-06','H01','sync',{},2000)
+        self.s.db.execute("UPDATE action SET state='completed',result=? WHERE id='partial'",(json.dumps({'data':{'bounded_receive_sync':True,'receive_count_after':0}}),))
+        self.assertEqual('actor-08',lightning_recipient(self.s)[0])
+        self.s.queue('full','actor-06','H01','sync',{},2000)
+        self.s.db.execute("UPDATE action SET state='completed',actual_fee_sat=0,result=? WHERE id='full'",(json.dumps({'data':{'bounded_receive_sync':False,'receive_count_after':0}}),))
+        record_actor_result(self.s,'actor-06','sync',{'bounded_receive_sync':False,'receive_count_after':0})
+        self.assertEqual('actor-06',lightning_recipient(self.s)[0])
