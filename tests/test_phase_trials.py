@@ -55,7 +55,7 @@ class PhaseTrialTests(unittest.TestCase):
         self.add_output('d1'*32+':0',self.keys['actor-04'],['bb'*32+':0'])
         verdict=self.controller.judge(trial);self.assertEqual('pending',verdict['state']);self.assertIn('signed_successor_linkage',verdict['unknowns'])
     def test_lost_reply_retains_fee_and_input_fence_without_second_release(self):
-        trial=self.trial();self.prepared(trial,'durable');self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32
+        trial=self.trial();self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32
         first=self.controller.release(trial);self.assertEqual(first,self.controller.release(trial))
         self.controller.reply(trial,'left',{'kind':'transport_unknown','wire_sha256':'a1'*32})
         self.assertEqual('pending',self.controller.judge(trial)['state'])
@@ -96,3 +96,26 @@ class PhaseTrialTests(unittest.TestCase):
         with self.assertRaises(InvariantError):self.controller.native_prepared(trial,'foreign-action',prepared)
         for leg in prepared['legs']:leg['signing_session_sha256']='f1'*32
         with self.assertRaises(InvariantError):self.controller.native_prepared(trial,action,prepared)
+    def checked_delivery(self,*,fresh=True,state='spent'):
+        trial=self.trial('D24',courier_actor='actor-12',saved_successor_ids=['d1'*32+':0'])
+        self.add_output('d1'*32+':0',self.keys['actor-04'],[self.coin])
+        txid='ee'*32;script='0014'+'77'*20
+        self.store.db.execute('INSERT INTO checked_settlement VALUES (?,?,?,?,?,?)',('d1'*32+':0',txid,'actor-11',script,5000,canonical({'row':{'fee_sat':100}})))
+        self.store.db.execute('INSERT INTO settlement_check VALUES (?,?,?,?)',(txid,'amounts_checked',None,1))
+        self.store.db.execute('INSERT INTO chain_payout VALUES (?,?)',(txid,canonical({'txid':txid,'confirmations':2,'fee_sat':150,'inputs':[{'amount_sat':10000}],'outputs':[{'script':script,'amount_sat':4900},{'script':'0014'+'88'*20,'amount_sat':4950}]})))
+        self.config.phase_enabled=True;self.config.phase_manifest_sha256='ee'*32;action=self.controller.release(trial)
+        self.store.db.execute('UPDATE action SET actual_fee_sat=0 WHERE id=?',(action,))
+        self.controller.reply(trial,'delivery',{'kind':'expiry_settled_refusal','wire_sha256':'a1'*32})
+        row={'id':'d1'*32+':0','spend_state':state,'onchain_spent_txid':txid,'oor_spent_txid':None,'spent_in_round':None,'offboarded_in':None}
+        self.store.db.execute('INSERT INTO server_item VALUES (?,?,?,?)',('coins',row['id'],canonical(row),1e12 if fresh else 0))
+        return trial
+    def test_delayed_paid_successor_can_close_only_after_fresh_terminal_state_and_real_fee_identity(self):
+        trial=self.checked_delivery();verdict=self.controller.judge(trial)
+        self.assertEqual('verified',verdict['state']);self.assertEqual(4900,verdict['financial_identity']['confirmed_original_net_sat'])
+        self.assertEqual(100,verdict['financial_identity']['recipient_fee_sat']);self.assertEqual(0,verdict['financial_identity']['new_payee_entitlement_sat'])
+        self.assertEqual(verdict,self.controller.judge(trial));self.assertFalse(verdict['customer_traffic_credit'])
+    def test_old_inventory_and_reactivated_successor_do_not_close_delayed_delivery(self):
+        trial=self.checked_delivery(fresh=False);self.assertEqual('pending',self.controller.judge(trial)['state'])
+        self.store.db.execute('UPDATE server_item SET observed_at=1e12');row=json.loads(self.store.db.execute('SELECT payload FROM server_item').fetchone()[0]);row['spend_state']='spendable'
+        self.store.db.execute('UPDATE server_item SET payload=?',(canonical(row),))
+        with self.assertRaises(InvariantError):self.controller.judge(trial)
