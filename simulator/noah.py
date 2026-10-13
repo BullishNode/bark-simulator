@@ -227,7 +227,16 @@ class NoahAdapter:
         self.store,self.manifest,self.clock=store,manifest,clock
         self.transport,self.invoice_verifier=transport,invoice_verifier
         self._sessions={}  # Private bearer memory; never serialized into evidence.
+        self._observation_tasks=set()
         store.db.executescript(SCHEMA)
+
+    @property
+    def pending_observations(self):return len(self._observation_tasks)
+
+    async def drain_observations(self):
+        """Keep the private store open until every started exchange is retained."""
+        while self._observation_tasks:
+            await asyncio.shield(asyncio.gather(*tuple(self._observation_tasks),return_exceptions=True))
 
     def readiness(self,*,enrollment=False):
         try:
@@ -317,15 +326,29 @@ class NoahAdapter:
         reference=self.protect('http.request',{'method':method,'url':url,'body':body,'bearer':bearer,
             'representation':'actual decoded outgoing protocol request'},actor=actor,action_id=action_id)
         self.store.trace_capture('noah.http.request',{'artifact':reference},actor=actor,action_id=action_id)
-        try:response=await self.transport(method,url,body,bearer)
-        except Exception as error:
-            reference=self.protect('http.error',getattr(error,'observation',{'error_type':type(error).__name__,'available_error_text':str(error)}),actor=actor,action_id=action_id)
-            self.store.trace_capture('noah.http.error',{'artifact':reference},actor=actor,action_id=action_id)
+        async def observed_exchange():
+            try:response=await self.transport(method,url,body,bearer)
+            except BaseException as error:
+                artifact=self.protect('http.error',getattr(error,'observation',{'error_type':type(error).__name__,'available_error_text':str(error)}),actor=actor,action_id=action_id)
+                self.store.trace_capture('noah.http.error',{'artifact':artifact},actor=actor,action_id=action_id)
+                raise
+            artifact=self.protect('http.response',getattr(response,'observation',{'decoded_response':response,
+                'representation':'actual returned decoded protocol object; wire bytes unavailable'}),actor=actor,action_id=action_id)
+            self.store.trace_capture('noah.http.response',{'artifact':artifact},actor=actor,action_id=action_id)
+            return response
+        task=asyncio.create_task(observed_exchange());self._observation_tasks.add(task)
+        def terminal(done):
+            self._observation_tasks.discard(done)
+            # Retrieving an exception prevents an abandoned waiter from causing
+            # untrusted private diagnostic text to enter asyncio's ordinary log.
+            if not done.cancelled():done.exception()
+        task.add_done_callback(terminal)
+        try:return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            artifact=self.protect('http.wait_cancelled',{'original_request':reference,
+                'state':'waiter cancelled; actual exchange retained until terminal observation'},actor=actor,action_id=action_id)
+            self.store.trace_capture('noah.http.wait_cancelled',{'artifact':artifact},actor=actor,action_id=action_id)
             raise
-        reference=self.protect('http.response',getattr(response,'observation',{'decoded_response':response,
-            'representation':'actual returned decoded protocol object; wire bytes unavailable'}),actor=actor,action_id=action_id)
-        self.store.trace_capture('noah.http.response',{'artifact':reference},actor=actor,action_id=action_id)
-        return response
 
     async def enroll(self,actor,signer,expo_token,*,expiry):
         phone=self._phone(actor,require_online=True,enrollment=True);now=int(self.clock());integer(expiry,'mailbox expiry',now+1)
