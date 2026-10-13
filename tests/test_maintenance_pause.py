@@ -101,3 +101,16 @@ class MaintenancePauseTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.store, 'queue', side_effect=ValueError('unrelated queue invariant')):
             with self.assertRaisesRegex(ValueError, 'unrelated queue invariant'):
                 await self.engine.run(once=True)
+
+    async def test_independent_recovery_invariant_remains_an_incident(self):
+        self.pause('declared target upgrade')
+        self.engine.collect_inventory = AsyncMock(side_effect=ValueError('inventory unavailable'))
+        original = self.fixture.rpc.call
+        def wrong_chain(method, *args, **kwargs):
+            return 'wrong-genesis' if method == 'getblockhash' else original(method, *args, **kwargs)
+        with patch.object(self.fixture.rpc, 'call', side_effect=wrong_chain):
+            await self.engine.run(once=True)
+        self.assertEqual('ownership contradiction', self.store.get_meta('paused'))
+        self.assertTrue(self.store.db.execute("SELECT 1 FROM event WHERE kind='ownership_incident'").fetchone())
+        self.assertEqual('preparing', self.fixture.recoveries()[0]['state'])
+        self.assertEqual(0, self.fixture.sends())

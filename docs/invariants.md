@@ -15,3 +15,7 @@ Permanently offline clients stay offline. Public evidence collection does not op
 Qualified campaign time requires a signed Ark receipt within ten minutes and verified Lightning success within sixty minutes. Setup, downtime, stale observations, and unhealthy periods earn no time. Historical clock values are retained separately.
 
 Reports show unknown values and incomplete scenarios explicitly. A successful RPC, positive balance, or catalogue entry does not establish a complete scenario outcome or minimum capital requirement.
+
+A dispatch pause fences both queuing and claiming. A pause committed by another process during scheduling stops new dispatch while the observer continues; it does not restart the supervisor or cancel existing prepare-only seed scans. Incident pauses retain the same fence and never resume automatically.
+
+Existing seed-recovery jobs are polled independently of target inventory availability. A completed preparation can be recorded during a pause, while new preparation and broadcast remain blocked. A lost preparation handle after a restart stays `prepare_unknown`; it is never silently restarted or re-signed.

@@ -304,7 +304,6 @@ class Engine:
                     await collect_operator_scripts(self.store,self.config,chain)
                     chain.consumer='settlements'
                     await collect_settlements(self.store,chain)
-                    if self.recovery: await self.recovery.tick()
                     chain.consumer='fees'
                     await collect_fees(self.store,chain)
                     chain.consumer='recycling'
@@ -315,6 +314,17 @@ class Engine:
                 self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','ownership contradiction')")
             except Exception as error:
                 self.store.event("inventory_gap",{"reason":type(error).__name__})
+            # Existing preparations and broadcasts have their own evidence
+            # reader. Poll them even when target inventory is unavailable;
+            # RecoveryController retains the pause fence on new work/broadcast.
+            if self.recovery:
+                try:
+                    await self.recovery.tick()
+                except InvariantError as error:
+                    self.store.event("ownership_incident",{"reason":str(error)})
+                    self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','ownership contradiction')")
+                except Exception as error:
+                    self.store.event("recovery_gap",{"reason":type(error).__name__})
             padding_latest=self.store.db.execute('SELECT id,payload FROM snapshot ORDER BY id DESC LIMIT 1').fetchone()
             if padding_latest:
                 padding_snapshot=json.loads(padding_latest['payload'])
