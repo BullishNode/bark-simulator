@@ -1,0 +1,29 @@
+# Client phase trials
+
+Phase trials freeze one signet input set and one fee ceiling before submitting competing requests. The same principal is counted once across the whole trial. They are disabled until an operator declares the qualified SDK/native manifest and selects an online client.
+
+A request or a successful outer SDK call cannot establish an entitlement. Verdicts use independently verified signed paths, exact spending transaction identities, fresh server state, confirmed payout checks and separately booked fees. An incomplete observation stays pending. A contradictory funded claim pauses dispatch.
+
+| Scenario | Actual mechanism | Current source result | Required evidence and financial outcome |
+| --- | --- | --- | --- |
+| D17 | Two retained SDK arkoor packages submit different spends of identical signed inputs | Native source and scoped financial oracle; compilation and signet qualification pending | Distinct signing sessions; exact pre-submit requests; measured overlap; one signed registered branch; exact losing output queries; conserved principal and booked fee |
+| D18 | A real SDK interactive round attempt races a retained arkoor package through a client transport gate | SDK orchestration source; compilation, transport and financial oracle qualification pending | Actual challenge/input attestation, immutable quote, complete proposal/forfeit/funding path, one confirmed successor or payout; submission acceptance alone stays pending |
+| D19 | Prepared offboard finish races refresh | Controller not implemented | Actual prepared transaction/session, identical inputs, one independently checked chain or refresh entitlement |
+| D20 | Unilateral exit races cooperative spending | Controller not implemented | Real exit package and cooperative request; exact confirmed chain arbitration and no double funded claim |
+| D24 | Wallet-free registration of saved signed successors after their original owner's payout | Native source and scoped financial oracle; compilation and signet qualification pending | Specific expiry-settled refusal tied to exact request; checked original net payout plus recipient fee; fresh paid successor state with no new cooperative liability |
+| D26 | Two delegated refresh requests use identical inputs | Controller not implemented | Distinct signed requests, actual exchange lineage, one replacement or consistent refusal; histories are not additive principal |
+| D27 | Cached genuine forfeit data is resubmitted after expiry cancellation | Controller not implemented | Exact captured forfeit and cancellation/payout proof; no revived entitlement |
+| D28 | Another branch's confirmed sweep is offered as this coin's proof | Controller not implemented | Actual unrelated confirmed transaction, rightful signed path, independent rejection and unresolved rightful entitlement |
+| D33 | Saved rightful claim follows a matching sender refund | Controller not implemented | Exact same-hash refund, valid retained claim/preimage and no receiver credit |
+| D34 | Valid same-hash internal claim races revocation | Controller not implemented | Both actual HTLC identities, private signing/preimage retention and one conserved payment outcome |
+| D36 | An actual prepared internal claim is withheld through its deadline | Controller not implemented | Immutable observed block deadline, no early claim, read-only claim/refund reconciliation and measured locked principal |
+
+Signing nonces stay in their real SDK process. Exact public requests and unsigned spend checkpoints are fsynced before submission. Replies, authentication metadata, preimages and signer material remain in protected evidence files. Complete signed successors are retained immediately. A crash or incomplete reply holds the actor, principal and whole fee reservation; it cannot automatically regenerate a signing session or retry a spend.
+
+The interactive-round transport is scoped to one actor and one invocation. It forwards through the existing pinned upstream channel and inherits its TLS authentication. It stores exact gRPC body bytes and decoded HTTP metadata/status/trailers before delivery. It does not claim to store encrypted packets or HPACK wire encoding. A client capture/control failure is distinct from a captaind refusal and never qualifies a refusal scenario. A second `SubmitPayment` is blocked before forwarding.
+
+The trial fee ceiling is at most 2,000 sats for the entire competing group. A reservation remains held while any outcome or actual fee is unknown. D24 performs no wallet signing or payment: it only submits already signed public successor bytes using an online courier; original absent clients remain closed.
+
+D24's financial scope is the exact delayed-registration guard and confirmed original-owner payout through a fresh post-reply observation. A coin's `onchain_spent_txid` denotes a separate sweep/exit fact and must never be treated as its payout transaction ID. Sweep backing requires its own audit.
+
+Trial verdicts are idempotent. They do not create a customer receive movement, customer clock time, or live-qualified coverage from unit checks or adapter availability.
