@@ -36,6 +36,15 @@ pub(super) fn has_unresolved_rotation(root:&Path)->Result<bool>{
 }
 #[cfg(test)] mod tests{
  use super::*;use serde_json::json;
+ #[test] fn submitted_scheduled_refresh_keeps_a_restart_safe_wallet_hold(){
+  let root=std::env::temp_dir().join(format!("sim-native-scheduled-hold-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+  fs::create_dir(&root).unwrap();fs::set_permissions(&root,fs::Permissions::from_mode(0o700)).unwrap();
+  let req=Request{operation:"refresh_scheduled".into(),action_id:"original-schedule".into(),actor_dir:None,expected_server_pubkey:"server".into(),
+   args:json!({"phase":"start","input_vtxo_ids":["coin"],"scheduled_height":123}),maximum_fee_sat:100};
+  let mut intent=freeze(&req,json!({"committed_fee_sat":12}));intent.state="submitted".into();persist(&root,&req,&intent).unwrap();
+  let held=has_unresolved_rotation(&root).unwrap();fs::remove_dir_all(&root).unwrap();
+  assert!(held,"an ACKed scheduled refresh must retain its exact-input wallet hold across restart");
+ }
  #[test] fn terms_do_not_change_under_inspection_but_cap_source_and_inputs_do(){
   let req=Request{operation:"refresh_scheduled".into(),action_id:"original".into(),actor_dir:None,expected_server_pubkey:"server".into(),
    args:json!({"phase":"start","input_vtxo_ids":["coin"],"scheduled_height":123}),maximum_fee_sat:100};
