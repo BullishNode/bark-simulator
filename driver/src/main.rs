@@ -135,19 +135,32 @@ async fn coin_evidence(wallet: &Wallet) -> Result<Value> {
     Ok(json!({"coins":public,"movements":movements,"binding":binding}))
 }
 
-fn receive_sync_selection(fees: &[u64], maximum_fee_sat: u64) -> Result<Vec<usize>> {
+fn receive_sync_selection(fees: &[u64], maximum_fee_sat: u64, start: usize) -> Result<Vec<usize>> {
     let _total = fees.iter().try_fold(0u64, |total, fee| total.checked_add(*fee))
         .context("receive fee overflow")?;
+    ensure!((fees.is_empty() && start == 0) || start < fees.len(), "invalid receive poll start");
     let mut used=0u64;
     let mut selected=Vec::new();
-    for (index,fee) in fees.iter().enumerate() {
+    for offset in 0..fees.len() {
+        let index=(start+offset)%fees.len();
+        let fee=fees[index];
         if selected.len()==32 { break; }
-        if *fee<=maximum_fee_sat-used {
+        if fee<=maximum_fee_sat-used {
             used+=fee;
             selected.push(index);
         }
     }
     Ok(selected)
+}
+
+fn receive_sync_start(hashes: &[String], args: &Value) -> Result<usize> {
+    let Some(hint) = args.get("receive_sync_start_after") else { return Ok(0); };
+    let hint=hint.as_str().context("receive poll cursor must be a payment hash")?;
+    ensure!(hint.len()==64 && hint.bytes().all(|c|c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
+        "receive poll cursor must be a lowercase payment hash");
+    // A completed claim can remove the cursor from the pending list. Restart
+    // at the first remaining original checkpoint; never create an invoice.
+    Ok(hashes.iter().position(|h|h==hint).map(|i|(i+1)%hashes.len()).unwrap_or(0))
 }
 
 fn lightning_fee_ceiling(schedule: &ark::fees::FeeSchedule, amount: Amount) -> Result<Amount> {
@@ -520,7 +533,8 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                     .context("receive fee overflow")?;
                 receive_fees.push(q.fee.to_sat());
             }
-            let selected=receive_sync_selection(&receive_fees,req.maximum_fee_sat)?;
+            let start=receive_sync_start(&receive_payment_hashes_before,&req.args)?;
+            let selected=receive_sync_selection(&receive_fees,req.maximum_fee_sat,start)?;
             let bounded_receive_sync=selected.len()!=pending_receives.len();
             if !pending_receives.is_empty() && selected.is_empty() {
                 return Ok(
@@ -532,6 +546,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             let before = coin_evidence(&wallet).await?;
             evidence(req, "sync_before", before.clone())?;
             evidence(req,"receive_sync_plan",json!({"bounded_receive_sync":bounded_receive_sync,
+                "receive_sync_start_after":req.args.get("receive_sync_start_after"),
                 "selected_payment_hashes":selected_hashes,"selected_fee_ceiling_sat":selected_fee_ceiling,
                 "all_pending_fee_ceiling_sat":receive_ceiling,"maximum_fee_sat":req.maximum_fee_sat}))?;
             if bounded_receive_sync {
@@ -1560,26 +1575,58 @@ mod tests {
 
     #[test]
     fn outstanding_invoices_can_progress_under_the_original_fee_cap() {
-        let selection = receive_sync_selection(&[150; 20], 2000).unwrap();
+        let selection = receive_sync_selection(&[150; 20], 2000,0).unwrap();
         assert!(!selection.is_empty(), "twenty outstanding invoices must not deadlock sync");
         assert_eq!(selection.len(), 13);
         assert_eq!(selection.iter().map(|_|150u64).sum::<u64>(),1950);
     }
 
     #[test]
+    fn funded_tail_checkpoint_is_polled_on_the_next_bounded_pass() {
+        let hashes=(0..20).map(|i|format!("{i:064x}")).collect::<Vec<_>>();
+        let fees=[104;20];
+        let first=receive_sync_selection(&fees,2000,0).unwrap();
+        assert_eq!(first.len(),19);
+        assert!(!first.contains(&19));
+        let cursor=&hashes[*first.last().unwrap()];
+        let start=receive_sync_start(&hashes,&json!({"receive_sync_start_after":cursor})).unwrap();
+        let second=receive_sync_selection(&fees,2000,start).unwrap();
+        assert_eq!(second[0],19);
+        assert_eq!(second.iter().copied().collect::<std::collections::HashSet<_>>().len(),19);
+        assert_eq!(second.iter().map(|i|fees[*i]).sum::<u64>(),1976);
+        assert!(first.iter().chain(&second).copied().collect::<std::collections::HashSet<_>>().len()==20);
+    }
+
+    #[test]
+    fn receive_cursor_removal_validation_and_checkpoint_limit() {
+        let hashes=(0..64).map(|i|format!("{i:064x}")).collect::<Vec<_>>();
+        let first=receive_sync_selection(&[0;64],0,0).unwrap();
+        let start=receive_sync_start(&hashes,&json!({"receive_sync_start_after":hashes[31]})).unwrap();
+        let second=receive_sync_selection(&[0;64],0,start).unwrap();
+        assert_eq!(first,(0..32).collect::<Vec<_>>());
+        assert_eq!(second,(32..64).collect::<Vec<_>>());
+        assert_eq!(receive_sync_start(&[],&json!({"receive_sync_start_after":hashes[31]})).unwrap(),0);
+        assert_eq!(receive_sync_start(&hashes[32..],&json!({"receive_sync_start_after":hashes[31]})).unwrap(),0);
+        assert!(receive_sync_start(&hashes,&json!({"receive_sync_start_after":"not-a-hash"})).is_err());
+        assert!(receive_sync_start(&hashes,&json!({"receive_sync_start_after":3})).is_err());
+        assert!(receive_sync_start(&hashes,&json!({"receive_sync_start_after":"A".repeat(64)})).is_err());
+        assert!(receive_sync_selection(&[1],2000,1).is_err());
+    }
+
+    #[test]
     fn receive_selection_never_crosses_the_fee_cap_or_repeats_a_checkpoint() {
         let fees=[2001,150,150,0];
-        let selection=receive_sync_selection(&fees,300).unwrap();
+        let selection=receive_sync_selection(&fees,300,0).unwrap();
         assert_eq!(selection,vec![1,2,3]);
         assert!(selection.iter().map(|i|fees[*i]).sum::<u64>()<=300);
-        assert!(receive_sync_selection(&[2001],2000).unwrap().is_empty());
-        assert!(receive_sync_selection(&[u64::MAX,1],u64::MAX).is_err());
+        assert!(receive_sync_selection(&[2001],2000,0).unwrap().is_empty());
+        assert!(receive_sync_selection(&[u64::MAX,1],u64::MAX,0).is_err());
     }
 
     #[test]
     fn zero_fee_receive_polling_remains_bounded() {
-        assert_eq!(receive_sync_selection(&[0;100],0).unwrap().len(),32);
-        assert!(receive_sync_selection(&[],0).unwrap().is_empty());
+        assert_eq!(receive_sync_selection(&[0;100],0,0).unwrap().len(),32);
+        assert!(receive_sync_selection(&[],0,0).unwrap().is_empty());
     }
 
     #[test]

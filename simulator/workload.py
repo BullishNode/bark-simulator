@@ -80,6 +80,9 @@ def schedule_pilot(store: Store, config: Config):
     if next_action is None:
         return
     actor, scenario, operation, args, fee = next_action
+    if operation == 'sync':
+        from .receive_sync import sync_args
+        args = sync_args(store, actor)
     seq = store.db.execute("SELECT COUNT(*) FROM action").fetchone()[0] + 1
     try:
         store.queue(f"pilot-{seq:08}", actor, scenario, operation, args, fee)

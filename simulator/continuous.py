@@ -240,6 +240,9 @@ def _schedule(store,config,snapshot,decisions,rng=None):
         def queue(scenario,operation,args=None,fee=0):
             sequence=store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]+1
             if store.remaining_fee_budget()<fee:decide('fee_budget');return False
+            if operation=='sync' and args is None:
+                from .receive_sync import sync_args
+                args=sync_args(store,name)
             store.queue(f'continuous-{sequence:08}',name,scenario,operation,args or {},fee)
             decisions[name]['outcome']='queued';decisions[name]['operation']=operation
             return True

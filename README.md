@@ -52,6 +52,8 @@ SIM_DRIVER_CONFIG="$PWD/config.driver.json" \
 
 For a continuous workload, declare a unique public `campaign_seed` in `[runtime]`. The seed and realism rates become immutable campaign metadata. Each scheduling draw is journaled: cadence deadlines vary from 0.5 to 1.5 times their base interval, payment amounts respect the available balance and fee reserve, and advertised absent recipients are selected with probability `0.05`. Ordinary clients have a `0.005` per-day disappearance hazard that takes effect only at a supported completed boundary and preserves the Lightning candidate guard. This public seed is unrelated to wallet seeds.
 
+When pending Lightning receives exceed one sync's fee reservation, the driver polls at most 32 original checkpoints within that reservation. The next pass starts after the previous completed pass's last selected payment hash, so an unchanged backlog cannot repeatedly exclude its last invoice. Unknown actions remain held. A bounded receive pass defers full wallet synchronization; completion alone does not establish receiver readiness, payment success, or a reconciled fee.
+
 Keep wallet directories, mnemonics, RPC credentials, local configurations, and campaign databases private. The repository contains source and configuration templates.
 
 See [accounting and state invariants](docs/invariants.md) and [verification](docs/verification.md) for the evidence requirements and current test coverage. Deployment templates are in `deploy/`.
