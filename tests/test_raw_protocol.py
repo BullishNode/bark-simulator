@@ -9,7 +9,7 @@ from simulator.ownership import EvidenceGap
 class RawProtocolTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.store=Store(Path(self.tmp.name),'synthetic',100000);initialize(self.store)
-        self.server='02'+'33'*32;self.config=SimpleNamespace(expected_server_pubkey=self.server)
+        self.server='02'+'33'*32;self.config=SimpleNamespace(expected_server_pubkey=self.server,network="signet")
         self.actor='actor-11';self.key='02'+'11'*32;self.coin='aa'*32+':0'
         self.store.db.execute('INSERT INTO owner_key VALUES (?,?,?,?)',(self.key,self.actor,'mailbox','{}'))
         self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',(self.coin,self.key,5000,hashlib.sha256(b'ab').hexdigest(),b'ab'.hex(),'{}'))
@@ -56,16 +56,28 @@ class RawProtocolTests(unittest.TestCase):
         from simulator.raw_protocol import validate_response
         action_id=self.prepare()['action_id'];action=self.store.db.execute('SELECT * FROM action WHERE id=?',(action_id,)).fetchone()
         intent=json.loads(action['args'])
-        base={'scenario':'D14','actor':self.actor,'intent_hash':intent['intent_hash'],'request_hash':'dd'*32,'input_coin_ids':[self.coin],'input_status_before':[1],'input_status_after':[1],'response_message_hash':'ee'*32,'rpc_attempted':True,'actual_fee_sat':0}
+        base={'scenario':'D14','actor':self.actor,'intent_hash':intent['intent_hash'],'request_hash':'dd'*32,'input_coin_ids':[self.coin],'input_status_before':[1],'input_status_after':[1],'response_message_hash':'ee'*32,'response_hash':'ab'*32,'rpc_attempted':True,'actual_fee_sat':0}
         for value in [{'rpc':'RequestArkoorCosign','code':'InvalidArgument','guard':'other'}, {'rpc':'RequestArkoorCosign','code':'Unavailable','guard':'missing_fallback'}]:
             with self.subTest(value=value),self.assertRaises(EvidenceGap):validate_response(action,{'probe':{**base,**value}})
     def test_probe_response_is_bound_to_scenario_actor_intent_and_request_hash(self):
         from simulator.raw_protocol import validate_response
         result=self.prepare();action=self.store.db.execute('SELECT * FROM action WHERE id=?',(result['action_id'],)).fetchone()
-        base={'scenario':'D14','actor':self.actor,'intent_hash':result['intent_hash'],'request_hash':'dd'*32,'rpc':'RequestArkoorCosign','code':'InvalidArgument','guard':'missing_fallback','attempted_key_pubkeys':['03'+'22'*32],'input_coin_ids':[self.coin],'input_status_before':[1],'input_status_after':[1],'response_message_hash':'ee'*32,'rpc_attempted':True,'actual_fee_sat':0,'client_owner_verified':False}
+        base={'scenario':'D14','actor':self.actor,'intent_hash':result['intent_hash'],'request_hash':'dd'*32,'rpc':'RequestArkoorCosign','code':'InvalidArgument','guard':'missing_fallback','attempted_key_pubkeys':['03'+'22'*32],'input_coin_ids':[self.coin],'input_status_before':[1],'input_status_after':[1],'response_message_hash':'ee'*32,'response_hash':'ab'*32,'rpc_attempted':True,'actual_fee_sat':0,'client_owner_verified':False}
         self.assertFalse(validate_response(action,{'probe':base})['live_qualified'])
         for changes in [{'actor':'actor-05'},{'scenario':'D16'},{'intent_hash':'ff'*32},{'input_status_after':[2]},{'request_hash':''}]:
             with self.subTest(changes=changes),self.assertRaises(InvariantError):validate_response(action,{'probe':{**base,**changes}})
     def test_secret_arguments_and_excess_fee_cap_are_rejected_before_queue(self):
         with self.assertRaises(ValueError):self.prepare(payment_preimage='secret')
         with self.assertRaises(ValueError):self.prepare(maximum_fee_sat=2001)
+
+    def test_non_signet_declared_network_is_blocked_before_wallet_dispatch(self):
+        self.config.network='regtest'
+        with self.assertRaises(EvidenceGap):self.prepare()
+        self.assertEqual(1,self.store.db.execute('SELECT count(*) FROM action').fetchone()[0])
+    def test_unavailable_foreign_status_is_a_gap_not_unchanged_state(self):
+        from simulator.raw_protocol import validate_response
+        result=self.prepare();action=self.store.db.execute('SELECT * FROM action WHERE id=?',(result['action_id'],)).fetchone()
+        probe={'scenario':'D14','actor':self.actor,'intent_hash':result['intent_hash'],'request_hash':'dd'*32,'response_hash':'ab'*32,'response_message_hash':'ee'*32,'input_coin_ids':[self.coin],'input_status_before':[-1],'input_status_after':[-1],'rpc':'RequestArkoorCosign','code':'InvalidArgument','guard':'missing_fallback','rpc_attempted':True,'actual_fee_sat':0}
+        with self.assertRaises(EvidenceGap):validate_response(action,{'probe':probe})
+    def test_delivery_replay_requires_actual_successful_movement(self):
+        with self.assertRaises(EvidenceGap):self.prepare('D22')
