@@ -211,6 +211,37 @@ def atomic_text(path: Path, text: str):
     os.replace(temporary, path)
 
 
+def payout_fees(store):
+    """Count each independently checked transaction once, never each coin row."""
+    from .model import InvariantError, integer
+    verified={}
+    for event in store.db.execute("SELECT payload FROM event WHERE kind='confirmed_payout_amounts_checked'"):
+        item=json.loads(event['payload']);txid=item['txid']
+        chain=store.db.execute('SELECT payload FROM chain_payout WHERE txid=?',(txid,)).fetchone()
+        rows=store.db.execute('SELECT coin_id FROM checked_settlement WHERE txid=?',(txid,)).fetchall()
+        if chain is None or not rows:continue
+        tx=json.loads(chain['payload'])
+        if tx.get('confirmations',0)<1 or tx.get('fee_sat') is None:continue
+        if set(item['coins'])!={r['coin_id'] for r in rows}:continue
+        recipient=integer(item['recipient_fee_sat'],'verified recipient fee')
+        operator=integer(item['operator_fee_sat'],'verified operator fee')
+        if recipient+operator!=integer(tx['fee_sat'],'raw transaction fee'):
+            raise InvariantError('payout fee receipt does not conserve actual mining fee')
+        fees=(recipient,operator)
+        if txid in verified and verified[txid]!=fees:
+            raise InvariantError('payout transaction has conflicting verified fee receipts')
+        verified[txid]=fees
+    pending=store.db.execute("SELECT COUNT(*) FROM settlement_check WHERE state!='amounts_checked'").fetchone()[0]
+    if verified:
+        recipient=sum(x[0] for x in verified.values());operator=sum(x[1] for x in verified.values())
+    elif store.get_meta('mode')=='synthetic':
+        recipient,operator=store.db.execute("SELECT COALESCE(SUM(recipient_fee_sat),0),COALESCE(SUM(operator_fee_sat),0) FROM payout").fetchone()
+    else:recipient=operator=None
+    return {'recipient_fee_sat':recipient,'operator_fee_sat':operator,
+        'verified_transactions':len(verified),'pending_transactions':pending,
+        'scope':'verified transaction totals only; pending and unobserved fees remain unknown'}
+
+
 def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
     from .log_capture import report as log_capture_report
     if full:
@@ -225,7 +256,8 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
     actions = [{key:r[key] for key in fields} for r in store.db.execute(action_query)]
     coverage_rows = coverage(store)
     liabilities = [dict(r) for r in store.db.execute("SELECT owner,source,state,SUM(gross_sat) AS amount_sat,COUNT(*) AS coins FROM entitlement GROUP BY owner,source,state")]
-    fees = store.db.execute("SELECT COALESCE(SUM(recipient_fee_sat),0),COALESCE(SUM(operator_fee_sat),0) FROM payout").fetchone()
+    payout_fee_summary=payout_fees(store)
+    fees=(payout_fee_summary['recipient_fee_sat'],payout_fee_summary['operator_fee_sat'])
     known_fees, unresolved = store.db.execute("SELECT COALESCE(SUM(actual_fee_sat),0),COALESCE(SUM(CASE WHEN actual_fee_sat IS NULL THEN fee_reservation_sat ELSE 0 END),0) FROM action WHERE state!='canceled'").fetchone()
     last = store.db.execute("SELECT hash FROM event ORDER BY sequence DESC LIMIT 1").fetchone()
     tip = last[0] if last else "0" * 64
@@ -267,7 +299,7 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
             "legacy_clock_seconds":float(store.get_meta("legacy_clock_seconds") or "0"),
             "campaign_active_seconds":float(store.get_meta("campaign_active_seconds") or "0"),
             "ramp_applied":store.get_meta("ramp_applied")=="true"},
-        "payout_recipient_fees_sat": fees[0], "payout_operator_change_fees_sat": fees[1],
+        "payout_fees":payout_fee_summary, "payout_recipient_fees_sat": fees[0], "payout_operator_change_fees_sat": fees[1],
         "fee_budget_sat": int(store.get_meta("fee_budget_sat") or 0),
         "known_action_fees_sat": known_fees, "unreconciled_action_fee_reserves_sat": unresolved,
         "event_chain_tip": tip, "observations": recorded_observations(store),
@@ -297,7 +329,7 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
         "unique daemon ticks and individual server waiting ages unknown. "
         "Rates are comparisons, not a declared policy verdict or additive operator costs.")
     markdown += fee_summary+"\n\n"
-    markdown += f"Known payout recipient fees: {fees[0]} sat. Operator change fees: {fees[1]} sat.\n\n"
+    markdown += f"Verified payout recipient fees: {fees[0] if fees[0] is not None else 'unknown'} sat. Operator change fees: {fees[1] if fees[1] is not None else 'unknown'} sat. Unverified transactions: {payout_fee_summary['pending_transactions']}; their fees are excluded.\n\n"
     markdown += "Observations (facts and missing evidence, not scenario verdicts):\n\n"
     markdown += "\n".join(f"- [{o['severity']}, {o['status']}] {o['summary']} Evidence: {json.dumps(o['evidence'],sort_keys=True)}" for o in result["observations"]) + "\n\n"
     markdown += "Permanent receive absences (ordinary users; payout/recovery qualification stays explicit):\n\n"
