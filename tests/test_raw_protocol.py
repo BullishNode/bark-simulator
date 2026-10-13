@@ -88,6 +88,11 @@ class RawProtocolTests(unittest.TestCase):
         self.assertEqual(24,len(scenario_rows(self.store)))
         self.store.db.execute('PRAGMA query_only=OFF')
 
+    def test_refund_probe_cannot_use_an_invoice_creation_as_send_checkpoint(self):
+        self.store.queue('invoice',self.actor,'H15','invoice',{'amount_sat':1000},0)
+        self.store.db.execute("UPDATE action SET state='completed',result=? WHERE id='invoice'",(canonical({'data':{'payment_hash':'ab'*32}}),))
+        with self.assertRaises(EvidenceGap):self.prepare('D29',payment_hash='ab'*32,source_action_id='invoice')
+
     def test_intent_history_is_not_presented_as_additive_capital(self):
         from simulator.raw_protocol import scenario_rows
         identity=self.prepare()['action_id']
