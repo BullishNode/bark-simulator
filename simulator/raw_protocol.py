@@ -166,7 +166,7 @@ def validate_response(action,data):
 
 def scenario_rows(store):
     """Exactly one row per scenario; implementation and production are separate."""
-    _initialize(store)
+    has_intents=store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='raw_protocol_intent'").fetchone() is not None
     rows=[]
     for scenario,(rpc,guard,mechanism) in MECHANISMS.items():
         attempts=list(store.db.execute('SELECT id,operation,state,actual_fee_sat,fee_reservation_sat FROM action WHERE scenario_id=? ORDER BY created_at,id',(scenario,)))
@@ -179,7 +179,7 @@ def scenario_rows(store):
                 'intent_history_is_additive_capital':False,
                 'exposure_intents':[{'action_id':r['action_id'],'input_coin_ids':[v['coin_id'] for v in json.loads(r['payload'])['inputs']],
                     'declared_input_principal_sat':json.loads(r['payload'])['input_amount_sat']}
-                    for r in store.db.execute('SELECT action_id,payload FROM raw_protocol_intent WHERE scenario=? ORDER BY action_id',(scenario,))],
+                    for r in (store.db.execute('SELECT action_id,payload FROM raw_protocol_intent WHERE scenario=? ORDER BY action_id',(scenario,)) if has_intents else [])],
                 'no_synthetic_refusal_credit':True}})
     return rows
 
