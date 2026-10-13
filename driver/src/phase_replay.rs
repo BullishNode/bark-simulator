@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use server_rpc::protos::{self, ark_service_client::ArkServiceClient};
 use std::{fs, io::Read, os::unix::fs::MetadataExt, path::Path};
 use tonic::transport::Channel;
-fn decode_hex(value: &str) -> Result<Vec<u8>> {
+pub(super) fn decode_hex(value: &str) -> Result<Vec<u8>> {
     ensure!(
         value.len() % 2 == 0
             && value.len() <= 8 * 1024 * 1024
