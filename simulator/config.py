@@ -85,8 +85,15 @@ class Config:
     absence_hazard_per_day: float = 0.005
     absent_payment_probability: float = 0.05
     dispatch_per_tick: int = 1
+    phase_enabled: bool = False
+    phase_manifest_sha256: str | None = None
 
     def __post_init__(self):
+        if type(self.phase_enabled) is not bool:raise ValueError('phase enablement must be boolean')
+        if self.phase_manifest_sha256 is not None and (not isinstance(self.phase_manifest_sha256,str) or len(self.phase_manifest_sha256)!=64 or any(c not in '0123456789abcdef' for c in self.phase_manifest_sha256)):
+            raise ValueError('phase qualification requires an exact manifest SHA256')
+        if self.phase_enabled and (self.network!='signet' or not self.active or self.phase_manifest_sha256 is None):
+            raise ValueError('phase dispatch requires an active signet configuration and independently qualified manifest')
         if (self.expected_padding_pubkey,self.expected_padding_unlock_hash,self.expected_padding_amount_sat)!=(PADDING_PUBKEY,PADDING_UNLOCK_HASH,PADDING_AMOUNT_SAT):
             raise ValueError('round padding constants must match the pinned SDK')
         integer(self.dispatch_per_tick,"dispatch per tick",1)
@@ -174,7 +181,7 @@ class Config:
         operator_descriptors = declaration_paths(operator.get('descriptors', []), paths[1])
         if operator.get('bridge', False) and (not operator_descriptors or not runtime.get('inventory_command') or not trace.get('enabled', True)):
             raise ValueError('operator bridge requires public descriptors, inventory command and trace')
-        return cls(log_target_enabled=logs.get('target',False),log_local_sources=tuple(local_sources),log_since_us=since_us,log_rows_per_page=log_rows,log_maximum_bytes=log_bytes,server_policy_command=tuple(policy), state_dir=paths[0], observer_command=tuple(runtime["observer_command"]),
+        return cls(phase_enabled=runtime.get('phase_enabled',False),phase_manifest_sha256=runtime.get('phase_manifest_sha256'),log_target_enabled=logs.get('target',False),log_local_sources=tuple(local_sources),log_since_us=since_us,log_rows_per_page=log_rows,log_maximum_bytes=log_bytes,server_policy_command=tuple(policy), state_dir=paths[0], observer_command=tuple(runtime["observer_command"]),
                    driver_command=tuple(runtime.get("driver_command", [])), wallet_root=paths[1],
                    expected_genesis=target["genesis"], expected_container=container,
                    expected_image=image, expected_server_pubkey=pubkey,

@@ -127,11 +127,20 @@ class CoverageStatusTests(unittest.TestCase):
         self.assertEqual('blocked-by-adapter',case['status'])
 
     def test_unimplemented_raw_phase_operations_are_blocked_by_adapter(self):
-        for scenario in ['D13','H14','H21','H26','H27','H29']:
+        for scenario in ['D18','D19','D20','D26','D27','D28','D33','D34','D36','H14','H21','H26','H27']:
             with self.subTest(scenario=scenario):
                 case = self.case(scenario)
                 self.assertFalse(case['driver_available'])
                 self.assertEqual('blocked-by-adapter',case['status'])
+
+    def test_compiled_manual_adapters_do_not_qualify_unexecuted_cases(self):
+        for scenario in ['D13','D14','D15','D16','D17','D21','D22','D23','D24','D25','D29','D30','D31','D32','D35','H29']:
+            with self.subTest(scenario=scenario):
+                case=self.case(scenario)
+                self.assertTrue(case['driver_available'])
+                self.assertEqual('enumerated',case['status'])
+                self.assertEqual('not_exercised',case['scenario_verdict'])
+                self.assertEqual(0,case['verified_actions'])
 
     def test_registered_exit_adapter_does_not_qualify_an_unexecuted_scenario(self):
         case = self.case('H34')

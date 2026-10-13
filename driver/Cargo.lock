@@ -312,11 +312,19 @@ dependencies = [
  "bip39",
  "bitcoin",
  "chrono",
+ "bytes",
  "env_logger",
+ "futures",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "prost",
  "serde",
  "serde_json",
  "tokio",
  "tonic",
+ "tower",
 ]
 
 [[package]]

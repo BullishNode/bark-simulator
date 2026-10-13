@@ -2,6 +2,18 @@ mod exit;
 mod native_intent;
 mod fallback_rotation;
 mod scheduled_refresh;
+mod raw_guard;
+#[cfg(test)]
+mod raw_guard_tests;
+mod raw_protocol;
+mod phase_protocol;
+mod phase_transport;
+mod phase_round;
+mod phase_offboard;
+mod phase_delegated;
+mod phase_replay;
+mod phase_lightning;
+mod phase_exit;
 
 use std::{
     fs,
@@ -264,7 +276,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         .timeout(std::time::Duration::from_secs(30))
         .connect()
         .await?;
-    let mut rpc = ArkServiceClient::new(channel);
+    let mut rpc = ArkServiceClient::new(channel.clone());
     let info = rpc.get_ark_info(protos::Empty {}).await?.into_inner();
     ensure!(
         info.network == network.to_string(),
@@ -346,6 +358,11 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         "invalid actor directory"
     );
     ensure!(!path.is_symlink(), "symlink actor directory");
+    if req.operation.starts_with("raw_protocol_") || req.operation.starts_with("phase_execute_") || matches!(req.operation.as_str(),"fallback_rotate"|"phase_register_saved") {
+        ensure!(!matches!(actor,"actor-03"|"actor-09"|"actor-10"),"original permanently absent wallet must stay closed");
+        ensure!(network==Network::Signet,"declared protocol trials require signet");
+    }
+
     let mnemonic_file = path.join("mnemonic");
     if req.operation == "create" {
         fs::create_dir_all(path)?;
@@ -364,6 +381,10 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
     if let Some(original_action_id)=native_intent::conflicting_wallet_intent(path,req)? {
         return Ok(json!({"blocked":true,"reason":"frozen native intent requires exact independent reconciliation",
             "original_action_id":original_action_id,"actual_fee_sat":0,"wallet_opened":false}));
+    }
+    if req.operation=="phase_register_saved" {
+        ensure!(req.args["phase_intent"]["context"]["courier_actor"]==actor,"delayed registration must use its declared online courier");
+        return phase_protocol::register_saved(&mut rpc,req,&path.join("private-phases"),network).await;
     }
     if req.operation == "create" {
         if !mnemonic_file.exists() {
@@ -388,6 +409,12 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         config.server_address == cfg.ark_endpoint,
         "wallet config endpoint differs from pinned endpoint"
     );
+    let phase_round_invocation=if matches!(req.operation.as_str(),"phase_execute_d18"|"phase_execute_d19") {
+        let invocation=phase_round::setup(channel.clone(),req,&path.join("private-phases")).await?;
+        if invocation.is_none(){return Ok(json!({"phase_unknown":true,"actual_fee_sat":Value::Null,"reason":"existing once-only phase fence; no SDK restart/re-sign/retry"}));}
+        config.server_address=invocation.as_ref().unwrap().transport.endpoint.clone();
+        invocation
+    }else{None};
     config.daemon_manual_sync = true;
     let db = Arc::new(SqliteClient::open(path.join("db.sqlite"))?);
     fs::set_permissions(path.join("db.sqlite"), fs::Permissions::from_mode(0o600))?;
@@ -442,6 +469,10 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         return Ok(json!({"blocked":true,"reason":"original exit intent owns this wallet; only explicit same-intent continuation or snapshot allowed","actual_fee_sat":0}));
     }
     match req.operation.as_str() {
+        "phase_execute_d17"=>phase_protocol::race_arkoor(&wallet,&mut rpc,req,&path.join("private-phases"),actor).await,
+        "phase_execute_d18"|"phase_execute_d19"=>phase_round::execute(&wallet,&mut rpc,req,phase_round_invocation.as_ref().context("missing one-process round transport")?,actor).await,
+        operation if operation.starts_with("raw_protocol_")=>raw_protocol::execute(&wallet,&db,&mut rpc,req,path,actor).await,
+
         "exit" => exit::execute(&wallet,&mut rpc,path,req,network).await,
         "fallback_rotate" => fallback_rotation::execute(&wallet,&mut rpc,path,req,network).await,
         "refresh_scheduled" => scheduled_refresh::execute(&wallet,path,req).await,
@@ -1208,6 +1239,46 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
     }, ||coin_evidence(&wallet), |name,data|evidence(req,name,data)).await
 }
 
+fn response_status(data:&Value)->&'static str {
+    if data["probe_unknown"].as_bool()==Some(true) || data["phase_unknown"].as_bool()==Some(true) {"error"}
+    else if data["blocked"].as_bool()==Some(true) {"blocked"}
+    else if data["expected_refusal"].as_bool()==Some(true) {"expected_refusal"}
+    else {"ok"}
+}
+
+fn response_fee(operation:&str,data:&Value)->Value {
+    if response_status(data)=="error" {return Value::Null;}
+    data.get("actual_fee_sat").cloned().unwrap_or_else(|| {
+        if data["blocked"].as_bool()==Some(true)
+            || matches!(operation,"create"|"snapshot"|"address"|"invoice")
+            || (operation.starts_with("raw_") && !operation.starts_with("raw_protocol_")) {json!(0)}
+        else {Value::Null}
+    })
+}
+
+#[cfg(test)]
+mod response_tests {
+    use super::*;
+    #[test]
+    fn saved_private_fence_is_unknown_even_with_blocked_flag_and_claimed_zero_fee() {
+        for flag in ["probe_unknown","phase_unknown"] {
+            let mut data=json!({"blocked":true,"actual_fee_sat":0});
+            data[flag]=json!(true);
+            assert_eq!(response_status(&data),"error");
+            assert!(response_fee("raw_protocol_d13",&data).is_null());
+            assert!(response_fee("phase_execute_d17",&data).is_null());
+        }
+    }
+    #[test]
+    fn new_money_adapters_cannot_default_a_missing_fee_to_zero() {
+        for operation in ["raw_protocol_d13","phase_execute_d17","phase_register_saved"] {
+            assert!(response_fee(operation,&json!({})).is_null());
+        }
+        assert_eq!(response_fee("snapshot",&json!({})),json!(0));
+        assert_eq!(response_fee("raw_protocol_d13",&json!({"actual_fee_sat":0})),json!(0));
+    }
+}
+
 #[tokio::main]
 async fn main() {
     if std::env::var("BARK_SIM_LOG").as_deref() == Ok("debug") {
@@ -1228,26 +1299,8 @@ async fn main() {
     match result {
         Ok((cfg, req)) => match execute(cfg, &req).await {
             Ok(data) => {
-                let status = if data["blocked"].as_bool() == Some(true) {
-                    "blocked"
-                } else if data["expected_refusal"].as_bool() == Some(true) {
-                    "expected_refusal"
-                } else {
-                    "ok"
-                };
-                let actual_fee = data.get("actual_fee_sat").cloned().unwrap_or_else(|| {
-                    if data["blocked"].as_bool() == Some(true)
-                        || matches!(
-                            req.operation.as_str(),
-                            "create" | "snapshot" | "address" | "invoice"
-                        )
-                        || req.operation.starts_with("raw_")
-                    {
-                        json!(0)
-                    } else {
-                        Value::Null
-                    }
-                });
+                let status=response_status(&data);
+                let actual_fee=response_fee(req.operation.as_str(),&data);
                 println!(
                     "{}",
                     json!({"action_id": req.action_id, "status": status, "data": data, "actual_fee_sat": actual_fee})

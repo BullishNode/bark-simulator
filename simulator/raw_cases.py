@@ -13,8 +13,12 @@ RAW_CASES = {
     'raw_bounded_queries': 'D39', 'raw_malformed': 'D40',
 }
 
+AUTOMATIC_RAW_CASES=dict(RAW_CASES)
+from .raw_protocol import OPERATIONS as PROTOCOL_OPERATIONS
+RAW_CASES.update(PROTOCOL_OPERATIONS)
+
 def next_case(store, actor, count):
-    cases = list(RAW_CASES)
+    cases = list(AUTOMATIC_RAW_CASES)
     for offset in range(len(cases)):
         operation = cases[(count + offset) % len(cases)]
         args = {}

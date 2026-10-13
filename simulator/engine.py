@@ -28,6 +28,8 @@ from .renewal import collect as collect_renewal
 from .workload import record_actor_result, schedule_pilot
 from .raw_cases import RAW_CASES
 from .negative_checks import collect as collect_negative_checks
+from .raw_protocol import collect as collect_protocol_checks
+from .phase_trials import Controller as PhaseController
 from .payments import collect as collect_payments
 from .proof_import import collect as collect_public_proofs
 from .recovery import RecoveryController
@@ -35,7 +37,7 @@ from .entitlements import record_submitted as record_delegated, collect as colle
 from .operator_scripts import collect as collect_operator_scripts
 
 OPERATIONS = {"create", "snapshot", "sync", "address", "board", "send_arkoor", "refresh",
-              "refresh_delegated", "refresh_scheduled", "fallback_rotate", "exit", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES)
+              "refresh_delegated", "refresh_scheduled", "fallback_rotate", "exit", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES) | {"phase_execute_d17","phase_register_saved"}
 
 
 def catalog():
@@ -54,6 +56,7 @@ def initialize(store: Store):
 class Engine:
     def __init__(self, config: Config, store: Store):
         self.config, self.store = config, store
+        self.phases=PhaseController(store,config)
         if config.trace_enabled:store.attach_trace(config.trace_retention_days)
         self.campaign_clock=CampaignClock(store,RampPlan()) if config.workload=="continuous" else None
         self.recovery=RecoveryController(store,config) if config.recovery_command else None
@@ -114,6 +117,12 @@ class Engine:
                     or not self.store.ordinary_actor_available(target)):
                 self.store.finish(action['id'],'blocked',{'reason':'liquidity recipient became unavailable before native call'},0)
                 return True
+        if action['actor_id'] in {'actor-03','actor-09','actor-10'} and (action['operation'].startswith(('raw_protocol_','phase_execute_')) or action['operation'] in {'fallback_rotate','phase_register_saved'}):
+            self.store.finish(action['id'],'blocked',{'reason':'original absent wallet must remain closed; no native call'},0)
+            return True
+        if action['operation'].startswith('phase_') and (not getattr(self.config,'phase_enabled',False) or not getattr(self.config,'phase_manifest_sha256',None) or action['args'].get('qualification_manifest_sha256')!=self.config.phase_manifest_sha256):
+            self.store.finish(action['id'],'blocked',{'reason':'compiled phase package has not been explicitly qualified for this invocation; no native call'},0)
+            return True
         actor_dir = self.config.wallet_root / action["actor_id"]
         if actor_dir.parent.resolve() != self.config.wallet_root or actor_dir.is_symlink():
             self.store.finish(action["id"], "failed", {"reason": "unsafe actor directory"})
@@ -141,6 +150,13 @@ class Engine:
             if trace_ref is not None and event.get('event') in {'client_evidence_before','client_evidence_after'}:
                 event={**event,'data':{'fresh':event.get('data',{}).get('fresh'),'trace_ref':trace_ref}}
             self.store.event("driver_evidence", {**event,"context":context})
+            kind=event.get('event');data=event.get('data',{});trial=action['args'].get('trial_id')
+            if trial:
+                if kind=='phase_preparations_frozen':self.phases.native_prepared(trial,action['id'],data)
+                elif kind=='phase_delayed_registration_frozen':self.phases.delivery_prepared(trial,action['id'],data)
+                elif kind=='phase_coin_reconciliation':self.phases.reconcile_coin(trial,action['id'],data['observation'])
+                elif kind=='phase_reply_observed':self.phases.reply(trial,data['leg_id'],data['reply'])
+
 
         def driver_stderr(log):
             try:
@@ -210,6 +226,9 @@ class Engine:
             self.store.finish(action["id"], "expected_refusal", response, response.get("actual_fee_sat"))
         elif response.get("status") == "blocked":
             self.store.finish(action["id"], "blocked", response, response.get("actual_fee_sat"))
+        elif response.get("status") == "incident":
+            self.store.finish(action['id'],'outcome_unknown',response)
+            self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','incident')")
         elif response.get("status") == "error":
             # SDK errors can occur after a successful broadcast/commit. Never label
             # a generic driver error terminal or safely retryable.
@@ -304,6 +323,7 @@ class Engine:
                 from .round_adoption import collect_input_params
                 await collect_input_params(self.store,self.config)
                 await collect_negative_checks(self.store,self.config.inventory_command,self.config.proof_command)
+                await collect_protocol_checks(self.store,self.config.inventory_command,self.config.proof_command)
                 await retry_public_candidates(self.store,self.config.proof_command)
                 if len(self.config.proof_command)==4:
                     chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],self.config.expected_genesis,capture=self.store.trace_sample)
@@ -322,6 +342,7 @@ class Engine:
                     chain.consumer='recycling'
                     await collect_recycling(self.store,chain)
                 collect_delegated(self.store)
+                for phase in self.store.db.execute("SELECT id FROM phase_trial WHERE release_action IS NOT NULL").fetchall():self.phases.judge(phase['id'])
             except InvariantError as error:
                 self.store.event("ownership_incident",{"reason":str(error)})
                 self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','ownership contradiction')")

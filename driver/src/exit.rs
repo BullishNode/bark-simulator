@@ -278,7 +278,7 @@ pub(super) async fn execute(
     let ids = request_ids(req)?;
     let phase = req.args["phase"].as_str().unwrap_or("start");
     ensure!(
-        matches!(phase, "start" | "advance" | "inspect"),
+        matches!(phase, "start" | "prepare" | "advance" | "inspect"),
         "unknown exit phase"
     );
     let mut intent = match load(path, &req.action_id)? {
@@ -299,13 +299,13 @@ pub(super) async fn execute(
                 0,
             )?;
             ensure!(
-                phase != "start",
+                phase != "start" && phase != "prepare",
                 "exit already exists; explicit advance or inspect required"
             );
             intent
         }
         None => {
-            ensure!(phase == "start", "exit has no frozen intent to advance");
+            ensure!(matches!(phase,"start"|"prepare"), "exit has no frozen intent to advance");
             ensure!(
                 !has_unfinished_intent(path)? && !wallet.exit_mgr().has_pending_exits().await,
                 "another exit already owns this wallet"
@@ -441,6 +441,16 @@ pub(super) async fn execute(
                 && wallet.pubkey_keypair(&full.user_pubkey()).await?.is_some(),
             "exit original signed ownership changed"
         );
+    }
+    if phase == "prepare" {
+        let packages=statuses(wallet,&ids).await?;
+        ensure!(packages.len()==ids.len() && packages.iter().all(|row|row["transactions"].as_array().is_some_and(|txs|!txs.is_empty())),
+            "prepared exit lacks complete signed ancestor packages");
+        evidence(req,"exit_prepared",json!({"input_vtxo_ids":ids,"exits":packages,"fee_cap_sat":intent.fee_cap_sat,
+            "no_progress_no_cpfp_no_claim":true} ))?;
+        return Ok(json!({"exit_action_id":intent.action_id,"prepared":true,"exits":packages,
+            "input_vtxo_ids":ids,"fee_cap_sat":intent.fee_cap_sat,"actual_fee_sat":Value::Null,
+            "no_progress_no_cpfp_no_claim":true,"note":"registered and locked original intent; signed ancestors are existing SDK inventory, not newly broadcast exits"}));
     }
     if phase == "inspect" {
         return Ok(

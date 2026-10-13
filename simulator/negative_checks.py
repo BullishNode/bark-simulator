@@ -41,7 +41,7 @@ def check(request,expected,protected,observed):
 async def collect(store,command,proof_command=(),limit=2):
     store.db.execute('CREATE TABLE IF NOT EXISTS negative_check(action_id TEXT PRIMARY KEY,state TEXT NOT NULL,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
     if not command:return
-    rows=store.db.execute("SELECT a.* FROM action a LEFT JOIN negative_check c ON c.action_id=a.id WHERE a.operation LIKE 'raw_%' AND a.state IN ('completed','expected_refusal') AND (c.state IS NULL OR c.state NOT IN ('checked','invalidated')) ORDER BY a.updated_at").fetchall()
+    rows=store.db.execute("SELECT a.* FROM action a LEFT JOIN negative_check c ON c.action_id=a.id WHERE a.operation LIKE 'raw_%' AND a.operation NOT LIKE 'raw_protocol_%' AND a.state IN ('completed','expected_refusal') AND (c.state IS NULL OR c.state NOT IN ('checked','invalidated')) ORDER BY a.updated_at").fetchall()
     after=store.get_meta('negative_check_cursor') or ''
     rows=[r for r in rows if r['id']>after]+[r for r in rows if r['id']<=after]
     for action in rows[:limit]:

@@ -12,6 +12,7 @@ from .store import Store
 from .continuous import absence_report
 from .recycling import report as recycling_report
 from .raw_cases import RAW_CASES
+from .raw_protocol import scenario_rows as protocol_scenario_rows
 from .recovery import report as recovery_report
 from .padding import report as padding_report, csv_values as padding_csv_values
 from .entitlements import unclaimed_expired_report
@@ -21,6 +22,8 @@ from .fee_watch import report as fee_watch_report, csv_values as fee_watch_csv_v
 # Primitive operations can exercise part of a behavior. Their availability and
 # accounting evidence never imply that its full expected outcome is qualified.
 SCENARIO_OPERATIONS = {
+    'H29': {'fallback_rotate'},
+    'D17': {'phase_execute_d17'}, 'D24': {'phase_register_saved'},
     'H01': {'board'}, 'H02': {'board'}, 'H03': {'board'},
     'H04': {'board'}, 'H06': {'board'},
     **{case:{'send_arkoor'} for case in
@@ -239,6 +242,7 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
             "rows":[{**dict(r),"input_coin_ids":json.loads(r['input_coin_ids']),"replacement_ids":json.loads(r['replacement_ids'])}
                 for r in store.db.execute('SELECT action_id,actor_id,state,input_coin_ids,replacement_ids,round_txid,server_round_id FROM delegated_entitlement ORDER BY updated_at DESC,action_id LIMIT 1000')],
             "scope":"durable intent history; successive refresh amounts are not additive capital"},
+        "protocol_probes":protocol_scenario_rows(store),
         "tree_padding":padding_report(store),
         "log_capture":log_capture_report(store),
         "fee_watch":fee_watch_report(store),

@@ -2,7 +2,7 @@ import tempfile, unittest
 from pathlib import Path
 from simulator.engine import initialize
 from simulator.store import Store
-from simulator.raw_cases import RAW_CASES,next_case
+from simulator.raw_cases import RAW_CASES,AUTOMATIC_RAW_CASES,next_case
 
 class RawCasesTests(unittest.TestCase):
     def setUp(self):
@@ -17,7 +17,7 @@ class RawCasesTests(unittest.TestCase):
         self.assertEqual(('D01','raw_foreign_record',{'victim_mailbox_pk':'victim-mailbox'}),next_case(self.store,'actor-11',0))
         self.assertEqual(('D08','raw_invalid_link',{'victim_pubkey':'victim'}),next_case(self.store,'actor-11',7))
     def test_all_adapters_have_distinct_catalogue_cases(self):
-        self.assertEqual(14,len(RAW_CASES));self.assertEqual(14,len(set(RAW_CASES.values())))
+        self.assertEqual(14,len(AUTOMATIC_RAW_CASES));self.assertEqual(27,len(RAW_CASES));self.assertEqual(27,len(set(RAW_CASES.values())))
         self.assertEqual('D09',RAW_CASES['raw_mailbox_tamper'])
     def test_malformed_variants_are_bounded_and_repeatable(self):
         for count in [13,27,41,55]:
