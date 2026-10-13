@@ -2,6 +2,8 @@
 
 Noah integration is disabled until an immutable readiness manifest has independent, hash-checked observations for the owned HTTPS origin and CA trust, pinned backend and transport patch, healthy services, signet/server/SDK identity, declared phone identities and destinations, forwarding mode, and a separate capital allocation with fee caps. Live transport requires hostname-verified TLS and a pinned offline invoice verifier. Existing simulator allocations and permanently absent wallets are excluded.
 
+An explicitly declared IP mapping applies to one transport connection. TLS SNI, certificate verification and the HTTP Host header retain the owned hostname; changing the mapped IP or disabling hostname verification holds readiness. The consumer never changes system DNS or bypasses CA trust.
+
 The protocol uses `GET /v0/getk1`, Bitcoin signed-message ECDSA DER over the full issued challenge, `POST /v0/auth/login`, and bearer-gated registration, Expo registration and signed mailbox read authorization. Private signing material, read grants and tokens must go directly through private transport; they must never enter generic driver output capture. The native enrollment module requires a previously linked key at index0 and an online, declared phone. It does not derive another identity or expose a private key.
 
 Enrollment has a separate immutable declaration and may use explicitly zero phone capital. It still requires independently checked owned transport, backend, signet/server/SDK identity and fresh phone identity. This permits authentic setup before payment qualification. Invoice creation, claims and payments require the positive capital and fee limits in the full payment declaration; unfunded enrollment never grants those permissions.

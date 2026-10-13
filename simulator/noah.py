@@ -11,11 +11,13 @@ import base64
 import datetime as dt
 import hashlib
 import http.client
+import ipaddress
 import json
 import os
 from pathlib import Path
 import re
 import ssl
+import socket
 import time
 from urllib.parse import urlencode,urlsplit
 import uuid
@@ -61,6 +63,12 @@ def _origin(value):
     return parsed.hostname
 
 
+def _ip(value):
+    if not isinstance(value,str) or '%' in value:raise ValueError('canonical declared IP required')
+    if str(ipaddress.ip_address(value))!=value:raise ValueError('canonical declared IP required')
+    return value
+
+
 def _reference(store,reference,kind,*,actor=None):
     if not isinstance(reference,dict) or set(reference)!={'partition','seq','hash'}:raise ValueError('checked trace reference required')
     name=reference['partition']
@@ -84,6 +92,7 @@ def _checked_manifest(manifest,*,enrollment=False):
     origin=manifest['origin'];domain=_origin(origin['https_origin'])
     if origin['lnurl_domain']!=domain:raise ValueError('LNURL domain differs from owned origin')
     _hex(origin['ca_sha256'])
+    if 'resolve_to' in origin:_ip(origin['resolve_to'])
     source=manifest['source']
     if source['noah_commit']!=NOAH_COMMIT:raise ValueError('Noah source pin differs')
     for key in ('transport_patch_sha256','binary_sha256'):_hex(source[key])
@@ -137,8 +146,9 @@ def _checked_manifest(manifest,*,enrollment=False):
 
 class HTTPSNoahTransport:
     """Exact owned origin, verified TLS, no redirects or token-bearing diagnostics."""
-    def __init__(self,origin,*,ca_file=None):
+    def __init__(self,origin,*,ca_file=None,resolve_to=None):
         self.host=_origin(origin);self.origin=origin
+        self.resolve_to=None if resolve_to is None else _ip(resolve_to)
         ca_file=ca_file or ssl.get_default_verify_paths().cafile
         if not ca_file:raise ValueError('pinned CA trust bundle missing')
         self.ca_sha256=_digest_bytes(Path(ca_file).read_bytes())
@@ -155,14 +165,20 @@ class HTTPSNoahTransport:
         if bearer is not None:headers['Authorization']='Bearer '+bearer
         def exchange():
             connection=http.client.HTTPSConnection(self.host,timeout=55,context=self.context)
+            if self.resolve_to is not None:
+                # Change only this connection's TCP destination. HTTPSConnection
+                # retains the declared hostname for SNI, certificate checks and
+                # the HTTP Host header; no process/global resolver is changed.
+                connection._create_connection=lambda address,*args,**kwargs:socket.create_connection(
+                    (self.resolve_to,address[1]),*args,**kwargs)
             try:
                 connection.request(method,parsed.path+('?' +parsed.query if parsed.query else ''),encoded,headers)
                 response=connection.getresponse();raw=response.read(MAX_RESPONSE+1)
-                headers=list(response.getheaders())
-                if response.status!=200 or len(raw)>MAX_RESPONSE:raise _PrivateHTTPError(response.status,headers,raw)
+                response_headers=list(response.getheaders())
+                if response.status!=200 or len(raw)>MAX_RESPONSE:raise _PrivateHTTPError(response.status,response_headers,raw)
                 try:decoded=decode_object(raw.decode())
-                except (ValueError,UnicodeError,RuntimeError):raise _PrivateHTTPError(response.status,headers,raw) from None
-                return _ObservedReply(decoded,{'status':response.status,'headers':headers,
+                except (ValueError,UnicodeError,RuntimeError):raise _PrivateHTTPError(response.status,response_headers,raw) from None
+                return _ObservedReply(decoded,{'status':response.status,'headers':response_headers,
                     'body_base64':base64.b64encode(raw).decode(),'representation':'exact HTTP application response body'})
             finally:connection.close()
         return await asyncio.to_thread(exchange)
@@ -219,6 +235,7 @@ class NoahAdapter:
             if self.store.get_meta('mode')=='live':
                 if (not isinstance(self.transport,HTTPSNoahTransport) or self.transport.origin!=self.manifest['origin']['https_origin']
                         or self.transport.ca_sha256!=self.manifest['origin']['ca_sha256']
+                        or self.transport.resolve_to!=self.manifest['origin'].get('resolve_to')
                         or not self.transport.context.check_hostname or self.transport.context.verify_mode!=ssl.CERT_REQUIRED
                         or (not enrollment and (not isinstance(self.invoice_verifier,NativeInvoiceVerifier)
                         or self.invoice_verifier.sha256!=self.manifest['source'].get('invoice_verifier_sha256')))):
