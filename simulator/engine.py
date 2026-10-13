@@ -59,7 +59,10 @@ class Engine:
     def __init__(self, config: Config, store: Store):
         self.config, self.store = config, store
         self.phases=PhaseController(store,config)
-        if config.trace_enabled:store.attach_trace(config.trace_retention_days)
+        if config.trace_enabled:
+            store.attach_trace(config.trace_retention_days)
+            # Verify and open retained trace history before any subprocess timeout.
+            store.trace_capture('supervisor.start',{})
         self.campaign_clock=CampaignClock(store,RampPlan()) if config.workload=="continuous" else None
         self.recovery=RecoveryController(store,config) if config.recovery_command else None
 

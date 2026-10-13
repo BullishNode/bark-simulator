@@ -141,7 +141,8 @@ print(json.dumps({'action_id':r['action_id'],'status':'ok','actual_fee_sat':0,'d
                 self.assertTrue(any(r['kind']=='driver.stdout' and r['raw'] for r in records))
                 self.assertTrue(any(r['kind']=='driver.stderr' and r['raw'] for r in records))
                 self.assertEqual(2, sum(r['kind']=='driver.call' for r in records))
-                self.assertEqual(len(records), store.trace.verify()['records'])
+                self.assertEqual(1, sum(r['kind']=='supervisor.start' for r in store.trace.records()))
+                self.assertEqual(len(records)+1, store.trace.verify()['records'])
                 store.verify_event_chain()
             finally: store.close()
 
