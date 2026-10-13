@@ -115,6 +115,9 @@ class ActorSelectorTests(unittest.TestCase):
         self.detail('actor-01',board_submitted=True,funding_address='tb1q-client-01')
         self.hold('actor-01');schedule(self.s,self.c,self.snapshot)
         self.assertIsNone(self.action());self.assertEqual([],eligible(self.s,self.c))
+        event=self.s.db.execute("SELECT payload FROM event WHERE kind='scheduler_tick'").fetchone()
+        decision=next(row for row in json.loads(event[0])['actors'] if row['actor']=='actor-01')
+        self.assertEqual(('private_actor_lease','held'),(decision['rule_id'],decision['outcome']))
 
     def test_recycler_does_not_reboard_a_phone_or_actor_with_active_private_hold(self):
         from simulator.recycling import plan
