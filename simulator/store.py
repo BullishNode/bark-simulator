@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS resolution(entitlement_id TEXT PRIMARY KEY REFERENCES
 CREATE TABLE IF NOT EXISTS observation(
  key TEXT PRIMARY KEY, severity TEXT NOT NULL, status TEXT NOT NULL, summary TEXT NOT NULL,
  evidence TEXT NOT NULL, first_seen REAL NOT NULL, last_seen REAL NOT NULL, occurrences INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS actor_lease(
+ actor TEXT PRIMARY KEY REFERENCES actor(id),owner TEXT NOT NULL,purpose TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('active','outcome_unknown','released')));
 """
 
 
@@ -137,8 +140,46 @@ class Store:
         row = self.db.execute("SELECT online FROM actor WHERE id=?", (actor_id,)).fetchone()
         return bool(row[0]) if row else False
 
+    @staticmethod
+    def actor_namespace(actor: str) -> str:
+        return 'noah' if actor.startswith('noah-') else 'ordinary'
+
+    def actor_held(self, actor: str, *, owner: str | None = None) -> bool:
+        row=self.db.execute("SELECT owner,state FROM actor_lease WHERE actor=? AND state IN ('active','outcome_unknown')",(actor,)).fetchone()
+        if row and (row['state']=='outcome_unknown' or row['owner']!=owner):return True
+        # Older private controllers retain their durable ownership in this
+        # table. Its absence is normal when Noah has not been configured.
+        if self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='noah_control'").fetchone():
+            rows=self.db.execute("SELECT id,state FROM noah_control WHERE actor=? AND state IN ('started','outcome_unknown')",(actor,)).fetchall()
+            if any(r['state']=='outcome_unknown' or r['id']!=owner for r in rows):return True
+        return False
+
+    def ordinary_actor_available(self, actor: str, *, native_action: str | None = None) -> bool:
+        if self.actor_namespace(actor)!='ordinary' or self.actor_held(actor):return False
+        return self.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('dispatched','outcome_unknown') AND (? IS NULL OR id!=?)",(actor,native_action,native_action)).fetchone() is None
+
+    def acquire_actor_lease(self, actor: str, owner: str, purpose: str) -> bool:
+        """Claim direct-controller ownership atomically against native claims."""
+        if not all(isinstance(v,str) and 1<=len(v)<=128 for v in (actor,owner,purpose)):
+            raise ValueError('explicit actor lease identity required')
+        with (nullcontext() if self.db.in_transaction else self.transaction()):
+            if self.get_meta('paused') or self.actor_held(actor):return False
+            if self.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('dispatched','outcome_unknown')",(actor,)).fetchone():return False
+            if self.db.execute("SELECT 1 FROM action WHERE actor_id=? AND id!=? AND state='queued' AND operation NOT IN ('snapshot','address')",(actor,owner)).fetchone():return False
+            self.db.execute("INSERT INTO actor_lease VALUES (?,?,?,'active') ON CONFLICT(actor) DO UPDATE SET owner=excluded.owner,purpose=excluded.purpose,state='active'",(actor,owner,purpose))
+            self._event('actor_lease_started',{'actor':actor,'owner':owner,'purpose':purpose})
+        return True
+
+    def finish_actor_lease(self, actor: str, owner: str, state: str):
+        if state not in {'completed','outcome_unknown'}:raise ValueError('invalid actor lease result')
+        with (nullcontext() if self.db.in_transaction else self.transaction()):
+            row=self.db.execute('SELECT owner,state FROM actor_lease WHERE actor=?',(actor,)).fetchone()
+            if not row or row['owner']!=owner or row['state']!='active':raise ValueError('active actor lease ownership differs; unknown requires independent reconciliation')
+            self.db.execute('UPDATE actor_lease SET state=? WHERE actor=?',('released' if state=='completed' else state,actor))
+            self._event('actor_lease_result',{'actor':actor,'owner':owner,'state':state})
+
     def queue(self, action_id: str, actor: str, scenario: str, operation: str, args: dict,
-              fee_reservation_sat: int, due_at: float | None = None):
+              fee_reservation_sat: int, due_at: float | None = None, *, namespace: str = 'ordinary'):
         public_payload(args)
         if not isinstance(args, dict) or len(canonical(args).encode()) > 192 * 1024:
             raise ValueError("action arguments must be an object of at most 192 KiB")
@@ -148,6 +189,9 @@ class Store:
         at = time.time()
         due = at if due_at is None else timestamp(due_at, "action due time")
         with (nullcontext() if self.db.in_transaction else self.transaction()):
+            if namespace not in {'ordinary','noah'} or self.actor_namespace(actor)!=namespace:
+                raise ValueError('action participant namespace differs from explicit dispatcher')
+            if self.actor_held(actor):raise ValueError('actor belongs to an unresolved private controller')
             if self.get_meta("paused"):
                 raise CampaignPaused("campaign dispatch paused")
             if self.get_meta("fee_budget_sat") is None:
@@ -161,12 +205,14 @@ class Store:
             self._event("action_intent", {"action_id": action_id, "actor": actor, "scenario": scenario,
                                           "operation": operation, "args": args, "fee_reservation_sat": fee_reservation_sat, "due_at": due})
 
-    def claim(self, supported: set[str]):
+    def claim(self, supported: set[str], *, namespace: str = 'ordinary'):
+        if namespace not in {'ordinary','noah'}:raise ValueError('explicit participant namespace required')
         with self.transaction():
             if self.get_meta("paused"):
                 return None
             rows = self.db.execute("SELECT a.* FROM action a JOIN actor u ON u.id=a.actor_id WHERE a.state='queued' AND a.due_at<=? AND u.online=1 ORDER BY a.due_at,a.id", (time.time(),)).fetchall()
             for row in rows:
+                if self.actor_namespace(row['actor_id'])!=namespace or self.actor_held(row['actor_id']):continue
                 if row["operation"] not in supported:
                     continue
                 busy = self.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('dispatched','outcome_unknown')", (row["actor_id"],)).fetchone()
@@ -184,10 +230,11 @@ class Store:
         return int(self.get_meta("fee_budget_sat") or 0) - used
 
     def has_runnable_queue(self) -> bool:
-        return self.db.execute("""SELECT 1 FROM action a JOIN actor u ON u.id=a.actor_id
+        rows=self.db.execute("""SELECT a.actor_id FROM action a JOIN actor u ON u.id=a.actor_id
             WHERE a.state='queued' AND u.online=1 AND a.due_at<=?
             AND NOT EXISTS(SELECT 1 FROM action b WHERE b.actor_id=a.actor_id
-                           AND b.state IN ('dispatched','outcome_unknown')) LIMIT 1""", (time.time(),)).fetchone() is not None
+                           AND b.state IN ('dispatched','outcome_unknown'))""", (time.time(),)).fetchall()
+        return any(self.ordinary_actor_available(row[0]) for row in rows)
 
     def finish(self, action_id: str, state: str, result: dict, actual_fee_sat: int | None = None, on_completed=None):
         if state not in {"completed", "expected_refusal", "blocked", "failed", "outcome_unknown"}:

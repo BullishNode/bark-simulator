@@ -192,6 +192,8 @@ class RecoveryController:
         self.jobs.clear()
 
     def _destination(self):
+        ordinary_seeds=[(actor,path) for actor,path in self.config.recovery_seeds if self.store.actor_namespace(actor)=='ordinary']
+        if not ordinary_seeds:return None
         if self.rpc.call('getblockhash', 0) != self.config.expected_genesis:
             raise InvariantError('seed recovery chain differs from declared genesis')
         if self.rpc.call('getblockchaininfo').get('initialblockdownload') is not False:
@@ -204,7 +206,7 @@ class RecoveryController:
             'network': self.config.network, 'maximum_fee_sat': self.config.recovery_maximum_fee_sat,
             'fee_rate_sat_vb': self.config.recovery_fee_rate_sat_vb,
             'seed_sources': {actor: hashlib.sha256(str(path).encode()).hexdigest()
-                             for actor, path in self.config.recovery_seeds},
+                             for actor, path in ordinary_seeds},
             'classification': 'seed-recovered payout capital; no recycling or traffic credit'}
         encoded = canonical(declaration); previous = self.store.get_meta('seed_recovery_declaration')
         if previous is not None and previous != encoded:
@@ -370,11 +372,12 @@ class RecoveryController:
                     del self.jobs[row['id']]
                     try: self._freeze_prepared(row, task.result())
                     except Exception as error: self._held(row, type(error).__name__)
-            elif row['state'] == 'prepared' and declaration and not self.store.get_meta('paused'):
+            elif row['state'] == 'prepared' and declaration and not self.store.get_meta('paused') and self.store.ordinary_actor_available(row['actor']):
                 self._broadcast(row)
         if not declaration or self.store.get_meta('paused'): return
         for actor, _ in self.config.recovery_seeds:
             if len(self.jobs) >= 2: break
+            if not self.store.ordinary_actor_available(actor):continue
             row = self.store.db.execute('SELECT online,details FROM actor WHERE id=?', (actor,)).fetchone()
             if row is None or row['online']: continue
             if actor not in {'actor-03', 'actor-09', 'actor-10'} and not json.loads(row['details']).get('permanent_absence'): continue

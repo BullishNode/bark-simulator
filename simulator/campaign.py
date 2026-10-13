@@ -249,7 +249,8 @@ class CampaignClock:
                 self.store._event("qualified_campaign_active_interval", {"seconds":delta, "total_seconds":accumulated})
             if eligible and accumulated >= self.plan.after_active_seconds and not self.store.get_meta("ramp_applied"):
                 expected = {f"actor-{i:02}" for i in range(1, self.plan.initial_clients + 1)}
-                actual = {r[0] for r in self.store.db.execute("SELECT id FROM actor")}
+                actual = {r[0] for r in self.store.db.execute("SELECT id FROM actor") if self.store.actor_namespace(r[0])=='ordinary'}
+                if any(self.store.actor_held(actor) for actor in expected):return accumulated
                 if actual != expected:
                     raise ValueError("unexpected pre-ramp cohort; no automatic overwrite")
                 actors = []

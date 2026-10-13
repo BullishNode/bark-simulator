@@ -18,6 +18,7 @@ def eligible(store,config):
     result=[]
     for row in store.db.execute('SELECT id,online,details FROM actor ORDER BY id'):
         actor=row['id'];d=json.loads(row['details'])
+        if not store.ordinary_actor_available(actor):continue
         if actor not in {f'actor-{i:02}' for i in range(1,13) if i not in (9,10)} or not row['online'] or d.get('permanent_absence'):continue
         if not d.get('created') or not d.get('board_submitted') or d.get('needs_sync') or not 0<=time.time()-d.get('snapshot_at',0)<=600:continue
         if d.get('registered_spendable_sat',0)>=1000+config.action_fee_reserve_sat or d.get('onchain_confirmed_sat',0)>=config.board_amount_sat+config.action_fee_reserve_sat:continue
@@ -85,6 +86,7 @@ def _declaration(store,tranche):
     return declaration
 
 def _present(store,actor,detail):
+    if not store.ordinary_actor_available(actor):return False
     row=store.db.execute('SELECT online FROM actor WHERE id=?',(actor,)).fetchone()
     hazard=json.loads(store.get_meta('realism_hazards') or '{}').get(actor,{})
     return bool(row and row[0] and actor not in {'actor-03','actor-09','actor-10'} and not detail.get('permanent_absence')
@@ -207,6 +209,7 @@ def fund(store,rpc,config,tranche_id=TRANCHE):
             store._event('owner_renewal_allocation_intent',{'tranche':tranche_id,'recipients':recipients,'source':source,'principal_sat':total,'maximum_fee_sat':2000,'classification':'new owner-funded test allocation','recycling_credit_sat':0,'traffic_credit_seconds':0,'original_initial_ramp_budgets_unchanged':True})
         old=store.db.execute('SELECT * FROM funding_batch WHERE id=?',(tranche_id,)).fetchone()
     source=json.loads(store.get_meta(_key('owner_renewal_funding_source',tranche_id)));recipients=json.loads(old['recipients'])
+    if any(not store.ordinary_actor_available(r['actor']) for r in recipients):return {'state':'held_recipient_change','broadcast':False}
     if tranche_id==TRAFFIC_TRANCHE:
         if source!=declaration['source'] or recipients!=declaration['recipients']:raise InvariantError('frozen owner source or recipient set changed')
         if _traffic_recipients(store,config,declaration)!=recipients:return {'state':'held_recipient_change','broadcast':False}
@@ -224,6 +227,7 @@ def fund(store,rpc,config,tranche_id=TRANCHE):
             unsigned=rpc.call('decodepsbt',prepared['psbt'])['tx']
             fee,_=_validate_outputs(rpc,unsigned,recipients,source)
             if fee!=btc_to_sat(prepared['fee']):raise InvariantError('owner allocation unsigned fee changed before signing')
+        if any(not store.ordinary_actor_available(r['actor']) for r in recipients):return {'state':'held_recipient_change','broadcast':False}
         signed=rpc.call('walletprocesspsbt',prepared['psbt']);final=rpc.call('finalizepsbt',signed['psbt'])
         if final.get('complete') is not True:return {'state':'held_incomplete_signature','broadcast':False}
         raw=final['hex'];tx=rpc.call('decoderawtransaction',raw,root=True);fee,_=_validate_outputs(rpc,tx,recipients,source)
@@ -237,7 +241,9 @@ def fund(store,rpc,config,tranche_id=TRANCHE):
         if _traffic_recipients(store,config,declaration)!=recipients:return {'state':'held_recipient_change','broadcast':False}
         held=_traffic_source(store,rpc,declaration)
         if held:return {'state':held,'broadcast':False}
+    if any(not store.ordinary_actor_available(r['actor']) for r in recipients):return {'state':'held_recipient_change','broadcast':False}
     with store.transaction():
+        if any(not store.ordinary_actor_available(r['actor']) for r in recipients):return {'state':'held_recipient_change','broadcast':False}
         store.db.execute("UPDATE funding_batch SET state='broadcasting',updated_at=? WHERE id=?",(time.time(),tranche_id))
         store._event('owner_renewal_broadcast_intent',{'tranche':tranche_id,'txid':old['txid']})
     try:
@@ -302,6 +308,7 @@ def queue_board(store,actor,detail,config):
     return _queue_source_board(store,actor,detail,config,source) if source else False
 
 def _queue_source_board(store,actor,detail,config,source):
+    if not store.ordinary_actor_available(actor):return False
     tranche=source.get('tranche')
     if source.get('kind')!='new_owner_funded_renewal' or tranche not in {TRANCHE,TRAFFIC_TRANCHE} or source.get('confirmations',0)<1:return False
     if tranche==TRAFFIC_TRANCHE:

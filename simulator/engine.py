@@ -105,6 +105,9 @@ class Engine:
         action = action if action is not None else self.store.claim(OPERATIONS)
         if action is None:
             return False
+        if not self.store.ordinary_actor_available(action['actor_id'],native_action=action['id']):
+            self.store.finish(action['id'],'blocked',{'reason':'actor belongs to a private namespace or active controller; no native call'},0)
+            return True
         actor_dir = self.config.wallet_root / action["actor_id"]
         if actor_dir.parent.resolve() != self.config.wallet_root or actor_dir.is_symlink():
             self.store.finish(action["id"], "failed", {"reason": "unsafe actor directory"})

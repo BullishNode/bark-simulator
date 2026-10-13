@@ -38,6 +38,7 @@ def claimed(store,outpoint):
 async def collect(store,chain,limit=2):
     candidates=[]
     for outpoint,source in sources(store).items():
+        if not store.ordinary_actor_available(source['actor']):continue
         actor=store.db.execute('SELECT online,details FROM actor WHERE id=?',(source['actor'],)).fetchone()
         if not actor or not actor['online'] or json.loads(actor['details']).get('permanent_absence') or claimed(store,outpoint):continue
         candidates.append((outpoint,source))
@@ -83,6 +84,7 @@ def board_cost_estimate(store,actor):
 
 
 def plan(store,actor,detail,config):
+    if not store.ordinary_actor_available(actor):return None
     if not detail.get('board_submitted') or detail.get('needs_sync') or detail.get('permanent_absence'):return None
     # Unknown wallet state remains held. Independently observed unrelated live
     # Ark coins do not prevent a source-only on-chain board.

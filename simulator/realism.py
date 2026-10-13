@@ -124,6 +124,7 @@ def _hazard(store,config,rng,receive_boundary,lightning_candidates):
     state=json.loads(store.get_meta('realism_hazards') or '{}')
     for actor in store.db.execute('SELECT id,details FROM actor WHERE online=1 ORDER BY id').fetchall():
         name=actor['id'];detail=json.loads(actor['details'])
+        if store.actor_namespace(name)!='ordinary' or store.actor_held(name):continue
         if not ordinary(name,detail):continue
         previous=state.get(name,{})
         if not previous.get('pending'):

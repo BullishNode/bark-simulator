@@ -72,9 +72,11 @@ async def collect(store, driver_command, server_pubkey, limit=2):
         AND state='completed' AND json_extract(result,'$.data.initiated')=1
         AND COALESCE(json_extract(result,'$.data.payment_state'),'pending')='pending'
         ORDER BY id""").fetchall()
+    rows=[row for row in rows if store.actor_namespace(row['actor_id'])=='ordinary']
     after = store.get_meta('payment_status_cursor') or ''
     rows = [r for r in rows if r['id'] > after] + [r for r in rows if r['id'] <= after]
     for action in rows[:limit]:
+        if store.actor_namespace(action['actor_id'])!='ordinary':continue
         try:
             value = payment_hash(store, action)
             query_id = 'payment-status:' + action['id']

@@ -200,6 +200,7 @@ def queue_confirmed(store,config,snapshot,*,now=None,decoder=None,decisions=None
         if decisions is not None:decisions.append(decision)
     for candidate in candidate_rounds(store,config,decoder=decoder):
         actor=candidate['actor'];details=store.db.execute('SELECT online,details FROM actor WHERE id=?',(actor,)).fetchone()
+        if not store.ordinary_actor_available(actor):continue
         if details is None or not details['online']:continue
         detail=json.loads(details['details'])
         if detail.get('permanent_absence') or not detail.get('created') or not detail.get('ark_address'):continue

@@ -14,7 +14,7 @@ from .raw_cases import next_case
 def schedule_pilot(store: Store, config: Config):
     if store.get_meta("paused"):
         return
-    if store.has_runnable_queue() or store.db.execute("SELECT 1 FROM action WHERE state='dispatched' LIMIT 1").fetchone():
+    if store.has_runnable_queue() or any(store.actor_namespace(r[0])=='ordinary' for r in store.db.execute("SELECT actor_id FROM action WHERE state='dispatched'")):
         return
     last = store.db.execute("SELECT MAX(created_at) FROM action").fetchone()[0]
     if last is not None and time.time() - last < config.interval_seconds:
@@ -25,6 +25,7 @@ def schedule_pilot(store: Store, config: Config):
     rows = store.db.execute("SELECT u.* FROM actor u WHERE online=1 ORDER BY COALESCE((SELECT MAX(updated_at) FROM action WHERE actor_id=u.id),0),u.id").fetchall()
     for row in rows:
         actor = row["id"]
+        if not store.ordinary_actor_available(actor):continue
         details = json.loads(row["details"])
         history = store.db.execute("SELECT operation,state,updated_at FROM action WHERE actor_id=? ORDER BY created_at DESC", (actor,)).fetchall()
         if any(a["state"] in {"outcome_unknown", "queued"} for a in history):
@@ -53,6 +54,7 @@ def schedule_pilot(store: Store, config: Config):
             previous = [a["updated_at"] for a in history if a["operation"] == "send_arkoor"]
             if not previous or time.time() - max(previous) >= 900:
                 target = "actor-09" if len(previous) % 2 else "actor-01"
+                if store.actor_namespace(target)!='ordinary' or store.actor_held(target):continue
                 recipient = store.db.execute("SELECT details FROM actor WHERE id=?", (target,)).fetchone()
                 destination = json.loads(recipient[0]).get("ark_address")
                 if destination:

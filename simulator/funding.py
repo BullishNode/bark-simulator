@@ -76,6 +76,10 @@ def fund(store,rpc,batch,amount_sat=8000,maximum_fee_sat=3000):
                     store.db.execute('UPDATE actor SET details=? WHERE id=?',(canonical(detail),recipient['actor']))
                 store._event('fixture_funding_confirmed',{'batch':batch,'txid':old['txid'],'principal_sat':sum(r['amount_sat'] for r in recipients),'fee_sat':old['fee_sat']})
         return {'batch':batch,'state':state,'txid':old['txid'],'fee_sat':old['fee_sat'],'retry_allowed':False}
+    def available():
+        if any(not store.ordinary_actor_available(r['actor']) for r in recipients):
+            raise ValueError('funding recipients belong to an active private controller or namespace')
+    available()
     if old is None:
         with store.transaction():
             store.db.execute('INSERT INTO funding_batch VALUES (?,\'intent\',?,NULL,NULL,NULL,?)',(batch,encoded,time.time()))
@@ -83,10 +87,12 @@ def fund(store,rpc,batch,amount_sat=8000,maximum_fee_sat=3000):
                 'classification':'fixture customer grants; not operator equity or server revenue'})
         old=store.db.execute('SELECT * FROM funding_batch WHERE id=?',(batch,)).fetchone()
     if old['state']=='intent':
+        available()
         outputs=[{r['address']:str(Decimal(r['amount_sat'])/100000000)} for r in recipients]
         prepared=rpc.call('walletcreatefundedpsbt',[],outputs,0,{'fee_rate':'3','lockUnspents':False,'add_inputs':True})
         fee=btc_to_sat(prepared['fee'])
         if fee>maximum_fee_sat:raise ValueError('funding fee exceeds cap; no inputs locked or transaction broadcast')
+        available()
         signed=rpc.call('walletprocesspsbt',prepared['psbt']);final=rpc.call('finalizepsbt',signed['psbt'])
         if final.get('complete') is not True:raise ValueError('funding signing incomplete; no broadcast')
         raw=final['hex'];decoded=rpc.call('decoderawtransaction',raw,root=True)
@@ -104,7 +110,9 @@ def fund(store,rpc,batch,amount_sat=8000,maximum_fee_sat=3000):
             store.db.execute("UPDATE funding_batch SET state='prepared',txid=?,raw_tx=?,fee_sat=?,updated_at=? WHERE id=?",(decoded['txid'],raw,fee,time.time(),batch))
             store._event('fixture_funding_prepared',{'batch':batch,'txid':decoded['txid'],'raw_tx':raw,'principal_sat':sum(expected.values()),'fee_sat':fee})
         old=store.db.execute('SELECT * FROM funding_batch WHERE id=?',(batch,)).fetchone()
+    available()
     with store.transaction():
+        available()
         store.db.execute("UPDATE funding_batch SET state='broadcasting',updated_at=? WHERE id=?",(time.time(),batch))
         store._event('fixture_funding_broadcast_intent',{'batch':batch,'txid':old['txid']})
     try:

@@ -19,6 +19,7 @@ LIGHTNING_CANDIDATES = ('actor-06','actor-18','actor-08','actor-07','actor-02')
 def online_lightning_candidates(store):
     candidates=[]
     for actor in LIGHTNING_CANDIDATES:
+        if store.actor_namespace(actor)!='ordinary' or store.actor_held(actor):continue
         row=store.db.execute('SELECT online,details FROM actor WHERE id=?',(actor,)).fetchone()
         if row and row['online']:
             detail=json.loads(row['details'])
@@ -33,6 +34,7 @@ def arm_receive_absence(store,actor,rail,random_context=None):
     insufficient. This proves the boundary, not the eventual expiry outcome.
     No wallet, server RPC or preimage is consulted by this function.
     """
+    if not store.ordinary_actor_available(actor):return False
     row=store.db.execute('SELECT online,details FROM actor WHERE id=?',(actor,)).fetchone()
     if row is None or not row['online']:return False
     if rail=='lightning' and len(online_lightning_candidates(store))<=2:return False
@@ -115,7 +117,7 @@ def schedule(store,config,snapshot):
         slots=getattr(config,'dispatch_per_tick',1) if rng else 1
         if type(slots) is not int or not 1<=slots<=3:raise ValueError('dispatch_per_tick must be 1–3')
         if rng:
-            queued=store.db.execute("SELECT count(DISTINCT a.actor_id) FROM action a JOIN actor u ON u.id=a.actor_id WHERE a.state='queued' AND u.online=1 AND a.due_at<=? AND NOT EXISTS(SELECT 1 FROM action busy WHERE busy.actor_id=a.actor_id AND busy.state IN ('dispatched','outcome_unknown'))",(time.time(),)).fetchone()[0]
+            queued=sum(store.ordinary_actor_available(r[0]) for r in store.db.execute("SELECT DISTINCT a.actor_id FROM action a JOIN actor u ON u.id=a.actor_id WHERE a.state='queued' AND u.online=1 AND a.due_at<=? AND NOT EXISTS(SELECT 1 FROM action busy WHERE busy.actor_id=a.actor_id AND busy.state IN ('dispatched','outcome_unknown'))",(time.time(),)))
             slots=max(0,slots-queued)
         for _ in range(slots):_schedule(store,config,snapshot,decisions,rng)
     except CampaignPaused:
@@ -131,7 +133,7 @@ def schedule(store,config,snapshot):
 
 def _schedule(store,config,snapshot,decisions,rng=None):
     if store.get_meta('paused'):return
-    if rng is None and (store.has_runnable_queue() or store.db.execute("SELECT 1 FROM action WHERE state='dispatched'").fetchone()):return
+    if rng is None and (store.has_runnable_queue() or any(store.actor_namespace(r[0])=='ordinary' for r in store.db.execute("SELECT actor_id FROM action WHERE state='dispatched'"))):return
     from .round_adoption import queue_confirmed
     round_decisions=[]
     round_decision=queue_confirmed(store,config,snapshot,decisions=round_decisions)
@@ -142,6 +144,7 @@ def _schedule(store,config,snapshot,decisions,rng=None):
     actors=store.db.execute("SELECT a.* FROM actor a WHERE online=1 ORDER BY COALESCE((SELECT MAX(updated_at) FROM action WHERE actor_id=a.id),0),a.id").fetchall()
     for actor in actors:
         name=actor['id'];d=json.loads(actor['details'])
+        if not store.ordinary_actor_available(name):continue
         if rng and store.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('queued','dispatched','outcome_unknown')",(name,)).fetchone():continue
         latest={row['operation']:row['latest'] for row in store.db.execute(
             "SELECT operation,MAX(updated_at) AS latest FROM action WHERE actor_id=? AND state='completed' GROUP BY operation",(name,))}
@@ -292,7 +295,7 @@ def _schedule(store,config,snapshot,decisions,rng=None):
             # sender and new cohort. Otherwise its balance only falls and LN
             # traffic stops permanently even while other clients circulate funds.
             targets=[r['id'] for r in store.db.execute('SELECT id,online,details FROM actor ORDER BY id')
-                     if r['id']!=name and json.loads(r['details']).get('ark_address')
+                     if r['id']!=name and store.actor_namespace(r['id'])=='ordinary' and not store.actor_held(r['id']) and json.loads(r['details']).get('ark_address')
                      and (not rng or r['online'] or r['id'] in {'actor-09','actor-10'})]
             if not targets:decide('no_advertised_peer');continue
             target=rng.recipient(name,targets) if rng else targets[(int(name[-2:])+sends)%len(targets)]
