@@ -26,6 +26,7 @@ class TargetEpochTests(unittest.TestCase):
         self.store.bind_wallet_root(Path(self.temp.name)/'wallets')
         self.store.db.execute("INSERT INTO meta VALUES ('paused','declared target upgrade')")
         self.store.db.execute("INSERT INTO meta VALUES ('owner_renewal_declaration','original declaration')")
+        self.store.db.execute("INSERT INTO meta VALUES ('qualified_campaign_active_seconds','0.0')")
         self.store.event('failed_run_retained', {'outcome':'failed', 'fee_sat':0})
 
     def tearDown(self):
@@ -34,14 +35,14 @@ class TargetEpochTests(unittest.TestCase):
 
     def declaration(self):
         from simulator.target_epochs import declaration_hashes
-        return dict(id='post-upgrade-1', previous_identity=self.old, identity=self.new,
+        return copy.deepcopy(dict(id='post-upgrade-1', previous_identity=self.old, identity=self.new,
                     observed_at=time.time(), sdk_commit='4'*40,
                     native_hashes={name:'5'*64 for name in ('bark-sim-driver','vtxo-proof','seed-restore')},
                     receipt_hashes={name:'6'*64 for name in ('upgrade_completion','independent_identity',
                         'sdk_qualification','simulator_release','nursery_reconciliation')},
                     ordinary_lifetime_blocks=48, pool_lifetime_blocks=48,
                     recovery_guard_verified=True, pending_server_payouts_preserved=True,
-                    declaration_hashes=declaration_hashes(self.store))
+                    declaration_hashes=declaration_hashes(self.store)))
 
     def declare(self, declaration=None):
         from simulator.target_epochs import declare
@@ -114,3 +115,59 @@ class TargetEpochTests(unittest.TestCase):
         declaration=self.declaration()
         self.store.db.execute("UPDATE meta SET value='changed' WHERE key='owner_renewal_declaration'")
         with self.assertRaises(ValueError):self.declare(declaration)
+
+    def test_later_epoch_uses_last_deployment_and_replay_cannot_roll_it_back(self):
+        original=self.declaration();self.declare(original)
+        later=self.declaration();later['id']='post-upgrade-2'
+        later['previous_identity']=copy.deepcopy(self.new)
+        later['identity']['image_digest']='sha256:'+'9'*64
+        self.declare(later)
+        self.declare(original)
+        self.store.bind_target(later['identity'])
+        with self.assertRaises(ValueError):self.store.bind_target(self.new)
+        self.assertEqual(canonical(self.old),self.store.get_meta('target_identity'))
+
+    def test_running_dispatch_or_future_receipt_cannot_declare_epoch(self):
+        self.store.db.execute("DELETE FROM meta WHERE key='paused'")
+        with self.assertRaises(ValueError):self.declare()
+        self.store.db.execute("INSERT INTO meta VALUES ('paused','declared target upgrade')")
+        declaration=self.declaration();declaration['observed_at']=time.time()+60
+        with self.assertRaises(ValueError):self.declare(declaration)
+
+    def test_changed_registry_identity_cannot_repin_a_valid_event_history(self):
+        self.declare()
+        undeclared={**self.new,'image_digest':'sha256:'+'8'*64}
+        self.store.db.execute('UPDATE target_epoch SET identity=?',(canonical(undeclared),))
+        with self.assertRaises(ValueError):self.store.bind_target(undeclared)
+
+    def test_deleted_epoch_registry_cannot_restore_original_target(self):
+        self.declare()
+        self.store.db.execute('DROP TABLE target_epoch')
+        with self.assertRaises(ValueError):self.store.bind_target(self.old)
+
+    def test_idempotent_replay_does_not_ignore_a_damaged_registry(self):
+        declaration=self.declaration();self.declare(declaration)
+        self.store.db.execute('UPDATE target_epoch SET identity=?',(canonical(self.old),))
+        with self.assertRaises(ValueError):self.declare(declaration)
+
+    def test_funding_unknown_or_inflight_blocks_epoch_without_client_actions(self):
+        self.store.db.execute('CREATE TABLE funding_batch(id TEXT PRIMARY KEY,state TEXT)')
+        self.store.db.execute("INSERT INTO funding_batch VALUES ('funding','outcome_unknown')")
+        for state in ('outcome_unknown','broadcasting'):
+            self.store.db.execute('UPDATE funding_batch SET state=?',(state,))
+            with self.assertRaises(ValueError):self.declare()
+
+    def test_every_owner_tranche_and_fixed_ramp_realism_declaration_is_preserved(self):
+        for key in ('owner_renewal_declaration:traffic-2','owner_renewal_funding_source:traffic-2',
+                    'ramp_plan','campaign_realism'):
+            self.store.db.execute('INSERT INTO meta VALUES (?,?)',(key,'original'))
+        declaration=self.declaration()
+        for key in ('owner_renewal_declaration:traffic-2','ramp_plan','campaign_realism'):
+            self.store.db.execute('UPDATE meta SET value=? WHERE key=?',('changed',key))
+            with self.assertRaises(ValueError):self.declare(declaration)
+            self.store.db.execute('UPDATE meta SET value=? WHERE key=?',('original',key))
+        self.declare(declaration)
+
+    def test_deleted_original_manifest_metadata_cannot_rebootstrap_with_new_identity(self):
+        self.store.db.execute("DELETE FROM meta WHERE key='target_identity'")
+        with self.assertRaises(ValueError):self.store.bind_target(self.new)

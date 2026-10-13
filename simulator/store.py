@@ -226,13 +226,14 @@ class Store:
             self._event("snapshot", snapshot)
 
     def bind_target(self, identity: dict):
-        """An edited config must not merge a different deployment into this epoch."""
+        """Require the original deployment or an explicitly qualified epoch."""
         public_payload(identity)
         encoded = canonical(identity)
         with self.transaction():
-            previous = self.get_meta("target_identity")
-            if previous is not None and previous != encoded:
-                raise ValueError("target changed within epoch; use a new state directory")
+            from .target_epochs import active_identity
+            previous = active_identity(self)
+            if previous is not None and canonical(previous) != encoded:
+                raise ValueError("target changed without a verified same-campaign epoch declaration")
             if previous is None:
                 self.db.execute("INSERT INTO meta VALUES ('target_identity',?)", (encoded,))
                 self._event("target_manifest", identity)
