@@ -1,4 +1,5 @@
 mod exit;
+mod board_quote;
 mod native_intent;
 mod fallback_rotation;
 mod scheduled_refresh;
@@ -653,12 +654,19 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         }
         "board" => {
             wallet.sync_onchain().await?;
+            evidence(req,"board_fee_estimate_requested",json!({"source":"SDK chain backend",
+                "regular_confirmation_target":3,"same_process":true,"fallback_allowed":false,
+                "new_funding_intent_prepared":false}))?;
+            let fee_rate=board_quote::regular(wallet.chain()).await?;
+            evidence(req,"board_fee_quote",json!({"source":"SDK chain backend",
+                "regular_confirmation_target":3,"fee_rate_sat_per_kwu":fee_rate.to_sat_per_kwu(),
+                "same_process":true,"used_fallback":false,"new_funding_intent_prepared":false}))?;
             let (key, _) = wallet.derive_store_next_keypair().await?;
             let (destination, expiry) = wallet.board_funding_address(&key).await?;
             let autosize=req.args["recycle_autosize"].as_bool()==Some(true);
             ensure!(!autosize || req.args.get("recycle_source").is_some(), "autosize requires a frozen own receipt");
             let destination_script=destination.script_pubkey();
-            let fee_rate = wallet.chain().fee_rates().await.regular;
+
             let onchain = wallet.onchain().context("missing onchain wallet")?;
             let mut guard = onchain.write().await;
             let psbt = if let Some(source) = req.args.get("recycle_source") {
