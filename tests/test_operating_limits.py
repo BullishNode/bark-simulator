@@ -1,12 +1,12 @@
 """Synthetic financial readiness checks; these fixtures earn no live pilot credit."""
 import copy
-import time
+import time,unittest
 from types import SimpleNamespace
 from simulator.operating_limits import declare_envelope,preflight
-from tests.test_treasury import TreasuryTests
+from tests.test_treasury import TreasuryFixture
 from tests.test_final_campaign import PINS
 
-class OperatingLimitsTests(TreasuryTests):
+class OperatingLimitsTests(TreasuryFixture,unittest.TestCase):
     def setUp(self):
         super().setUp();self.config=SimpleNamespace(board_amount_sat=800,action_fee_reserve_sat=200)
         self.limits={'id':'fixture-envelope','pins':PINS,'boundary_id':'fixture','capital_exposure_msat':3000000,

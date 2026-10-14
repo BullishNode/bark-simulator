@@ -27,7 +27,7 @@ class Chain:
         if method=='validateaddress':return {'scriptPubKey':'wallet-script'}
         raise AssertionError(method)
 
-class TreasuryTests(unittest.TestCase):
+class TreasuryFixture:
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.store=Store(Path(self.tmp.name),'synthetic',100000)
         initialize(self.store);self.store.db.execute("INSERT INTO meta VALUES ('paused','declare')")
@@ -51,6 +51,7 @@ class TreasuryTests(unittest.TestCase):
         value.update(changes);self.event('treasury_inventory',value);return self.sequence()
     def assets(self,**wallet_changes):
         return capture_assets(self.store,{'rounds':self.inventory(self.wallet,**wallet_changes),'peer':self.inventory(self.peer)},self.chain)
+class TreasuryTests(TreasuryFixture,unittest.TestCase):
     def test_actual_core_values_and_fractional_channel_sats_are_preserved(self):
         result=self.assets()
         self.assertEqual(2500999,result['total_msat']);self.assertEqual(1000000,result['operator_controlled_msat'])
