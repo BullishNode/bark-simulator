@@ -2,6 +2,7 @@ mod exit;
 mod board_quote;
 mod native_intent;
 mod fallback_rotation;
+mod account_probes;
 mod scheduled_refresh;
 mod raw_guard;
 #[cfg(test)]
@@ -26,7 +27,6 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
-use ark::attestations::{FallbackRecordAttestation, KeyLinkAttestation};
 use ark::lightning::Bolt11InvoiceExt;
 use ark::{ProtocolEncoding, SECP};
 use bark::actions::{
@@ -38,7 +38,6 @@ use bark::persist::BarkPersister;
 use bark::persist::sqlite::SqliteClient;
 use bark::subsystem::RoundMovement;
 use bark::{Config, OpenWalletArgs, Wallet, WalletSeed};
-use bitcoin::constants::ChainHash;
 use bitcoin::hashes::{Hash, sha256};
 use bitcoin::secp256k1::{Keypair, PublicKey, rand};
 use bitcoin::{Address, Amount, FeeRate, Network};
@@ -89,18 +88,13 @@ fn allowed_network(name: &str, endpoint: &str) -> Result<Network> {
 
 async fn fallback_binding(wallet: &Wallet) -> Result<Value> {
     let record = wallet.fallback_destination().await?;
-    let mailbox = wallet.mailbox_keypair();
-    let chain = ChainHash::using_genesis_block_const(wallet.network().await?);
-    let onchain = wallet.onchain().context("missing onchain wallet")?;
-    ensure!(
-        onchain.read().await.is_mine(&record.spk).await?,
-        "fallback script is not owned by this client"
-    );
-    Ok(
-        json!({"mailbox_pk":mailbox.public_key().to_string(),"spk":hex(record.spk.as_bytes()),
-        "seq":record.seq,"record_attestation":hex(&FallbackRecordAttestation::new(chain,&record.spk,record.seq,&mailbox).serialize()),
-        "onchain_ownership_checked":true}),
-    )
+    let mailbox = wallet.mailbox_identifier().as_pubkey();
+    record.verify(wallet.network().await?, mailbox)?;
+    // Wallet::open authenticates the exact seed-derived BIP84 index0/account.
+    // This object contains only the public record. It is not an ownership claim
+    // about a funding carrier, a Lightning outcome or server arbitration.
+    Ok(json!({"mailbox_pk":mailbox.to_string(),"spk":hex(record.spk.as_bytes()),
+        "account_xpub":record.account_xpub.to_string(),"fallback_record":hex(&record.serialize())}))
 }
 
 async fn coin_evidence(wallet: &Wallet) -> Result<Value> {
@@ -110,18 +104,14 @@ async fn coin_evidence(wallet: &Wallet) -> Result<Value> {
         "actor evidence exceeds bounded inventory; incremental collection required"
     );
     let binding = fallback_binding(wallet).await?;
-    let mailbox = wallet.mailbox_keypair().public_key();
     let mut public = Vec::new();
     for coin in &coins {
         let full = wallet.get_full_vtxo(coin.id()).await?;
-        let (_, key) = wallet
-            .pubkey_keypair(&full.user_pubkey())
-            .await?
-            .context("owned coin key absent")?;
+        let hint = wallet.fallback_child_hint(full.user_pubkey()).await?;
         public.push(json!({"id":full.id().to_string(), "amount_sat":full.amount().to_sat(),
             "user_pubkey":full.user_pubkey().to_string(), "expiry_height":full.expiry_height().to_u32(),
             "state":coin.state.kind().to_string(), "signed_vtxo":hex(&full.serialize()),
-            "key_link_attestation":hex(&KeyLinkAttestation::new(mailbox,&key).serialize())}));
+            "child_index":hint.child_index(), "blinded_mailbox_id":hex(hint.blinded_mailbox_id().as_ref())}));
     }
     let movements = wallet.history().await?;
     ensure!(
@@ -252,12 +242,6 @@ fn amount(args: &Value) -> Result<Amount> {
     Ok(Amount::from_sat(sats))
 }
 
-fn record_bytes(chain: ChainHash, spk: &bitcoin::ScriptBuf, seq: u64, key: &Keypair) -> Vec<u8> {
-    let mut bytes = spk.as_bytes().to_vec();
-    bytes.extend(seq.to_le_bytes());
-    bytes.extend(FallbackRecordAttestation::new(chain, spk, seq, key).serialize());
-    bytes
-}
 
 fn evidence(req: &Request, event: &str, data: Value) -> Result<()> {
     let value = json!({"kind":"driver_event", "action_id":req.action_id,
@@ -294,7 +278,6 @@ where F:std::future::Future<Output=Result<Value>>,
 
 async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
     let network = allowed_network(&cfg.network, &cfg.ark_endpoint)?;
-    let chain_hash = ChainHash::using_genesis_block(network);
     let channel = Endpoint::from_shared(cfg.ark_endpoint.clone())?
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(30))
@@ -327,8 +310,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         let response = rpc
             .set_fallback(protos::SetFallbackRequest {
                 mailbox_pk: mailbox.serialize().to_vec(),
-                record: None,
-                key_links: vec![],
+                record: vec![],
             })
             .await
             .map_err(|status| {
@@ -511,7 +493,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             let onchain = wallet.onchain().context("missing onchain wallet")?;
             let receive = onchain.write().await.address().await?;
             Ok(
-                json!({"funding_address": receive.to_string(), "fallback_script": hex(fallback.spk.as_bytes()), "fallback_seq": fallback.seq,"binding":fallback_binding(&wallet).await?}),
+                json!({"funding_address": receive.to_string(), "fallback_script": hex(fallback.spk.as_bytes()), "account_xpub":fallback.account_xpub.to_string(),"binding":fallback_binding(&wallet).await?}),
             )
         }
         "snapshot" => {
@@ -531,7 +513,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             let onchain_balance = bark_json::cli::onchain::OnchainBalance::from(bdk.balance());
             drop(guard);
             Ok(
-                json!({"balance": balance, "onchain": onchain_balance, "vtxos": vtxos, "fallback_script": hex(fallback.spk.as_bytes()), "fallback_seq": fallback.seq, "evidence":coin_evidence(&wallet).await?}),
+                json!({"balance": balance, "onchain": onchain_balance, "vtxos": vtxos, "fallback_script": hex(fallback.spk.as_bytes()), "account_xpub":fallback.account_xpub.to_string(), "evidence":coin_evidence(&wallet).await?}),
             )
         }
         "sync" | "claim_lightning" => {
@@ -639,14 +621,12 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         "address" => {
             let address = wallet.new_address().await?;
             let pk = address.policy().user_pubkey();
-            let (_, key) = wallet
-                .pubkey_keypair(&pk)
-                .await?
-                .context("advertised address key absent")?;
-            let mailbox = wallet.mailbox_keypair().public_key();
+            let hint = address.account_child()?.context("advertised address lacks account child origin")?;
+            ark::fallback::AccountChild::new(wallet.mailbox_identifier().as_pubkey(),hint.child_index())?
+                .verify_pubkey(&wallet.fallback_destination().await?.account_xpub,pk)?;
             Ok(
                 json!({"address":address.to_string(),"user_pubkey":pk.to_string(),
-                "key_link_attestation":hex(&KeyLinkAttestation::new(mailbox,&key).serialize()),"binding":fallback_binding(&wallet).await?}),
+                "child_index":hint.child_index(),"blinded_mailbox_id":hex(hint.blinded_mailbox_id().as_ref()),"binding":fallback_binding(&wallet).await?}),
             )
         }
         "send_arkoor" => {
@@ -990,320 +970,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             )
         }
         operation if operation.starts_with("raw_") => {
-            let fallback = wallet.fallback_destination().await?;
-            evidence(
-                req,
-                "raw_local_binding_ready",
-                json!({"seq":fallback.seq,"spk":hex(fallback.spk.as_bytes())}),
-            )?;
-            let mailbox = wallet.mailbox_keypair();
-            let target_mailbox = if operation == "raw_foreign_record" {
-                let target = PublicKey::from_str(
-                    req.args["victim_mailbox_pk"]
-                        .as_str()
-                        .context("public victim mailbox required")?,
-                )?;
-                ensure!(
-                    target != mailbox.public_key(),
-                    "victim must be another wallet"
-                );
-                target
-            } else {
-                mailbox.public_key()
-            };
-            let request = |record, key_links| protos::SetFallbackRequest {
-                mailbox_pk: target_mailbox.serialize().to_vec(),
-                record,
-                key_links,
-            };
-            let before = rpc
-                .set_fallback(request(None, vec![]))
-                .await.map_err(|status| {
-                    let _ = evidence(req,"raw_baseline_query_failed",json!({"mailbox_pk":target_mailbox.to_string(),"code":format!("{:?}",status.code())}));
-                    status
-                })?
-                .into_inner()
-                .record;
-            evidence(
-                req,
-                "raw_baseline_read",
-                json!({"mailbox_pk":target_mailbox.to_string(),"serialized":hex(&before)}),
-            )?;
-            let protected_record =
-                json!({"mailbox_pk":target_mailbox.to_string(),"serialized":hex(&before)});
-            let mut record = record_bytes(chain_hash, &fallback.spk, fallback.seq, &mailbox);
-            let mut links = vec![];
-            let reject = match operation {
-                "raw_board_unlinked" => {
-                    let key = Keypair::new(&SECP, &mut rand::thread_rng());
-                    let (_, nonce) = ark::musig::nonce_pair(&key);
-                    let body = protos::BoardCosignRequest {
-                        amount: 100_000,
-                        utxo: bitcoin::OutPoint::null().serialize(),
-                        expiry_height: 1,
-                        user_pubkey: key.public_key().serialize().to_vec(),
-                        pub_nonce: nonce.serialize().to_vec(),
-                        funding_tx: bitcoin::consensus::serialize(&bitcoin::Transaction {
-                            version: bitcoin::transaction::Version::TWO,
-                            lock_time: bitcoin::absolute::LockTime::ZERO,
-                            input: vec![],
-                            output: vec![],
-                        }),
-                    };
-                    evidence(
-                        req,
-                        "raw_board_request",
-                        json!({"user_pubkey":key.public_key().to_string(),
-                        "amount_sat":body.amount,"unsigned_funding_hex":hex(&body.funding_tx),
-                        "pver":server_rpc::MAX_PROTOCOL_VERSION,"no_funding_broadcast":true}),
-                    )?;
-                    let mut body = tonic::Request::new(body);
-                    body.set_pver(server_rpc::MAX_PROTOCOL_VERSION);
-                    let response = rpc.request_board_cosign(body).await;
-                    evidence(
-                        req,
-                        "raw_board_response",
-                        json!({"code":response.as_ref().err().map(|s|format!("{:?}",s.code())),
-                        "missing_fallback_guard":response.as_ref().err().is_some_and(|s|s.message().contains("missing fallback link or wallet record"))}),
-                    )?;
-                    match response {
-                        Err(s)
-                            if s.code() == tonic::Code::InvalidArgument
-                                && s.message()
-                                    .contains("missing fallback link or wallet record") => {}
-                        Err(_) => {
-                            bail!("board was not refused by the expected missing-fallback guard")
-                        }
-                        Ok(_) => {
-                            return Err(
-                                InvariantFailure("unlinked board request was accepted").into()
-                            );
-                        }
-                    }
-                    let after = rpc
-                        .set_fallback(request(None, vec![]))
-                        .await?
-                        .into_inner()
-                        .record;
-                    ensure!(
-                        after == before,
-                        InvariantFailure("unlinked board request changed wallet record")
-                    );
-                    return Ok(
-                        json!({"expected_refusal":true,"binding_unchanged":true,"no_funding_broadcast":true,
-                        "protected_record":protected_record,
-                        "refusal_stage":"missing fallback link or wallet record","attempted_key_pubkeys":[key.public_key().to_string()]}),
-                    );
-                }
-                "raw_relink" => {
-                    let (key, _) = wallet.derive_store_next_keypair().await?;
-                    let alternate = Keypair::new(&SECP, &mut rand::thread_rng());
-                    let mut link = key.public_key().serialize().to_vec();
-                    link.extend(KeyLinkAttestation::new(alternate.public_key(), &key).serialize());
-                    let body = protos::SetFallbackRequest {
-                        mailbox_pk: alternate.public_key().serialize().to_vec(),
-                        record: Some(record_bytes(
-                            chain_hash,
-                            &fallback.spk,
-                            fallback.seq,
-                            &alternate,
-                        )),
-                        key_links: vec![link],
-                    };
-                    evidence(
-                        req,
-                        "raw_relink_request",
-                        json!({"user_pubkey":key.public_key().to_string(),
-                        "original_mailbox_pk":mailbox.public_key().to_string(),"alternate_mailbox_pk":alternate.public_key().to_string(),
-                        "destination_script":hex(fallback.spk.as_bytes())}),
-                    )?;
-                    rpc.set_fallback(body).await?;
-                    let after = rpc
-                        .set_fallback(request(None, vec![]))
-                        .await?
-                        .into_inner()
-                        .record;
-                    ensure!(
-                        after == before,
-                        InvariantFailure("relink changed original wallet record")
-                    );
-                    return Ok(
-                        json!({"binding_unchanged":true,"key_link_immutability_pending":true,
-                        "protected_record":protected_record,
-                        "user_pubkey":key.public_key().to_string(),"original_mailbox_pk":mailbox.public_key().to_string(),
-                        "alternate_mailbox_pk":alternate.public_key().to_string(),
-                        "scope":"RPC accepted a valid alternate link; independent server mapping check still required"}),
-                    );
-                }
-                "raw_foreign_record" => {
-                    ensure!(!before.is_empty(), "victim record must already exist");
-                    true
-                }
-                "raw_record_tamper" => {
-                    record[2] ^= 1;
-                    true
-                }
-                "raw_sequence_tamper" => {
-                    let offset = record.len() - 72;
-                    record[offset] ^= 1;
-                    true
-                }
-                "raw_wrong_chain" => {
-                    record = record_bytes(
-                        if network == Network::Signet {
-                            ChainHash::REGTEST
-                        } else {
-                            ChainHash::SIGNET
-                        },
-                        &fallback.spk,
-                        fallback.seq,
-                        &mailbox,
-                    );
-                    true
-                }
-                "raw_stale_record" | "raw_equal_sequence" => {
-                    let mut spk = fallback.spk.as_bytes().to_vec();
-                    spk[2] ^= 1;
-                    let spk = bitcoin::ScriptBuf::from_bytes(spk);
-                    let seq = if operation == "raw_stale_record" {
-                        fallback.seq.saturating_sub(1)
-                    } else {
-                        fallback.seq
-                    };
-                    record = record_bytes(chain_hash, &spk, seq, &mailbox);
-                    false
-                }
-                "raw_invalid_link" | "raw_mailbox_tamper" | "raw_key_replay" | "raw_mixed_link" => {
-                    let key = Keypair::new(&SECP, &mut rand::thread_rng());
-                    let other = Keypair::new(&SECP, &mut rand::thread_rng());
-                    let public_key = if operation == "raw_invalid_link" {
-                        let target = PublicKey::from_str(
-                            req.args["victim_pubkey"]
-                                .as_str()
-                                .context("public victim coin key required")?,
-                        )?;
-                        ensure!(
-                            target != key.public_key(),
-                            "victim key must differ from signer"
-                        );
-                        target
-                    } else if operation == "raw_key_replay" {
-                        other.public_key()
-                    } else {
-                        key.public_key()
-                    };
-                    let signed_mailbox =
-                        if operation == "raw_mailbox_tamper" || operation == "raw_mixed_link" {
-                            other.public_key()
-                        } else {
-                            mailbox.public_key()
-                        };
-                    let mut link = public_key.serialize().to_vec();
-                    link.extend(KeyLinkAttestation::new(signed_mailbox, &key).serialize());
-                    links.push(link);
-                    if operation == "raw_mixed_link" {
-                        record = record_bytes(
-                            chain_hash,
-                            &fallback.spk,
-                            fallback.seq.checked_add(1).context("sequence exhausted")?,
-                            &mailbox,
-                        );
-                        let valid = Keypair::new(&SECP, &mut rand::thread_rng());
-                        let mut valid_link = valid.public_key().serialize().to_vec();
-                        valid_link.extend(
-                            KeyLinkAttestation::new(mailbox.public_key(), &valid).serialize(),
-                        );
-                        links.insert(0, valid_link);
-                    }
-                    true
-                }
-                "raw_malformed" => {
-                    match req.args["variant"].as_u64().unwrap_or(0) % 3 {
-                        0 => {
-                            record.truncate(record.len() - 1);
-                        }
-                        1 => {
-                            links.push(vec![0; 96]);
-                        }
-                        _ => {
-                            record = vec![0; 115];
-                        }
-                    }
-                    true
-                }
-                "raw_bounded_queries" => {
-                    for index in 0..8 {
-                        let value = rpc
-                            .set_fallback(request(None, vec![]))
-                            .await?
-                            .into_inner()
-                            .record;
-                        evidence(
-                            req,
-                            "raw_query",
-                            json!({"index":index,"record":hex(&value)}),
-                        )?;
-                        ensure!(
-                            value == before,
-                            InvariantFailure("bounded query changed stored binding")
-                        );
-                    }
-                    return Ok(
-                        json!({"binding_unchanged":true,"bounded_queries":8,"actual_fee_sat":0,"protected_record":protected_record}),
-                    );
-                }
-                _ => bail!("unsupported raw scenario"),
-            };
-            evidence(
-                req,
-                "raw_request",
-                json!({"rpc":"SetFallback", "mailbox_pk":hex(&target_mailbox.serialize()),
-                "record":hex(&record), "key_links":links.iter().map(|link| hex(link)).collect::<Vec<_>>(),
-                "record_before":hex(&before)}),
-            )?;
-            let attempted_keys = links
-                .iter()
-                .filter(|l| l.len() == 97)
-                .map(|l| hex(&l[..33]))
-                .collect::<Vec<_>>();
-            let result = rpc.set_fallback(request(Some(record), links)).await;
-            evidence(
-                req,
-                "raw_response",
-                json!({"rpc":"SetFallback", "code":result.as_ref().err().map(|status| format!("{:?}",status.code())).unwrap_or("Ok".into()),
-                "record_returned":result.as_ref().ok().map(|response| hex(&response.get_ref().record))}),
-            )?;
-            if reject {
-                match result {
-                    Err(status) if status.code() == tonic::Code::InvalidArgument => {}
-                    Err(_) => bail!("unexpected RPC refusal class"),
-                    Ok(_) => return Err(InvariantFailure("invalid request was accepted").into()),
-                }
-            } else {
-                ensure!(
-                    result?.into_inner().record == before,
-                    InvariantFailure("stale/equal record changed stored binding")
-                );
-            }
-            let after = rpc
-                .set_fallback(request(None, vec![]))
-                .await?
-                .into_inner()
-                .record;
-            evidence(
-                req,
-                "raw_binding_after",
-                json!({"record_after":hex(&after)}),
-            )?;
-            ensure!(
-                after == before,
-                InvariantFailure("negative request changed stored record")
-            );
-            Ok(
-                json!({"expected_refusal": reject, "binding_unchanged": true, "operation": operation,
-                    "protected_record":protected_record,
-                    "attempted_key_pubkeys":attempted_keys}),
-            )
+            account_probes::execute(&wallet,&mut rpc,req,path,network,operation).await
         }
         _ => bail!("unsupported operation"),
     }
@@ -1538,56 +1205,6 @@ mod tests {
                 }
             )
             .is_err()
-        );
-    }
-
-    #[test]
-    fn fallback_signature_binds_chain_and_script() {
-        let key = Keypair::from_seckey_slice(&SECP, &[1; 32]).unwrap();
-        let script =
-            bitcoin::ScriptBuf::from_hex("00141111111111111111111111111111111111111111").unwrap();
-        let record = record_bytes(ChainHash::SIGNET, &script, 123, &key);
-        let signature = <FallbackRecordAttestation as ProtocolEncoding>::deserialize(
-            &record[record.len() - 64..],
-        )
-        .unwrap();
-        signature
-            .verify(ChainHash::SIGNET, &script, 123, key.public_key())
-            .unwrap();
-        assert!(
-            signature
-                .verify(ChainHash::REGTEST, &script, 123, key.public_key())
-                .is_err()
-        );
-        let other =
-            bitcoin::ScriptBuf::from_hex("00142222222222222222222222222222222222222222").unwrap();
-        assert!(
-            signature
-                .verify(ChainHash::SIGNET, &other, 123, key.public_key())
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn fallback_signature_binds_sequence_and_owner() {
-        let key = Keypair::from_seckey_slice(&SECP, &[1; 32]).unwrap();
-        let other = Keypair::from_seckey_slice(&SECP, &[2; 32]).unwrap();
-        let script =
-            bitcoin::ScriptBuf::from_hex("00141111111111111111111111111111111111111111").unwrap();
-        let record = record_bytes(ChainHash::SIGNET, &script, 123, &key);
-        let signature = <FallbackRecordAttestation as ProtocolEncoding>::deserialize(
-            &record[record.len() - 64..],
-        )
-        .unwrap();
-        assert!(
-            signature
-                .verify(ChainHash::SIGNET, &script, 124, key.public_key())
-                .is_err()
-        );
-        assert!(
-            signature
-                .verify(ChainHash::SIGNET, &script, 123, other.public_key())
-                .is_err()
         );
     }
 

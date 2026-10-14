@@ -291,8 +291,7 @@ pub async fn execute(
     let mailbox = wallet.mailbox_keypair().public_key();
     let baseline = protos::SetFallbackRequest {
         mailbox_pk: mailbox.serialize().to_vec(),
-        record: None,
-        key_links: vec![],
+        record: vec![],
     };
     let baseline = observe(
         &observations,
@@ -657,6 +656,7 @@ pub async fn execute(
                 user_pubkey: key.serialize().to_vec(),
                 htlc_recv_expiry: expiry,
                 lightning_receive_anti_dos: Some(anti),
+                origin: if scenario == "D15" { None } else { Some(wallet.fallback_child_hint(key).await?.into()) },
             };
             request_hash = stage(
                 &path,
@@ -902,140 +902,6 @@ pub async fn execute(
     Ok(data)
 }
 
-/// Rotate a declared script through the SDK only. Inner SDK RPC capture remains
-/// a named gate; the intent and actual public readbacks are captured separately.
-pub async fn rotate(
-    wallet: &Wallet,
-    rpc: &mut ArkServiceClient<Channel>,
-    req: &Request,
-    wallet_dir: &Path,
-    actor: &str,
-) -> Result<Value> {
-    ensure!(
-        wallet.network().await? == Network::Signet
-            && !matches!(actor, "actor-03" | "actor-09" | "actor-10"),
-        "rotation requires an online signet owner"
-    );
-    let intent = &req.args["rotation_intent"];
-    ensure!(
-        intent["actor"] == actor
-            && intent["server_pubkey"] == req.expected_server_pubkey
-            && req.maximum_fee_sat == 0,
-        "rotation actor/server/fee declaration differs"
-    );
-    ensure!(
-        hashed(&serde_json::to_vec(intent)?)
-            == req.args["intent_hash"]
-                .as_str()
-                .context("rotation intent hash")?,
-        "rotation intent digest differs"
-    );
-    let path = scope(wallet_dir, req)?;
-    if path.exists() {
-        return Ok(
-            json!({"probe_unknown":true,"actual_fee_sat":Value::Null,"reason":"retained rotation preparation exists; read-only reconciliation required"}),
-        );
-    }
-    let text = intent["new_script"]
-        .as_str()
-        .context("declared destination script")?;
-    ensure!(
-        text.len() % 2 == 0 && text.len() <= 84 && text.bytes().all(|b| b.is_ascii_hexdigit()),
-        "destination script encoding bound"
-    );
-    let bytes = (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16))
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    let script = bitcoin::ScriptBuf::from_bytes(bytes);
-    let onchain = wallet
-        .onchain()
-        .context("rotation requires the owned onchain wallet")?;
-    ensure!(
-        onchain.read().await.is_mine(&script).await?,
-        "declared fallback script is not seed-owned"
-    );
-    let before = wallet.fallback_destination().await?;
-    ensure!(
-        hex(before.spk.as_bytes()) == intent["old_script"].as_str().context("original script")?
-            && Some(before.seq) == intent["old_sequence"].as_u64(),
-        "actual SDK fallback differs from frozen original record"
-    );
-    ensure!(script != before.spk, "new fallback script equals original");
-    let observations = path
-        .parent()
-        .context("rotation parent")?
-        .join("rotation-observations");
-    ensure!(
-        !observations.is_symlink(),
-        "rotation observation directory cannot be a symlink"
-    );
-    fs::create_dir_all(&observations)?;
-    fs::set_permissions(&observations, fs::Permissions::from_mode(0o700))?;
-    let mailbox = wallet.mailbox_keypair().public_key();
-    ensure!(
-        mailbox.to_string() == intent["mailbox"].as_str().context("original mailbox")?,
-        "rotation mailbox differs"
-    );
-    let query = protos::SetFallbackRequest {
-        mailbox_pk: mailbox.serialize().to_vec(),
-        record: None,
-        key_links: vec![],
-    };
-    let baseline = observe(
-        &observations,
-        "SetFallbackRead",
-        &query.encode_to_vec(),
-        rpc.set_fallback(query.clone()),
-    )
-    .await?;
-    let intent_hash = stage(
-        &path,
-        req,
-        "SDK.set_fallback_destination",
-        &serde_json::to_vec(intent)?,
-        None,
-        None,
-    )?;
-    // The pinned SDK persists the proposed owned destination before registration
-    // and bounds its reconciliation loop at three requests. Never reserve a new
-    // address or repeat this method after a lost reply.
-    let registered = wallet.set_fallback_destination(script.clone()).await;
-    private_write(
-        &path.join("sdk-operation.json"),
-        &serde_json::to_vec(
-            &json!({"utc_unix_ms":millis(),"sdk_method":"set_fallback_destination","ok":registered.is_ok(),"error":registered.as_ref().err().map(|e|format!("{e:#}")),"raw_inner_rpc_capture":"unavailable"}),
-        )?,
-    )?;
-    registered?;
-    let after = wallet.fallback_destination().await?;
-    private_write(
-        &path.join("sdk-after-state.json"),
-        &serde_json::to_vec(
-            &json!({"utc_unix_ms":millis(),"script":hex(after.spk.as_bytes()),"sequence":after.seq}),
-        )?,
-    )?;
-    ensure!(
-        after.spk == script && after.seq > before.seq,
-        InvariantFailure("rotation SDK returned another script or non-increasing sequence")
-    );
-    let reply = observe(
-        &observations,
-        "SetFallbackRead",
-        &query.encode_to_vec(),
-        rpc.set_fallback(query.clone()),
-    )
-    .await?;
-    private_write(
-        &path.join("sdk-result.json"),
-        &serde_json::to_vec(
-            &json!({"utc_unix_ms":millis(),"before_record":hex(&baseline.record),"after_record":hex(&reply.record),"old_sequence":before.seq,"new_sequence":after.seq}),
-        )?,
-    )?;
-    let result = json!({"rotation_intent_hash":intent_hash,"mailbox_pk":mailbox.to_string(),"old_script":hex(before.spk.as_bytes()),"old_sequence":before.seq,"new_script":hex(after.spk.as_bytes()),"new_sequence":after.seq,"record_before_hash":hashed(&baseline.record),"record_after_hash":hashed(&reply.record),"actual_fee_sat":0,"production_qualified":false,"raw_sdk_registration_capture":"unavailable","scope":"SDK-owned record rotation; original payout immutability and later-coin payout still require independent evidence"});
-    evidence(req, "fallback_rotation_registered", result.clone())?;
-    Ok(result)
-}
 
 #[cfg(test)]
 mod controlled_policy_tests {
