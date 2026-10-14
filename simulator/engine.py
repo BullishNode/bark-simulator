@@ -17,7 +17,7 @@ from .padding import collect as collect_padding, collect_backing as collect_padd
 from .ownership import record_candidates, record_verified, retry_public_candidates, verify_client_evidence, record_server_page
 from .model import InvariantError,canonical
 from .chain import ChainReader
-from .settlements import collect_settlements
+from .direct_settlements import collect as collect_direct_settlements
 from .campaign import CampaignClock,RampPlan,traffic_ready,collect_ark_receipts
 from .continuous import schedule as schedule_continuous
 from .funding import fund,WalletRpc
@@ -432,7 +432,7 @@ class Engine:
 
     async def collect_inventory(self):
         if not self.config.inventory_command:return
-        kinds=["coins","pending","links","settlements","records","nursery"]
+        kinds=["coins","pending","links","records"]
         index=int(self.store.get_meta("inventory_kind_index") or "0")%len(kinds)
         kind=kinds[index];key="inventory_cursor_"+kind
         cursor=self.store.get_meta(key) or ""
@@ -524,7 +524,7 @@ class Engine:
                     chain.consumer='operator-ownership'
                     await collect_operator_scripts(self.store,self.config,chain)
                     chain.consumer='settlements'
-                    await collect_settlements(self.store,chain)
+                    await collect_direct_settlements(self.store,self.config,chain)
                     chain.consumer='fees'
                     await collect_fees(self.store,chain)
                     chain.consumer='recycling'

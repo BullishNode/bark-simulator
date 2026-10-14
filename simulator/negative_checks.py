@@ -3,7 +3,6 @@ import json,time
 from .model import InvariantError,canonical,integer
 from .ownership import EvidenceGap
 from .process import json_command, public_command_capture
-from .raw_cases import RAW_CASES
 
 def request_for(store,action):
     data=json.loads(action['result'])['data'];record=data['protected_record']
@@ -58,6 +57,7 @@ def check(request,expected,protected,observed):
         'scope':'post-request independent database record/link check; source-specific scenario qualification remains separate'}
 
 async def collect(store,command,proof_command=(),limit=2):
+    from .raw_cases import RAW_CASES
     store.db.execute('CREATE TABLE IF NOT EXISTS negative_check(action_id TEXT PRIMARY KEY,state TEXT NOT NULL,payload TEXT NOT NULL,updated_at REAL NOT NULL)')
     if not command:return
     rows=store.db.execute("SELECT a.* FROM action a LEFT JOIN negative_check c ON c.action_id=a.id WHERE a.operation LIKE 'raw_%' AND a.operation NOT LIKE 'raw_protocol_%' AND a.state IN ('completed','expected_refusal') AND (c.state IS NULL OR c.state NOT IN ('checked','invalidated')) ORDER BY a.updated_at").fetchall()

@@ -38,7 +38,7 @@ class MaintenancePauseTests(unittest.IsolatedAsyncioTestCase):
         self.engine.collect_inventory = AsyncMock()
         self.patches = ExitStack()
         for name in ('collect_public_proofs', 'collect_payments', 'collect_negative_checks',
-                     'retry_public_candidates', 'collect_operator_scripts', 'collect_settlements',
+                     'retry_public_candidates', 'collect_operator_scripts', 'collect_direct_settlements',
                      'collect_fees', 'collect_recycling'):
             self.patches.enter_context(patch('simulator.engine.' + name, AsyncMock()))
         for name in ('collect_renewal', 'collect_delegated', 'collect_ark_receipts', 'observe', 'generate'):

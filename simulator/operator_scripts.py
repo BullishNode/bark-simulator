@@ -144,6 +144,16 @@ async def _payout_changes(store, chain, digest, limit):
         value = json.loads(row[0]); txid = value['txid']
         checked = store.db.execute('SELECT state FROM settlement_check WHERE txid=?', (txid,)).fetchone()
         if not checked or checked['state'] != 'amounts_checked': txids.add(txid)
+    # Direct carriers include independently owned surplus and possibly a
+    # Watchman fee-wallet change output. Verify each against declared public
+    # descriptors; never infer wallet ownership from an input's funding role.
+    from .direct_settlements import initialize as initialize_direct
+    initialize_direct(store)
+    for saved in store.db.execute("SELECT payload FROM direct_journal_object WHERE kind='carriers'"):
+        carrier=json.loads(saved[0])
+        if carrier['confirmed_height'] is None:continue
+        txids.add(carrier['txid'])
+        txids.update(item['outpoint'].rsplit(':',1)[0] for item in carrier['fee_inputs'])
     cursor = store.get_meta('operator_script_cursor') or ''
     ordered = sorted(txids); ordered = [t for t in ordered if t > cursor] + [t for t in ordered if t <= cursor]
     for txid in ordered[:limit]:
@@ -156,7 +166,7 @@ async def _payout_changes(store, chain, digest, limit):
             await _matching_script(chain, script['address'], script['hex'])
             proof = {'descriptor_id': digest, 'derivation_index': match[0], 'address': script['address'],
                      'anchor_outpoint': descriptor['anchor_outpoint'], 'txid': txid, 'vout': output['n'],
-                     'scope': 'public Core derivation, independently confirmed chain script and rounds-wallet anchor'}
+                     'scope': 'public Core derivation, independently confirmed chain script and declared owning-wallet anchor'}
             with store.transaction():
                 store.db.execute('INSERT INTO operator_script VALUES (?,?)', (script['hex'], canonical(proof)))
                 store._event('operator_script_verified', {'script': script['hex'], **proof})

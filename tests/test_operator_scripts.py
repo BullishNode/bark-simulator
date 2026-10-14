@@ -72,6 +72,31 @@ class OperatorScriptTests(unittest.TestCase):
         self.assertFalse(any(method == 'gettxout' for method, _ in self.chain.calls))
         self.s.verify_event_chain()
 
+    def test_direct_winner_and_supplemental_funding_are_verified_without_legacy_rows(self):
+        from simulator.direct_settlements import initialize
+        initialize(self.s)
+        self.s.db.execute("DELETE FROM server_item WHERE kind='settlements'")
+        carrier={'txid':'direct','confirmed_height':2,'fee_inputs':[{'outpoint':'fee-funding:0'}]}
+        self.s.db.execute('INSERT INTO direct_journal_object VALUES(?,?,?)',('carriers','direct',json.dumps(carrier)))
+        original=self.chain.tx
+        def transaction(txid):
+            if txid=='fee-funding':return {'txid':txid,'confirmations':3,
+                'vout':[{'n':0,'scriptPubKey':{'hex':'future','address':'address-2'}}]}
+            return original(txid)
+        self.chain.tx=transaction
+        self.collect()
+        for script in ['change','future']:
+            evidence=json.loads(self.s.db.execute('SELECT evidence FROM operator_script WHERE script=?',(script,)).fetchone()[0])
+            self.assertEqual('anchor:0',evidence['anchor_outpoint'])
+            self.assertIn(evidence['txid'],{'direct','fee-funding'})
+    def test_pending_direct_version_does_not_guess_change_ownership(self):
+        from simulator.direct_settlements import initialize
+        initialize(self.s)
+        self.s.db.execute("DELETE FROM server_item WHERE kind='settlements'")
+        self.s.db.execute('INSERT INTO direct_journal_object VALUES(?,?,?)',('carriers','pending',json.dumps(
+            {'txid':'pending','confirmed_height':None,'fee_inputs':[]})))
+        self.collect()
+        self.assertIsNone(self.s.db.execute("SELECT 1 FROM operator_script WHERE script='change'").fetchone())
     def test_foreign_public_descriptor_cannot_adopt_payout_change(self):
         self.chain.foreign = True
         self.collect()

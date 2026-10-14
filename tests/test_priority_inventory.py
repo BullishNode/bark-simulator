@@ -95,7 +95,7 @@ class PriorityInventoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.store.get_meta('round_priority_cursor_coins'))
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM server_item WHERE kind='coins'").fetchone()[0]);self.store.verify_event_chain()
 
-    async def test_engine_preserves_all_six_normal_kinds_while_priority_finds_late_coin(self):
+    async def test_engine_preserves_four_source_kinds_while_priority_finds_late_coin(self):
         self.config.trace_enabled=False;self.config.workload='none';self.config.recovery_command=()
         normal=[]
         async def normal_fetch(argv,request,**kwargs):
@@ -105,8 +105,8 @@ class PriorityInventoryTests(unittest.IsolatedAsyncioTestCase):
         with patch('simulator.engine.json_command',side_effect=normal_fetch),patch('simulator.engine.collect_padding',new=AsyncMock()), \
                 patch('simulator.priority_inventory.json_command',side_effect=self.fetch),patch('simulator.priority_inventory.collect_decoder',side_effect=self.decode):
             engine=Engine(self.config,self.store)
-            for _ in range(6):await engine.collect_inventory()
-        self.assertEqual(['coins','pending','links','settlements','records','nursery'],[r['kind'] for r in normal])
+            for _ in range(4):await engine.collect_inventory()
+        self.assertEqual(['coins','pending','links','records'],[r['kind'] for r in normal])
         self.assertEqual('0',self.store.get_meta('inventory_kind_index'))
         self.assertEqual(coin_id(100),self.store.get_meta('inventory_cursor_coins'))
         self.assertIsNotNone(self.store.db.execute("SELECT id FROM server_item WHERE kind='coins' AND id=?",(coin_id(950),)).fetchone())
