@@ -49,9 +49,10 @@ def decode_transaction(encoded, *, public_body=False):
         witness=True
     count,prefix=compact()
     if not count or count>100000:raise ValueError('invalid input count')
-    stripped=bytearray(version+prefix);inputs=[]
+    stripped=bytearray(version+prefix);inputs=[];script_sig_sizes=[]
     for _ in range(count):
         point=take(36);size,prefix=compact();script=take(size);sequence=take(4)
+        script_sig_sizes.append(size)
         stripped.extend(point+prefix+script+sequence)
         inputs.append({'outpoint':point[:32][::-1].hex()+':'+str(int.from_bytes(point[32:],'little'))})
     count,prefix=compact()
@@ -78,7 +79,8 @@ def decode_transaction(encoded, *, public_body=False):
     weight=len(stripped)*3+len(raw)
     result={'txid':txid,'inputs':inputs,'outputs':outputs,'size':len(raw),'weight':weight,'vsize':(weight+3)//4}
     if public_body:
-        result.update(stripped_hex=stripped.hex(),witness_redacted=witness,witness_bytes=len(raw)-len(stripped))
+        result.update(stripped_hex=stripped.hex(),witness_redacted=witness,witness_bytes=len(raw)-len(stripped),
+                      input_script_sig_sizes=script_sig_sizes)
     return result
 
 
