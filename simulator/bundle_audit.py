@@ -175,8 +175,8 @@ def verify_native_proofs(proofs,transactions,binary):
     for coin in proofs:
         requests=[request for request in coin.get('requests',[]) if isinstance(request,dict)
             and request.get('signed_vtxo')==coin.get('signed_vtxo')
-            and request.get('key_link_attestation')
-            and isinstance(request.get('binding'),dict) and request['binding'].get('record_attestation')]
+            and type(request.get('child_index')) is int and request.get('blinded_mailbox_id')
+            and isinstance(request.get('binding'),dict) and request['binding'].get('fallback_record')]
         if not requests:
             gaps.append({'kind':'missing_raw_signature_request','coin_id':coin['id']});continue
         cached=coin['proof'];anchor=cached.get('chain_anchor','').split(':')[0]
@@ -199,8 +199,8 @@ def verify_native_proofs(proofs,transactions,binary):
         if proof.get('signed_path_valid') is not True or proof.get('anchor_confirmations',0)<1:
             raise InvariantError('fresh native proof lacks confirmed signed backing')
         bound=proof.get('binding',{})
-        if any(bound.get(key)!=cached.get('binding',{}).get(key) for key in ('mailbox_pk','seq','spk')) or any(
-                bound.get(key) is not True for key in ('record_signature_valid','key_link_signature_valid')):
+        if any(bound.get(key)!=cached.get('binding',{}).get(key) for key in ('mailbox_pk','account_xpub','spk','fallback_record','child_index','policy_pubkey_full','blinded_mailbox_id')) or any(
+                bound.get(key) is not True for key in ('record_signature_valid','account_child_verified')):
             raise InvariantError('fresh native binding differs from exported owner')
         verified+=1
     return {'native_protocol_reverified':bool(proofs) and verified==len(proofs),'native_proofs_verified':verified,'gaps':gaps}

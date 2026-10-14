@@ -1,3 +1,4 @@
+from tests import account_fixtures
 """Unknown money requests remain held until a complete positive proof exists."""
 import hashlib,json,tempfile,time,unittest
 from pathlib import Path
@@ -10,8 +11,8 @@ class UnknownOutcomeTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.s=Store(Path(self.tmp.name),'synthetic',1000000);initialize(self.s)
         self.actor='actor-08';self.key='02'+'11'*32;self.output_key='02'+'22'*32
-        self.binding={'mailbox_pk':'mailbox','seq':1,'spk':'owner-script','record_signature_valid':True,'key_link_signature_valid':True}
-        self.s.db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)',(self.actor,'mailbox',1,'owner-script',canonical(self.binding)))
+        self.binding=account_fixtures.binding({'mailbox_pk':'mailbox','seq':1,'spk':'owner-script','record_signature_valid':True,'account_child_verified':True})
+        self.s.db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)',(self.actor,'mailbox','synthetic-account','owner-script',canonical(self.binding)))
         self.coin('original',self.key,10000,'aa')
         self.coin('replacement',self.output_key,9900,'bb')
         self.s.queue('lost',self.actor,'H17','refresh',{},2000)
@@ -22,7 +23,7 @@ class UnknownOutcomeTests(unittest.TestCase):
     def coin(self,name,key,amount,signed,actor=None):
         actor=actor or self.actor
         self.s.db.execute('INSERT INTO owner_key VALUES (?,?,?,?)',(key,actor,'mailbox','{}'))
-        proof={'id':name,'user_pubkey':key,'amount_sat':amount,'signed_path_valid':True,'anchor_confirmations':1,'chain_anchor':'a'*64+':0','binding':self.binding}
+        proof=account_fixtures.proof({'id':name,'user_pubkey':key,'amount_sat':amount,'signed_path_valid':True,'anchor_confirmations':1,'chain_anchor':'a'*64+':0','binding':self.binding})
         self.s.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',(name,key,amount,hashlib.sha256(bytes.fromhex(signed)).hexdigest(),signed,canonical(proof)))
     def movement(self):
         self.s.db.execute('INSERT INTO movement_evidence VALUES (?,?,?)',(self.actor,'round',canonical({'id':'round','subsystem':'bark.round','status':'successful','payment_hash':None,
@@ -205,7 +206,7 @@ class ReadUnknownTests(unittest.TestCase):
             self.s.db.execute('UPDATE action SET '+field+'=? WHERE id=?',(old,'lost'))
     def trace_reply(self):
         import sqlite3
-        records=json.loads(Path(__file__).with_name('data').joinpath('native_boundaries.json').read_text())
+        records=json.loads(Path(__file__).with_name('data').joinpath('native_account_boundaries.json').read_text())
         path=self.s.root/'trace-2023-11-14.sqlite';db=sqlite3.connect(path)
         db.execute('CREATE TABLE trace(seq INTEGER PRIMARY KEY,utc REAL,schema_version INTEGER,kind TEXT,actor TEXT,action_id TEXT,payload TEXT,raw BLOB,previous_hash TEXT,hash TEXT)')
         for row in records:db.execute('INSERT INTO trace VALUES (?,?,?,?,?,?,?,?,?,?)',tuple(row[k] for k in ['seq','utc','schema_version','kind','actor','action_id','payload','raw','previous_hash','hash']))
@@ -256,7 +257,7 @@ class ArkUnknownTests(unittest.TestCase):
         UnknownOutcomeTests.setUp(self)
         self.s.db.execute('DELETE FROM action');self.s.db.execute('DELETE FROM event')
         self.recipient='actor-09';self.receipt_key='02'+'33'*32
-        self.s.db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)',(self.recipient,'recipient-mailbox',1,'recipient-script',canonical({})))
+        self.s.db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)',(self.recipient,'recipient-mailbox','synthetic-account','recipient-script',canonical({})))
         self.s.queue('address',self.recipient,'H07','address',{},0)
         self.s.db.execute("UPDATE action SET state='completed',result=? WHERE id='address'",(canonical({'data':{'address':'destination','user_pubkey':self.receipt_key}}),))
         self.s.queue('lost',self.actor,'H08','send_arkoor',{'amount_sat':1000,'destination':'destination','recipient_actor':self.recipient},2000)
@@ -266,9 +267,9 @@ class ArkUnknownTests(unittest.TestCase):
         self.s.db.execute("UPDATE owned_coin SET amount_sat=9000,proof=? WHERE id='replacement'",(canonical(proof),))
         receipt='c'*64+':0';self.receipt=receipt
         self.s.db.execute('INSERT INTO owner_key VALUES (?,?,?,?)',(self.receipt_key,self.recipient,'recipient-mailbox','{}'))
-        proof={'id':receipt,'user_pubkey':self.receipt_key,'amount_sat':1000,'signed_path_valid':True,'anchor_confirmations':1,
-            'binding':{'mailbox_pk':'recipient-mailbox','seq':1,'spk':'recipient-script','record_signature_valid':True,'key_link_signature_valid':True},
-            'path':[{'txid':'c'*64,'output_index':0,'inputs':['original'],'output_amount_sat':1000,'output_script':'receipt-script'}]}
+        proof=account_fixtures.proof({'id':receipt,'user_pubkey':self.receipt_key,'amount_sat':1000,'signed_path_valid':True,'anchor_confirmations':1,
+            'binding':account_fixtures.binding({'mailbox_pk':'recipient-mailbox','seq':1,'spk':'recipient-script','record_signature_valid':True,'account_child_verified':True}),
+            'path':[{'txid':'c'*64,'output_index':0,'inputs':['original'],'output_amount_sat':1000,'output_script':'receipt-script'}]})
         self.s.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',(receipt,self.receipt_key,1000,hashlib.sha256(bytes.fromhex('cc')).hexdigest(),'cc',canonical(proof)))
         for actor,movement in [(self.actor,{'id':'send','subsystem':'bark.arkoor','status':'successful','input_vtxos':['original'],'output_vtxos':['replacement'],'offchain_fee_sat':0,'effective_balance_sat':-1000}),
             (self.recipient,{'id':'receive','subsystem':'bark.arkoor','status':'successful','input_vtxos':[],'output_vtxos':[receipt],'offchain_fee_sat':0,'effective_balance_sat':1000})]:

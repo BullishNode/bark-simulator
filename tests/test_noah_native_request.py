@@ -33,9 +33,12 @@ class NoahNativeRequestTests(unittest.TestCase):
         phone['actor']='actor-42'
         with self.assertRaises(ValueError):self.request(actor='actor-42',phone=phone,wallet=alias)
     def test_no_assumed_sdk_or_wrong_chain_is_accepted(self):
-        for field,value in [('network','regtest'),('phone_sdk_commit','d47c6a4d115b30bf56219d69251fa9238d13f32d')]:
+        for field,value in [('network','regtest'),('phone_sdk_commit','unqualified-without-an-explicit-manifest-pin')]:
             chain=copy.deepcopy(self.chain);chain[field]=value
             with self.assertRaises(ValueError):self.request(chain=chain)
+    def test_exact_manifest_pin_is_passed_to_actual_native_build_check(self):
+        chain={**self.chain,'phone_sdk_commit':'86d5da8679e4e82aaff4136a094a539082adc99d'}
+        self.assertEqual(chain['phone_sdk_commit'],self.request(chain=chain)['expected_sdk_commit'])
     def test_invalid_auth_mailbox_challenge_and_bounds_are_rejected(self):
         for field,value in [('auth_pubkey','11'*32),('mailbox_id','04'+'33'*32),('fallback_script','deadbeef')]:
             phone=copy.deepcopy(self.phone);phone[field]=value

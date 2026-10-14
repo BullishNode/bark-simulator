@@ -26,7 +26,7 @@ def _signed_coin(store, coin_id, actor):
     proof = json.loads(row['proof'])
     bound = proof.get('binding', {})
     if (proof.get('signed_path_valid') is not True or proof.get('anchor_confirmations', 0) < 1
-            or bound.get('key_link_signature_valid') is not True
+            or bound.get('account_child_verified') is not True
             or bound.get('record_signature_valid') is not True
             or bound.get('mailbox_pk') != row['mailbox']
             or (proof.get('id'), proof.get('user_pubkey'), proof.get('amount_sat'))

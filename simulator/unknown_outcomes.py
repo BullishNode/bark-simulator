@@ -34,9 +34,9 @@ def _coins(store,ids,actor):
             raise InvariantError('unknown outcome signed identity or value changed')
         if (proof.get('signed_path_valid') is not True or type(proof.get('anchor_confirmations')) is not int
                 or proof['anchor_confirmations']<1 or binding.get('record_signature_valid') is not True
-                or binding.get('key_link_signature_valid') is not True):raise EvidenceGap('unknown outcome signed proof is incomplete')
-        if (binding.get('mailbox_pk')!=coin['mailbox'] or not store.db.execute('SELECT 1 FROM owner_record WHERE actor=? AND mailbox=? AND seq=? AND script=?',
-                (actor,coin['mailbox'],binding.get('seq'),binding.get('spk'))).fetchone()):raise EvidenceGap('unknown outcome lacks checked owner record')
+                or binding.get('account_child_verified') is not True):raise EvidenceGap('unknown outcome signed proof is incomplete')
+        if (binding.get('mailbox_pk')!=coin['mailbox'] or not store.db.execute('SELECT 1 FROM owner_record WHERE actor=? AND mailbox=? AND account_xpub=? AND script=?',
+                (actor,coin['mailbox'],binding.get('account_xpub'),binding.get('spk'))).fetchone()):raise EvidenceGap('unknown outcome lacks checked owner record')
         if hashlib.sha256(bytes.fromhex(coin['signed_vtxo'])).hexdigest()!=coin['signed_hash']:
             raise InvariantError('unknown outcome signed bytes changed')
         coins.append((coin,proof))
@@ -98,8 +98,8 @@ def _frame(store,action,phase):
     if len(rows)!=1:raise EvidenceGap('unknown read lacks unique fresh native evidence boundaries')
     data=json.loads(rows[0]['payload'])['data']
     evidence=boundary_evidence(store,action,phase,data);binding=evidence['binding']
-    if not store.db.execute('SELECT 1 FROM owner_record WHERE actor=? AND mailbox=? AND seq=? AND script=?',
-        (action['actor_id'],binding['mailbox_pk'],binding['seq'],binding['spk'])).fetchone():raise EvidenceGap('unknown native boundary lacks verified actor binding')
+    if not store.db.execute('SELECT 1 FROM owner_record WHERE actor=? AND mailbox=? AND account_xpub=? AND script=?',
+        (action['actor_id'],binding['mailbox_pk'],binding['account_xpub'],binding['spk'])).fetchone():raise EvidenceGap('unknown native boundary lacks verified actor binding')
     ids=[c['id'] for c in evidence['coins']]
     if len(ids)!=len(set(ids)):raise InvariantError('native boundary duplicates a coin')
     if ids:
@@ -302,7 +302,7 @@ def resolve(store,action_id,chain_transactions=None,payment_status=None):
         detail.update(needs_sync=True,snapshot_at=0)
         if action['operation']=='board':detail['board_submitted']=True
         if action['operation']=='create':
-            detail.update(created=True,**{k:data[k] for k in ('funding_address','fallback_script','fallback_seq') if k in data})
+            detail.update(created=True,**{k:data[k] for k in ('funding_address','fallback_script','account_xpub') if k in data})
         if action['operation']=='address':detail['ark_address']=data['address']
         if action['operation']=='invoice':detail.update(latest_invoice=data['invoice'],invoice_action_id=action_id,invoice_at=action['updated_at'])
         store.db.execute('UPDATE actor SET details=? WHERE id=?',(canonical(detail),action['actor_id']))

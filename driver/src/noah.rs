@@ -6,7 +6,7 @@ use bitcoin::{Network,hashes::Hash,secp256k1::{Message,PublicKey}};
 use serde_json::{Value,json};
 use std::{str::FromStr,time::{SystemTime,UNIX_EPOCH}};
 
-pub const SDK_COMMIT:&str="8f2286ee7e1631b0ceccd1631ec3b728a1bb0a52";
+pub const SDK_COMMIT:&str=env!("GIT_HASH");
 
 pub async fn enrollment_material(wallet:&Wallet,k1:&str,expiry_unix:i64,expected_server_pubkey:&str,
     expected_ark_address:&str,expected_fallback_script:&str,expected_auth_pubkey:&str,expected_mailbox_id:&str)->Result<Value> {

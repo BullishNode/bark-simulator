@@ -19,8 +19,27 @@ def request_for(store,action):
     if len(mailboxes)>2:raise InvariantError('negative request mailbox bound')
     return {'kind':'binding_check','mailboxes':mailboxes,'keys':keys},expected,record
 
+def record_bytes(record):
+    """Byte-exact canonical V3 row, never a mutable sequence surrogate."""
+    fields=('spk','account_xpub','mailbox_sig','account_sig')
+    sizes={'account_xpub':78,'mailbox_sig':64,'account_sig':64}
+    raw={key:bytes.fromhex(record[key]) for key in fields}
+    if not 0<len(raw['spk'])<=42 or any(len(raw[key])!=size for key,size in sizes.items()):raise EvidenceGap('incomplete immutable record row')
+    return (bytes([3,len(raw['spk'])])+raw['spk']+raw['account_xpub']+raw['mailbox_sig']+raw['account_sig']).hex()
+
+def admission_request(record,link):
+    return {'user_pubkey':link['user_pubkey'],'child_index':integer(link['child_index'],'stored ordinary child'),
+        'origin_kind':'trusted_server_admission','binding':{'mailbox_pk':record['mailbox_pk'],'spk':record['spk'],'fallback_record':record_bytes(record)}}
+
+def checked_admission(record,link,proof):
+    bound=proof.get('binding',{})
+    if (proof.get('user_pubkey'),bound.get('mailbox_pk'),bound.get('spk'),bound.get('child_index'),bound.get('policy_pubkey_full'))!=(link['user_pubkey'],record['mailbox_pk'],record['spk'],link['child_index'],link['user_pubkey']):raise InvariantError('independent account verifier returned another admitted identity')
+    if (bound.get('fallback_record')!=record_bytes(record) or bound.get('record_signature_valid') is not True
+            or bound.get('account_child_verified') is not True or bound.get('origin_kind')!='trusted_server_admission'
+            or bound.get('blinded_mailbox_id') is not None):raise EvidenceGap('exact stored account-child validation incomplete')
+
 def check(request,expected,protected,observed):
-    if observed.get('kind')!='binding_check' or observed.get('inventory_consistent') is not True:
+    if observed.get('kind')!='binding_check' or observed.get('inventory_consistent') is not True or observed.get('fallback_protocol')!=3:
         raise EvidenceGap('no consistent post-request binding snapshot')
     if observed.get('mailboxes')!=request['mailboxes'] or observed.get('keys')!=request['keys']:
         raise InvariantError('binding snapshot belongs to a different request')
@@ -28,7 +47,7 @@ def check(request,expected,protected,observed):
     if len({r['mailbox_pk'] for r in records})!=len(records) or {r['mailbox_pk'] for r in records}!=set(request['mailboxes']):
         raise InvariantError('protected wallet record disappeared or changed identity')
     record=next(r for r in records if r['mailbox_pk']==protected['mailbox_pk'])
-    serialized=record['spk']+integer(record['seq'],'stored record sequence').to_bytes(8,'little').hex()+record['sig']
+    serialized=record_bytes(record)
     if serialized!=protected['serialized']:raise InvariantError('negative request altered a protected wallet record')
     if len({l['user_pubkey'] for l in links})!=len(links):raise InvariantError('duplicated key mapping in snapshot')
     if any(l['user_pubkey'] not in expected for l in links):raise InvariantError('snapshot contains an unrequested key')
@@ -54,14 +73,9 @@ async def collect(store,command,proof_command=(),limit=2):
             for link in observed['links']:
                 if not proof_command:raise EvidenceGap('independent signature verifier unavailable')
                 record=next(r for r in observed['records'] if r['mailbox_pk']==link['mailbox_pk'])
-                proof_request={'user_pubkey':link['user_pubkey'],'key_link_attestation':link['sig'],
-                    'binding':{'mailbox_pk':record['mailbox_pk'],'spk':record['spk'],'seq':record['seq'],'record_attestation':record['sig']}}
+                proof_request=admission_request(record,link)
                 proof=await json_command(list(proof_command),proof_request,timeout=30,**public_command_capture(store,'proof.binding',proof_request,actor=action['actor_id'],action_id=action['id']))
-                bound=proof.get('binding',{})
-                if proof.get('user_pubkey')!=link['user_pubkey'] or bound.get('mailbox_pk')!=record['mailbox_pk'] or bound.get('spk')!=record['spk'] or bound.get('seq')!=record['seq']:
-                    raise InvariantError('independent binding verifier returned another identity')
-                if bound.get('record_signature_valid') is not True or bound.get('key_link_signature_valid') is not True:
-                    raise EvidenceGap('signature validation incomplete')
+                checked_admission(record,link,proof)
             state='checked'
             store.event('negative_binding_checked',{'action_id':action['id'],'scenario':action['scenario_id'],**evidence})
         except InvariantError:raise

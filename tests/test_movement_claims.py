@@ -1,3 +1,4 @@
+from tests import account_fixtures
 """Retain original receive history without accepting an incomplete proof batch."""
 import asyncio,hashlib,json,tempfile,unittest
 from pathlib import Path
@@ -11,19 +12,19 @@ from simulator.store import Store
 class MovementClaimTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.s=Store(Path(self.tmp.name),'synthetic',10000);initialize(self.s)
-        self.binding={'mailbox_pk':'mailbox','seq':1,'spk':'script','record_attestation':'signature'}
+        self.binding=account_fixtures.binding({'mailbox_pk':'mailbox','seq':1,'spk':'script','record_attestation':'signature'})
         self.key='02'+'11'*32
-        self.coins=[{'id':'receipt-1','user_pubkey':self.key,'amount_sat':400,'signed_vtxo':'aa','expiry_height':150,'state':'Spendable'},
-                    {'id':'receipt-2','user_pubkey':self.key,'amount_sat':600,'signed_vtxo':'bb','expiry_height':150,'state':'Spendable'}]
+        self.coins=[account_fixtures.coin({'id':'receipt-1','user_pubkey':self.key,'amount_sat':400,'signed_vtxo':'aa','expiry_height':150,'state':'Spendable'}),
+                    account_fixtures.coin({'id':'receipt-2','user_pubkey':self.key,'amount_sat':600,'signed_vtxo':'bb','expiry_height':150,'state':'Spendable'})]
         self.movement={'id':'receive-1','subsystem':'bark.arkoor','status':'successful','input_vtxos':[],
                        'output_vtxos':['receipt-1','receipt-2'],'effective_balance_sat':1000,'offchain_fee_sat':0,'payment_hash':None}
         self.data={'evidence':{'binding':self.binding,'coins':self.coins,'movements':[self.movement]}}
         self.s.queue('original','actor-01','H01','snapshot',{},2000);self.s.claim({'snapshot'})
     def tearDown(self):self.s.close();self.tmp.cleanup()
     def proof(self,coin):
-        return {'id':coin['id'],'user_pubkey':coin['user_pubkey'],'amount_sat':coin['amount_sat'],'signed_path_valid':True,
+        return account_fixtures.proof({'id':coin['id'],'user_pubkey':coin['user_pubkey'],'amount_sat':coin['amount_sat'],'signed_path_valid':True,
                 'anchor_confirmations':3,'expiry_height':coin['expiry_height'],
-                'binding':{**self.binding,'key_link_signature_valid':True,'record_signature_valid':True}}
+                'binding':{**self.binding,'account_child_verified':True,'record_signature_valid':True}})
     def prove(self,coin):
         record_verified(self.s,'actor-01','original',{'objects':[{'kind':'coin','coin':coin,'proof':self.proof(coin),
             'signed_hash':hashlib.sha256(bytes.fromhex(coin['signed_vtxo'])).hexdigest(),'request_binding':self.binding}],'movements':[]})

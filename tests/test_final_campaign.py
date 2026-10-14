@@ -1,3 +1,4 @@
+from tests import account_fixtures
 """Synthetic ledger regressions: fixtures never dispatch clients or earn live credit."""
 import json
 import tempfile
@@ -108,9 +109,9 @@ class FinalEpochEvidenceTests(unittest.TestCase):
 
     def coin(self,actor,identity,action,at):
         key='key-'+identity
-        binding={'mailbox_pk':actor,'key_link_signature_valid':True,'record_signature_valid':True}
-        proof={'id':identity,'user_pubkey':key,'amount_sat':1000,'binding':binding,
-               'signed_path_valid':True,'anchor_confirmations':1}
+        binding=account_fixtures.binding({'mailbox_pk':actor,'account_child_verified':True,'record_signature_valid':True})
+        proof=account_fixtures.proof({'id':identity,'user_pubkey':key,'amount_sat':1000,'binding':binding,
+               'signed_path_valid':True,'anchor_confirmations':1})
         self.store.db.execute('INSERT INTO owner_key VALUES (?,?,?,?)',(key,actor,actor,canonical(proof)))
         self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',
             (identity,key,1000,'fixture-hash','aa',canonical(proof)))
@@ -239,9 +240,9 @@ class FinalRampEvidenceTests(unittest.TestCase):
             identity=f'board-{index}'
             self.action(identity,'board',actor,at=201)
             key=f'key-{index}';coin=f'coin-{index}:0'
-            binding={'mailbox_pk':actor,'key_link_signature_valid':True,'record_signature_valid':True}
-            proof={'id':coin,'user_pubkey':key,'amount_sat':5000,'binding':binding,
-                   'signed_path_valid':True,'anchor_confirmations':1}
+            binding=account_fixtures.binding({'mailbox_pk':actor,'account_child_verified':True,'record_signature_valid':True})
+            proof=account_fixtures.proof({'id':coin,'user_pubkey':key,'amount_sat':5000,'binding':binding,
+                   'signed_path_valid':True,'anchor_confirmations':1})
             self.store.db.execute('INSERT INTO owner_key VALUES (?,?,?,?)',(key,actor,actor,canonical(proof)))
             self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',
                 (coin,key,5000,'fixture-hash','aa',canonical(proof)))

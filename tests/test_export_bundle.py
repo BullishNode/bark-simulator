@@ -1,3 +1,4 @@
+from tests import account_fixtures
 """Self-contained public evidence export, with explicit signature-proof limits."""
 import json
 import tempfile
@@ -19,14 +20,14 @@ class ExportBundleTests(unittest.TestCase):
         self.script = '0014' + 'd' * 40
         self.store.queue('observe-09', 'actor-09', 'H01', 'snapshot', {}, 0)
         self.store.db.execute("UPDATE action SET state='completed',updated_at=100 WHERE id='observe-09'")
-        binding = {'mailbox_pk': '02' + 'e' * 64, 'seq': 7, 'spk': self.script,
-            'record_signature_valid': True, 'key_link_signature_valid': True}
-        coin = {'id': self.coin_id, 'user_pubkey': self.pub, 'amount_sat': 5000,
-                'signed_vtxo': 'ab' * 32, 'state': 'Spendable'}
-        proof = {'id': self.coin_id, 'user_pubkey': self.pub, 'amount_sat': 5000,
+        binding = account_fixtures.binding({'mailbox_pk': '02' + 'e' * 64, 'seq': 7, 'spk': self.script,
+            'record_signature_valid': True, 'account_child_verified': True})
+        coin = account_fixtures.coin({'id': self.coin_id, 'user_pubkey': self.pub, 'amount_sat': 5000,
+                'signed_vtxo': 'ab' * 32, 'state': 'Spendable'})
+        proof = account_fixtures.proof({'id': self.coin_id, 'user_pubkey': self.pub, 'amount_sat': 5000,
             'signed_path_valid': True, 'anchor_confirmations': 1, 'binding': binding,
             'chain_anchor': 'f' * 64 + ':0', 'genesis': SIGNET_GENESIS, 'server_pubkey': '03' + '1' * 64,
-            'path': []}
+            'path': []})
         record_verified(self.store, 'actor-09', 'observe-09', {'objects': [{'kind': 'coin',
             'coin': coin, 'proof': proof, 'signed_hash': '2' * 64, 'request_binding': binding}], 'movements': []})
         row = {'id': self.coin_id, 'txid': self.txid, 'spk': self.script, 'fee_sat': 339,

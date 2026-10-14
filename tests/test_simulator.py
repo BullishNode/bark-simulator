@@ -166,7 +166,7 @@ class StoreTests(unittest.TestCase):
         self.queue()
         self.store.claim({"create"})
         def faulty_update():
-            record_actor_result(self.store, "actor-01", "create", {"funding_address": "test", "fallback_script":"script", "fallback_seq":1})
+            record_actor_result(self.store, "actor-01", "create", {"funding_address": "test", "fallback_script":"script", "account_xpub":"synthetic-account"})
             raise RuntimeError("crash before transaction commit")
         with self.assertRaises(RuntimeError):
             self.store.finish("action1", "completed", {}, 0, on_completed=faulty_update)
@@ -174,7 +174,7 @@ class StoreTests(unittest.TestCase):
         self.assertNotIn("created", json.loads(self.store.db.execute("SELECT details FROM actor WHERE id='actor-01'").fetchone()[0]))
 
     def test_pilot_absence_never_wakes_actor(self):
-        record_actor_result(self.store, "actor-09", "create", {"funding_address": "test", "fallback_script":"script", "fallback_seq":1})
+        record_actor_result(self.store, "actor-09", "create", {"funding_address": "test", "fallback_script":"script", "account_xpub":"synthetic-account"})
         record_actor_result(self.store, "actor-09", "address", {"address": "ark-test"})
         record_actor_result(self.store, "actor-09", "snapshot", {"balance": {"spendable_sat": 12000}, "onchain":{"confirmed_sat":0}, "vtxos": [{"id": "coin"}]})
         for i in range(1, 13):
@@ -207,7 +207,7 @@ class StoreTests(unittest.TestCase):
         self.queue(fee=100)
         self.store.claim({"create"})
         self.store.finish("action1", "completed", {}, 100)
-        record_actor_result(self.store, "actor-01", "create", {"funding_address":"test", "fallback_script":"script", "fallback_seq":1})
+        record_actor_result(self.store, "actor-01", "create", {"funding_address":"test", "fallback_script":"script", "account_xpub":"synthetic-account"})
         record_actor_result(self.store, "actor-01", "address", {"address":"ark-test"})
         for i in range(2,13):
             self.store.set_online(f"actor-{i:02}", False)
@@ -511,7 +511,7 @@ class PilotIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     calls.append((actor, operation))
                     data = {}
                     if operation == "create":
-                        data = {"funding_address": actor + "-funding", "fallback_script": actor + "-script", "fallback_seq": 1}
+                        data = {"funding_address": actor + "-funding", "fallback_script": actor + "-script", "account_xpub": "synthetic-account"}
                     elif operation == "address":
                         data = {"address": actor + "-ark"}
                     elif operation == "snapshot":

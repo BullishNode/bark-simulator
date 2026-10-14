@@ -1,5 +1,6 @@
 """Explicit client protocol probes; raw replies never certify production outcomes."""
 from __future__ import annotations
+from .negative_checks import admission_request,checked_admission
 from contextlib import nullcontext
 import hashlib,json,re,time
 from .model import InvariantError,canonical,integer,public_payload
@@ -216,15 +217,10 @@ async def collect(store,observer_command,proof_command=(),limit=2):
             for link in observed['links']:
                 if not proof_command:raise EvidenceGap('independent binding signature verifier unavailable')
                 signed=next(r for r in observed['records'] if r['mailbox_pk']==link['mailbox_pk'])
-                proof_request={'user_pubkey':link['user_pubkey'],'key_link_attestation':link['sig'],
-                    'binding':{'mailbox_pk':signed['mailbox_pk'],'spk':signed['spk'],'seq':signed['seq'],'record_attestation':signed['sig']}}
+                proof_request=admission_request(signed,link)
                 proof=await json_command(list(proof_command),proof_request,timeout=30,
                     **public_command_capture(store,'protocol.proof',proof_request,actor=action['actor_id'],action_id=action['id']))
-                binding=proof.get('binding',{})
-                if (proof.get('user_pubkey'),binding.get('mailbox_pk'),binding.get('spk'),binding.get('seq'))!=(link['user_pubkey'],signed['mailbox_pk'],signed['spk'],signed['seq']):
-                    raise InvariantError('protocol binding verifier returned another identity')
-                if binding.get('record_signature_valid') is not True or binding.get('key_link_signature_valid') is not True:
-                    raise EvidenceGap('protocol binding signatures incomplete')
+                checked_admission(signed,link,proof)
             evidence['protocol']=validate_response(action,data)
             state='public_checked'
         except InvariantError as error:

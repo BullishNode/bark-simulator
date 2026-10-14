@@ -83,11 +83,11 @@ def _coin(store, coin_id, actor):
     binding = proof.get('binding') or {}
     if (proof.get('signed_path_valid') is not True or proof.get('anchor_confirmations',0)<1
             or binding.get('record_signature_valid') is not True
-            or binding.get('key_link_signature_valid') is not True):
+            or binding.get('account_child_verified') is not True):
         raise EvidenceGap('delegated coin signature or backing proof is incomplete')
     if (binding.get('mailbox_pk') != coin['mailbox'] or not store.db.execute("""SELECT 1 FROM owner_record
-            WHERE actor=? AND mailbox=? AND seq=? AND script=?""",
-            (actor,coin['mailbox'],binding.get('seq'),binding.get('spk'))).fetchone()):
+            WHERE actor=? AND mailbox=? AND account_xpub=? AND script=?""",
+            (actor,coin['mailbox'],binding.get('account_xpub'),binding.get('spk'))).fetchone()):
         raise EvidenceGap('delegated coin lacks its verified owner record')
     if hashlib.sha256(bytes.fromhex(coin['signed_vtxo'])).hexdigest() != coin['signed_hash']:
         raise InvariantError('delegated signed coin bytes differ from their proof digest')

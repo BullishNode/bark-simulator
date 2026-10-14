@@ -22,7 +22,7 @@ from .fee_watch import report as fee_watch_report, csv_values as fee_watch_csv_v
 # Primitive operations can exercise part of a behavior. Their availability and
 # accounting evidence never imply that its full expected outcome is qualified.
 SCENARIO_OPERATIONS = {
-    'H29': {'fallback_rotate'},
+    'H29': {'fallback_record_check'},
     'D17': {'phase_execute_d17'}, 'D24': {'phase_register_saved'},
     'H01': {'board'}, 'H02': {'board'}, 'H03': {'board'},
     'H04': {'board'}, 'H06': {'board'},

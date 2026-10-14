@@ -1,3 +1,4 @@
+from tests import account_fixtures
 import hashlib,json,tempfile,unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -114,13 +115,15 @@ class RawProtocolCollectorTests(unittest.IsolatedAsyncioTestCase):
         fixture=RawProtocolTests();fixture.setUp()
         try:
             identity=fixture.prepare()['action_id'];action=fixture.store.db.execute('SELECT * FROM action WHERE id=?',(identity,)).fetchone();args=json.loads(action['args'])
-            script='0014'+'33'*20;signature='44'*64;serialized=script+(7).to_bytes(8,'little').hex()+signature
+            script='0014'+'33'*20;signature='44'*64
+            from simulator.negative_checks import record_bytes
+            signed={'mailbox_pk':'mailbox','spk':script,'account_xpub':'77'*78,'mailbox_sig':signature,'account_sig':'88'*64};serialized=record_bytes(signed)
             probe={'scenario':'D14','actor':fixture.actor,'intent_hash':args['intent_hash'],'request_hash':'dd'*32,'response_hash':'ab'*32,'response_message_hash':'ee'*32,'input_coin_ids':[fixture.coin],'input_status_before':[-1],'input_status_after':[-1],'rpc':'RequestArkoorCosign','code':'InvalidArgument','guard':'missing_fallback','rpc_attempted':True,'actual_fee_sat':0}
             data={'probe':probe,'protected_record':{'mailbox_pk':'mailbox','serialized':serialized},'attempted_key_pubkeys':[]}
             fixture.store.db.execute("UPDATE action SET state='expected_refusal',result=? WHERE id=?",(canonical({'data':data}),identity))
             async def observe(_command,request,**kw):
-                if request.get('kind')=='binding_check':return {**request,'inventory_consistent':True,'records':[{'mailbox_pk':'mailbox','spk':script,'seq':7,'sig':signature}],'links':[{'user_pubkey':fixture.key,'mailbox_pk':'mailbox','sig':'55'*64}]}
-                return {'user_pubkey':fixture.key,'binding':{'mailbox_pk':'mailbox','spk':script,'seq':7,'record_signature_valid':True,'key_link_signature_valid':True}}
+                if request.get('kind')=='binding_check':return {**request,'inventory_consistent':True,'fallback_protocol':3,'records':[signed],'links':[{'user_pubkey':fixture.key,'mailbox_pk':'mailbox','child_index':25}]}
+                return {'user_pubkey':fixture.key,'binding':{'mailbox_pk':'mailbox','spk':script,'fallback_record':serialized,'child_index':25,'policy_pubkey_full':fixture.key,'record_signature_valid':True,'account_child_verified':True,'origin_kind':'trusted_server_admission','blinded_mailbox_id':None}}
             with patch('simulator.raw_protocol.json_command',side_effect=observe):await collect(fixture.store,('observer',),('proof',))
             row=fixture.store.db.execute('SELECT * FROM raw_protocol_check WHERE action_id=?',(identity,)).fetchone()
             self.assertEqual('pending',row['state']);self.assertFalse(json.loads(row['payload'])['live_qualified'])

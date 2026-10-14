@@ -1,4 +1,4 @@
-//! Legacy operation name maps to immutable-record idempotence, never rotation.
+//! Exact immutable-record readback and idempotent registration after a payout.
 use super::{Request, evidence, hex, native_intent};
 use anyhow::{Context, Result, ensure};
 use ark::{ProtocolEncoding, fallback::FallbackRecord};

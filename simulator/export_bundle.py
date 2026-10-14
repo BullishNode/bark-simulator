@@ -311,7 +311,7 @@ def audit_bundle(root, *, proof_binary=None):
         for row in evidence['owner_keys']:
             db.execute('INSERT INTO owner_key VALUES (?,?,?,?)', (row['pubkey'], row['actor'], row['mailbox'], canonical(row['proof'])))
         for row in evidence['owner_records']:
-            db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)', (row['actor'], row['mailbox'], row['seq'], row['script'], canonical(row['proof'])))
+            db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)', (row['actor'], row['mailbox'], row['account_xpub'], row['script'], canonical(row['proof'])))
         for row in proofs:
             db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)', (row['id'], row['pubkey'], row['amount_sat'], row['signed_hash'], row['signed_vtxo'], canonical(row['proof'])))
         for row in evidence['operator_scripts']:

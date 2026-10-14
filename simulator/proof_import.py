@@ -3,8 +3,8 @@
 [proofs] bundles = ["/absolute/path/public-proof-bundle.json"]
 Bundle v1: {schema_version: 1, actor: "actor-09", identity: {network,
 genesis, server_pubkey}, coins: [{id, user_pubkey, amount_sat, expiry_height,
-signed_vtxo, key_link_attestation, binding: {mailbox_pk, seq, spk,
-record_attestation}}]}. Native audit summaries alone are not input proofs.
+signed_vtxo, child_index, blinded_mailbox_id, binding:
+{mailbox_pk, account_xpub, spk, fallback_record}}]}. Native audit summaries alone are not input proofs.
 
 Imports prove signatures and confirmed backing, never live spendability,
 customer traffic, payout arbitration, or seed recovery. Native validation runs
@@ -121,7 +121,7 @@ def _bundle(store, config, value):
     ids = []
     for coin in coins:
         fields = {'id', 'user_pubkey', 'amount_sat', 'expiry_height', 'signed_vtxo',
-                  'key_link_attestation', 'binding'}
+                  'child_index','blinded_mailbox_id', 'binding'}
         if not isinstance(coin, dict) or set(coin) != fields:
             raise EvidenceGap('raw coin signatures and binding are required')
         if not isinstance(coin['id'], str) or re.fullmatch(r'[0-9a-f]{64}:\d+', coin['id']) is None:
@@ -129,20 +129,22 @@ def _bundle(store, config, value):
         ids.append(coin['id'])
         integer(coin['amount_sat'], 'public principal', 1)
         integer(coin['expiry_height'], 'public expiry', 1)
-        _hex(coin['signed_vtxo']); _hex(coin['key_link_attestation'], 128)
+        _hex(coin['signed_vtxo']); _hex(coin['blinded_mailbox_id'],66)
+        integer(coin['child_index'],'ordinary account child')
+        if coin['child_index']>=2**31:raise EvidenceGap('hardened account child is invalid')
         _hex(coin['user_pubkey'], 66)
         if coin['user_pubkey'][:2] not in {'02', '03'}:
             raise EvidenceGap('public coin key is malformed')
         binding = coin['binding']
-        if not isinstance(binding, dict) or set(binding) != {'mailbox_pk', 'seq', 'spk', 'record_attestation'}:
+        if not isinstance(binding, dict) or set(binding) != {'mailbox_pk','account_xpub','spk','fallback_record'}:
             raise EvidenceGap('raw signed owner record is required')
         if binding['mailbox_pk'] not in mailboxes:
             raise EvidenceGap('public coin mailbox does not belong to declared actor')
         _hex(binding['mailbox_pk'], 66); _hex(binding['spk'], 44)
         if not binding['spk'].startswith('0014'):
             raise EvidenceGap('public record is not the supported BIP84 destination')
-        integer(binding['seq'], 'public record sequence')
-        _hex(binding['record_attestation'], 128)
+        if not isinstance(binding['account_xpub'],str):raise EvidenceGap('public account is required')
+        _hex(binding['fallback_record'])
     if len(ids) != len(set(ids)):
         raise EvidenceGap('duplicate coin in public proof bundle')
     return actor, coins
@@ -153,15 +155,15 @@ def _checked(config, coin, proof):
     bound = proof.get('binding', {})
     integer(proof.get('amount_sat'), 'native public principal', 1)
     integer(proof.get('expiry_height'), 'native public expiry', 1)
-    integer(bound.get('seq'), 'native owner sequence')
     if (any(proof.get(k) != coin[k] for k in ('id', 'user_pubkey', 'amount_sat', 'expiry_height'))
             or proof.get('genesis') != config.expected_genesis
             or proof.get('server_pubkey') != config.expected_server_pubkey
             or proof.get('signed_path_valid') is not True
             or type(proof.get('anchor_confirmations')) is not int or proof['anchor_confirmations'] < 1
-            or any(bound.get(k) != coin['binding'][k] for k in ('mailbox_pk', 'seq', 'spk'))
+            or any(bound.get(k) != coin['binding'][k] for k in ('mailbox_pk','account_xpub','spk','fallback_record'))
             or bound.get('record_signature_valid') is not True
-            or bound.get('key_link_signature_valid') is not True):
+            or bound.get('account_child_verified') is not True
+            or (bound.get('child_index'),bound.get('policy_pubkey_full'),bound.get('blinded_mailbox_id'))!=(coin['child_index'],coin['user_pubkey'],coin['blinded_mailbox_id'])):
         raise EvidenceGap('native public proof does not validate the exact declared coin and owner')
     return {'kind': 'coin', 'coin': {**coin, 'state': 'PublicProof'}, 'proof': proof,
         'signed_hash': hashlib.sha256(bytes.fromhex(coin['signed_vtxo'])).hexdigest(),
@@ -206,9 +208,11 @@ async def collect(store, config, *, paths=None, limit=2):
             if not config.proof_command:
                 raise EvidenceGap('independent native verifier is not configured')
             objects = []
+            original_context=store.financial_context()
             for coin in coins:
                 proof = await json_command(list(config.proof_command), coin, timeout=30, **public_command_capture(store,'proof.import',coin,actor=actor,action_id=identity))
-                objects.append(_checked(config, coin, proof))
+                objects.append(_checked(config, coin, {**proof,'financial_pins':original_context}))
+            if store.financial_context()!=original_context:raise EvidenceGap('financial build changed during original proof import')
             with store.transaction():
                 at = time.time()
                 store.db.execute("""INSERT INTO action VALUES (?,?,NULL,?,?,'completed',?,0,0,?,?,?)""",
@@ -223,7 +227,7 @@ async def collect(store, config, *, paths=None, limit=2):
                         raise InvariantError('import contradicts an immutable signed coin')
                     record_candidates(store, actor, identity, {'evidence': {
                         'binding': item['request_binding'], 'coins': [item['coin']]}})
-                record_verified(store, actor, identity, {'objects': objects, 'movements': []})
+                record_verified(store, actor, identity, {'objects': objects, 'movements': [],'financial_pins':original_context})
                 store._event('public_proof_imported', {'action_id': identity, 'actor': actor,
                     'content_sha256': content_hash, 'coin_ids': [c['id'] for c in coins],
                     'original_wallet_opened': False, 'customer_traffic': False,

@@ -1,3 +1,4 @@
+from tests import account_fixtures
 import json,tempfile,unittest
 from pathlib import Path
 from simulator.engine import initialize
@@ -12,10 +13,10 @@ class OwnershipTests(unittest.TestCase):
             self.s.queue('action-'+actor,actor,'H01','snapshot',{},0)
     def tearDown(self):self.s.close();self.tmp.cleanup()
     def proof(self,actor,coin,pub,amount=10000,inputs=None,state='Spendable'):
-        b={'mailbox_pk':'mb-'+actor,'spk':'spk-'+actor,'seq':1,'record_signature_valid':True,'key_link_signature_valid':True}
-        c={'id':coin,'user_pubkey':pub,'amount_sat':amount,'signed_vtxo':'aa','state':state}
-        p={'id':coin,'user_pubkey':pub,'amount_sat':amount,'binding':b,'signed_path_valid':True,'anchor_confirmations':1,
-            'path':[{'inputs':inputs or ['anchor:0']}]}
+        b=account_fixtures.binding({'mailbox_pk':'mb-'+actor,'spk':'spk-'+actor,'seq':1,'record_signature_valid':True,'account_child_verified':True})
+        c=account_fixtures.coin({'id':coin,'user_pubkey':pub,'amount_sat':amount,'signed_vtxo':'aa','state':state})
+        p=account_fixtures.proof({'id':coin,'user_pubkey':pub,'amount_sat':amount,'binding':b,'signed_path_valid':True,'anchor_confirmations':1,
+            'path':[{'inputs':inputs or ['anchor:0']}]})
         return {'objects':[{'kind':'coin','coin':c,'proof':p,'signed_hash':'hash-'+coin,'request_binding':b}], 'movements':[]}
     def record(self,actor,coin,pub,**kw):record_verified(self.s,actor,'action-'+actor,self.proof(actor,coin,pub,**kw))
     def server(self,coin,**fields):
@@ -53,7 +54,7 @@ class OwnershipTests(unittest.TestCase):
         self.assertEqual(2,self.s.db.execute('SELECT COUNT(*) FROM server_item_version').fetchone()[0])
         self.s.verify_event_chain()
     def test_unconfirmed_public_evidence_is_retained_without_waking_absent_owner(self):
-        data={'evidence':{'binding':{'mailbox_pk':'m','seq':1,'spk':'s'},'coins':[{'id':'pending:0','signed_vtxo':'aa','state':'PendingBoard'}]}}
+        data={'evidence':{'binding':account_fixtures.binding({'mailbox_pk':'m','seq':1,'spk':'s'}),'coins':[{'id':'pending:0','signed_vtxo':'aa','state':'PendingBoard'}]}}
         with self.s.transaction():record_candidates(self.s,'actor-01','action-actor-01',data)
         self.s.set_online('actor-01',False)
         self.assertEqual(0,self.s.db.execute('SELECT verified FROM client_coin_candidate').fetchone()[0])

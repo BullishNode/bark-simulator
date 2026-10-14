@@ -1,3 +1,4 @@
+from tests import account_fixtures
 """Public import boundaries: synthetic native replies never claim live proof."""
 import asyncio
 import copy
@@ -24,11 +25,10 @@ class ProofImportTests(unittest.TestCase):
         self.mailbox = '02' + 'a' * 64
         self.key = '02' + 'b' * 64
         self.server = '03' + 'c' * 64
-        self.coin = {'id': 'd' * 64 + ':0', 'amount_sat': 500, 'user_pubkey': self.key,
+        self.coin = account_fixtures.coin({'id': 'd' * 64 + ':0', 'amount_sat': 500, 'user_pubkey': self.key,
             'expiry_height': 1000, 'signed_vtxo': 'ab' * 32,
-            'key_link_attestation': 'cd' * 64,
-            'binding': {'mailbox_pk': self.mailbox, 'seq': 7,
-                'spk': '0014' + 'e' * 40, 'record_attestation': 'ef' * 64}}
+            'binding': account_fixtures.binding({'mailbox_pk': self.mailbox, 'seq': 7,
+                'spk': '0014' + 'e' * 40, 'record_attestation': 'ef' * 64})})
         self.bundle = {'schema_version': 1, 'actor': 'actor-09',
             'identity': {'network': 'signet', 'genesis': SIGNET_GENESIS, 'server_pubkey': self.server},
             'coins': [self.coin]}
@@ -38,11 +38,11 @@ class ProofImportTests(unittest.TestCase):
         self.config = Config(self.root / 'journal', (), (), self.root / 'wallets',
             SIGNET_GENESIS, 'unused-container', 'unused-image', self.server, 10000, 30, 120,
             True, proof_command=('public-verifier', 'rpc', 'credential-path', self.server))
-        self.reply = {'id': self.coin['id'], 'amount_sat': 500, 'user_pubkey': self.key,
+        self.reply = account_fixtures.proof({'id': self.coin['id'], 'amount_sat': 500, 'user_pubkey': self.key,
             'expiry_height': 1000, 'server_pubkey': self.server, 'genesis': SIGNET_GENESIS,
             'signed_path_valid': True, 'anchor_confirmations': 1,
             'binding': {**{k: v for k, v in self.coin['binding'].items() if k != 'record_attestation'},
-                'key_link_signature_valid': True, 'record_signature_valid': True}, 'path': []}
+                'account_child_verified': True, 'record_signature_valid': True}, 'path': []})
 
     def tearDown(self):
         self.store.close()
@@ -76,7 +76,7 @@ class ProofImportTests(unittest.TestCase):
         request = native.call_args.args[1]
         self.assertEqual(self.coin['signed_vtxo'], request['signed_vtxo'])
         self.assertEqual(self.coin['binding'], request['binding'])
-        self.assertEqual(self.coin['key_link_attestation'], request['key_link_attestation'])
+        self.assertEqual(self.coin['child_index'], request['child_index'])
         self.assertNotIn('actor_dir', request)
         self.assertEqual('actor-09', expiry_owner(self.store, self.coin['id'], 'spendable')['actor'])
         action = self.store.db.execute('SELECT * FROM action').fetchone()
@@ -137,7 +137,7 @@ class ProofImportTests(unittest.TestCase):
         self.assert_no_import()
 
     def test_signed_bytes_link_and_destination_tampering_remain_unverified(self):
-        for field in ('signed_vtxo', 'key_link_attestation', 'destination'):
+        for field in ('signed_vtxo', 'blinded_mailbox_id', 'destination'):
             with self.subTest(field=field):
                 changed = copy.deepcopy(self.bundle)
                 if field == 'destination': changed['coins'][0]['binding']['spk'] = '0014' + '0' * 40
@@ -168,7 +168,7 @@ class ProofImportTests(unittest.TestCase):
         audit = {'actor': 'actor-09', 'result': 'PUBLIC_SIGNATURE_BACKING_PASS', 'public_coin': self.reply}
         self.write(audit); _, native = self.collect(); self.assertEqual(0, native.await_count)
         self.assert_no_import()
-        partial = copy.deepcopy(self.bundle); del partial['coins'][0]['binding']['record_attestation']
+        partial = copy.deepcopy(self.bundle); del partial['coins'][0]['binding']['fallback_record']
         self.write(partial); _, native = self.collect(); self.assertEqual(0, native.await_count)
         self.assert_no_import()
         partial = copy.deepcopy(self.bundle); partial['coins'].append({'id': 'a' * 64 + ':0'})

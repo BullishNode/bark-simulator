@@ -13,7 +13,7 @@ from .process import json_command, public_command_capture
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS client_coin_candidate(id TEXT NOT NULL, actor TEXT NOT NULL REFERENCES actor(id), action_id TEXT NOT NULL REFERENCES action(id), digest TEXT NOT NULL, payload TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(id,digest));
 CREATE TABLE IF NOT EXISTS owner_key(pubkey TEXT PRIMARY KEY, actor TEXT NOT NULL REFERENCES actor(id), mailbox TEXT NOT NULL, proof TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS owner_record(actor TEXT NOT NULL REFERENCES actor(id), mailbox TEXT NOT NULL, seq INTEGER NOT NULL, script TEXT NOT NULL, proof TEXT NOT NULL, PRIMARY KEY(mailbox,seq));
+CREATE TABLE IF NOT EXISTS owner_record(actor TEXT NOT NULL REFERENCES actor(id), mailbox TEXT NOT NULL, account_xpub TEXT NOT NULL, script TEXT NOT NULL, proof TEXT NOT NULL, PRIMARY KEY(mailbox));
 CREATE TABLE IF NOT EXISTS owned_coin(id TEXT PRIMARY KEY, pubkey TEXT NOT NULL REFERENCES owner_key(pubkey), amount_sat INTEGER NOT NULL, signed_hash TEXT NOT NULL, signed_vtxo TEXT NOT NULL, proof TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS coin_observation(coin_id TEXT NOT NULL REFERENCES owned_coin(id), action_id TEXT NOT NULL REFERENCES action(id), state TEXT NOT NULL, observed_at REAL NOT NULL, PRIMARY KEY(coin_id,action_id));
 CREATE TABLE IF NOT EXISTS client_movement_candidate(actor TEXT NOT NULL REFERENCES actor(id), action_id TEXT NOT NULL REFERENCES action(id), movement_id TEXT NOT NULL, digest TEXT NOT NULL, payload TEXT NOT NULL, promoted INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(actor,movement_id,digest));
@@ -23,7 +23,24 @@ CREATE TABLE IF NOT EXISTS server_item(kind TEXT NOT NULL, id TEXT NOT NULL, pay
 CREATE TABLE IF NOT EXISTS server_item_version(kind TEXT NOT NULL, id TEXT NOT NULL, digest TEXT NOT NULL, payload TEXT NOT NULL, observed_at REAL NOT NULL, PRIMARY KEY(kind,id,digest));
 '''
 
-def initialize(store):store.db.executescript(SCHEMA)
+def initialize(store):
+    columns={row[1] for row in store.db.execute('PRAGMA table_info(owner_record)')}
+    if columns and 'account_xpub' not in columns:
+        raise ValueError('legacy mutable ownership database requires archived evidence and a fresh campaign namespace')
+    store.db.executescript(SCHEMA)
+
+def binding_matches(bound, source):
+    return all(bound.get(k) is not None and bound.get(k)==source.get(k)
+               for k in ('mailbox_pk','account_xpub','spk','fallback_record'))
+
+def account_origin_matches(proof, source):
+    bound=proof.get('binding',{})
+    return (bound.get('record_signature_valid') is True and bound.get('account_child_verified') is True
+        and type(bound.get('child_index')) is int and 0<=bound['child_index']<2**31
+        and bound.get('policy_pubkey_full')==source.get('user_pubkey')
+        and bound.get('child_index')==source.get('child_index')
+        and bound.get('blinded_mailbox_id')==source.get('blinded_mailbox_id'))
+
 def digest(value):return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 async def verify_client_evidence(store, actor, operation, data, proof_command):
@@ -37,11 +54,14 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
     binding=evidence.get('binding',data.get('binding'))
     if not isinstance(binding,dict):return None
     verified=[]
+    original_context=store.financial_context()
     if operation=='address':
-        request={k:data[k] for k in ('user_pubkey','key_link_attestation','binding')}
+        request={k:data[k] for k in ('user_pubkey','child_index','blinded_mailbox_id','binding')}
         proof=await json_command(list(proof_command),request,timeout=30,**public_command_capture(store,'proof.verify',request,actor=actor))
         if proof['user_pubkey']!=data['user_pubkey']:raise InvariantError('advertised key verification mismatch')
-        verified.append({'kind':'key','proof':proof})
+        proof={**proof,'financial_pins':original_context}
+        if not account_origin_matches(proof,data) or not binding_matches(proof.get('binding',{}),binding):raise InvariantError('advertised account origin mismatch')
+        verified.append({'kind':'key','proof':proof,'request_origin':data})
     for coin in evidence.get('coins',[]):
         request={**coin,'binding':binding}
         signed_hash=hashlib.sha256(bytes.fromhex(coin['signed_vtxo'])).hexdigest()
@@ -50,31 +70,36 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
             if old['pubkey']!=coin['user_pubkey'] or old['amount_sat']!=coin['amount_sat']:
                 raise InvariantError('immutable signed coin changed')
             cached=json.loads(old['proof'])
-            if old['signed_hash']==signed_hash and cached['binding']['mailbox_pk']==binding['mailbox_pk'] and cached['binding']['seq']==binding['seq'] and cached['binding']['spk']==binding['spk']:
+            if (old['signed_hash']==signed_hash and binding_matches(cached.get('binding',{}),binding)
+                    and account_origin_matches(cached,coin) and cached.get('financial_pins')==original_context):
                 proof=cached
             else:proof=await json_command(list(proof_command),request,timeout=30,**public_command_capture(store,'proof.verify',request,actor=actor))
         else:proof=await json_command(list(proof_command),request,timeout=30,**public_command_capture(store,'proof.verify',request,actor=actor))
+        proof={**proof,'financial_pins':original_context}
+        if not account_origin_matches(proof,coin) or not binding_matches(proof.get('binding',{}),binding):raise InvariantError('coin account origin mismatch')
         if (proof['id'],proof['user_pubkey'],proof['amount_sat'])!=(coin['id'],coin['user_pubkey'],integer(coin['amount_sat'],'coin amount',1)):
             raise InvariantError('independent coin evidence mismatch')
         if proof.get('signed_path_valid') is not True or proof.get('anchor_confirmations',0)<1:
             raise ValueError('backing not confirmed')
         verified.append({'kind':'coin','coin':coin,'proof':proof,'signed_hash':signed_hash,'request_binding':binding})
-    return {'objects':verified,'movements':evidence.get('movements',[])}
+    if store.financial_context()!=original_context:raise ValueError('financial build changed during original proof observation')
+    return {'objects':verified,'movements':evidence.get('movements',[]),'financial_pins':original_context}
 
 def record_verified(store, actor, action_id, verified):
     if verified is None:return
     with (nullcontext() if store.db.in_transaction else store.transaction()):
         for item in verified['objects']:
             proof=item['proof'];pub=proof['user_pubkey'];bound=proof['binding']
-            if bound.get('record_signature_valid') is not True or bound.get('key_link_signature_valid') is not True:
+            source=item.get('coin',item.get('request_origin',{}))
+            if not account_origin_matches(proof,source) or not all(bound.get(k) is not None for k in ('mailbox_pk','account_xpub','spk','fallback_record')):
                 raise InvariantError('unverified owner proof')
             old=store.db.execute('SELECT actor,mailbox FROM owner_key WHERE pubkey=?',(pub,)).fetchone()
             if old and (old['actor'],old['mailbox'])!=(actor,bound['mailbox_pk']):
                 raise InvariantError('coin key claimed by competing actors')
-            old_record=store.db.execute('SELECT script FROM owner_record WHERE mailbox=? AND seq=?',(bound['mailbox_pk'],bound['seq'])).fetchone()
-            if old_record and old_record['script']!=bound['spk']:raise InvariantError('same signed sequence has conflicting scripts')
+            old_record=store.db.execute('SELECT actor,script,account_xpub FROM owner_record WHERE mailbox=?',(bound['mailbox_pk'],)).fetchone()
+            if old_record and (old_record['actor'],old_record['script'],old_record['account_xpub'])!=(actor,bound['spk'],bound['account_xpub']):raise InvariantError('immutable wallet identity conflict')
             store.db.execute('INSERT OR IGNORE INTO owner_key VALUES (?,?,?,?)',(pub,actor,bound['mailbox_pk'],canonical(proof)))
-            store.db.execute('INSERT OR IGNORE INTO owner_record VALUES (?,?,?,?,?)',(actor,bound['mailbox_pk'],bound['seq'],bound['spk'],canonical(bound)))
+            store.db.execute('INSERT OR IGNORE INTO owner_record VALUES (?,?,?,?,?)',(actor,bound['mailbox_pk'],bound['account_xpub'],bound['spk'],canonical(bound)))
             if item['kind']=='coin':
                 coin=item['coin']
                 store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET signed_hash=excluded.signed_hash,signed_vtxo=excluded.signed_vtxo,proof=excluded.proof',
@@ -91,7 +116,7 @@ def record_verified(store, actor, action_id, verified):
                 for coin in ids:
                     store.db.execute('INSERT OR IGNORE INTO movement_edge VALUES (?,?,?,?)',(actor,movement['id'],coin,direction))
         store._event('public_ownership_verified',{'actor':actor,'action_id':action_id,'objects':len(verified['objects']),
-            'movements':len(verified['movements']),'scope':'signatures and confirmed backing; durable ownership/spend arbitration checked separately'})
+            'movements':len(verified['movements']),'financial_pins':verified.get('financial_pins'),'scope':'signatures and confirmed backing; durable ownership/spend arbitration checked separately'})
 
 def record_server_page(store, page):
     kind=page['kind'];fields={'coins':'vtxo_id','pending':'vtxo_id','links':'user_pubkey','settlements':'id','records':'mailbox_pk','nursery':'txid'}
@@ -159,8 +184,8 @@ def record_candidates(store, actor, action_id, data, verification_failed=False):
             cached=json.loads(old['proof']);bound=cached.get('binding',{})
             if (cached.get('signed_path_valid') is True and cached.get('anchor_confirmations',0)>=1
                     and cached.get('expiry_height')==coin['expiry_height']
-                    and bound.get('key_link_signature_valid') is True and bound.get('record_signature_valid') is True
-                    and all(bound.get(k)==binding.get(k) for k in ('mailbox_pk','seq','spk'))):
+                    and account_origin_matches(cached,coin) and binding_matches(bound,binding)
+                    and cached.get('financial_pins')==store.financial_context()):
                 continue
         store.db.execute('INSERT OR IGNORE INTO client_coin_candidate(id,actor,action_id,digest,payload) VALUES (?,?,?,?,?)',
             (coin['id'],actor,action_id,digest(value),canonical(value)))

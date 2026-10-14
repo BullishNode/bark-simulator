@@ -1,3 +1,4 @@
+from tests import account_fixtures
 """Public raw-chain replay rejects internally inconsistent exported evidence."""
 import hashlib
 import json
@@ -70,13 +71,13 @@ class BundleRawAuditTests(unittest.TestCase):
         from unittest.mock import patch
         from types import SimpleNamespace
         raw,txid=transaction()
-        bound={'mailbox_pk':'mailbox','seq':1,'spk':'0014','record_signature_valid':True,'key_link_signature_valid':True}
-        validated={'id':'coin','user_pubkey':'public-key','amount_sat':5000,'chain_anchor':txid+':0',
+        bound=account_fixtures.binding({'mailbox_pk':'mailbox','seq':1,'spk':'0014','record_signature_valid':True,'account_child_verified':True})
+        validated=account_fixtures.proof({'id':'coin','user_pubkey':'public-key','amount_sat':5000,'chain_anchor':txid+':0',
             'genesis':'genesis','server_pubkey':'server','path':[],'binding':bound,
-            'signed_path_valid':True,'anchor_confirmations':1}
-        request={'signed_vtxo':'aa','key_link_attestation':'link',
-                 'binding':{**bound,'record_attestation':'record'}}
-        coin={'id':'coin','pubkey':'public-key','amount_sat':6000,'signed_vtxo':'aa',
-              'proof':validated,'requests':[request]}
+            'signed_path_valid':True,'anchor_confirmations':1})
+        request={'signed_vtxo':'aa','child_index':0,'blinded_mailbox_id':'02'+'11'*32,
+                 'binding':bound}
+        coin=account_fixtures.coin({'id':'coin','pubkey':'public-key','amount_sat':6000,'signed_vtxo':'aa',
+              'proof':validated,'requests':[request]})
         with patch('simulator.bundle_audit.subprocess.run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(validated).encode())):
             with self.assertRaises(InvariantError):verify_native_proofs([coin],{txid:{'hex':raw,'info':{'confirmations':1}}},'public-verifier')

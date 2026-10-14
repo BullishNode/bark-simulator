@@ -1,3 +1,4 @@
+from tests import account_fixtures
 """Delegated intent lifetime: no wallet return or payout assumption is needed."""
 import asyncio
 import hashlib
@@ -27,15 +28,15 @@ class DelegatedEntitlementTests(unittest.TestCase):
         self.actor = 'actor-08'
         self.input_key = '02' + '11' * 32
         self.output_key = '02' + '22' * 32
-        self.binding = {'mailbox_pk':'mailbox','spk':'owner-script','seq':1,
-                        'record_signature_valid':True,'key_link_signature_valid':True}
+        self.binding = account_fixtures.binding({'mailbox_pk':'mailbox','spk':'owner-script','seq':1,
+                        'record_signature_valid':True,'account_child_verified':True})
         self.s.db.execute('INSERT INTO owner_key VALUES (?,?,?,?)',
                           (self.input_key,self.actor,'mailbox','{}'))
         self.s.db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)',
-                          (self.actor,'mailbox',1,'owner-script',canonical(self.binding)))
-        proof = {'id':'input','user_pubkey':self.input_key,'amount_sat':10000,
+                          (self.actor,'mailbox','synthetic-account','owner-script',canonical(self.binding)))
+        proof = account_fixtures.proof({'id':'input','user_pubkey':self.input_key,'amount_sat':10000,
                  'signed_path_valid':True,'anchor_confirmations':1,
-                 'chain_anchor':'a'*64+':0','binding':self.binding}
+                 'chain_anchor':'a'*64+':0','binding':self.binding})
         self.s.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',
                           ('input',self.input_key,10000,hashlib.sha256(bytes.fromhex('aa')).hexdigest(),'aa',canonical(proof)))
         self.proposal = {'committed_fee_sat':100,'participation':{
@@ -76,9 +77,9 @@ class DelegatedEntitlementTests(unittest.TestCase):
     def coin(self, name='replacement', pubkey=None, amount=9900, anchor=None, signed='bb', actor=None):
         pubkey = pubkey or self.output_key
         actor = actor or self.actor
-        proof = {'id':name,'user_pubkey':pubkey,'amount_sat':amount,'signed_path_valid':True,
+        proof = account_fixtures.proof({'id':name,'user_pubkey':pubkey,'amount_sat':amount,'signed_path_valid':True,
                  'anchor_confirmations':1,'chain_anchor':(anchor or 'b'*64)+':0',
-                 'expiry_height':1200,'binding':self.binding,'arkoor_transition_count':0}
+                 'expiry_height':1200,'binding':self.binding,'arkoor_transition_count':0})
         self.s.db.execute('INSERT OR IGNORE INTO owner_key VALUES (?,?,?,?)',
                           (pubkey,actor,'mailbox','{}'))
         self.s.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',

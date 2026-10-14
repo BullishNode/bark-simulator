@@ -39,7 +39,7 @@ from .unknown_outcomes import collect as collect_unknown
 from .exits import collect as collect_exits
 
 OPERATIONS = {"create", "snapshot", "sync", "address", "board", "send_arkoor", "refresh",
-              "refresh_delegated", "refresh_scheduled", "fallback_rotate", "exit", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES) | {"phase_execute_d17","phase_register_saved"}
+              "refresh_delegated", "refresh_scheduled", "fallback_record_check", "exit", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES) | {"phase_execute_d17","phase_register_saved"}
 
 
 def catalog():
@@ -223,7 +223,7 @@ class Engine:
                     or not self.store.ordinary_actor_available(target)):
                 self.store.finish(action['id'],'blocked',{'reason':'liquidity recipient became unavailable before native call'},0)
                 return True
-        if action['actor_id'] in {'actor-03','actor-09','actor-10'} and (action['operation'].startswith(('raw_protocol_','phase_execute_')) or action['operation'] in {'fallback_rotate','phase_register_saved'}):
+        if action['actor_id'] in {'actor-03','actor-09','actor-10'} and (action['operation'].startswith(('raw_protocol_','phase_execute_')) or action['operation'] in {'fallback_record_check','phase_register_saved'}):
             self.store.finish(action['id'],'blocked',{'reason':'original absent wallet must remain closed; no native call'},0)
             return True
         if action['operation'].startswith('phase_') and (not getattr(self.config,'phase_enabled',False) or not getattr(self.config,'phase_manifest_sha256',None) or action['args'].get('qualification_manifest_sha256')!=self.config.phase_manifest_sha256):

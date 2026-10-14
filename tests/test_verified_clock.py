@@ -1,3 +1,4 @@
+from tests import account_fixtures
 """Clock tests use explicit synthetic public proofs, never client wallet reads."""
 import json
 import tempfile
@@ -34,16 +35,16 @@ class VerifiedClockTests(unittest.TestCase):
 
     def address(self, identity, actor, destination, key):
         self.action(identity, actor, 'address', {}, {'address': destination, 'user_pubkey': key}, 100)
-        bound = {'mailbox_pk': actor, 'key_link_signature_valid': True, 'record_signature_valid': True}
+        bound = account_fixtures.binding({'mailbox_pk': actor, 'account_child_verified': True, 'record_signature_valid': True})
         self.store.db.execute('INSERT OR IGNORE INTO owner_key VALUES (?,?,?,?)',
             (key, actor, actor, canonical({'binding': bound})))
 
     def coin(self, identity, actor, key, amount, path, observation, at, proven=True):
-        bound = {'mailbox_pk': actor, 'key_link_signature_valid': True, 'record_signature_valid': True}
+        bound = account_fixtures.binding({'mailbox_pk': actor, 'account_child_verified': True, 'record_signature_valid': True})
         self.store.db.execute('INSERT OR IGNORE INTO owner_key VALUES (?,?,?,?)',
             (key, actor, actor, canonical({'binding': bound})))
-        proof = {'id': identity, 'user_pubkey': key, 'amount_sat': amount,
-            'signed_path_valid': proven, 'anchor_confirmations': 1, 'binding': bound, 'path': path}
+        proof = account_fixtures.proof({'id': identity, 'user_pubkey': key, 'amount_sat': amount,
+            'signed_path_valid': proven, 'anchor_confirmations': 1, 'binding': bound, 'path': path})
         self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',
             (identity, key, amount, 'hash', '00', canonical(proof)))
         if self.store.db.execute('SELECT 1 FROM action WHERE id=?', (observation,)).fetchone() is None:

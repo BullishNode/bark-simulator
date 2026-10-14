@@ -1,7 +1,7 @@
 mod exit;
 mod board_quote;
 mod native_intent;
-mod fallback_rotation;
+mod immutable_record;
 mod account_probes;
 mod scheduled_refresh;
 mod raw_guard;
@@ -370,7 +370,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         .context("actor name must be UTF-8")?;
     actor_index(actor)?;
     ensure!(!path.is_symlink(), "symlink actor directory");
-    if req.operation.starts_with("raw_protocol_") || req.operation.starts_with("phase_execute_") || matches!(req.operation.as_str(),"fallback_rotate"|"phase_register_saved") {
+    if req.operation.starts_with("raw_protocol_") || req.operation.starts_with("phase_execute_") || matches!(req.operation.as_str(),"fallback_record_check"|"phase_register_saved") {
         ensure!(!matches!(actor,"actor-03"|"actor-09"|"actor-10"),"original permanently absent wallet must stay closed");
         ensure!(network==Network::Signet,"declared protocol trials require signet");
     }
@@ -486,7 +486,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         operation if operation.starts_with("raw_protocol_")=>raw_protocol::execute(&wallet,&db,&mut rpc,req,path,actor).await,
 
         "exit" => exit::execute(&wallet,&mut rpc,path,req,network).await,
-        "fallback_rotate" => fallback_rotation::execute(&wallet,&mut rpc,path,req,network).await,
+        "fallback_record_check" => immutable_record::execute(&wallet,&mut rpc,path,req,network).await,
         "refresh_scheduled" => scheduled_refresh::execute(&wallet,path,req).await,
         "create" => {
             let fallback = wallet.fallback_destination().await?;

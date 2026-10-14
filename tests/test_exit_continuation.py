@@ -1,3 +1,4 @@
+from tests import account_fixtures
 """Known exits retain one authorization across block-driven continuation."""
 import hashlib
 import json
@@ -20,10 +21,10 @@ class ExitContinuationTests(unittest.IsolatedAsyncioTestCase):
         self.store = Store(root, 'synthetic', 10000); initialize(self.store)
         self.actor = 'actor-08'; self.coin_id = 'a' * 64 + ':0'
         key = '02' + '11' * 32
-        binding = {'mailbox_pk': 'mailbox', 'seq': 1, 'spk': 'owned', 'record_signature_valid': True, 'key_link_signature_valid': True}
-        self.store.db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)', (self.actor, 'mailbox', 1, 'owned', canonical(binding)))
+        binding = account_fixtures.binding({'mailbox_pk': 'mailbox', 'seq': 1, 'spk': 'owned', 'record_signature_valid': True, 'account_child_verified': True})
+        self.store.db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)', (self.actor, 'mailbox', 'synthetic-account', 'owned', canonical(binding)))
         self.store.db.execute('INSERT INTO owner_key VALUES (?,?,?,?)', (key, self.actor, 'mailbox', '{}'))
-        proof = {'id': self.coin_id, 'user_pubkey': key, 'amount_sat': 10000, 'signed_path_valid': True, 'anchor_confirmations': 1, 'binding': binding}
+        proof = account_fixtures.proof({'id': self.coin_id, 'user_pubkey': key, 'amount_sat': 10000, 'signed_path_valid': True, 'anchor_confirmations': 1, 'binding': binding})
         self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)', (self.coin_id, key, 10000, hashlib.sha256(bytes.fromhex('aa')).hexdigest(), 'aa', canonical(proof)))
         self.args = {'input_vtxo_ids': [self.coin_id], 'fee_rate_sat_per_vb': 1, 'fee_funding_outpoint': 'b' * 64 + ':0'}
         self.store.queue('original-exit', self.actor, 'H34', 'exit', self.args, 2000)

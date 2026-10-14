@@ -250,7 +250,7 @@ class CoverageStatusTests(unittest.TestCase):
         key = '02' + '11' * 32
         self.s.db.execute('INSERT INTO owner_key VALUES (?,?,?,?)',(key,'actor-01','mailbox','{}'))
         self.s.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',('paid',key,900,'digest','signed','{}'))
-        self.s.db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)',('actor-01','mailbox',1,'owner-script','{}'))
+        self.s.db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)',('actor-01','mailbox','synthetic-account','owner-script','{}'))
         self.s.db.execute('INSERT INTO coin_observation VALUES (?,?,?,?)',('paid','board','Spendable',1))
         self.s.db.execute('INSERT INTO checked_settlement VALUES (?,?,?,?,?,?)',('paid','payout','actor-01','owner-script',900,'{}'))
         self.s.db.execute('INSERT INTO chain_payout VALUES (?,?)',('payout',canonical({'txid':'payout','confirmations':1})))

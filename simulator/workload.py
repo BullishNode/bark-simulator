@@ -100,12 +100,12 @@ def record_actor_result(store: Store, actor: str, operation: str, data: dict):
             for key in ("funding_address", "fallback_script"):
                 if not isinstance(data[key], str) or not data[key]:
                     raise ValueError("missing wallet identity evidence")
-            integer(data["fallback_seq"], "fallback sequence")
-            details.update(created=True, needs_sync=True, **{k: data[k] for k in ("funding_address", "fallback_script", "fallback_seq", "binding") if k in data})
+            if not isinstance(data.get("account_xpub"),str) or not data["account_xpub"]:raise ValueError("missing immutable coin account")
+            details.update(created=True, needs_sync=True, **{k: data[k] for k in ("funding_address", "fallback_script", "account_xpub", "binding") if k in data})
         elif operation == "address":
             details["ark_address"] = data["address"]
             if "binding" in data:
-                details["advertised_key_proof"]={k:data[k] for k in ("user_pubkey","key_link_attestation","binding")}
+                details["advertised_key_proof"]={k:data[k] for k in ("user_pubkey","child_index","blinded_mailbox_id","binding")}
         elif operation == "snapshot":
             details["snapshot_at"] = time.time()
             details["registered_spendable_sat"] = integer(data["balance"]["spendable_sat"], "client spendable balance")
@@ -130,10 +130,9 @@ def record_actor_result(store: Store, actor: str, operation: str, data: dict):
         elif operation in {"send_arkoor","refresh","refresh_delegated","refresh_scheduled","offboard_all","pay_invoice"}:
             details["snapshot_at"] = 0
             details["needs_sync"] = True
-        elif operation == "fallback_rotate":
-            if data.get("exact_server_record_match") is not True:raise ValueError("fallback rotation is not confirmed")
-            integer(data["fallback_seq"],"fallback sequence")
-            details.update(fallback_script=data["fallback_script"],fallback_seq=data["fallback_seq"],snapshot_at=0)
+        elif operation == "fallback_record_check":
+            if data.get("exact_server_record_match") is not True or data.get("immutable_record_verified") is not True:raise ValueError("immutable record is not confirmed")
+            details.update(fallback_script=data["fallback_script"],account_xpub=data["account_xpub"],snapshot_at=0)
         elif operation == "invoice":
             details["latest_invoice"] = data["invoice"]
             details["invoice_at"] = time.time()

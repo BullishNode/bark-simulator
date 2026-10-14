@@ -60,24 +60,35 @@ fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Valu
     )?;
     let child = AccountChild::new(mailbox, child_index)?;
     child.verify_pubkey(&record.account_xpub, coin_pk)?;
-    let original_blinded = request["blinded_mailbox_id"]
-        .as_str()
-        .context("missing original blinded mailbox")?;
+    let stored_admission = request["origin_kind"].as_str() == Some("trusted_server_admission");
     ensure!(
-        original_blinded.len() == 66,
-        "compressed blinded mailbox required"
+        !stored_admission || request.get("signed_vtxo").is_none(),
+        "a database admission reference cannot replace original funded-coin provenance"
     );
-    let blinded = PublicKey::from_str(original_blinded)?;
-    ensure!(
-        blinded.to_string() == original_blinded,
-        "canonical blinded mailbox encoding required"
-    );
+    let original_blinded = if stored_admission {
+        ensure!(
+            request.get("blinded_mailbox_id").is_none(),
+            "server admission must not fabricate original B"
+        );
+        Value::Null
+    } else {
+        let original = request["blinded_mailbox_id"]
+            .as_str()
+            .context("missing original blinded mailbox")?;
+        ensure!(original.len() == 66, "compressed blinded mailbox required");
+        let blinded = PublicKey::from_str(original)?;
+        ensure!(
+            blinded.to_string() == original,
+            "canonical blinded mailbox encoding required"
+        );
+        Value::String(original.to_owned())
+    };
     Ok(
         json!({"mailbox_pk":mailbox.to_string(),"spk":record.spk.to_hex_string(),
         "account_xpub":record.account_xpub.to_string(),"fallback_record":b["fallback_record"],
         "child_index":child_index,"policy_pubkey_full":coin_pk.to_string(),"blinded_mailbox_id":original_blinded,
-        "record_signature_valid":true,"account_child_verified":true,
-        "validation_scope":"both immutable record signatures and exact full compressed account child verified; original B retained but not publicly unblinded; trusted server admission MB/index, seed/index0 ownership, arbitration and settlement remain separate"}),
+        "record_signature_valid":true,"account_child_verified":true,"origin_kind":if stored_admission {"trusted_server_admission"}else{"original_client_hint"},
+        "validation_scope":if stored_admission {"record signatures and exact full account child; supplied trusted DB mailbox/index must be checked against the consistent bridge separately; no original B or funded coin asserted"}else{"both immutable record signatures and exact full compressed account child verified; original B retained but not publicly unblinded; trusted server admission MB/index, seed/index0 ownership, arbitration and settlement remain separate"}}),
     )
 }
 fn verify() -> Result<()> {
@@ -218,6 +229,21 @@ mod tests {
         bad.as_object_mut().unwrap().remove("child_index");
         assert!(binding(&bad, c, Network::Regtest).is_err());
         assert!(binding(&json!({}), c, Network::Regtest).is_err());
+    }
+    #[test]
+    fn stored_admission_never_fabricates_client_blinding_or_funded_coin_proof() {
+        let (mut request, coin) = fixture();
+        request["origin_kind"] = json!("trusted_server_admission");
+        assert!(binding(&request, coin, Network::Regtest).is_err());
+        request
+            .as_object_mut()
+            .unwrap()
+            .remove("blinded_mailbox_id");
+        let proof = binding(&request, coin, Network::Regtest).unwrap();
+        assert!(proof["blinded_mailbox_id"].is_null());
+        assert_eq!(proof["origin_kind"], "trusted_server_admission");
+        request["signed_vtxo"] = json!("aa");
+        assert!(binding(&request, coin, Network::Regtest).is_err());
     }
     #[test]
     fn rejects_wrong_registered_account_child() {
