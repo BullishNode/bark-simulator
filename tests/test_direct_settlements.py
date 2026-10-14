@@ -1,5 +1,7 @@
 """Synthetic independent-oracle contracts; these do not earn native money credit."""
-import copy,json,tempfile,unittest
+import asyncio,copy,json,tempfile,unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock,patch
 from pathlib import Path
 from simulator.store import Store
 from simulator.direct_settlements import frame,record,check_group,commit_checked
@@ -48,6 +50,25 @@ class DirectSettlementTests(unittest.TestCase):
         self.assertEqual(1124,result['accounting']['mining_fee_sat'])
         commit_checked(self.store,result,self.tx)
         self.assertEqual(19000,self.store.db.execute('SELECT amount_sat FROM checked_settlement').fetchone()[0])
+    def test_extra_authenticated_backing_root_is_not_a_consumed_prefix(self):
+        self.carrier['backing_ids'].append(self.customer)
+        with self.assertRaises(EvidenceGap):self.check()
+    def test_an_unknown_replacement_lookup_cannot_credit_the_visible_winner(self):
+        from simulator.direct_settlements import collect
+        replacement={**self.carrier,'txid':'99'*32,'generation':2,'confirmed_height':None,'confirmed_block':None}
+        self.value['rows']['carriers'].append(replacement)
+        self.value['rows']['mappings'] += [{**m,'txid':replacement['txid']} for m in list(self.value['rows']['mappings'])]
+        fixture=self
+        class Chain:
+            def transaction(self,txid):
+                if txid==replacement['txid']:raise TimeoutError('bounded owned Core observation timed out')
+                return fixture.tx
+        with patch('simulator.direct_settlements.json_command',new=AsyncMock(return_value=self.value)):
+            count=asyncio.run(collect(self.store,SimpleNamespace(inventory_command=('owned-fixture',)),Chain()))
+        self.assertEqual(0,count)
+        self.assertEqual(0,self.store.db.execute('SELECT COUNT(*) FROM checked_settlement').fetchone()[0])
+        state=self.store.db.execute('SELECT state,payload FROM direct_check').fetchone()
+        self.assertEqual('pending',state[0]);self.assertIn('unknown',json.loads(state[1])['reason'])
     def test_flat_fee_surplus_can_exceed_miner_fee(self):
         self.tx['outputs'][1]['amount_sat']=1900;self.carrier['miner_fee_sat']=100
         self.assertEqual(900,self.check()['accounting']['flat_fee_surplus_sat'])

@@ -161,7 +161,7 @@ def check_group(store,value,freeze,transactions):
             raise InvariantError('declared fee input differs from actual prevout')
         if item['script_pubkey'] not in operator_scripts:raise EvidenceGap('fee input owning-wallet descriptor unverified')
         expected_inputs.add(point)
-    if not (actual_points-expected_inputs) or not (actual_points-expected_inputs)<=known_source_points:
+    if not (actual_points-expected_inputs) or (actual_points-expected_inputs)!=known_source_points:
         raise EvidenceGap('carrier inputs do not consume independently proved backing roots')
     customer_scripts={leaf['script'] for leaf in leaves}
     if any(o['script'] not in customer_scripts|operator_scripts for o in tx['outputs']):
@@ -226,10 +226,10 @@ async def collect(store,config,chain,limit=2):
             transactions={}
             for txid in versions:
                 try:transactions[txid]=await asyncio.to_thread(chain.transaction,txid)
-                except Exception:
-                    # Absent versions may be durable but never submitted, or
-                    # replaced. They remain in the complete retained journal.
-                    continue
+                except Exception as error:
+                    # Existing ChainReader errors do not establish authoritative
+                    # absence or a mutually conflicting signed input set.
+                    raise EvidenceGap('carrier version outcome unknown: '+type(error).__name__) from error
             result=check_group(store,observed,freeze,transactions)
             commit_checked(store,result,transactions[result['txid']]);checked+=1
         except InvariantError:raise
