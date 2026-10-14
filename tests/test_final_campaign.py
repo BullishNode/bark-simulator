@@ -138,11 +138,8 @@ class FinalEpochEvidenceTests(unittest.TestCase):
         return self.credit('internal_lightning','claim',seq)
 
     def external(self, at=103):
-        payment='b'*64
-        self.action('external','pay_invoice',at=at,data={'payment_hash':payment})
-        sequence=self.event('controlled_peer_payment_verified',{'action_id':'external','payment_hash':payment,
-            'state':'succeeded','direction':'send','peer_pubkey':'02'+'6'*64,
-            'peer_outcome_checked':True,'verified_at':at})
+        from tests.controlled_peer_fixture import external_send
+        sequence=external_send(self,at)
         return self.credit('external_lightning','external',sequence)
 
     def test_each_rail_and_exact_live_pins_required(self):

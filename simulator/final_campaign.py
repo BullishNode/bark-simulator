@@ -198,14 +198,13 @@ def record_traffic(store, rail, action_id, source_sequence, observed_pins):
                 raise ValueError('receive invoice differs from intended original hash')
         verified_at = event['observed_at']
     else:
-        if (event['kind'] != 'controlled_peer_payment_verified' or proof.get('state') != 'succeeded'
-                or proof.get('payment_hash') != json.loads(action['result'])['data'].get('payment_hash')
-                or proof.get('direction') not in {'send','receive'}
-                or proof.get('peer_outcome_checked') is not True
-                or not isinstance(proof.get('peer_pubkey'),str)
-                or re.fullmatch('(02|03)[0-9a-f]{64}',proof['peer_pubkey']) is None):
+        if event['kind'] != 'controlled_peer_payment_verified':
             raise ValueError('independently checked controlled external peer outcome required')
-        verified_at = timestamp(proof['verified_at'],'original peer observation')
+        from .controlled_peer_evidence import verify_referenced_external
+        try:
+            verified_at = verify_referenced_external(store, action, proof)
+        except (KeyError, TypeError) as error:
+            raise ValueError('original controlled external references missing') from error
     if not declaration['started_at'] <= verified_at <= event['observed_at']:
         raise ValueError('proof time outside final epoch or later than source event')
     frame = {'epoch_id':declaration['id'],'pins':declaration['pins'],'rail':rail,
