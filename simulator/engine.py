@@ -89,9 +89,21 @@ class Engine:
 
     def ready_for_actions(self, snapshot):
         age = time.time() - timestamp(snapshot["observed_at"], "snapshot time")
-        return (0 <= age <= 90 and snapshot.get("stable_tip") is True
-                and snapshot.get("initial_block_download") is False
-                and snapshot.get("server_status", {}).get("status") == "running")
+        healthy = (0 <= age <= 90 and snapshot.get("stable_tip") is True
+                   and snapshot.get("initial_block_download") is False
+                   and snapshot.get("server_status", {}).get("status") == "running")
+        if not healthy:
+            return False
+        if (self.store.get_meta('final_financial_epoch') is not None
+                or self.store.get_meta('financial_qualification_required') is not None):
+            from .operating_limits import preflight
+            try:
+                # Sync/claim progression can continue under its own explicit limits
+                # while an ordinary fee spike holds new financial actions.
+                return preflight(self.store,self.config,snapshot,operation='progression')['allowed']
+            except ValueError:
+                return False
+        return True
 
     async def noah_action(self,adapter,actor,identifier,operation,args,maximum_fee_sat):
         """Explicit Noah jobs use the existing queue, native driver and fee holds.
@@ -134,6 +146,13 @@ class Engine:
                 **public_command_capture(self.store,'pool.status',{'kind':'pool_status'},action_id=identifier))
             if not pool_ready({**snapshot,'pool_status':pool},args.get('amount_sat',0)):
                 raise ValueError('confirmed usable pool is not proven')
+        if (self.store.get_meta('final_financial_epoch') is not None
+                or self.store.get_meta('financial_qualification_required') is not None):
+            from .operating_limits import preflight
+            decision=preflight(self.store,self.config,snapshot,
+                operation='claim' if operation=='claim_lightning' else operation,
+                amount_sat=args.get('amount_sat',0),maximum_fee_sat=maximum_fee_sat)
+            if not decision['allowed']:raise ValueError(decision['reason'])
         old=self.store.db.execute('SELECT state FROM action WHERE id=?',(identifier,)).fetchone()
         if old:raise ValueError('native job already attempted; reconcile original action')
         request={'actor_dir':str(wallet),'operation':operation,'action_id':identifier,'args':args,
@@ -233,6 +252,19 @@ class Engine:
                 return True
             if not pool_ready(snapshot,action['args'].get('amount_sat',0)):
                 self.store.finish(action['id'],'blocked',{'reason':'confirmed usable pool is not proven','pool_status':pool},0)
+                return True
+        if (self.store.get_meta('final_financial_epoch') is not None
+                or self.store.get_meta('financial_qualification_required') is not None):
+            from .operating_limits import preflight
+            operation = 'progression' if action['operation']=='sync' else action['operation']
+            try:
+                decision=preflight(self.store,self.config,snapshot,operation=operation,
+                    amount_sat=action['args'].get('amount_sat',0),maximum_fee_sat=action['fee_reservation_sat'],
+                    reserved_action_id=action['id'])
+                if not decision['allowed']:
+                    raise ValueError(decision['reason'])
+            except ValueError as error:
+                self.store.finish(action['id'],'blocked',{'reason':str(error),'scope':'financial preflight; no native call'},0)
                 return True
         context = {"snapshot_id":latest["id"] if latest else None, "height":snapshot.get("height"),
                    "tip_hash":snapshot.get("tip_hash"), "mode":self.store.get_meta("mode")}
@@ -360,6 +392,18 @@ class Engine:
 
     def prepare_campaign_funding(self,snapshot):
         if self.config.workload!="continuous" or not self.config.funding_wallet or not self.config.active or self.store.get_meta("paused"):return
+        if (self.store.get_meta('final_financial_epoch') is not None
+                or self.store.get_meta('financial_qualification_required') is not None):
+            from .operating_limits import envelope,preflight
+            try:
+                declared=envelope(self.store,self.config)
+                if declared['grant_sat']!=8000:
+                    raise ValueError('funding implementation is pinned to explicit 8000-sat grants')
+                if not preflight(self.store,self.config,snapshot,maximum_fee_sat=3000)['allowed']:
+                    return
+            except ValueError as error:
+                self.store.event('fixture_funding_held',{'reason':str(error),'scope':'financial preflight; no funding call'})
+                return
         for batch,start,end in [("initial",1,12),("ramp",13,24)]:
             if batch=="ramp" and self.store.get_meta("ramp_applied")!="true":continue
             rows=self.store.db.execute("SELECT details FROM actor WHERE id>=? AND id<=?",(f"actor-{start:02}",f"actor-{end:02}")).fetchall()
