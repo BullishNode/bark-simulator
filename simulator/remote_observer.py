@@ -97,8 +97,13 @@ async def collect(args):
     except Exception as error:pool_status={'complete':False,'reason':type(error).__name__}
     if genesis!=SIGNET_GENESIS or remote['genesis']!=SIGNET_GENESIS or remote['network']!='signet':raise ValueError('independent/target genesis mismatch')
     if info.get('status')!='ok' or info['data']['network']!='signet' or info['data']['server_pubkey']!=args.server_pubkey:raise ValueError('server handshake mismatch')
-    points=remote['wallet']['rounds']['confirmed_utxos'];value=None;gap=None;owned_scripts=[]
-    if len(points)>256 or len(points)!=len(set(points)):gap='inventory cap/duplicates; incremental chain inventory required'
+    wallet=remote.get('wallet')
+    rounds=wallet.get('rounds') if isinstance(wallet,dict) else None
+    points=rounds['confirmed_utxos'] if rounds is not None else None
+    trusted=integer(rounds['trusted_balance'],'trusted rounds balance') if rounds is not None else None
+    value=None;gap=None;owned_scripts=[]
+    if points is None:gap=remote.get('wallet_scope') or 'read-only signer wallet inventory unavailable'
+    elif len(points)>256 or len(points)!=len(set(points)):gap='inventory cap/duplicates; incremental chain inventory required'
     elif before['blocks']!=remote['height'] or before['bestblockhash']!=remote['tip_hash']:gap='independent and server chain tips differ'
     else:
         semaphore=asyncio.Semaphore(4)
@@ -122,7 +127,7 @@ async def collect(args):
         'identity':{'network':'signet','genesis':genesis,'container':remote['container'],'image_digest':remote['server_status']['image_digest'],'server_pubkey':info['data']['server_pubkey']},
         'stable_tip':stable,'initial_block_download':ending['initialblockdownload'] or remote['initial_block_download'],
         'server_status':remote['server_status'],'rounds_confirmed_sat':value,'confirmed_inventory_gap':gap,'rounds_owned_scripts':owned_scripts if stable else [],
-        'rounds_trusted_sat':integer(remote['wallet']['rounds']['trusted_balance'],'trusted rounds balance'),
+        'rounds_trusted_sat':trusted,
         'timings':{'payout_enabled':remote['timings']['enabled'],'min_payout_sat':remote['timings']['min_payout_sat'],
             'grace_blocks':remote['timings']['grace_blocks'],'sweep_min_confs':remote['timings']['sweep_min_confs'],
             **{k:info['data'][k] for k in ['vtxo_lifetime','required_board_confirmations','round_interval_secs']}},
