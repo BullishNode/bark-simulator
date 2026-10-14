@@ -98,6 +98,26 @@ class Engine:
         else:
             await collect_direct_settlements(self.store,self.config,chain)
 
+    async def refresh_financial_sources(self):
+        """Observe before admission; partial facts never replace full preflight."""
+        if not self._requires_financial_qualification():return True
+        try:
+            last=float(self.store.get_meta('financial_partial_observed_at') or '0')
+            if 0<=time.time()-last<60:return True
+            if len(self.config.proof_command)!=4:
+                raise ValueError('independent Core observer unavailable')
+            chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],
+                self.config.expected_genesis,capture=self.store.trace_sample,consumer='financial-readiness')
+            from .financial_observer import collect_partial
+            result=await collect_partial(self.store,self.config,chain)
+            if result.get('independent_same_tip') is not True:
+                raise ValueError('financial source and independent chain disagree')
+            self.store.db.execute("INSERT OR REPLACE INTO meta VALUES('financial_partial_observed_at',?)",(str(time.time()),))
+            return True
+        except Exception as error:
+            self.store.event('financial_source_gap',{'reason':type(error).__name__,'qualified':False})
+            return False
+
     def raw_capture(self, kind, *, actor=None, action_id=None, context=None):
         def capture(record):
             raw=record['raw'];payload={key:value for key,value in record.items() if key!='raw'}
@@ -488,7 +508,8 @@ class Engine:
                                          "rounds_confirmed_sat": None, "error": type(error).__name__})
                 # Never dispatch actions after failed identity or unavailable observation.
             else:
-                ready = self.ready_for_actions(snapshot)
+                sources_observed = await self.refresh_financial_sources()
+                ready = sources_observed and self.ready_for_actions(snapshot)
                 if self.config.active and not ready:
                     self.store.event("dispatch_held", {"reason": "snapshot is stale, unstable, unhealthy or lacks readiness evidence"})
                 if self.config.active and ready and self.config.workload == "pilot":
@@ -534,15 +555,6 @@ class Engine:
                             await collect_padding_backing(self.store,chain,self.config.server_policy_command,self.config.expected_server_pubkey,limit=2)
                         except InvariantError:raise
                         except Exception as error:self.store.event('padding_backing_gap',{'reason':type(error).__name__})
-                    if self._requires_financial_qualification():
-                        last=float(self.store.get_meta('financial_partial_observed_at') or '0')
-                        if not 0<=time.time()-last<120:
-                            try:
-                                from .financial_observer import collect_partial
-                                await collect_partial(self.store,self.config,chain)
-                            except Exception as error:
-                                self.store.event('financial_source_gap',{'reason':type(error).__name__,'qualified':False})
-                            self.store.db.execute("INSERT OR REPLACE INTO meta VALUES('financial_partial_observed_at',?)",(str(time.time()),))
                     chain.consumer='operator-ownership'
                     await collect_operator_scripts(self.store,self.config,chain)
                     chain.consumer='settlements'
