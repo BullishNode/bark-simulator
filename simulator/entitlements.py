@@ -14,8 +14,10 @@ from collections import Counter
 from contextlib import nullcontext
 
 from .fees import movement_fee
+from .architecture import profile, TWO_STEP
+from .final_campaign import epoch
 from .model import InvariantError, canonical, integer
-from .ownership import EvidenceGap
+from .ownership import EvidenceGap, proof_matches_profile
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS delegated_entitlement(
@@ -82,13 +84,22 @@ def _coin(store, coin_id, actor):
         raise InvariantError('delegated signed coin identity or value changed')
     binding = proof.get('binding') or {}
     if ((proof.get('authorization_path_valid') is not True and proof.get('signed_path_valid') is not True) or proof.get('anchor_confirmations',0)<1
-            or binding.get('record_signature_valid') is not True
-            or binding.get('account_child_verified') is not True):
+            or binding.get('record_signature_valid') is not True):
         raise EvidenceGap('delegated coin signature or backing proof is incomplete')
-    if (binding.get('mailbox_pk') != coin['mailbox'] or not store.db.execute("""SELECT 1 FROM owner_record
-            WHERE actor=? AND mailbox=? AND account_xpub=? AND script=?""",
-            (actor,coin['mailbox'],binding.get('account_xpub'),binding.get('spk'))).fetchone()):
+    legacy = profile(store) == TWO_STEP
+    if legacy:
+        if not proof_matches_profile(store,proof,{'user_pubkey':coin['pubkey']}):
+            raise EvidenceGap('delegated coin ownership origin differs from campaign profile')
+    elif binding.get('account_child_verified') is not True:
+        raise EvidenceGap('delegated coin signature or backing proof is incomplete')
+    record_key = 'seq' if legacy else 'account_xpub'
+    if (binding.get('mailbox_pk') != coin['mailbox'] or not store.db.execute(f"""SELECT 1 FROM owner_record
+            WHERE actor=? AND mailbox=? AND {record_key}=? AND script=?""",
+            (actor,coin['mailbox'],binding.get(record_key),binding.get('spk'))).fetchone()):
         raise EvidenceGap('delegated coin lacks its verified owner record')
+    final = epoch(store)
+    if final is not None and proof.get('financial_pins') != final['pins']:
+        raise EvidenceGap('delegated signed coin proof differs from final financial epoch')
     if hashlib.sha256(bytes.fromhex(coin['signed_vtxo'])).hexdigest() != coin['signed_hash']:
         raise InvariantError('delegated signed coin bytes differ from their proof digest')
     return coin, proof
