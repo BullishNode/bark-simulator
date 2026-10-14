@@ -56,3 +56,19 @@ class OperatingLimitsTests(TreasuryFixture,unittest.TestCase):
         changed=copy.deepcopy(self.limits);changed['fee_assets']=['b'*64+':0']
         with self.assertRaisesRegex(ValueError,'actual confirmed operator'):
             declare_envelope(self.store,changed,self.config,self.inventories,self.chain)
+
+    def test_live_channel_from_undeclared_nodes_does_not_authorize_lightning(self):
+        from simulator.model import SIGNET_GENESIS
+        snapshot=self.readiness();stamp=time.time()
+        snapshot.update({'identity':{'genesis':SIGNET_GENESIS,'server_pubkey':'02'+'2'*64},
+            'capabilities':{'lightning_configured':True},
+            'pool_status':{'schema_version':1,'complete':True,'stable_tip':True,'observed_at':stamp,
+                'genesis':SIGNET_GENESIS,'server_pubkey':'02'+'2'*64,'height':100,'tip_hash':'tip',
+                'pool_pre_expiry_blocks':3,'pool':{'minimum_eligible_expiry_height':106,'confirmed_eligible_count':2,'confirmed_eligible_amount_sat':1000}},
+            'lightning':{}})
+        for role,node,other in [('operator','foreign-operator','foreign-peer'),('fixture_peer','foreign-peer','foreign-operator')]:
+            snapshot['lightning'][role]={'node_id':node,'fully_synced':True,'blockheight':100,
+                'channels':[{'state':'CHANNELD_NORMAL','peer_id':other,'spendable_msat':1000000,'receivable_msat':1000000,
+                    'channel_id':'foreign-channel','funding_txid':'c'*64,'funding_outnum':0}]}
+        with self.assertRaisesRegex(ValueError,'declared treasury'):
+            preflight(self.store,self.config,snapshot,operation='pay_invoice',amount_sat=100,maximum_fee_sat=200)
