@@ -44,11 +44,13 @@ def declare_envelope(store,declaration,config,inventory_sequences,chain):
     validate(declaration,config);treasury=boundary(store)
     if declaration['boundary_id']!=treasury['id'] or declaration['pins']!=treasury['pins']:
         raise ValueError('operating envelope differs from declared actual treasury')
+    members={member['id']:member for member in treasury['members']}
     assets=capture_assets(store,inventory_sequences,chain)
     funded=0
     for identifier in declaration['fee_assets']:
         asset=assets['assets'].get(identifier)
-        if not asset or asset['role']!='operator' or identifier!=asset['backing_outpoint']:
+        if (not asset or asset['role']!='operator' or identifier!=asset['backing_outpoint']
+                or members[asset['member']]['kind']!='wallet'):
             raise ValueError('fee funding must be actual confirmed operator chain funds')
         funded+=asset['amount_msat']
     if funded<sum(declaration['fee_budgets_msat'].values()):
