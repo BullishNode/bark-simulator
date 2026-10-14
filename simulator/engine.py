@@ -63,7 +63,13 @@ class Engine:
             store.attach_trace(config.trace_retention_days)
             # Verify and open retained trace history before any subprocess timeout.
             store.trace_capture('supervisor.start',{})
-        self.campaign_clock=CampaignClock(store,RampPlan()) if config.workload=="continuous" else None
+        ramp=RampPlan()
+        if store.get_meta('fixture_funding_plan') is not None:
+            from .funding import plan
+            declared=plan(store)
+            ramp=RampPlan(initial_clients=declared['initial_clients'],added_clients=declared['ramp_clients'],
+                          funding_per_added_client_sat=declared['grant_sat'])
+        self.campaign_clock=CampaignClock(store,ramp) if config.workload=="continuous" else None
         self.recovery=RecoveryController(store,config) if config.recovery_command else None
 
     def raw_capture(self, kind, *, actor=None, action_id=None, context=None):
@@ -397,9 +403,11 @@ class Engine:
             from .operating_limits import envelope,preflight
             try:
                 declared=envelope(self.store,self.config)
-                if declared['grant_sat']!=8000:
-                    raise ValueError('funding implementation is pinned to explicit 8000-sat grants')
-                if not preflight(self.store,self.config,snapshot,maximum_fee_sat=3000)['allowed']:
+                from .funding import plan
+                funding_plan=plan(self.store)
+                if declared['grant_sat']!=funding_plan['grant_sat']:
+                    raise ValueError('funding grants differ from financial envelope')
+                if not preflight(self.store,self.config,snapshot,maximum_fee_sat=funding_plan['batch_maximum_fee_sat'])['allowed']:
                     return
             except ValueError as error:
                 self.store.event('fixture_funding_held',{'reason':str(error),'scope':'financial preflight; no funding call'})

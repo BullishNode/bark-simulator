@@ -32,22 +32,67 @@ class WalletRpc:
         if r.get('error'):raise ValueError('funding RPC unavailable/rejected')
         return r['result']
 
-def fund(store,rpc,batch,amount_sat=8000,maximum_fee_sat=3000):
+def declare_plan(store,declaration):
+    """Immutable fresh-campaign allocation; never rewrite an old R&D plan."""
+    from .model import public_payload
+    fields={'id','initial_clients','ramp_clients','grant_sat','batch_maximum_fee_sat',
+            'maximum_total_principal_sat','maximum_total_fee_sat','fee_rate_sat_kvb'}
+    if not isinstance(declaration,dict) or set(declaration)!=fields or not declaration['id']:
+        raise ValueError('explicit complete funding declaration required')
+    public_payload(declaration)
+    for field in fields-{'id'}:integer(declaration[field],field,1)
+    if declaration['initial_clients']!=12 or declaration['ramp_clients']!=12:
+        raise ValueError('declared campaign requires twelve initial and twelve added clients')
+    if 24*declaration['grant_sat']>declaration['maximum_total_principal_sat']:
+        raise ValueError('declared grants exceed total principal cap')
+    if 2*declaration['batch_maximum_fee_sat']>declaration['maximum_total_fee_sat']:
+        raise ValueError('declared batch fee limits exceed total funding fee cap')
+    encoded=canonical(declaration)
+    with store.transaction():
+        old=store.get_meta('fixture_funding_plan')
+        if old is not None:
+            if old!=encoded:raise ValueError('funding plan immutable; use fresh namespace')
+            return False
+        if not store.get_meta('paused'):raise ValueError('pause before declaring funding')
+        if store.get_meta('mode')=='live':
+            from .treasury import boundary
+            from .operating_limits import KEY
+            boundary(store)
+            financial=store.get_meta(KEY)
+            if financial is None or json.loads(financial)['grant_sat']!=declaration['grant_sat']:
+                raise ValueError('live grants differ from actual financial envelope')
+        if store.db.execute("SELECT 1 FROM event WHERE kind IN ('fixture_funding_intent','fixture_funding_broadcast_intent') LIMIT 1").fetchone():
+            raise ValueError('funding must be declared before first allocation')
+        store.db.execute("INSERT INTO meta VALUES ('fixture_funding_plan',?)",(encoded,))
+        store._event('fixture_funding_declared',{'plan':declaration,'future_inflows_must_be_recorded':True})
+    return True
+
+
+def plan(store):
+    encoded=store.get_meta('fixture_funding_plan')
+    if encoded is None:raise ValueError('explicit immutable funding plan missing')
+    declaration=json.loads(encoded)
+    # An old plan cannot be silently treated as a new grant declaration.
+    if set(declaration)!={'id','initial_clients','ramp_clients','grant_sat','batch_maximum_fee_sat',
+                           'maximum_total_principal_sat','maximum_total_fee_sat','fee_rate_sat_kvb'}:
+        raise ValueError('preserve old campaign; new funding requires fresh namespace')
+    rows=store.db.execute("SELECT payload FROM event WHERE kind='fixture_funding_declared'").fetchall()
+    if len(rows)!=1 or json.loads(rows[0][0]).get('plan')!=declaration:
+        raise ValueError('funding plan differs from original immutable declaration')
+    return declaration
+
+
+def fund(store,rpc,batch,amount_sat=None,maximum_fee_sat=None):
     if store.get_meta('paused'):raise ValueError('campaign paused; no new funding')
-    integer(amount_sat,'client allocation',1);integer(maximum_fee_sat,'funding fee cap',1)
+    declaration=plan(store)
+    amount_sat=declaration['grant_sat'] if amount_sat is None else integer(amount_sat,'client allocation',1)
+    maximum_fee_sat=declaration['batch_maximum_fee_sat'] if maximum_fee_sat is None else integer(maximum_fee_sat,'funding fee cap',1)
+    if amount_sat!=declaration['grant_sat'] or maximum_fee_sat!=declaration['batch_maximum_fee_sat']:
+        raise ValueError('requested grant or fee differs from immutable funding declaration')
     if batch not in {'initial','ramp'}:raise ValueError('invalid cohort')
-    if amount_sat!=8000 or maximum_fee_sat!=3000:raise ValueError('funding differs from the fixed 12+12 budget-adjusted declaration')
     if rpc.call('getblockhash',0,root=True)!=SIGNET_GENESIS:raise ValueError('funding chain mismatch')
     chain=rpc.call('getblockchaininfo',root=True)
     if chain['initialblockdownload']:raise ValueError('funding held until independent Core sync')
-    declaration=canonical({'initial_principal_sat':96000,'ramp_principal_sat':96000,'maximum_total_funding_fee_sat':6000,'classification':'fixture customer grants'})
-    with store.transaction():
-        plan=store.get_meta('fixture_funding_plan')
-        if plan is not None and plan!=declaration:raise ValueError('funding plan changed')
-        if plan is None:
-            opening=btc_to_sat(rpc.call('getbalances')['mine']['trusted'])
-            store.db.execute("INSERT INTO meta VALUES ('fixture_funding_plan',?)",(declaration,))
-            store._event('fixture_funding_declared',{'plan':json.loads(declaration),'opening_confirmed_funding_wallet_sat':opening,'future_inflows_must_be_recorded':True})
     store.db.execute('''CREATE TABLE IF NOT EXISTS funding_batch(id TEXT PRIMARY KEY, state TEXT NOT NULL, recipients TEXT NOT NULL, txid TEXT, raw_tx TEXT, fee_sat INTEGER, updated_at REAL NOT NULL)''')
     first,last=(1,12) if batch=='initial' else (13,24)
     if batch=='ramp' and store.get_meta('ramp_applied')!='true':raise ValueError('ramp has not occurred')
@@ -89,7 +134,7 @@ def fund(store,rpc,batch,amount_sat=8000,maximum_fee_sat=3000):
     if old['state']=='intent':
         available()
         outputs=[{r['address']:str(Decimal(r['amount_sat'])/100000000)} for r in recipients]
-        prepared=rpc.call('walletcreatefundedpsbt',[],outputs,0,{'fee_rate':'3','lockUnspents':False,'add_inputs':True})
+        prepared=rpc.call('walletcreatefundedpsbt',[],outputs,0,{'fee_rate':str(Decimal(declaration['fee_rate_sat_kvb'])/1000),'minconf':1,'lockUnspents':False,'add_inputs':True})
         fee=btc_to_sat(prepared['fee'])
         if fee>maximum_fee_sat:raise ValueError('funding fee exceeds cap; no inputs locked or transaction broadcast')
         available()
