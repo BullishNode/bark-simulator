@@ -52,21 +52,34 @@ class ActorHeld(ValueError):
 
 
 class Store:
-    def __init__(self, root: Path, mode: str, fee_budget_sat: int | None = None):
+    def __init__(self, root: Path, mode: str, fee_budget_sat: int | None = None, *, architecture_profile=None):
+        from .architecture import validate as validate_architecture, initialize as initialize_architecture
+        validate_architecture(architecture_profile)
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if root.is_symlink():
             raise ValueError("state directory must not be a symlink")
         self.root = root
         self.trace = None
+        fresh = not (root / 'state.sqlite').exists()
         self.db = sqlite3.connect(root / "state.sqlite", isolation_level=None)
-        os.chmod(root / "state.sqlite", 0o600)
         self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA foreign_keys=ON")
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("PRAGMA synchronous=FULL")
-        self.db.executescript(SCHEMA)
         from .ownership import initialize as initialize_ownership
-        initialize_ownership(self)
+        try:
+            # Reject missing/mismatched existing declarations before any DDL or
+            # journal-mode changes; an old database is not a fresh campaign.
+            if not fresh:
+                initialize_architecture(self, architecture_profile, fresh=False)
+            os.chmod(root / "state.sqlite", 0o600)
+            self.db.execute("PRAGMA foreign_keys=ON")
+            self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.execute("PRAGMA synchronous=FULL")
+            self.db.executescript(SCHEMA)
+            if fresh:
+                initialize_architecture(self, architecture_profile, fresh=True)
+            initialize_ownership(self)
+        except Exception:
+            self.db.close()
+            raise
         from .settlements import initialize as initialize_settlements
         initialize_settlements(self)
         from .entitlements import initialize as initialize_delegated_entitlements

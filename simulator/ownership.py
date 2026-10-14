@@ -9,6 +9,7 @@ import hashlib,json,time
 from contextlib import nullcontext
 from .model import InvariantError,canonical,integer,public_payload
 from .process import json_command, public_command_capture
+from .architecture import profile, TWO_STEP
 
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS client_coin_candidate(id TEXT NOT NULL, actor TEXT NOT NULL REFERENCES actor(id), action_id TEXT NOT NULL REFERENCES action(id), digest TEXT NOT NULL, payload TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(id,digest));
@@ -24,14 +25,20 @@ CREATE TABLE IF NOT EXISTS server_item_version(kind TEXT NOT NULL, id TEXT NOT N
 '''
 
 def initialize(store):
+    legacy = profile(store) == TWO_STEP
     columns={row[1] for row in store.db.execute('PRAGMA table_info(owner_record)')}
-    if columns and 'account_xpub' not in columns:
-        raise ValueError('legacy mutable ownership database requires archived evidence and a fresh campaign namespace')
-    store.db.executescript(SCHEMA)
+    if columns and ('seq' if legacy else 'account_xpub') not in columns:
+        raise ValueError('ownership schema differs from campaign profile; no historical database migration')
+    schema = SCHEMA
+    if legacy:
+        schema = schema.replace(
+            'account_xpub TEXT NOT NULL, script TEXT NOT NULL, proof TEXT NOT NULL, PRIMARY KEY(mailbox)',
+            'seq INTEGER NOT NULL, script TEXT NOT NULL, proof TEXT NOT NULL, PRIMARY KEY(mailbox,seq)')
+    store.db.executescript(schema)
 
-def binding_matches(bound, source):
+def binding_matches(bound, source, *, legacy=False):
     return all(bound.get(k) is not None and bound.get(k)==source.get(k)
-               for k in ('mailbox_pk','account_xpub','spk','fallback_record'))
+               for k in (('mailbox_pk','seq','spk') if legacy else ('mailbox_pk','account_xpub','spk','fallback_record')))
 
 def account_origin_matches(proof, source):
     bound=proof.get('binding',{})
@@ -41,6 +48,22 @@ def account_origin_matches(proof, source):
         and bound.get('child_index')==source.get('child_index')
         and bound.get('blinded_mailbox_id')==source.get('blinded_mailbox_id'))
 
+def proof_matches_profile(store, proof, source):
+    """Consume the selected native verifier's authentic identity contract.
+
+    Per-key proof flags describe record and key-link signatures, never account
+    derivation. Cryptographic checks run in the pinned native verifier, not here.
+    """
+    if profile(store) != TWO_STEP:
+        return account_origin_matches(proof, source)
+    bound = proof.get('binding', {})
+    return (bound.get('record_signature_valid') is True
+        and bound.get('key_link_signature_valid') is True
+        and type(bound.get('seq')) is int and 0 <= bound['seq'] <= 2**63-1
+        and all(isinstance(bound.get(k), str) and bound[k] for k in ('mailbox_pk','spk'))
+        and 'account_xpub' not in bound and 'account_child_verified' not in bound
+        and proof.get('user_pubkey') == source.get('user_pubkey'))
+
 def digest(value):return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 async def verify_client_evidence(store, actor, operation, data, proof_command):
@@ -49,6 +72,7 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
     Returns validated public objects only. Cached immutable proofs still do not
     establish current registration, absence of a competing spend, or settlement.
     """
+    legacy = profile(store) == TWO_STEP
     if not proof_command:return None
     evidence=data.get('evidence',{})
     binding=evidence.get('binding',data.get('binding'))
@@ -56,11 +80,12 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
     verified=[]
     original_context=store.financial_context()
     if operation=='address':
-        request={k:data[k] for k in ('user_pubkey','child_index','blinded_mailbox_id','binding')}
+        fields = ('user_pubkey','key_link_attestation','binding') if legacy else ('user_pubkey','child_index','blinded_mailbox_id','binding')
+        request={k:data[k] for k in fields}
         proof=await json_command(list(proof_command),request,timeout=30,**public_command_capture(store,'proof.verify',request,actor=actor))
         if proof['user_pubkey']!=data['user_pubkey']:raise InvariantError('advertised key verification mismatch')
         proof={**proof,'financial_pins':original_context}
-        if not account_origin_matches(proof,data) or not binding_matches(proof.get('binding',{}),binding):raise InvariantError('advertised account origin mismatch')
+        if not proof_matches_profile(store,proof,data) or not binding_matches(proof.get('binding',{}),binding,legacy=legacy):raise InvariantError('advertised ownership origin mismatch')
         verified.append({'kind':'key','proof':proof,'request_origin':data})
     for coin in evidence.get('coins',[]):
         request={**coin,'binding':binding}
@@ -70,13 +95,13 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
             if old['pubkey']!=coin['user_pubkey'] or old['amount_sat']!=coin['amount_sat']:
                 raise InvariantError('immutable signed coin changed')
             cached=json.loads(old['proof'])
-            if (old['signed_hash']==signed_hash and binding_matches(cached.get('binding',{}),binding)
-                    and account_origin_matches(cached,coin) and cached.get('financial_pins')==original_context):
+            if (old['signed_hash']==signed_hash and binding_matches(cached.get('binding',{}),binding,legacy=legacy)
+                    and proof_matches_profile(store,cached,coin) and cached.get('financial_pins')==original_context):
                 proof=cached
             else:proof=await json_command(list(proof_command),request,timeout=30,**public_command_capture(store,'proof.verify',request,actor=actor))
         else:proof=await json_command(list(proof_command),request,timeout=30,**public_command_capture(store,'proof.verify',request,actor=actor))
         proof={**proof,'financial_pins':original_context}
-        if not account_origin_matches(proof,coin) or not binding_matches(proof.get('binding',{}),binding):raise InvariantError('coin account origin mismatch')
+        if not proof_matches_profile(store,proof,coin) or not binding_matches(proof.get('binding',{}),binding,legacy=legacy):raise InvariantError('coin ownership origin mismatch')
         if (proof['id'],proof['user_pubkey'],proof['amount_sat'])!=(coin['id'],coin['user_pubkey'],integer(coin['amount_sat'],'coin amount',1)):
             raise InvariantError('independent coin evidence mismatch')
         if (proof.get('authorization_path_valid') is not True and proof.get('signed_path_valid') is not True) or proof.get('anchor_confirmations',0)<1:
@@ -86,20 +111,28 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
     return {'objects':verified,'movements':evidence.get('movements',[]),'financial_pins':original_context}
 
 def record_verified(store, actor, action_id, verified):
+    legacy = profile(store) == TWO_STEP
     if verified is None:return
     with (nullcontext() if store.db.in_transaction else store.transaction()):
         for item in verified['objects']:
             proof=item['proof'];pub=proof['user_pubkey'];bound=proof['binding']
             source=item.get('coin',item.get('request_origin',{}))
-            if not account_origin_matches(proof,source) or not all(bound.get(k) is not None for k in ('mailbox_pk','account_xpub','spk','fallback_record')):
+            fields = ('mailbox_pk','seq','spk') if legacy else ('mailbox_pk','account_xpub','spk','fallback_record')
+            if not proof_matches_profile(store,proof,source) or not all(bound.get(k) is not None for k in fields):
                 raise InvariantError('unverified owner proof')
             old=store.db.execute('SELECT actor,mailbox FROM owner_key WHERE pubkey=?',(pub,)).fetchone()
             if old and (old['actor'],old['mailbox'])!=(actor,bound['mailbox_pk']):
                 raise InvariantError('coin key claimed by competing actors')
-            old_record=store.db.execute('SELECT actor,script,account_xpub FROM owner_record WHERE mailbox=?',(bound['mailbox_pk'],)).fetchone()
-            if old_record and (old_record['actor'],old_record['script'],old_record['account_xpub'])!=(actor,bound['spk'],bound['account_xpub']):raise InvariantError('immutable wallet identity conflict')
+            if legacy:
+                competing=store.db.execute('SELECT 1 FROM owner_record WHERE mailbox=? AND actor!=? LIMIT 1',(bound['mailbox_pk'],actor)).fetchone()
+                if competing:raise InvariantError('mailbox claimed by competing actors across signed sequences')
+                old_record=store.db.execute('SELECT actor,script FROM owner_record WHERE mailbox=? AND seq=?',(bound['mailbox_pk'],bound['seq'])).fetchone()
+                if old_record and (old_record['actor'],old_record['script'])!=(actor,bound['spk']):raise InvariantError('same signed sequence has conflicting owner or script')
+            else:
+                old_record=store.db.execute('SELECT actor,script,account_xpub FROM owner_record WHERE mailbox=?',(bound['mailbox_pk'],)).fetchone()
+                if old_record and (old_record['actor'],old_record['script'],old_record['account_xpub'])!=(actor,bound['spk'],bound['account_xpub']):raise InvariantError('immutable wallet identity conflict')
             store.db.execute('INSERT OR IGNORE INTO owner_key VALUES (?,?,?,?)',(pub,actor,bound['mailbox_pk'],canonical(proof)))
-            store.db.execute('INSERT OR IGNORE INTO owner_record VALUES (?,?,?,?,?)',(actor,bound['mailbox_pk'],bound['account_xpub'],bound['spk'],canonical(bound)))
+            store.db.execute('INSERT OR IGNORE INTO owner_record VALUES (?,?,?,?,?)',(actor,bound['mailbox_pk'],bound['seq'] if legacy else bound['account_xpub'],bound['spk'],canonical(bound)))
             if item['kind']=='coin':
                 coin=item['coin']
                 store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET signed_hash=excluded.signed_hash,signed_vtxo=excluded.signed_vtxo,proof=excluded.proof',
@@ -157,6 +190,7 @@ def expiry_owner(store, coin_id, pre_state):
 
 
 def record_candidates(store, actor, action_id, data, verification_failed=False):
+    legacy = profile(store) == TWO_STEP
     evidence=data.get('evidence',{});binding=evidence.get('binding',data.get('binding'))
     if not isinstance(binding,dict):return
     action=store.db.execute('SELECT actor_id FROM action WHERE id=?',(action_id,)).fetchone()
@@ -184,7 +218,7 @@ def record_candidates(store, actor, action_id, data, verification_failed=False):
             cached=json.loads(old['proof']);bound=cached.get('binding',{})
             if (cached.get('signed_path_valid') is True and cached.get('anchor_confirmations',0)>=1
                     and cached.get('expiry_height')==coin['expiry_height']
-                    and account_origin_matches(cached,coin) and binding_matches(bound,binding)
+                    and proof_matches_profile(store,cached,coin) and binding_matches(bound,binding,legacy=legacy)
                     and cached.get('financial_pins')==store.financial_context()):
                 continue
         store.db.execute('INSERT OR IGNORE INTO client_coin_candidate(id,actor,action_id,digest,payload) VALUES (?,?,?,?,?)',
