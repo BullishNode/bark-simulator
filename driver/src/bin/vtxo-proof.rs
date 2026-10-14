@@ -3,15 +3,11 @@
 use anyhow::{Context, Result, ensure};
 use ark::{
     ProtocolEncoding, Vtxo,
-    attestations::{FallbackRecordAttestation, KeyLinkAttestation},
+    fallback::{AccountChild, FallbackRecord},
     vtxo::Full,
 };
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client, RpcApi};
-use bitcoin::{
-    Network, ScriptBuf,
-    constants::{ChainHash, genesis_block},
-    secp256k1::PublicKey,
-};
+use bitcoin::{Network, ScriptBuf, constants::genesis_block, secp256k1::PublicKey};
 use serde_json::{Value, json};
 use std::{io::Read, str::FromStr};
 fn hex(raw: &str) -> Result<Vec<u8>> {
@@ -26,28 +22,62 @@ fn hex(raw: &str) -> Result<Vec<u8>> {
 }
 fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Value> {
     let b = &request["binding"];
+    ensure!(
+        request.get("key_link_attestation").is_none(),
+        "legacy signatures are not account-child evidence"
+    );
+    let fields = b.as_object().context("missing immutable binding")?;
+    ensure!(
+        fields.keys().all(|key| matches!(
+            key.as_str(),
+            "mailbox_pk" | "fallback_record" | "spk" | "account_xpub"
+        )),
+        "unexpected mutable or legacy binding field"
+    );
     let mailbox = PublicKey::from_str(b["mailbox_pk"].as_str().context("missing mailbox")?)?;
-    let script = ScriptBuf::from_bytes(hex(b["spk"].as_str().context("missing script")?)?);
-    ensure!(script.is_p2wpkh(), "simulator expects BIP84 fallback");
-    let seq = b["seq"].as_u64().context("invalid sequence")?;
-    ensure!(seq <= i64::MAX as u64, "sequence out of range");
-    let record =
-        FallbackRecordAttestation::deserialize(&hex(b["record_attestation"]
-            .as_str()
-            .context("missing record signature")?)?)?;
-    record.verify(
-        ChainHash::using_genesis_block_const(network),
-        &script,
-        seq,
-        mailbox,
-    )?;
-    let link = KeyLinkAttestation::deserialize(&hex(request["key_link_attestation"]
+    let encoded = hex(b["fallback_record"]
         .as_str()
-        .context("missing link signature")?)?)?;
-    link.verify(mailbox, coin_pk)?;
+        .context("missing canonical full-field record")?)?;
+    let record = FallbackRecord::deserialize(&encoded)?;
+    ensure!(record.serialize() == encoded, "noncanonical record");
+    record.verify(network, mailbox)?;
+    if let Some(script) = b.get("spk") {
+        ensure!(
+            script.as_str() == Some(record.spk.to_hex_string().as_str()),
+            "record script differs from source declaration"
+        );
+    }
+    if let Some(account) = b.get("account_xpub") {
+        ensure!(
+            account.as_str() == Some(record.account_xpub.to_string().as_str()),
+            "record account differs from source declaration"
+        );
+    }
+    let child_index = u32::try_from(
+        request["child_index"]
+            .as_u64()
+            .context("missing ordinary account child")?,
+    )?;
+    let child = AccountChild::new(mailbox, child_index)?;
+    child.verify_pubkey(&record.account_xpub, coin_pk)?;
+    let original_blinded = request["blinded_mailbox_id"]
+        .as_str()
+        .context("missing original blinded mailbox")?;
+    ensure!(
+        original_blinded.len() == 66,
+        "compressed blinded mailbox required"
+    );
+    let blinded = PublicKey::from_str(original_blinded)?;
+    ensure!(
+        blinded.to_string() == original_blinded,
+        "canonical blinded mailbox encoding required"
+    );
     Ok(
-        json!({"mailbox_pk":mailbox.to_string(),"spk":script.to_hex_string(),"seq":seq,"record_signature_valid":true,"key_link_signature_valid":true,
-      "validation_scope":"coin key signs wallet link and wallet signs record; BIP84 ownership needs client derivation/seed recovery evidence"}),
+        json!({"mailbox_pk":mailbox.to_string(),"spk":record.spk.to_hex_string(),
+        "account_xpub":record.account_xpub.to_string(),"fallback_record":b["fallback_record"],
+        "child_index":child_index,"policy_pubkey_full":coin_pk.to_string(),"blinded_mailbox_id":original_blinded,
+        "record_signature_valid":true,"account_child_verified":true,
+        "validation_scope":"both immutable record signatures and exact full compressed account child verified; original B retained but not publicly unblinded; trusted server admission MB/index, seed/index0 ownership, arbitration and settlement remain separate"}),
     )
 }
 fn verify() -> Result<()> {
@@ -79,7 +109,7 @@ fn verify() -> Result<()> {
             println!(
                 "{}",
                 json!({"user_pubkey":key.to_string(),"genesis":genesis.to_string(),"binding":bound,
-                "validation_scope":"public key link and fallback record signatures; no funded coin or backing asserted"})
+                "validation_scope":"public account-child and immutable full-field record verification; no funded coin, server admission or backing asserted"})
             );
             return Ok(());
         }
@@ -101,7 +131,10 @@ fn verify() -> Result<()> {
     };
     let anchor = coin.chain_anchor();
     let funding = client.get_raw_transaction(&anchor.txid, None)?;
-    ensure!(funding.compute_txid() == anchor.txid, "backing transaction ID mismatch");
+    ensure!(
+        funding.compute_txid() == anchor.txid,
+        "backing transaction ID mismatch"
+    );
     coin.validate(&funding).context("signed path invalid")?;
     let confirmations = client
         .get_raw_transaction_info(&anchor.txid, None)?
@@ -116,7 +149,7 @@ fn verify() -> Result<()> {
       "server_pubkey":coin.server_pubkey().to_string(),"expiry_height":coin.expiry_height().to_u32(),"chain_anchor":anchor.to_string(),
       "anchor_confirmations":confirmations,"signed_path_valid":true,"arkoor_transition_count":coin.past_arkoor_pubkeys().len(),"genesis":genesis.to_string(),"binding":bound,
       "ancestor_ids":coin.ancestor_ids().iter().map(|id|id.to_string()).collect::<Vec<_>>(),"path":path,
-      "validation_scope":"protocol/optional link+record signatures and confirmed backing path; spend arbitration and seed recovery require separate evidence"}),
+      "validation_scope":"protocol/optional account-child+immutable-record verification and confirmed backing path; spend arbitration and seed recovery require separate evidence"}),
     )?;
     ensure!(output.len() <= 2_097_152, "proof output too large");
     println!("{}", output);
@@ -132,34 +165,32 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bitcoin::bip32::{ChildNumber, Xpriv};
     use bitcoin::secp256k1::Keypair;
-    use bitcoin::bip32::{ChildNumber,Xpriv};
-    use ark::fallback::FallbackRecord;
+
     fn fixture() -> (Value, PublicKey) {
-        let account=Xpriv::new_master(Network::Regtest,&[1u8;32]).unwrap();
-        let coin=account.derive_priv(&ark::SECP,&[ChildNumber::from_normal_idx(25).unwrap()]).unwrap().to_keypair(&ark::SECP);
+        let account = Xpriv::new_master(Network::Regtest, &[1u8; 32]).unwrap();
+        let coin = account
+            .derive_priv(&ark::SECP, &[ChildNumber::from_normal_idx(25).unwrap()])
+            .unwrap()
+            .to_keypair(&ark::SECP);
         let mailbox = Keypair::from_seckey_slice(&ark::SECP, &[2u8; 32]).unwrap();
         let script =
             ScriptBuf::from_bytes(hex("00141111111111111111111111111111111111111111").unwrap());
         let encode = |v: Vec<u8>| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        let record = FallbackRecordAttestation::new(
-            ChainHash::using_genesis_block_const(Network::Regtest),
-            &script,
-            7,
-            &mailbox,
-        );
-        let link = KeyLinkAttestation::new(mailbox.public_key(), &coin);
-        let full_record=FallbackRecord::new(Network::Regtest,script.clone(),&account,&mailbox).unwrap();
+        let full_record =
+            FallbackRecord::new(Network::Regtest, script.clone(), &account, &mailbox).unwrap();
         (
-            json!({"binding":{"mailbox_pk":mailbox.public_key().to_string(),"spk":script.to_hex_string(),"seq":7,"record_attestation":encode(record.serialize()),"fallback_record":encode(full_record.serialize())},"key_link_attestation":encode(link.serialize()),"child_index":25,"blinded_mailbox_id":coin.public_key().to_string()}),
+            json!({"binding":{"mailbox_pk":mailbox.public_key().to_string(),"fallback_record":encode(full_record.serialize())},"child_index":25,"blinded_mailbox_id":coin.public_key().to_string()}),
             coin.public_key(),
         )
     }
     #[test]
-    fn validates_existing_protocol_domains() {
+    fn validates_immutable_record_and_exact_account_child() {
         let (r, c) = fixture();
         let valid = binding(&r, c, Network::Regtest).unwrap();
-        assert_eq!(valid["key_link_signature_valid"], true);
+        assert_eq!(valid["account_child_verified"], true);
+        assert!(valid.get("key_link_signature_valid").is_none());
         assert_eq!(valid["record_signature_valid"], true);
     }
     #[test]
@@ -175,38 +206,115 @@ mod tests {
         assert!(binding(&r, c, Network::Regtest).is_err());
     }
     #[test]
-    fn rejects_tampered_record_and_missing_or_bad_link() {
+    fn rejects_tampered_record_and_missing_or_bad_hint() {
         let (r, c) = fixture();
-        for field in ["seq", "spk", "record_attestation"] {
-            let mut bad = r.clone();
-            bad["binding"][field] = match field {
-                "seq" => json!(8),
-                "spk" => json!("00142222222222222222222222222222222222222222"),
-                _ => json!("00".repeat(64)),
-            };
-            assert!(binding(&bad, c, Network::Regtest).is_err());
-        }
         let mut bad = r.clone();
-        bad["key_link_attestation"] = json!("00".repeat(64));
+        bad["binding"]["fallback_record"] = json!("00".repeat(208));
+        assert!(binding(&bad, c, Network::Regtest).is_err());
+        let mut bad = r.clone();
+        bad["blinded_mailbox_id"] = json!("00".repeat(33));
+        assert!(binding(&bad, c, Network::Regtest).is_err());
+        let mut bad = r.clone();
+        bad.as_object_mut().unwrap().remove("child_index");
         assert!(binding(&bad, c, Network::Regtest).is_err());
         assert!(binding(&json!({}), c, Network::Regtest).is_err());
     }
     #[test]
-    fn rejects_wrong_account_child_even_with_valid_legacy_coin_signature() {
-        let (mut request,coin)=fixture();
-        request["child_index"]=json!(26);
-        assert!(binding(&request,coin,Network::Regtest).is_err(),"a valid old coin signature cannot replace exact account-child derivation");
+    fn rejects_wrong_registered_account_child() {
+        let (mut request, coin) = fixture();
+        request["child_index"] = json!(26);
+        assert!(
+            binding(&request, coin, Network::Regtest).is_err(),
+            "a valid old coin signature cannot replace exact account-child derivation"
+        );
     }
     #[test]
-    fn rejects_hardened_hint_even_with_valid_legacy_coin_signature() {
-        let (mut request,coin)=fixture();
-        request["child_index"]=json!(1u64<<31);
-        assert!(binding(&request,coin,Network::Regtest).is_err(),"hardened child hints must be refused");
+    fn rejects_hardened_origin_hint() {
+        let (mut request, coin) = fixture();
+        request["child_index"] = json!(1u64 << 31);
+        assert!(
+            binding(&request, coin, Network::Regtest).is_err(),
+            "hardened child hints must be refused"
+        );
     }
     #[test]
-    fn rejects_negated_full_policy_point_even_when_legacy_xonly_signature_matches() {
-        let (request,coin)=fixture();
-        assert!(binding(&request,coin.negate(&ark::SECP),Network::Regtest).is_err(),"registered child must match the full compressed policy point");
+    fn rejects_negated_full_policy_point() {
+        let (request, coin) = fixture();
+        assert!(
+            binding(&request, coin.negate(&ark::SECP), Network::Regtest).is_err(),
+            "registered child must match the full compressed policy point"
+        );
     }
 
+    #[test]
+    fn rejects_other_valid_account_record_and_a_changed_record_signature() {
+        let (r, coin) = fixture();
+        let mailbox = Keypair::from_seckey_slice(&ark::SECP, &[2u8; 32]).unwrap();
+        let other = Xpriv::new_master(Network::Regtest, &[3u8; 32]).unwrap();
+        let original = FallbackRecord::deserialize(
+            &hex(r["binding"]["fallback_record"].as_str().unwrap()).unwrap(),
+        )
+        .unwrap();
+        let other_record =
+            FallbackRecord::new(Network::Regtest, original.spk, &other, &mailbox).unwrap();
+        let mut bad = r.clone();
+        bad["binding"]["fallback_record"] = json!(
+            other_record
+                .serialize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+        assert!(binding(&bad, coin, Network::Regtest).is_err());
+        let mut bad = r;
+        let mut bytes = hex(bad["binding"]["fallback_record"].as_str().unwrap()).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 1;
+        bad["binding"]["fallback_record"] =
+            json!(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        assert!(binding(&bad, coin, Network::Regtest).is_err());
+    }
+    #[test]
+    fn accepts_sparse_child_and_preserves_blinded_source_without_claiming_unblinding() {
+        let (mut r, _) = fixture();
+        let account = Xpriv::new_master(Network::Regtest, &[1u8; 32]).unwrap();
+        let key = account
+            .derive_priv(&ark::SECP, &[ChildNumber::from_normal_idx(50).unwrap()])
+            .unwrap()
+            .to_keypair(&ark::SECP);
+        r["child_index"] = json!(50);
+        let output = binding(&r, key.public_key(), Network::Regtest).unwrap();
+        assert_eq!(output["child_index"], 50);
+        assert_eq!(output["blinded_mailbox_id"], r["blinded_mailbox_id"]);
+        assert!(
+            output["validation_scope"]
+                .as_str()
+                .unwrap()
+                .contains("not publicly unblinded")
+        );
+    }
+    #[test]
+    fn generic_registered_standard_script_does_not_assert_seed_ownership() {
+        let (mut r, coin) = fixture();
+        let account = Xpriv::new_master(Network::Regtest, &[1u8; 32]).unwrap();
+        let mailbox = Keypair::from_seckey_slice(&ark::SECP, &[2u8; 32]).unwrap();
+        let script = ScriptBuf::from_bytes(
+            hex("76a914111111111111111111111111111111111111111188ac").unwrap(),
+        );
+        let record =
+            FallbackRecord::new(Network::Regtest, script.clone(), &account, &mailbox).unwrap();
+        r["binding"]["fallback_record"] = json!(
+            record
+                .serialize()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+        assert_eq!(
+            binding(&r, coin, Network::Regtest).unwrap()["spk"],
+            script.to_hex_string()
+        );
+        r["binding"]["spk"] = json!("00141111111111111111111111111111111111111111");
+        assert!(binding(&r, coin, Network::Regtest).is_err());
+    }
 }
