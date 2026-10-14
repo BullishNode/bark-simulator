@@ -17,14 +17,15 @@ SCRIPTS = ['5120'+str(i+1).zfill(2)*32 for i in range(4)]
 ADDRESSES = ['derived-public-'+str(i) for i in range(4)]
 
 
-def transaction(inputs, outputs, *, witness=True, nonce=0):
+def transaction(inputs, outputs, *, witness=True, nonce=0, script_sig=b''):
     """Hand-encode distinct synthetic bodies; fee/value expectations are explicit."""
     body = bytearray((2).to_bytes(4, 'little'))
     if witness: body.extend(b'\x00\x01')
     body.extend(bytes([len(inputs)]))
     for point in inputs:
         txid, index = point.split(':')
-        body.extend(bytes.fromhex(txid)[::-1]+int(index).to_bytes(4, 'little')+b'\x00'+b'\xfd\xff\xff\xff')
+        body.extend(bytes.fromhex(txid)[::-1]+int(index).to_bytes(4, 'little')
+                    +bytes([len(script_sig)])+script_sig+b'\xfd\xff\xff\xff')
     body.extend(bytes([len(outputs)]))
     for amount, script in outputs:
         raw = bytes.fromhex(script)
@@ -133,6 +134,28 @@ class WalletProjectionTests(unittest.TestCase):
         self.assertFalse(any(result['coverage'][key] for key in ('exhaustive_wallet_discovery', 'economic_unreserved_funding', 'operating_readiness')))
         self.assertNotIn('available_fee_funding_msat', result)
         self.assertEqual(result['native_frame_sha256'], hashlib.sha256(canonical(self.facts['sources']['rounds_wallet']['source']).encode()).hexdigest())
+
+    def test_aggregate_row_budget_covers_the_whole_native_frame(self):
+        # Two UTXOs, one pending body and one parent are four source rows.
+        # Each collection separately fits three; the complete frame does not.
+        with patch('simulator.wallet_projection.MAX_ROWS', 3):
+            with self.assertRaisesRegex(EvidenceGap, 'aggregate'):
+                self.reduce()
+        self.assertEqual(self.core.calls, [])
+        with patch('simulator.wallet_projection.MAX_ROWS', 4):
+            result = self.reduce()
+        self.assertEqual(result['known_confirmed_tip_sat'], 15000)
+        self.assertTrue(result['projection_complete'])
+
+    def test_native_body_with_nonempty_script_sig_is_refused_before_core(self):
+        raw = transaction([self.parent+':0'], [(7000, SCRIPTS[1]), (2000, '51')],
+                          nonce=1, script_sig=b'\x20'+bytes([0x5a])*32)
+        txid = self.core.add(raw)
+        self.native['pending_transactions'] = [public_row(self.core, txid)]
+        self.native['utxos'][0] = native_coin(txid+':0', 7000, 1, confirmed=False)
+        with self.assertRaisesRegex(EvidenceGap, 'scriptSig'):
+            self.reduce()
+        self.assertEqual(self.core.calls, [])
 
     def test_actual_confirmation_transition_replaces_backing_with_change_once(self):
         before = self.reduce()

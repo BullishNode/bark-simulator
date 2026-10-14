@@ -138,6 +138,8 @@ def _transactions(rows):
         decoded = decode_transaction(body, public_body=True)
         if decoded['txid'] != txid or decoded['witness_redacted'] or decoded['stripped_hex'] != body:
             raise InvariantError('native stripped body does not bind its txid')
+        if any(decoded['input_script_sig_sizes']):
+            raise EvidenceGap('native public body has nonempty scriptSig')
         weight = integer(row['signed_weight_wu'], 'native signed weight', 1)
         if not decoded['weight'] <= weight <= 4_000_000:
             raise InvariantError('native signed weight is impossible')
@@ -248,6 +250,8 @@ def reduce_wallet_projection(member, facts, chain, financial_pins, *, owner, now
     if len(set(unavailable)) != len(unavailable): raise InvariantError('duplicate missing parent id')
     if set(unavailable)-parent_ids: raise InvariantError('unavailable parent is not used by a pending body')
     if set(unavailable) & parents.keys(): raise InvariantError('parent is both present and unavailable')
+    if sum(len(value) for value in (rows, locks, pending, parents, unavailable)) > MAX_ROWS:
+        raise EvidenceGap('native wallet aggregate row budget exceeded')
     core = _Core(chain, started)
     tip = core.identity(); height = tip['blocks']; blockhash = tip['bestblockhash']
     if (native['tip_height'], native['tip_hash']) != (height, blockhash) or (facts['height'], facts['tip_hash']) != (height, blockhash):
