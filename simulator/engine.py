@@ -511,6 +511,16 @@ class Engine:
                             await collect_padding_backing(self.store,chain,self.config.server_policy_command,self.config.expected_server_pubkey,limit=2)
                         except InvariantError:raise
                         except Exception as error:self.store.event('padding_backing_gap',{'reason':type(error).__name__})
+                    if (self.store.get_meta('financial_qualification_required') is not None
+                            or self.store.get_meta('final_financial_epoch') is not None):
+                        last=float(self.store.get_meta('financial_partial_observed_at') or '0')
+                        if not 0<=time.time()-last<120:
+                            try:
+                                from .financial_observer import collect_partial
+                                await collect_partial(self.store,self.config,chain)
+                            except Exception as error:
+                                self.store.event('financial_source_gap',{'reason':type(error).__name__,'qualified':False})
+                            self.store.db.execute("INSERT OR REPLACE INTO meta VALUES('financial_partial_observed_at',?)",(str(time.time()),))
                     chain.consumer='operator-ownership'
                     await collect_operator_scripts(self.store,self.config,chain)
                     chain.consumer='settlements'
