@@ -94,7 +94,7 @@ def capture_assets(store,inventory_sequences,chain):
     start=chain.identity();tip=start['bestblockhash'];height=start['blocks']
     if start.get('initialblockdownload') is not False:raise ValueError('independent chain not synchronized')
     if set(inventory_sequences)!=set(members):raise ValueError('inventory missing an actual boundary member')
-    assets={};channels={};operator_controlled=0
+    assets={};channels={};physical_channels=set();operator_controlled=0
     for identity,member in members.items():
         event,inventory=_source_event(store,inventory_sequences[identity])
         if (event['kind']!='treasury_inventory' or inventory.get('member_id')!=identity
@@ -110,6 +110,9 @@ def capture_assets(store,inventory_sequences,chain):
             if coin is None or coin.get('confirmations',0)<1:raise ValueError('actual confirmed unspent backing missing')
             sat=btc_to_sat(coin['value']);script=coin['scriptPubKey']['hex']
             if member['kind']=='lightning_peer':
+                physical=(member['identity'],outpoint)
+                if physical in physical_channels:raise InvariantError('same node physical channel counted twice under different aliases')
+                physical_channels.add(physical)
                 amount=integer(entry['owned_balance_msat'],'full owned channel balance')
                 asset_id=member['identity']+'/'+entry['channel_id']
                 peer=entry.get('peer_identity')
