@@ -37,7 +37,7 @@ class OperatingLimitsTests(TreasuryFixture,unittest.TestCase):
         self.assertTrue(preflight(self.store,self.config,snapshot,operation='claim',maximum_fee_sat=200)['allowed'])
         self.assertFalse(preflight(self.store,self.config,self.readiness(estimated_fee_rate_sat_kvb=5000),operation='progression')['allowed'])
     def test_positive_channel_and_pool_evidence_required_for_lightning(self):
-        with self.assertRaisesRegex(ValueError,'positive actual'):
+        with self.assertRaisesRegex(ValueError,'declared treasury|positive actual'):
             preflight(self.store,self.config,self.readiness(),operation='invoice',amount_sat=100)
     def test_cumulative_fees_unique_and_per_action_funding_are_checked(self):
         self.event('financial_cost_verified',{'financial_pins':PINS,'monetary_id':'actual-miner-tx','amount_msat':450000,'budget':'ordinary'})

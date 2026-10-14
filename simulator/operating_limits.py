@@ -136,6 +136,13 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
         return {'allowed':False,'reason':'fee estimate exceeds affordable declared ceiling','budget':budget,
                 'urgent_claims_and_progression':'separate declared budget and path ceiling; never inherit ordinary approval'}
     if operation in {'invoice','pay_invoice','external_lightning'}:
+        members=boundary(store)['members']
+        declared={role:{member['identity'] for member in members if member['kind']=='lightning_peer' and member['role']==role}
+                  for role in ('operator','fixture_peer')}
+        observed=snapshot.get('lightning') or {}
+        if (observed.get('operator',{}).get('node_id') not in declared['operator']
+                or observed.get('fixture_peer',{}).get('node_id') not in declared['fixture_peer']):
+            raise ValueError('Lightning node identities differ from declared treasury')
         minimum=max(integer(amount_sat,'Lightning amount',1),declaration['minimum_pool_sat'])
         if not pool_ready(snapshot,minimum) or not channel_ready(snapshot,declaration['minimum_channel_msat']):
             raise ValueError('positive actual eligible pool and bidirectional channel readiness required')
