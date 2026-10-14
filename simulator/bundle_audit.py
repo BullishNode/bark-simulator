@@ -26,7 +26,7 @@ def rpc_json(value):
     return canonical(value)
 
 
-def decode_transaction(encoded):
+def decode_transaction(encoded, *, public_body=False):
     """Decode canonical Bitcoin wire bytes and recompute the non-witness txid."""
     if not isinstance(encoded,str) or len(encoded)>32*1024*1024:
         raise ValueError('invalid raw transaction')
@@ -76,7 +76,10 @@ def decode_transaction(encoded):
     if offset!=len(raw):raise ValueError('trailing transaction bytes')
     txid=hashlib.sha256(hashlib.sha256(stripped).digest()).digest()[::-1].hex()
     weight=len(stripped)*3+len(raw)
-    return {'txid':txid,'inputs':inputs,'outputs':outputs,'size':len(raw),'weight':weight,'vsize':(weight+3)//4}
+    result={'txid':txid,'inputs':inputs,'outputs':outputs,'size':len(raw),'weight':weight,'vsize':(weight+3)//4}
+    if public_body:
+        result.update(stripped_hex=stripped.hex(),witness_redacted=witness,witness_bytes=len(raw)-len(stripped))
+    return result
 
 
 def archived_transactions(directory):
@@ -196,7 +199,7 @@ def verify_native_proofs(proofs,transactions,binary):
             raise InvariantError('fresh native proof differs from exported coin columns')
         if any(proof.get(key)!=cached.get(key) for key in ('id','user_pubkey','amount_sat','chain_anchor','genesis','server_pubkey','path')):
             raise InvariantError('fresh native proof differs from exported ownership')
-        if proof.get('signed_path_valid') is not True or proof.get('anchor_confirmations',0)<1:
+        if (proof.get('authorization_path_valid') is not True and proof.get('signed_path_valid') is not True) or proof.get('anchor_confirmations',0)<1:
             raise InvariantError('fresh native proof lacks confirmed signed backing')
         bound=proof.get('binding',{})
         if any(bound.get(key)!=cached.get('binding',{}).get(key) for key in ('mailbox_pk','account_xpub','spk','fallback_record','child_index','policy_pubkey_full','blinded_mailbox_id')) or any(

@@ -110,7 +110,8 @@ async fn coin_evidence(wallet: &Wallet) -> Result<Value> {
         let hint = wallet.fallback_child_hint(full.user_pubkey()).await?;
         public.push(json!({"id":full.id().to_string(), "amount_sat":full.amount().to_sat(),
             "user_pubkey":full.user_pubkey().to_string(), "expiry_height":full.expiry_height().to_u32(),
-            "state":coin.state.kind().to_string(), "signed_vtxo":hex(&full.serialize()),
+            "state":coin.state.kind().to_string(), "signed_vtxo":hex(&bark_sim_driver::public_coin::encode(&full)?),
+            "proof_encoding":"ark-public-authorization-v1",
             "child_index":hint.child_index(), "blinded_mailbox_id":hex(hint.blinded_mailbox_id().as_ref())}));
     }
     let movements = wallet.history().await?;
@@ -244,6 +245,7 @@ fn amount(args: &Value) -> Result<Amount> {
 
 
 fn evidence(req: &Request, event: &str, data: Value) -> Result<()> {
+    let data=bark_sim_driver::public_event::project(data)?;
     let value = json!({"kind":"driver_event", "action_id":req.action_id,
                       "event":event, "operation":req.operation, "data":data});
     let mut stdout = io::stdout().lock();
@@ -1049,7 +1051,7 @@ async fn main() {
         ))
     })();
     match result {
-        Ok((cfg, req)) => match execute(cfg, &req).await {
+        Ok((cfg, req)) => match execute(cfg, &req).await.and_then(bark_sim_driver::public_event::project) {
             Ok(data) => {
                 let status=response_status(&data);
                 let actual_fee=response_fee(req.operation.as_str(),&data);

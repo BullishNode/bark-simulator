@@ -61,7 +61,7 @@ class ChainRawCaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             credential = Path(tmp) / 'private-auth'; credential.write_text('local-user:local-token')
             samples = []; reader = ChainReader('http://127.0.0.1:1234', credential, 'genesis', capture=samples.append, consumer='payout-check')
-            with patch('simulator.chain.urllib.request.urlopen', return_value=Reply()): result = reader.call('getrawtransaction', 'a' * 64, True)
+            with patch('simulator.chain.urllib.request.urlopen', return_value=Reply()): result = reader.call('gettxout', 'a' * 64, 0, True)
             self.assertEqual('0.00004661', str(result['value']))
             self.assertEqual('payout-check', samples[0]['payload']['consumer'])
             self.assertIn(b'0.00004661', samples[0]['raw'])

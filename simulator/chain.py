@@ -29,6 +29,10 @@ class ChainReader:
         return r['result']
     def _capture(self,method,args,result,error,raw):
         if self.capture is None:return
+        if method=='getrawtransaction' and error is None:
+            try:result=public_transaction(result)
+            except ValueError:result={'public_projection_gap':True,'signed_bytes_omitted':True}
+            raw=None
         payload={'method':method,'params':list(args),'result':normalized(result),
                  'error':normalized(error),'consumer':self.consumer}
         try:public_payload(payload);public_raw(raw)
@@ -54,3 +58,27 @@ class ChainReader:
         if self.capture is not None:
             self.capture({'kind':'chain.derived','payload':{'txid':txid,'derived':tx,'consumer':self.consumer},'raw':None})
         return tx
+
+
+def public_transaction(value):
+    """Keep exact public transaction bodies; signed witness bytes stay private.
+
+    This changes observation capture only. The Core result returned privately
+    to its caller is unchanged. Numeric witness sizes describe the original
+    observation; stripped bodies alone do not re-prove witness weight.
+    """
+    from .bundle_audit import decode_transaction
+    if isinstance(value,str):
+        return decode_transaction(value,public_body=True)['stripped_hex']
+    if not isinstance(value,dict) or not isinstance(value.get('hex'),str):
+        raise ValueError('raw transaction capture lacks a bounded exact body')
+    decoded=decode_transaction(value['hex'],public_body=True)
+    result={**value,'hex':decoded['stripped_hex'],'witness_redacted':decoded['witness_redacted'],
+            'original_size':decoded['size'],'original_weight':decoded['weight']}
+    result['vin']=[]
+    for source in value.get('vin',[]):
+        entry={k:v for k,v in source.items() if k!='txinwitness'}
+        if 'txinwitness' in source:
+            entry['witness_item_sizes']=[len(bytes.fromhex(item)) for item in source['txinwitness']]
+        result['vin'].append(entry)
+    return result

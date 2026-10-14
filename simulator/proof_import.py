@@ -122,7 +122,8 @@ def _bundle(store, config, value):
     for coin in coins:
         fields = {'id', 'user_pubkey', 'amount_sat', 'expiry_height', 'signed_vtxo',
                   'child_index','blinded_mailbox_id', 'binding'}
-        if not isinstance(coin, dict) or set(coin) != fields:
+        if (not isinstance(coin, dict) or set(coin) not in (fields, fields | {'proof_encoding'})
+                or ('proof_encoding' in coin and coin['proof_encoding'] != 'ark-public-authorization-v1')):
             raise EvidenceGap('raw coin signatures and binding are required')
         if not isinstance(coin['id'], str) or re.fullmatch(r'[0-9a-f]{64}:\d+', coin['id']) is None:
             raise EvidenceGap('public coin identity is malformed')
@@ -158,7 +159,7 @@ def _checked(config, coin, proof):
     if (any(proof.get(k) != coin[k] for k in ('id', 'user_pubkey', 'amount_sat', 'expiry_height'))
             or proof.get('genesis') != config.expected_genesis
             or proof.get('server_pubkey') != config.expected_server_pubkey
-            or proof.get('signed_path_valid') is not True
+            or (proof.get('authorization_path_valid') is not True and proof.get('signed_path_valid') is not True)
             or type(proof.get('anchor_confirmations')) is not int or proof['anchor_confirmations'] < 1
             or any(bound.get(k) != coin['binding'][k] for k in ('mailbox_pk','account_xpub','spk','fallback_record'))
             or bound.get('record_signature_valid') is not True

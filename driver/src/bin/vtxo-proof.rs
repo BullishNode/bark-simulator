@@ -130,37 +130,40 @@ fn verify() -> Result<()> {
     } else {
         raw
     })?;
-    let coin: Vtxo<Full> = Vtxo::deserialize(&encoded)?;
-    ensure!(
-        coin.server_pubkey().to_string() == args[3],
-        "server key mismatch"
-    );
-    let bound = if let Some(ref r) = request {
-        binding(r, coin.user_pubkey(), network)?
+    let public_projection=encoded.first()==Some(&b'{');
+    let (coin, path, ancestor_ids, conditional_steps) = if public_projection {
+        let projection:Value=serde_json::from_slice(&encoded)?;
+        let bare=Vtxo::<ark::vtxo::Bare>::deserialize(&hex(projection["bare_vtxo"].as_str().context("bare projection absent")?)?)?;
+        let funding=client.get_raw_transaction(&bare.chain_anchor().txid,None)?;
+        let verified=bark_sim_driver::public_coin::verify(&encoded,&funding)?;
+        (verified.coin,verified.path,verified.ancestor_ids,verified.conditional_steps)
     } else {
-        Value::Null
+        // Historical ordinary proofs remain independently readable. A full
+        // hashlocked serialization is not an allowed public journal format.
+        let full=Vtxo::<Full>::deserialize(&encoded)?;
+        ensure!(full.transactions().all(|item| item.tx.input.iter().all(|i|i.witness.len()==1)),
+            "secret-bearing or unfinished full proof must use the public projection");
+        let funding=client.get_raw_transaction(&full.chain_anchor().txid,None)?;
+        full.validate(&funding).context("signed path invalid")?;
+        let ancestors=full.ancestor_ids().iter().map(|id|id.to_string()).collect();
+        let path=full.transactions().map(|item|json!({"txid":item.tx.compute_txid().to_string(),"output_index":item.output_idx,
+            "inputs":item.tx.input.iter().map(|i|i.previous_output.to_string()).collect::<Vec<_>>(),
+            "output_amount_sat":item.tx.output[item.output_idx].value.to_sat(),"output_script":item.tx.output[item.output_idx].script_pubkey.to_hex_string()})).collect();
+        (full.into_bare(),path,ancestors,0)
     };
-    let anchor = coin.chain_anchor();
-    let funding = client.get_raw_transaction(&anchor.txid, None)?;
-    ensure!(
-        funding.compute_txid() == anchor.txid,
-        "backing transaction ID mismatch"
-    );
-    coin.validate(&funding).context("signed path invalid")?;
-    let confirmations = client
-        .get_raw_transaction_info(&anchor.txid, None)?
-        .confirmations
-        .unwrap_or(0);
-    ensure!(confirmations > 0, "unconfirmed backing anchor");
-    let path=coin.transactions().map(|item|json!({"txid":item.tx.compute_txid().to_string(),"output_index":item.output_idx,
-      "inputs":item.tx.input.iter().map(|i|i.previous_output.to_string()).collect::<Vec<_>>(),
-      "output_amount_sat":item.tx.output[item.output_idx].value.to_sat(),"output_script":item.tx.output[item.output_idx].script_pubkey.to_hex_string()})).collect::<Vec<_>>();
+    ensure!(coin.server_pubkey().to_string()==args[3],"server key mismatch");
+    let bound=if let Some(ref r)=request { binding(r,coin.user_pubkey(),network)? } else {Value::Null};
+    let anchor=coin.chain_anchor();
+    let confirmations=client.get_raw_transaction_info(&anchor.txid,None)?.confirmations.unwrap_or(0);
+    ensure!(confirmations>0,"unconfirmed backing anchor");
     let output = serde_json::to_string(
         &json!({"id":coin.id().to_string(),"amount_sat":coin.amount().to_sat(),"user_pubkey":coin.user_pubkey().to_string(),
       "server_pubkey":coin.server_pubkey().to_string(),"expiry_height":coin.expiry_height().to_u32(),"chain_anchor":anchor.to_string(),
-      "anchor_confirmations":confirmations,"signed_path_valid":true,"arkoor_transition_count":coin.past_arkoor_pubkeys().len(),"genesis":genesis.to_string(),"binding":bound,
-      "ancestor_ids":coin.ancestor_ids().iter().map(|id|id.to_string()).collect::<Vec<_>>(),"path":path,
-      "validation_scope":"protocol/optional account-child+immutable-record verification and confirmed backing path; spend arbitration and seed recovery require separate evidence"}),
+      "anchor_confirmations":confirmations,"authorization_path_valid":true,"signed_path_valid":conditional_steps==0,
+      "hashlock_satisfaction_disclosed":conditional_steps==0,"conditional_steps":conditional_steps,
+      "proof_encoding":if public_projection {"ark-public-authorization-v1"} else {"historical-full-vtxo"},"genesis":genesis.to_string(),"binding":bound,
+      "ancestor_ids":ancestor_ids,"path":path,
+      "validation_scope":"exact public path signature authority, committed hashlock script if present, account-child/immutable record and confirmed anchor; omitted hashlock satisfaction, current spend arbitration and seed recovery are separate"}),
     )?;
     ensure!(output.len() <= 2_097_152, "proof output too large");
     println!("{}", output);

@@ -49,7 +49,7 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     }
     if fields.len() == 2 {
         return Ok(
-            json!({"schema_version":1,"id":coin.id().to_string(),"chain_anchor":coin.chain_anchor().to_string(),
+            json!({"schema_version":1,"sdk_commit":option_env!("GIT_HASH"),"id":coin.id().to_string(),"chain_anchor":coin.chain_anchor().to_string(),
             "amount_sat":coin.amount().to_sat(),"expiry_height":coin.expiry_height().to_u32(),"policy":coin.policy_type().to_string(),"server_pubkey":coin.server_pubkey().to_string(),
             "candidate_user_pubkey":coin.policy().user_pubkey().map(|key|key.to_string()),
             "exit_delta":coin.exit_delta().to_u32(),
@@ -84,7 +84,7 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         return Err("direct anchor contract value/script differs".into());
     }
     Ok(
-        json!({"schema_version":1,"id":coin.id().to_string(),"chain_anchor":anchor.to_string(),
+        json!({"schema_version":1,"sdk_commit":option_env!("GIT_HASH"),"id":coin.id().to_string(),"chain_anchor":anchor.to_string(),
         "amount_sat":coin.amount().to_sat(),"anchor_amount_sat":output.value.to_sat(),
         "anchor_script":output.script_pubkey.to_hex_string(),"policy":coin.policy_type().to_string(),
         "server_pubkey":coin.server_pubkey().to_string(),"expiry_height":coin.expiry_height().to_u32(),

@@ -79,7 +79,7 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
         if not account_origin_matches(proof,coin) or not binding_matches(proof.get('binding',{}),binding):raise InvariantError('coin account origin mismatch')
         if (proof['id'],proof['user_pubkey'],proof['amount_sat'])!=(coin['id'],coin['user_pubkey'],integer(coin['amount_sat'],'coin amount',1)):
             raise InvariantError('independent coin evidence mismatch')
-        if proof.get('signed_path_valid') is not True or proof.get('anchor_confirmations',0)<1:
+        if (proof.get('authorization_path_valid') is not True and proof.get('signed_path_valid') is not True) or proof.get('anchor_confirmations',0)<1:
             raise ValueError('backing not confirmed')
         verified.append({'kind':'coin','coin':coin,'proof':proof,'signed_hash':signed_hash,'request_binding':binding})
     if store.financial_context()!=original_context:raise ValueError('financial build changed during original proof observation')

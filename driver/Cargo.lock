@@ -304,6 +304,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ark-lib",
+ "bark-bitcoin-ext",
  "bark-json",
  "bark-server-rpc",
  "bark-wallet",

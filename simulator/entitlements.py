@@ -81,7 +81,7 @@ def _coin(store, coin_id, actor):
     if (proof.get('id'),proof.get('user_pubkey'),proof.get('amount_sat')) != (coin['id'],coin['pubkey'],coin['amount_sat']):
         raise InvariantError('delegated signed coin identity or value changed')
     binding = proof.get('binding') or {}
-    if (proof.get('signed_path_valid') is not True or proof.get('anchor_confirmations',0)<1
+    if ((proof.get('authorization_path_valid') is not True and proof.get('signed_path_valid') is not True) or proof.get('anchor_confirmations',0)<1
             or binding.get('record_signature_valid') is not True
             or binding.get('account_child_verified') is not True):
         raise EvidenceGap('delegated coin signature or backing proof is incomplete')

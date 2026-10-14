@@ -160,7 +160,7 @@ print(json.dumps({'action_id':r['action_id'],'status':'ok','actual_fee_sat':0,'d
                 def read(self,*args): return b'{"result":{"value":0.00004661},"error":null}'
             try:
                 with patch('simulator.chain.urllib.request.urlopen',return_value=Response()):
-                    result=await asyncio.to_thread(reader.call,'getrawtransaction','a'*64,True)
+                    result=await asyncio.to_thread(reader.call,'gettxout','a'*64,True)
                 self.assertEqual(Decimal('0.00004661'),result['value'])
                 record=next(store.trace.records())
                 self.assertEqual('0.00004661',record['payload']['result']['value'])

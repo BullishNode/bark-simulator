@@ -17,7 +17,6 @@ from .model import InvariantError, btc_to_sat, canonical, integer, public_payloa
 from .process import json_command
 from .bundle_audit import decode_transaction
 
-SDK_COMMIT = '8f2286ee7e1631b0ceccd1631ec3b728a1bb0a52'
 PADDING_PUBKEY = '02dfa52f6690299d2d6a08323083e290597b56fee125063e5f4e2957731639c42c'
 PADDING_UNLOCK_HASH = 'deadbeef' * 8
 PADDING_AMOUNT_SAT = 330
@@ -90,7 +89,7 @@ def record_decoded(store, row, proof, server_pubkey, verifier_hash):
         store.db.execute('INSERT OR REPLACE INTO server_coin_classification VALUES (?,?,?,?,?,?)', values)
         store._event('server_coin_classified', {'coin_id': row['vtxo_id'],
             'signed_hash': signed_hash, 'verifier_hash': verifier_hash,
-            'classification': classification, 'sdk_commit': SDK_COMMIT,
+            'classification': classification, 'sdk_commit': proof.get('sdk_commit'),
             'customer_ownership_verified': False, 'chain_backing_verified': False})
 
 

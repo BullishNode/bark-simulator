@@ -35,5 +35,8 @@ bark-server-rpc = { path = "../source/server-rpc", features = ["tonic-native"] }
 bdk_wallet = "=3.1.0"
 bdk_bitcoind_rpc = "=0.22.0"
 
+[dev-dependencies]
+bark-bitcoin-ext = { path = "../source/bitcoin-ext" }
+
 [profile.dev]
 debug = 0
