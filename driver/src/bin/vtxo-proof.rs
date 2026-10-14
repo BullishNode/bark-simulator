@@ -133,8 +133,11 @@ fn main() {
 mod tests {
     use super::*;
     use bitcoin::secp256k1::Keypair;
+    use bitcoin::bip32::{ChildNumber,Xpriv};
+    use ark::fallback::FallbackRecord;
     fn fixture() -> (Value, PublicKey) {
-        let coin = Keypair::from_seckey_slice(&ark::SECP, &[1u8; 32]).unwrap();
+        let account=Xpriv::new_master(Network::Regtest,&[1u8;32]).unwrap();
+        let coin=account.derive_priv(&ark::SECP,&[ChildNumber::from_normal_idx(25).unwrap()]).unwrap().to_keypair(&ark::SECP);
         let mailbox = Keypair::from_seckey_slice(&ark::SECP, &[2u8; 32]).unwrap();
         let script =
             ScriptBuf::from_bytes(hex("00141111111111111111111111111111111111111111").unwrap());
@@ -146,8 +149,9 @@ mod tests {
             &mailbox,
         );
         let link = KeyLinkAttestation::new(mailbox.public_key(), &coin);
+        let full_record=FallbackRecord::new(Network::Regtest,script.clone(),&account,&mailbox).unwrap();
         (
-            json!({"binding":{"mailbox_pk":mailbox.public_key().to_string(),"spk":script.to_hex_string(),"seq":7,"record_attestation":encode(record.serialize())},"key_link_attestation":encode(link.serialize())}),
+            json!({"binding":{"mailbox_pk":mailbox.public_key().to_string(),"spk":script.to_hex_string(),"seq":7,"record_attestation":encode(record.serialize()),"fallback_record":encode(full_record.serialize())},"key_link_attestation":encode(link.serialize()),"child_index":25,"blinded_mailbox_id":coin.public_key().to_string()}),
             coin.public_key(),
         )
     }
@@ -187,4 +191,22 @@ mod tests {
         assert!(binding(&bad, c, Network::Regtest).is_err());
         assert!(binding(&json!({}), c, Network::Regtest).is_err());
     }
+    #[test]
+    fn rejects_wrong_account_child_even_with_valid_legacy_coin_signature() {
+        let (mut request,coin)=fixture();
+        request["child_index"]=json!(26);
+        assert!(binding(&request,coin,Network::Regtest).is_err(),"a valid old coin signature cannot replace exact account-child derivation");
+    }
+    #[test]
+    fn rejects_hardened_hint_even_with_valid_legacy_coin_signature() {
+        let (mut request,coin)=fixture();
+        request["child_index"]=json!(1u64<<31);
+        assert!(binding(&request,coin,Network::Regtest).is_err(),"hardened child hints must be refused");
+    }
+    #[test]
+    fn rejects_negated_full_policy_point_even_when_legacy_xonly_signature_matches() {
+        let (request,coin)=fixture();
+        assert!(binding(&request,coin.negate(&ark::SECP),Network::Regtest).is_err(),"registered child must match the full compressed policy point");
+    }
+
 }
