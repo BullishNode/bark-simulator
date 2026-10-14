@@ -94,3 +94,10 @@ class TreasuryTests(TreasuryFixture,unittest.TestCase):
         flow={'id':'same-original-output','source':'outside-payer','destination':'rounds','kind':'external_receipt','amount_msat':1}
         with self.assertRaises(InvariantError):reconcile_edge({'total_msat':0},{'total_msat':2,'operator_controlled_msat':2},[flow,{**flow,'kind':'injection'}],[],members)
         with self.assertRaises(InvariantError):reconcile_edge({'total_msat':0},{'total_msat':0,'operator_controlled_msat':0},[flow],[],members)
+
+    def test_two_channel_aliases_cannot_duplicate_one_nodes_physical_balance(self):
+        channels=[{'funding_outpoint':'b'*64+':0','channel_id':name,'peer_identity':'outside-peer','owned_balance_msat':750000}
+                  for name in ('long-id','short-id')]
+        sequence=self.inventory(self.peer,channels=channels)
+        with self.assertRaisesRegex(InvariantError,'physical channel'):
+            capture_assets(self.store,{'rounds':self.inventory(self.wallet),'peer':sequence},self.chain)
