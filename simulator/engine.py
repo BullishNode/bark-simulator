@@ -18,6 +18,8 @@ from .ownership import record_candidates, record_verified, retry_public_candidat
 from .model import InvariantError,canonical
 from .chain import ChainReader
 from .direct_settlements import collect as collect_direct_settlements
+from .settlements import collect_settlements as collect_two_step_settlements
+from .architecture import profile as campaign_profile, TWO_STEP, DIRECT
 from .campaign import CampaignClock,RampPlan,traffic_ready,collect_ark_receipts
 from .continuous import schedule as schedule_continuous
 from .funding import fund,WalletRpc
@@ -58,6 +60,19 @@ def initialize(store: Store):
 class Engine:
     def __init__(self, config: Config, store: Store):
         self.config, self.store = config, store
+        selected=campaign_profile(store)
+        declared=getattr(config,'architecture_profile',None)
+        if (selected!=(declared or DIRECT)
+                or bool(store.get_meta('architecture_profile'))!=(declared is not None)):
+            raise ValueError('configured architecture differs from original campaign profile')
+        if declared is not None:
+            if store.get_meta('final_financial_epoch') is not None:
+                from .final_campaign import epoch
+                if epoch(store)['pins']['sdk_commit']!=config.expected_sdk_commit:
+                    raise ValueError('configured SDK differs from immutable final financial epoch')
+            # This is a requirement marker, never a readiness proof. Both routes
+            # retain the exact same complete financial preflight before dispatch.
+            store.db.execute("INSERT OR IGNORE INTO meta VALUES ('financial_qualification_required','true')")
         self.phases=PhaseController(store,config)
         if config.trace_enabled:
             store.attach_trace(config.trace_retention_days)
@@ -71,6 +86,17 @@ class Engine:
                           funding_per_added_client_sat=declared['grant_sat'])
         self.campaign_clock=CampaignClock(store,ramp) if config.workload=="continuous" else None
         self.recovery=RecoveryController(store,config) if config.recovery_command else None
+
+    def _requires_financial_qualification(self):
+        return (getattr(self.config,'architecture_profile',None) is not None
+                or self.store.get_meta('final_financial_epoch') is not None
+                or self.store.get_meta('financial_qualification_required') is not None)
+
+    async def collect_settlement_evidence(self,chain):
+        if campaign_profile(self.store)==TWO_STEP:
+            await collect_two_step_settlements(self.store,chain)
+        else:
+            await collect_direct_settlements(self.store,self.config,chain)
 
     def raw_capture(self, kind, *, actor=None, action_id=None, context=None):
         def capture(record):
@@ -100,8 +126,7 @@ class Engine:
                    and snapshot.get("server_status", {}).get("status") == "running")
         if not healthy:
             return False
-        if (self.store.get_meta('final_financial_epoch') is not None
-                or self.store.get_meta('financial_qualification_required') is not None):
+        if self._requires_financial_qualification():
             from .operating_limits import preflight
             try:
                 # Sync/claim progression can continue under its own explicit limits
@@ -152,8 +177,7 @@ class Engine:
                 **public_command_capture(self.store,'pool.status',{'kind':'pool_status'},action_id=identifier))
             if not pool_ready({**snapshot,'pool_status':pool},args.get('amount_sat',0)):
                 raise ValueError('confirmed usable pool is not proven')
-        if (self.store.get_meta('final_financial_epoch') is not None
-                or self.store.get_meta('financial_qualification_required') is not None):
+        if self._requires_financial_qualification():
             from .operating_limits import preflight
             decision=preflight(self.store,self.config,snapshot,
                 operation='claim' if operation=='claim_lightning' else operation,
@@ -259,8 +283,7 @@ class Engine:
             if not pool_ready(snapshot,action['args'].get('amount_sat',0)):
                 self.store.finish(action['id'],'blocked',{'reason':'confirmed usable pool is not proven','pool_status':pool},0)
                 return True
-        if (self.store.get_meta('final_financial_epoch') is not None
-                or self.store.get_meta('financial_qualification_required') is not None):
+        if self._requires_financial_qualification():
             from .operating_limits import preflight
             operation = 'progression' if action['operation']=='sync' else action['operation']
             try:
@@ -398,8 +421,7 @@ class Engine:
 
     def prepare_campaign_funding(self,snapshot):
         if self.config.workload!="continuous" or not self.config.funding_wallet or not self.config.active or self.store.get_meta("paused"):return
-        if (self.store.get_meta('final_financial_epoch') is not None
-                or self.store.get_meta('financial_qualification_required') is not None):
+        if self._requires_financial_qualification():
             from .operating_limits import envelope,preflight
             try:
                 declared=envelope(self.store,self.config)
@@ -433,6 +455,7 @@ class Engine:
     async def collect_inventory(self):
         if not self.config.inventory_command:return
         kinds=["coins","pending","links","records"]
+        if campaign_profile(self.store)==TWO_STEP:kinds += ['settlements','nursery']
         index=int(self.store.get_meta("inventory_kind_index") or "0")%len(kinds)
         kind=kinds[index];key="inventory_cursor_"+kind
         cursor=self.store.get_meta(key) or ""
@@ -511,8 +534,7 @@ class Engine:
                             await collect_padding_backing(self.store,chain,self.config.server_policy_command,self.config.expected_server_pubkey,limit=2)
                         except InvariantError:raise
                         except Exception as error:self.store.event('padding_backing_gap',{'reason':type(error).__name__})
-                    if (self.store.get_meta('financial_qualification_required') is not None
-                            or self.store.get_meta('final_financial_epoch') is not None):
+                    if self._requires_financial_qualification():
                         last=float(self.store.get_meta('financial_partial_observed_at') or '0')
                         if not 0<=time.time()-last<120:
                             try:
@@ -524,7 +546,7 @@ class Engine:
                     chain.consumer='operator-ownership'
                     await collect_operator_scripts(self.store,self.config,chain)
                     chain.consumer='settlements'
-                    await collect_direct_settlements(self.store,self.config,chain)
+                    await self.collect_settlement_evidence(chain)
                     chain.consumer='fees'
                     await collect_fees(self.store,chain)
                     chain.consumer='recycling'

@@ -82,7 +82,8 @@ def main():
             finally:source.close()
             print(json.dumps(result,indent=2));return
         with Lease(config.state_dir):
-            store = Store(config.state_dir, "live", config.fee_budget_sat)
+            store = Store(config.state_dir, "live", config.fee_budget_sat,
+                          architecture_profile=config.architecture_profile)
             try:
                 store.verify_event_chain()
                 initialize(store)
