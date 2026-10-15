@@ -32,6 +32,17 @@ def manifest():
 
 
 class NativeObserverControls(unittest.TestCase):
+    def test_c_timing_projection_uses_actual_direct_flag_without_legacy_payout_oracles(self):
+        from simulator.remote_observer import timing_projection
+        info={'data':{'vtxo_lifetime':48,'required_board_confirmations':3,'round_interval_secs':600}}
+        remote={'direct_expiry_enabled':True,'timings':{'enabled':False}}
+        result=timing_projection(remote,info,per_key=True)
+        self.assertTrue(result['payout_enabled']);self.assertFalse(result['legacy_payout_enabled'])
+        self.assertTrue({'min_payout_sat','grace_blocks','sweep_min_confs'}.isdisjoint(result))
+        self.assertFalse(timing_projection({},info,per_key=True)['payout_enabled'])
+        old={'enabled':True,'min_payout_sat':330,'grace_blocks':1008,'sweep_min_confs':3}
+        self.assertEqual({'payout_enabled':True,'min_payout_sat':330,'grace_blocks':1008,'sweep_min_confs':3,
+            **info['data']},timing_projection({'timings':old},info))
     def test_false_profile_inactive_or_missing_pins_and_sources_refuse(self):
         self.assertEqual(manifest(),observer.validate_manifest(manifest()))
         for key,value in [('architecture_profile','direct_xpub'),('active',False),('track','B'),

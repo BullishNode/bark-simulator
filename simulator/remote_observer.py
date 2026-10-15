@@ -66,6 +66,18 @@ def own_output(output):
     allowed=['txid','output','amount_msat','status','blockheight','reserved']
     return {k:output[k] for k in allowed if k in output}
 
+
+def timing_projection(remote,info,*,per_key=False):
+    actual={k:info['data'][k] for k in ('vtxo_lifetime','required_board_confirmations','round_interval_secs')}
+    if per_key:
+        # C's direct route has no legacy retained-minimum/grace/sweep pipeline.
+        # Missing disabled legacy fields must not prevent a true C observation.
+        return {**actual,'payout_enabled':remote.get('direct_expiry_enabled') is True,
+            'direct_expiry_enabled':remote.get('direct_expiry_enabled'),
+            'legacy_payout_enabled':remote.get('timings',{}).get('enabled')}
+    return {'payout_enabled':remote['timings']['enabled'],'min_payout_sat':remote['timings']['min_payout_sat'],
+        'grace_blocks':remote['timings']['grace_blocks'],'sweep_min_confs':remote['timings']['sweep_min_confs'],**actual}
+
 async def lightning(container,capture=None):
     base=['sudo','-n','docker','exec',container,'lightning-cli','--network=signet','--lightning-dir=/data/.lightning']
     try:
@@ -137,9 +149,7 @@ async def collect(args):
         'stable_tip':stable,'initial_block_download':ending['initialblockdownload'] or remote['initial_block_download'],
         'server_status':remote['server_status'],'rounds_confirmed_sat':value,'confirmed_inventory_gap':gap,'rounds_owned_scripts':owned_scripts if stable else [],
         'rounds_trusted_sat':trusted,
-        'timings':{'payout_enabled':remote['timings']['enabled'],'min_payout_sat':remote['timings']['min_payout_sat'],
-            'grace_blocks':remote['timings']['grace_blocks'],'sweep_min_confs':remote['timings']['sweep_min_confs'],
-            **{k:info['data'][k] for k in ['vtxo_lifetime','required_board_confirmations','round_interval_secs']}},
+        'timings':timing_projection(remote,info,per_key=per_key),
         'pool_status':pool_status,'lightning':{'operator':internal,'fixture_peer':external},'complete':False,
         'capabilities':{'lightning_configured':remote['lightning_configured'],'full_capital_attribution':False},
         'unknown_buckets':['customer liabilities and ownership graph','unique locked backing attribution','operator input reservations','watchman and realized fees'],
@@ -147,7 +157,6 @@ async def collect(args):
     if per_key:
         result.update(architecture_profile='direct_per_key',financial_pins=c_financial_pins(args,remote),
             runtime_transport='systemd',native_runtime=remote['native_runtime'])
-        result['timings']['payout_enabled']=remote.get('direct_expiry_enabled') is True
     return result
 
 
