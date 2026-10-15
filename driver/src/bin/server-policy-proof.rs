@@ -43,6 +43,13 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         return Err("only public coin, raw anchor and pinned server key permitted".into());
     }
     let encoded = decode_hex(value["signed_vtxo"].as_str().ok_or("coin absent")?)?;
+    if encoded.first()==Some(&b'{') {
+        if fields.len()!=2 {
+            return Err("public projection parameters are decode-only; use the client verifier for chain validation".into());
+        }
+        return Ok(bark_sim_driver::public_coin::parameters(&encoded,
+            value["server_pubkey"].as_str().ok_or("server absent")?)?);
+    }
     let coin = Vtxo::<Full, ServerVtxoPolicy>::deserialize(&encoded)?;
     if coin.server_pubkey().to_string() != value["server_pubkey"].as_str().ok_or("server absent")? {
         return Err("server key differs".into());

@@ -78,6 +78,29 @@ pub fn encode(coin:&Vtxo<Full>)->Result<Vec<u8>> {
     Ok(result)
 }
 
+/// Freeze the exact SDK round terms using the same safe input encoding as
+/// ordinary coin evidence. Full serialization can contain hashlock secrets.
+pub fn round_participation(participation:&bark::round::RoundParticipation)->Result<Value> {
+    let inputs=participation.inputs.iter().map(|coin|encode(coin).map(|bytes|hex(&bytes)))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(json!({"inputs":inputs,"outputs":participation.outputs}))
+}
+
+/// Decode security parameters without asserting signatures, ownership or
+/// chain status. The independently verified coin must bind these exact bytes.
+pub fn parameters(encoded:&[u8],expected_server:&str)->Result<Value> {
+    validate_projection(encoded)?;
+    let projection:Projection=serde_json::from_slice(encoded)?;
+    let coin=Vtxo::<Bare>::deserialize(&decode(&projection.bare_vtxo)?)?;
+    ensure!(coin.server_pubkey().to_string()==expected_server,"server key differs");
+    Ok(json!({"schema_version":1,"id":coin.id().to_string(),
+        "candidate_user_pubkey":coin.policy().user_pubkey().to_string(),
+        "amount_sat":coin.amount().to_sat(),"expiry_height":coin.expiry_height().to_u32(),
+        "exit_delta":coin.exit_delta().to_u32(),"server_pubkey":coin.server_pubkey().to_string(),
+        "chain_anchor":coin.chain_anchor().to_string(),"client_owner_verified":false,"chain_contract_verified":false,
+        "scope":"decoded safe public projection; signatures, ownership, confirmation and spend status are separate"}))
+}
+
 // Accept only the two pinned hArk unlock clauses. No arbitrary script execution
 // or caller-supplied signing key is substituted for the committed script.
 fn hashlock_key(script:&[u8])->Result<XOnlyPublicKey> {
@@ -154,6 +177,68 @@ mod tests {
     use bitcoin_ext::{BlockHeight, BlockDelta};
     use ark::vtxo::policy::VtxoPolicy;
 
+    #[test]
+    fn sdk_round_proposal_uses_the_same_public_inputs_as_coin_evidence() {
+        use ark::{board::BoardBuilder,VtxoRequest};
+        use bark::round::RoundParticipation;
+        let user=Keypair::from_secret_key(&SECP,&SecretKey::from_slice(&[31;32]).unwrap());
+        let server=Keypair::from_secret_key(&SECP,&SecretKey::from_slice(&[32;32]).unwrap());
+        let expiry=BlockHeight::new(144);let delta=BlockDelta::new(12);
+        let builder=BoardBuilder::new(user.public_key(),expiry,server.public_key(),delta);
+        let amount=Amount::from_sat(20_000);let fee=Amount::from_sat(150);
+        let funding=Transaction {version:transaction::Version::TWO,lock_time:absolute::LockTime::ZERO,
+            input:vec![],output:vec![TxOut {value:amount,script_pubkey:builder.funding_script_pubkey()}]};
+        let point=OutPoint::new(funding.compute_txid(),0);
+        let builder=builder.set_funding_details(amount,fee,point).unwrap().generate_user_nonces();
+        let cosign=BoardBuilder::new_for_cosign(user.public_key(),expiry,server.public_key(),delta,
+            amount,fee,point,*builder.user_pub_nonce()).server_cosign(&server);
+        let coin=builder.build_vtxo(&cosign,&user).unwrap();coin.validate(&funding).unwrap();
+        let participation=RoundParticipation {inputs:vec![coin.clone()],
+            outputs:vec![VtxoRequest {policy:VtxoPolicy::new_pubkey(user.public_key()),amount:Amount::from_sat(19_700)}],
+            unblinded_mailbox_id:Some(ark::mailbox::MailboxIdentifier::from_pubkey(user.public_key()))};
+        let evidence=hex(&encode(&coin).unwrap());
+        let legacy=serde_json::to_value(&participation).unwrap();
+        assert_ne!(legacy["inputs"][0],json!(evidence),"the actual SDK Full encoding is a different representation");
+        let public=round_participation(&participation).unwrap();
+        assert_eq!(public["inputs"],json!([evidence]));
+        assert_eq!(public["outputs"],legacy["outputs"]);
+        assert_eq!(public.as_object().unwrap().len(),2,"mailbox and private Full fields are not public proposal terms");
+        let encoded=decode(public["inputs"][0].as_str().unwrap()).unwrap();
+        let verified=verify(&encoded,&funding).unwrap();assert_eq!(verified.coin.id(),coin.id());
+        let params=parameters(&encoded,&server.public_key().to_string()).unwrap();
+        assert_eq!(params["exit_delta"],12);assert_eq!(params["expiry_height"],144);
+        assert_eq!(params["client_owner_verified"],false);assert_eq!(params["chain_contract_verified"],false);
+        if let Ok(path)=std::env::var("SIM_PUBLIC_REFRESH_FIXTURE") {
+            std::fs::write(path,serde_json::to_vec(&json!({"legacy_participation":legacy,
+                "public_participation":public,"coin_evidence_signed_vtxo":evidence,
+                "expected_parameters":params,"anchor_raw":hex(&serialize(&funding))})).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore = "requires an explicitly supplied archived native financial fixture"]
+    fn archived_actual_refresh_input_matches_public_proposal() {
+        let fixture=std::env::var("SIM_ARCHIVED_REFRESH_FIXTURE").expect("bound archived fixture required");
+        let value:Value=serde_json::from_slice(&std::fs::read(fixture).unwrap()).unwrap();
+        let coin=Vtxo::<Full>::deserialize(&decode(value["signed_vtxo"].as_str().unwrap()).unwrap()).unwrap();
+        let funding:Transaction=deserialize(&decode(value["anchor_raw"].as_str().unwrap()).unwrap()).unwrap();
+        coin.validate(&funding).unwrap();
+        assert_eq!(coin.id().to_string(),value["expected_id"].as_str().unwrap());
+        let safe=encode(&coin).unwrap();let proof=verify(&safe,&funding).unwrap();
+        assert_eq!(proof.conditional_steps,0,"fixture must be ordinary and contain no undisclosed hashlock");
+        let participation=bark::round::RoundParticipation {inputs:vec![coin.clone()],
+            outputs:vec![ark::VtxoRequest {policy:coin.policy().clone(),amount:coin.amount()}],unblinded_mailbox_id:None};
+        let public=round_participation(&participation).unwrap();
+        assert_eq!(public["inputs"],json!([hex(&safe)]));
+        assert_ne!(serde_json::to_value(&participation).unwrap()["inputs"],public["inputs"]);
+        let output=json!({"legacy_participation":serde_json::to_value(&participation).unwrap(),
+            "public_participation":public,"coin_evidence_signed_vtxo":hex(&safe),
+            "expected_parameters":parameters(&safe,&coin.server_pubkey().to_string()).unwrap(),
+            "anchor_raw":value["anchor_raw"],"verified_id":proof.coin.id().to_string(),
+            "scope":"archived actual native fixture; no live chain or current campaign readiness"});
+        std::fs::write(std::env::var("SIM_ARCHIVED_REFRESH_OUTPUT").expect("bound output required"),serde_json::to_vec(&output).unwrap()).unwrap();
+    }
+
     fn fixture(hashlock:bool)->(Projection,Transaction) {
         let signer=Keypair::from_secret_key(&SECP,&SecretKey::from_slice(&[7;32]).unwrap());
         let server=Keypair::from_secret_key(&SECP,&SecretKey::from_slice(&[8;32]).unwrap());
@@ -197,6 +282,11 @@ mod tests {
             let proof=verify(&bytes,&f).unwrap();
             assert_eq!(proof.coin.amount(),Amount::from_sat(19_000));
             assert_eq!(proof.conditional_steps,usize::from(conditional));
+            let params=parameters(&bytes,&proof.coin.server_pubkey().to_string()).unwrap();
+            assert_eq!(params["exit_delta"],12);
+            assert_eq!(params["client_owner_verified"],false);
+            assert_eq!(params["chain_contract_verified"],false);
+            assert!(parameters(&bytes,"other-server").is_err());
         }
     }
     #[test]
@@ -214,7 +304,9 @@ mod tests {
         tx.input[0].witness=Witness::from_slice(&[&[0xab;32]]);
         p.path[0].transaction=hex(&serialize(&tx));
         assert!(verify(&serde_json::to_vec(&p).unwrap(),&f).is_err());
+        assert!(parameters(&serde_json::to_vec(&p).unwrap(),"unused-server").is_err());
         let (p,f)=fixture(true);let mut v=serde_json::to_value(p).unwrap();v["preimage"]=json!("forbidden");
         assert!(verify(&serde_json::to_vec(&v).unwrap(),&f).is_err());
+        assert!(parameters(&serde_json::to_vec(&v).unwrap(),"unused-server").is_err());
     }
 }

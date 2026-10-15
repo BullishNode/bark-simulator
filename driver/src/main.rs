@@ -916,7 +916,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             evidence(
                 req,
                 "refresh_proposal",
-                json!({"participation":participation,"committed_fee_sat":fee}),
+                json!({"participation":bark_sim_driver::public_coin::round_participation(&participation)?,"committed_fee_sat":fee}),
             )?;
             let id = if req.operation == "refresh_delegated" {
                 wallet
