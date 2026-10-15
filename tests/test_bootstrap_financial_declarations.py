@@ -27,7 +27,7 @@ class BootstrapFinancialDeclarationsTests(unittest.TestCase):
         response = {'action_id': action['id'], 'status': 'ok', 'actual_fee_sat': 0,
             'data': {'onchain_inventory': {'schema_version': 1, 'network': 'signet', 'read_only': True,
                 'complete': True, 'descriptors': [{'keychain': 'external',
-                    'descriptor': 'wpkh(public)#checksum', 'last_revealed_index': 0}],
+                    'descriptor': 'wpkh(public)#checksum', 'last_revealed_index': 1}],
                 'utxos': [], 'pending_transactions': [], 'pending_parents': [], 'unavailable_parent_txids': []}}}
         self.store.event('driver_response', {'action_id': action['id'], 'response': response})
         self.store.finish(action['id'], 'completed', response, 0)
