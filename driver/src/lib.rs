@@ -3,6 +3,8 @@ pub mod public_coin;
 pub mod public_event;
 #[cfg(feature = "direct-per-key")]
 pub mod per_key;
+#[cfg(feature = "direct-per-key")]
+pub mod per_key_probes;
 
 #[cfg(all(feature = "two-step", feature = "direct-per-key"))]
 compile_error!("two-step and direct-per-key select different SDKs and cannot be enabled together");
