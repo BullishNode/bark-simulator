@@ -47,7 +47,9 @@ class TreasuryFixture:
     def inventory(self,member,**changes):
         value={'member_id':member['id'],'identity':member['identity'],'financial_pins':PINS,'tip_hash':'tip','height':100,'complete':True}
         if member['kind']=='wallet':value['utxos']=[{'outpoint':'a'*64+':0','amount_sat':1000,'script':'wallet-script','descriptor_index':0,'child_index':0}]
-        else:value['channels']=[{'funding_outpoint':'b'*64+':0','channel_id':'channel','peer_identity':'outside-peer','owned_balance_msat':1500999}]
+        else:
+            value['utxos']=[]
+            value['channels']=[{'funding_outpoint':'b'*64+':0','channel_id':'channel','peer_identity':'outside-peer','owned_balance_msat':1500999}]
         value.update(changes);self.event('treasury_inventory',value);return self.sequence()
     def assets(self,**wallet_changes):
         return capture_assets(self.store,{'rounds':self.inventory(self.wallet,**wallet_changes),'peer':self.inventory(self.peer)},self.chain)

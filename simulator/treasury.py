@@ -14,6 +14,61 @@ ROLES={'operator','customer','funding_bank','forwarder','fixture_peer'}
 KINDS={'wallet','ark_backing','lightning_peer'}
 
 
+def _cln_cash(store,member,entry,declaration,tip,height,confirmations,sources):
+    """Match node cash to its original public native frame and declared node.
+
+    The authenticated native collector and exhaustive discovery remain producer
+    prerequisites; a named event or a complete label cannot replace them.
+    """
+    sequence=integer(entry['source_sequence'],'CLN wallet source sequence',1)
+    if sequence not in sources['frames']:
+        size=store.db.execute('SELECT length(CAST(payload AS BLOB)) FROM event WHERE sequence=?',(sequence,)).fetchone()
+        if size is None or type(size[0]) is not int or size[0]<=0:
+            raise ValueError('original CLN wallet source missing or outside byte bound')
+        if sources['bytes']+size[0]>2*1024*1024:
+            raise ValueError('aggregate CLN wallet source exceeds byte bound')
+        sources['bytes']+=size[0]
+        event,source=_source_event(store,sequence)
+        if (event['kind']!='treasury_cln_wallet_source'
+                or source.get('member_id')!=member['id'] or source.get('identity')!=member['identity']
+                or source.get('member_verification_sequence')!=member['verification_sequence']
+                or source.get('financial_pins')!=declaration['pins'] or source.get('genesis')!=SIGNET_GENESIS
+                or source.get('height')!=height or source.get('tip_hash')!=tip):
+            raise ValueError('original CLN wallet source scope differs from declared member/tip/pins')
+        member_event,member_proof=_source_event(store,member['verification_sequence'])
+        if (member_event['kind']!='treasury_member_verified'
+                or member_proof.get('member')!={k:v for k,v in member.items() if k!='verification_sequence'}
+                or member_proof.get('genesis')!=SIGNET_GENESIS or member_proof.get('financial_pins')!=declaration['pins']):
+            raise ValueError('original CLN member source proof differs')
+        info=source['getinfo'];funds=source['listfunds']
+        if (not isinstance(info,dict) or not isinstance(funds,dict)
+                or info.get('id')!=member['identity'] or info.get('network')!='signet' or info.get('blockheight')!=height):
+            raise ValueError('original CLN wallet source node/network/height differs')
+        outputs=funds['outputs'];channels=funds['channels']
+        if not isinstance(outputs,list) or not isinstance(channels,list):
+            raise ValueError('bounded original CLN wallet source rows required')
+        sources['rows']+=len(outputs)+len(channels)
+        if sources['rows']>2000:
+            raise ValueError('aggregate CLN wallet source exceeds byte/row bound')
+        if any(not isinstance(row,dict) for row in outputs+channels):
+            raise ValueError('original CLN wallet source rows must be objects')
+        sources['frames'][sequence]=source
+    source=sources['frames'][sequence]
+    # Do not reuse one node's source frame for another declared member.
+    if source['member_id']!=member['id']:raise ValueError('CLN wallet source belongs to another member')
+    txid,index=entry['outpoint'].rsplit(':',1)
+    matches=[row for row in source['listfunds']['outputs']
+             if row.get('txid')==txid and type(row.get('output')) is int and row['output']==int(index)]
+    if len(matches)!=1:raise ValueError('CLN wallet output absent or repeated in original native source')
+    row=matches[0]
+    amount=integer(row['amount_msat'],'native CLN onchain amount')
+    if (amount!=integer(entry['amount_sat'],'CLN wallet amount')*1000
+            or row.get('scriptpubkey')!=entry['script'] or row.get('status')!='confirmed'
+            or not 1<=integer(row['blockheight'],'native CLN output blockheight')<=height
+            or height-row['blockheight']+1!=confirmations):
+        raise InvariantError('CLN wallet output differs from original native source')
+
+
 def _members(declaration):
     if set(declaration)!={'id','genesis','pins','members','excluded'} or declaration['genesis']!=SIGNET_GENESIS:
         raise ValueError('explicit owned signet treasury boundary required')
@@ -94,22 +149,32 @@ def capture_assets(store,inventory_sequences,chain):
     start=chain.identity();tip=start['bestblockhash'];height=start['blocks']
     if start.get('initialblockdownload') is not False:raise ValueError('independent chain not synchronized')
     if set(inventory_sequences)!=set(members):raise ValueError('inventory missing an actual boundary member')
-    assets={};channels={};physical_channels=set();operator_controlled=0
+    assets={};channels={};physical_channels=set();physical_utxos=set();operator_controlled=0
+    cln_sources={'frames':{},'bytes':0,'rows':0}
     for identity,member in members.items():
         event,inventory=_source_event(store,inventory_sequences[identity])
         if (event['kind']!='treasury_inventory' or inventory.get('member_id')!=identity
                 or inventory.get('identity')!=member['identity'] or inventory.get('financial_pins')!=declaration['pins']
                 or inventory.get('tip_hash')!=tip or inventory.get('height')!=height or inventory.get('complete') is not True):
             raise ValueError('actual inventory identity/pins/confirmed tip/coverage not verified')
-        entries=inventory['channels'] if member['kind']=='lightning_peer' else inventory['utxos']
-        if not isinstance(entries,list) or len(entries)>20000:raise ValueError('inventory exceeds bounded coverage')
-        for entry in entries:
-            outpoint=entry['funding_outpoint'] if member['kind']=='lightning_peer' else entry['outpoint']
+        if member['kind']=='lightning_peer':
+            if 'utxos' not in inventory or 'channels' not in inventory:
+                raise ValueError('full CLN wallet and channel inventory coverage required')
+            wallet_rows=inventory['utxos'];channel_rows=inventory['channels']
+            if not isinstance(wallet_rows,list) or not isinstance(channel_rows,list) or len(wallet_rows)+len(channel_rows)>20000:
+                raise ValueError('bounded CLN wallet and channel inventory rows required')
+            entries=[('cash',row) for row in wallet_rows]+[('channel',row) for row in channel_rows]
+        else:
+            if not isinstance(inventory['utxos'],list) or len(inventory['utxos'])>20000:
+                raise ValueError('inventory exceeds bounded coverage')
+            entries=[('cash',row) for row in inventory['utxos']]
+        for kind,entry in entries:
+            outpoint=entry['funding_outpoint'] if kind=='channel' else entry['outpoint']
             txid,index=outpoint.rsplit(':',1);index=int(index)
             coin=chain.call('gettxout',txid,index,False)
             if coin is None or coin.get('confirmations',0)<1:raise ValueError('actual confirmed unspent backing missing')
             sat=btc_to_sat(coin['value']);script=coin['scriptPubKey']['hex']
-            if member['kind']=='lightning_peer':
+            if kind=='channel':
                 physical=(member['identity'],outpoint)
                 if physical in physical_channels:raise InvariantError('same node physical channel counted twice under different aliases')
                 physical_channels.add(physical)
@@ -123,6 +188,8 @@ def capture_assets(store,inventory_sequences,chain):
                 group['owned_msat']+=amount
             else:
                 amount=sat*1000;asset_id=outpoint
+                if outpoint in physical_utxos:raise InvariantError('same physical output counted twice')
+                physical_utxos.add(outpoint)
                 if entry['amount_sat']!=sat or entry['script']!=script:raise InvariantError('wallet inventory differs from actual chain output')
                 if member['kind']=='wallet':
                     descriptor=member['descriptors'][integer(entry['descriptor_index'],'descriptor index')]
@@ -131,6 +198,8 @@ def capture_assets(store,inventory_sequences,chain):
                     addresses=chain.call('deriveaddresses',descriptor,[child,child])
                     if len(addresses)!=1 or chain.call('validateaddress',addresses[0]).get('scriptPubKey')!=script:
                         raise InvariantError('actual output does not derive from declared wallet descriptor')
+                elif member['kind']=='lightning_peer':
+                    _cln_cash(store,member,entry,declaration,tip,height,coin['confirmations'],cln_sources)
                 else:
                     proof_event,backing=_source_event(store,entry['verification_sequence'])
                     if (proof_event['kind']!='treasury_backing_verified' or backing.get('outpoint')!=outpoint
@@ -142,7 +211,7 @@ def capture_assets(store,inventory_sequences,chain):
             assets[asset_id]={'member':identity,'amount_msat':amount,'backing_outpoint':outpoint,'role':member['role']}
             if member['role']=='operator':operator_controlled+=amount
     for outpoint,group in channels.items():
-        if outpoint in assets:raise InvariantError('channel funding and local balance counted as two assets')
+        if outpoint in physical_utxos:raise InvariantError('channel funding and local balance counted as two physical assets')
         if group['owned_msat']>group['capacity_msat']:raise InvariantError('owned channel balances exceed physical capacity')
         declared_peers={m['identity'] for m in members.values() if m['kind']=='lightning_peer'}
         if group['peers']<=declared_peers and (group['inside']!=group['peers'] or group['owned_msat']!=group['capacity_msat']):
