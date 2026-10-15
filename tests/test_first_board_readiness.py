@@ -12,6 +12,7 @@ from simulator.first_board_readiness import (ACTORS,BALANCES,declare_first_board
 from simulator.model import canonical
 from simulator.store import Store
 from tests.test_final_campaign import PINS
+from tests.owned_activity_fixture import receipt as activity_receipt
 
 
 class FirstBoardControls(unittest.TestCase):
@@ -68,6 +69,8 @@ class FirstBoardControls(unittest.TestCase):
                     'pending_transactions':[],'pending_parents':[],'unavailable_parent_txids':[],
                     'utxos':[{'outpoint':point,'value_sat':50000,'script_pubkey':script,'keychain':'external',
                         'derivation_index':1,'confirmations':1,'coinbase':False,'mature':True}]}})
+        self.source['descriptor_ranges']=[{'desc':row['descriptors'][0],'range':[0,19]} for row in self.source['members']]
+        self.source['mempool']=activity_receipt(self.store,self.source,'finite_fresh_cash')
         self.source['observed_at']=time.time()
     def test_plan_is_exact_immutable_and_before_any_intent(self):
         self.assertEqual(self.plan,board_plan(self.store));self.assertFalse(declare_first_board_plan(self.store,self.plan))

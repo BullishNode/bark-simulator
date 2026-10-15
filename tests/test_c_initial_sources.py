@@ -34,7 +34,7 @@ class CChain(Chain):
 class CInitialSourceControls(unittest.TestCase):
     def setUp(self):
         self.fixture=IdentityBootstrapTests();self.fixture.architecture_profile='direct_per_key';self.fixture.setUp()
-        f=self.fixture;self.store=f.store;self.chain=CChain();self.store.attach_trace()
+        f=self.fixture;self.store=f.store;self.chain=CChain();self.chain.store=self.store;self.store.attach_trace()
         f.config=dataclasses.replace(f.config,inventory_command=('synthetic-c-public-source',),board_amount_sat=20000,action_fee_reserve_sat=1000)
         self.config=f.config;c_pilot.declare(self.store,{**pilot(),'pins':f.pins});f.declare();self.data={}
         self.records=[];self.links=[]
