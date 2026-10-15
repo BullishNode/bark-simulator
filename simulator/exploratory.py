@@ -133,7 +133,7 @@ def continue_scope(store,declaration,*,now=None,arkoor_input_limit_transition=No
         if any(declaration[k]!=v for k,v in previous.items() if k not in allowed|{'configuration_sha256','pins'}):
             raise ValueError('configuration correction cannot repin source, SDK, server, margins or budgets')
         transition_proof=checked_source(declaration,after,chain,
-            client_board_proposals=_client_board_proposals(store,chain,declaration))
+            now=now,client_board_proposals=_client_board_proposals(store,chain,declaration))
         allowed|={'configuration_sha256','pins'}
     if set(declaration)!=set(previous) or any(declaration[k]!=v for k,v in previous.items() if k not in allowed):
         raise ValueError('continuation cannot change pins, actors, fees, capital or operation bounds')
@@ -154,7 +154,8 @@ def continue_scope(store,declaration,*,now=None,arkoor_input_limit_transition=No
     with store.transaction():
         if store.get_meta('qualified_campaign_active_seconds') not in (None,'0'):
             raise ValueError('preserve unexpected positive qualified counter')
-        if (not store.get_meta('paused') or not 0<=now-closed['source_observed_at']<=90
+        source_time=transition_proof['observed_at'] if transition_proof is not None else closed['source_observed_at']
+        if (not store.get_meta('paused') or not 0<=now-source_time<=90
                 or store.db.execute("SELECT 1 FROM action WHERE state IN ('queued','dispatched','outcome_unknown') LIMIT 1").fetchone()
                 or closed['action_count']!=store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]
                 or closed['remaining_fee_budget_sat']<0):raise ValueError('fresh unchanged reconciled closure required')
