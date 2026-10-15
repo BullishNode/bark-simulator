@@ -354,7 +354,8 @@ def active_runtime_manifest(store):
         if store.db.execute("SELECT 1 FROM event WHERE kind='target_epoch_declared' AND json_type(payload,'$.runtime_manifest')='object'").fetchone():
             raise ValueError('finite runtime manifest cannot be silently removed')
         return None
-    return {'deployment_epoch_id':row['id'],**_validate_runtime_manifest(store,declaration)}
+    return {'deployment_epoch_id':row['id'],'previous_identity':declaration['previous_identity'],
+        **_validate_runtime_manifest(store,declaration)}
 
 
 def verified_execution_context(store, snapshot=None):

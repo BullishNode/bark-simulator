@@ -140,7 +140,7 @@ def _history(store,origin,reserved=None,*,allow_queued=False):
 
 def _client_state(store,config,origin,height):
     from .identity_bootstrap import declaration,_context,_root,_sole_writer
-    original=declaration(store);value=original['declaration'];_context(config,value);_sole_writer(value['wallet_root'])
+    original=declaration(store);value=original['declaration'];_context(config,value,store=store);_sole_writer(value['wallet_root'])
     if (value['pins']!=origin['financial_pins'] or _root(value['wallet_root'])!=original['filesystem']
             or any(key.startswith('BARK_') for key in os.environ)):
         raise ValueError('original context/override-free Board adoption required')
@@ -357,10 +357,10 @@ def _record_backing_readiness(store,config,chain,*,source_sequence,runtime_sourc
     _fresh(source['observed_at']);origin=_origin(store,chain)
     if origin!=source['origin']:raise ValueError('original Board source changed')
     history_validator(store,origin)
-    runtime_event,runtime=_source_event(store,runtime_source_sequence);current,current_sha=_read(current_startup_path)
-    if (runtime_event['kind']!='owned_runtime_configuration_verified' or runtime.get('loaded_configuration_identity_verified') is not True
-            or runtime.get('current_source_sha256')!=current_sha or runtime.get('product_commit')!=origin['financial_pins']['product_commit']
-            or runtime.get('schema_sha256')!=origin['financial_pins']['schema_sha256']):raise ValueError('actual loaded same-process startup required')
+    from .target_epochs import verified_runtime_source
+    current,current_sha=_read(current_startup_path)
+    runtime=verified_runtime_source(store,runtime_source_sequence,
+        origin_pins=origin['financial_pins'],current_source_sha256=current_sha)
     _fresh(runtime['observed_at']);limits=envelope(store,config);treasury=boundary(store)
     if (limits['pins']!=source['financial_pins'] or treasury['members']!=source['members'] or treasury['id']!=source['boundary_id']
             or runtime['effective_fee_ceilings_sat_kvb']!=limits['fee_ceilings_sat_kvb']

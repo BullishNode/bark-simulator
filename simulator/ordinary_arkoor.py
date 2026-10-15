@@ -269,7 +269,7 @@ def _native(store,config,origin,height):
                 or result['actor-01']['movement_status']!='successful'):raise ValueError('original Board must be fully adopted before ordinary journey')
         return result
     from .identity_bootstrap import declaration,_context,_root,_sole_writer
-    original=declaration(store);value=original['declaration'];_context(config,value);_sole_writer(value['wallet_root'])
+    original=declaration(store);value=original['declaration'];_context(config,value,store=store);_sole_writer(value['wallet_root'])
     if (value['pins']!=origin['financial_pins'] or _root(value['wallet_root'])!=original['filesystem']
             or any(key.startswith('BARK_') for key in os.environ)):raise ValueError('same private sole-writer native context required')
     if origin['expiry_height']<=height+origin['exit_margin']+6:raise ValueError('ordinary Board near expiry')

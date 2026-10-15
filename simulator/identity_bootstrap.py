@@ -58,35 +58,45 @@ def _sole_writer(root):
     raise ValueError('bootstrap requires this process to hold the existing wallet-root Lease')
 
 
-def _context(config, declaration):
+def _context(config, value, *, store=None):
     if (getattr(config, 'architecture_profile', None) != 'direct_xpub'
-            or config.expected_sdk_commit != declaration['pins']['sdk_commit']
-            or str(config.wallet_root) != declaration['wallet_root']
+            or config.expected_sdk_commit != value['pins']['sdk_commit']
+            or str(config.wallet_root) != value['wallet_root']
             or len(config.driver_command) != 1):
         raise ValueError('exact profiled bootstrap driver context required')
     identity = {'network': config.network, 'genesis': config.expected_genesis,
                 'container': config.expected_container, 'image_digest': config.expected_image,
                 'server_pubkey': config.expected_server_pubkey}
-    if declaration['identity'] != identity: raise ValueError('bootstrap target identity differs')
+    from .target_epochs import active_runtime_manifest,active_identity
+    manifest=active_runtime_manifest(store) if store is not None else None
+    if manifest is None:
+        if value['identity'] != identity: raise ValueError('bootstrap target identity differs')
+    else:
+        original=declaration(store)
+        if (original is None or original['declaration']!=value
+                or value['identity']!=manifest['previous_identity'] or identity!=active_identity(store)):
+            raise ValueError('historical native context differs from declared deployment')
+        if _root(value['wallet_root'])!=original['filesystem']:
+            raise ValueError('original historical wallet root identity changed')
     driver = Path(config.driver_command[0])
-    if not driver.is_absolute() or _hash(driver) != declaration['pins']['driver_sha256']:
+    if not driver.is_absolute() or _hash(driver) != value['pins']['driver_sha256']:
         raise ValueError('bootstrap native driver differs')
     path = Path(os.environ.get('SIM_DRIVER_CONFIG', ''))
-    if not path.is_absolute() or _hash(path) != declaration['driver_config_sha256']:
+    if not path.is_absolute() or _hash(path) != value['driver_config_sha256']:
         raise ValueError('bootstrap driver configuration differs')
     raw = path.read_bytes()
-    if len(raw) > 65536 or hashlib.sha256(raw).hexdigest() != declaration['driver_config_sha256']:
+    if len(raw) > 65536 or hashlib.sha256(raw).hexdigest() != value['driver_config_sha256']:
         raise ValueError('bootstrap driver configuration changed')
     native = json.loads(raw)
-    if (native.get('wallet_root') != declaration['wallet_root'] or native.get('network') != config.network
+    if (native.get('wallet_root') != value['wallet_root'] or native.get('network') != config.network
             or not isinstance(native.get('ark_endpoint'), str) or not native['ark_endpoint']):
         raise ValueError('bootstrap native configuration scope differs')
     wallet_config = Path(native['wallet_config'])
-    if not wallet_config.is_absolute() or _hash(wallet_config) != declaration['wallet_config_sha256']:
+    if not wallet_config.is_absolute() or _hash(wallet_config) != value['wallet_config_sha256']:
         raise ValueError('bootstrap wallet configuration differs')
-    return {'driver_sha256': declaration['pins']['driver_sha256'],
-            'driver_config_sha256': declaration['driver_config_sha256'],
-            'wallet_config_sha256': declaration['wallet_config_sha256']}
+    return {'driver_sha256': value['pins']['driver_sha256'],
+            'driver_config_sha256': value['driver_config_sha256'],
+            'wallet_config_sha256': value['wallet_config_sha256']}
 
 
 def declaration(store):
