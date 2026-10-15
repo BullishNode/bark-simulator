@@ -226,3 +226,41 @@ class ExploratoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'preserve unexpected positive'):
             e.continue_scope(self.store,{**self.d,'id':'fixture-continuation','started_at':self.now,'deadline':self.now+1800},now=self.now)
         self.assertEqual('19',self.store.get_meta('qualified_campaign_active_seconds'));self.assertIsNone(e.scope(self.store))
+
+    def input_limit_transition(self):
+        self.p['public_policy']['max_arkoor_amount']='10000 sat'
+        e.declare(self.store,self.d)
+        e.close(self.store,self.closure_snapshot(),'explicit reviewed input limit correction',now=self.now)
+        after=copy.deepcopy(self.p);after['config_sha256']='d'*64;after['public_policy']['max_arkoor_amount']='30000 sat'
+        new={**self.d,'id':'fixture-policy-correction','started_at':self.now,'deadline':self.now+1800,
+            'configuration_sha256':'d'*64,'pins':{**self.d['pins'],'configuration_sha256':'d'*64}}
+        return new,after
+
+    def test_explicit_input_limit_correction_binds_actual_source_and_preserves_other_pins(self):
+        new,after=self.input_limit_transition();original=self.store.get_meta(e.KEY)
+        self.assertTrue(e.continue_scope(self.store,new,now=self.now,arkoor_input_limit_transition=(self.p,after,self.chain)))
+        self.assertEqual(new,e.scope(self.store));self.assertEqual(original,self.store.get_meta(e.KEY))
+        self.assertEqual(200000,e.scope(self.store)['capital_budget_sat'])
+        self.assertEqual(1000,e.scope(self.store)['ark_send_amount_sat']);self.assertEqual('0',self.store.get_meta('qualified_campaign_active_seconds'))
+        self.store.verify_event_chain()
+
+    def test_input_limit_correction_cannot_change_sdk_budget_or_other_server_policy(self):
+        new,after=self.input_limit_transition()
+        for change in [{'capital_budget_sat':300000},{'pins':{**new['pins'],'sdk_commit':'f'*40}}]:
+            with self.assertRaises(ValueError):e.continue_scope(self.store,{**new,**change},now=self.now,arkoor_input_limit_transition=(self.p,after,self.chain))
+        for field,value in [('vtxo_lifetime',24),('max_arkoor_amount','40000 sat')]:
+            altered=copy.deepcopy(after);altered['public_policy'][field]=value
+            with self.assertRaises(ValueError):e.continue_scope(self.store,new,now=self.now,arkoor_input_limit_transition=(self.p,altered,self.chain))
+        altered=copy.deepcopy(after);altered['binary_sha256']={}
+        with self.assertRaisesRegex(ValueError,'executable'):e.continue_scope(self.store,new,now=self.now,arkoor_input_limit_transition=(self.p,altered,self.chain))
+        self.assertIsNone(e.scope(self.store))
+
+    def test_input_limit_correction_rejects_substituted_before_packet(self):
+        new,after=self.input_limit_transition()
+        substituted=copy.deepcopy(self.p);substituted['observed_at']='2000-01-01T00:00:00+00:00'
+        original_events=self.store.db.execute('SELECT COUNT(*) FROM event').fetchone()[0]
+        with self.assertRaisesRegex(ValueError,'before packet differs from original closure source'):
+            e.continue_scope(self.store,new,now=self.now,arkoor_input_limit_transition=(substituted,after,self.chain))
+        self.assertIsNone(e.scope(self.store))
+        self.assertEqual(original_events,self.store.db.execute('SELECT COUNT(*) FROM event').fetchone()[0])
+        self.assertEqual('0',self.store.get_meta('qualified_campaign_active_seconds'))
