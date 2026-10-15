@@ -1,0 +1,3781 @@
+{
+  "capture": {
+    "observed_at": "2026-10-15T15:46:18.685687+00:00",
+    "completed_at": "2026-10-15T15:47:15.198003+00:00",
+    "kind": "declared_wallet_range_source",
+    "range": [
+      0,
+      32
+    ],
+    "native_before": {
+      "observed_at": "2026-10-15T15:46:18.835903+00:00",
+      "host": "two-step-signet-20261014",
+      "network": "signet",
+      "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+      "core_before": {
+        "chain": "signet",
+        "blocks": 326474,
+        "headers": 326474,
+        "bestblockhash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "bits": "1d14cbb2",
+        "target": "00000014cbb20000000000000000000000000000000000000000000000000000",
+        "difficulty": "0.04808616547775056",
+        "time": 1792078119,
+        "mediantime": 1792073773,
+        "verificationprogress": 1,
+        "initialblockdownload": false,
+        "chainwork": "0000000000000000000000000000000000000000000000000000118d4e89dcd9",
+        "size_on_disk": 24356694198,
+        "pruned": false,
+        "signet_challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+        "warnings": []
+      },
+      "container_inspect": {
+        "Id": "f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4",
+        "Created": "2026-10-15T14:38:35.565721958Z",
+        "Path": "/app/captaind",
+        "Args": [
+          "--config",
+          "/etc/two-step-a/captaind-enrollment.toml",
+          "start"
+        ],
+        "State": {
+          "Status": "running",
+          "Running": true,
+          "Paused": false,
+          "Restarting": false,
+          "OOMKilled": false,
+          "Dead": false,
+          "Pid": 157545,
+          "ExitCode": 0,
+          "Error": "",
+          "StartedAt": "2026-10-15T14:50:56.79075719Z",
+          "FinishedAt": "2026-10-15T14:50:56.05724176Z"
+        },
+        "Image": "sha256:ef8279e1ffc6d216da8445fef05dbd1963b11a36f7c1c2aa68dd56ad216700a0",
+        "ResolvConfPath": "/var/lib/docker/containers/f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4/hostname",
+        "HostsPath": "/var/lib/docker/containers/f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4/hosts",
+        "LogPath": "/var/lib/docker/containers/f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4/f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4-json.log",
+        "Name": "/abandon-signet-fallback-two-step-a-captaind-20261015",
+        "RestartCount": 0,
+        "Driver": "overlayfs",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "docker-default",
+        "ExecIDs": null,
+        "HostConfig": {
+          "Binds": null,
+          "ContainerIDFile": "",
+          "LogConfig": {
+            "Type": "json-file",
+            "Config": {}
+          },
+          "NetworkMode": "host",
+          "PortBindings": {},
+          "RestartPolicy": {
+            "Name": "no",
+            "MaximumRetryCount": 0
+          },
+          "AutoRemove": false,
+          "VolumeDriver": "",
+          "VolumesFrom": null,
+          "ConsoleSize": [
+            0,
+            0
+          ],
+          "CapAdd": null,
+          "CapDrop": [
+            "ALL"
+          ],
+          "CgroupnsMode": "private",
+          "Dns": null,
+          "DnsOptions": [],
+          "DnsSearch": [],
+          "ExtraHosts": null,
+          "GroupAdd": null,
+          "IpcMode": "private",
+          "Cgroup": "",
+          "Links": null,
+          "OomScoreAdj": 0,
+          "PidMode": "",
+          "Privileged": false,
+          "PublishAllPorts": false,
+          "ReadonlyRootfs": true,
+          "SecurityOpt": [
+            "no-new-privileges:true"
+          ],
+          "Tmpfs": {
+            "/tmp": "rw,nosuid,noexec,size=64m,mode=1777"
+          },
+          "UTSMode": "",
+          "UsernsMode": "",
+          "ShmSize": 67108864,
+          "Runtime": "runc",
+          "Isolation": "",
+          "CpuShares": 0,
+          "Memory": 0,
+          "NanoCpus": 0,
+          "CgroupParent": "",
+          "BlkioWeight": 0,
+          "BlkioWeightDevice": [],
+          "BlkioDeviceReadBps": [],
+          "BlkioDeviceWriteBps": [],
+          "BlkioDeviceReadIOps": [],
+          "BlkioDeviceWriteIOps": [],
+          "CpuPeriod": 0,
+          "CpuQuota": 0,
+          "CpuRealtimePeriod": 0,
+          "CpuRealtimeRuntime": 0,
+          "CpusetCpus": "",
+          "CpusetMems": "",
+          "Devices": [],
+          "DeviceCgroupRules": null,
+          "DeviceRequests": null,
+          "MemoryReservation": 0,
+          "MemorySwap": 0,
+          "MemorySwappiness": null,
+          "OomKillDisable": null,
+          "PidsLimit": null,
+          "Ulimits": [],
+          "CpuCount": 0,
+          "CpuPercent": 0,
+          "IOMaximumIOps": 0,
+          "IOMaximumBandwidth": 0,
+          "Mounts": [
+            {
+              "Type": "bind",
+              "Source": "/etc/two-step-a",
+              "Target": "/etc/two-step-a",
+              "ReadOnly": true
+            },
+            {
+              "Type": "bind",
+              "Source": "/var/lib/two-step-a/server",
+              "Target": "/var/lib/two-step-a/server"
+            }
+          ],
+          "MaskedPaths": [
+            "/proc/acpi",
+            "/proc/asound",
+            "/proc/interrupts",
+            "/proc/kcore",
+            "/proc/keys",
+            "/proc/latency_stats",
+            "/proc/sched_debug",
+            "/proc/scsi",
+            "/proc/timer_list",
+            "/proc/timer_stats",
+            "/sys/devices/virtual/powercap",
+            "/sys/firmware"
+          ],
+          "ReadonlyPaths": [
+            "/proc/bus",
+            "/proc/fs",
+            "/proc/irq",
+            "/proc/sys",
+            "/proc/sysrq-trigger"
+          ]
+        },
+        "Storage": {
+          "RootFS": {
+            "Snapshot": {
+              "Name": "overlayfs"
+            }
+          }
+        },
+        "Mounts": [
+          {
+            "Type": "bind",
+            "Source": "/etc/two-step-a",
+            "Destination": "/etc/two-step-a",
+            "Mode": "",
+            "RW": false,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/var/lib/two-step-a/server",
+            "Destination": "/var/lib/two-step-a/server",
+            "Mode": "",
+            "RW": true,
+            "Propagation": "rprivate"
+          }
+        ],
+        "Config": {
+          "Hostname": "two-step-signet-20261014",
+          "Domainname": "",
+          "User": "2001:2001",
+          "AttachStdin": false,
+          "AttachStdout": true,
+          "AttachStderr": true,
+          "Tty": false,
+          "OpenStdin": false,
+          "StdinOnce": false,
+          "Env": [
+            "PATH=/app",
+            "RUST_LOG=info",
+            "HOME=/var/lib/two-step-a"
+          ],
+          "Cmd": [
+            "--config",
+            "/etc/two-step-a/captaind-enrollment.toml",
+            "start"
+          ],
+          "Image": "sha256:ef8279e1ffc6d216da8445fef05dbd1963b11a36f7c1c2aa68dd56ad216700a0",
+          "Volumes": null,
+          "WorkingDir": "/var/lib/two-step-a",
+          "Entrypoint": [
+            "/app/captaind"
+          ],
+          "Labels": {
+            "org.bullishnode.source-key": "ba9451d2aac67e0aed930946e9b3a17d64b62c9f497d6e525d46eeded20971c1"
+          }
+        },
+        "NetworkSettings": {
+          "SandboxID": "048741f6b8c96b13752e664b67bf080b85c54a5e8d7daa9f3c13f524956d35cc",
+          "SandboxKey": "/var/run/docker/netns/default",
+          "Ports": {},
+          "Networks": {
+            "host": {
+              "IPAMConfig": null,
+              "Links": null,
+              "Aliases": null,
+              "DriverOpts": null,
+              "GwPriority": 0,
+              "NetworkID": "46eecf1db717f4555538b934232493f48bca965d0e0c57ab80c3a3fe7e6fdbe7",
+              "EndpointID": "8b40fc9a03e03b39d455bbbaf5330351665ee0c22874f683a37091c5fa7795f7",
+              "Gateway": "",
+              "IPAddress": "",
+              "MacAddress": "",
+              "IPPrefixLen": 0,
+              "IPv6Gateway": "",
+              "GlobalIPv6Address": "",
+              "GlobalIPv6PrefixLen": 0,
+              "DNSNames": null
+            }
+          }
+        },
+        "ImageManifestDescriptor": {
+          "mediaType": "application/vnd.oci.image.manifest.v1+json",
+          "digest": "sha256:ef8279e1ffc6d216da8445fef05dbd1963b11a36f7c1c2aa68dd56ad216700a0",
+          "size": 1200,
+          "platform": {
+            "architecture": "amd64",
+            "os": "linux"
+          }
+        }
+      },
+      "binary_sha256": {
+        "captaind": "37483e7ef7470117fe0cde30449e807f150ed0d4e271a27467db0eed8163ef88",
+        "watchmand": "9179d455c8fb90dd07b8918467cf9ebf4efdd9ff47551895073e665aaaa74349",
+        "bark": "7c79f757d4027809caf6806dfb0c0c527354e39e73417ceb84a213ad43403b4f",
+        "barkd": "df8a44d084465bad57b7ae96eb0ca1a3cf234d6e1cd5e078520d9577c1c7d78b"
+      },
+      "binary_identity_pid": 157545,
+      "binary_identity_startticks": "6742059",
+      "recovery_reserve": {
+        "id": "rounds",
+        "sweep_spk": "51201c440178c0a15b465498d76149d215e76d8d65519ecf88975343a7e8834a6510",
+        "checkpoint_height": 326474,
+        "checkpoint_hash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "fee_headroom_sat": 20000,
+        "held_sat": 0,
+        "unknown_gross": false
+      },
+      "source_key": "ba9451d2aac67e0aed930946e9b3a17d64b62c9f497d6e525d46eeded20971c1",
+      "config_sha256": "a1a53bd7103b068b6cf3f497803c00dcd5bc5e28de2013c0102945d6b98aa739",
+      "public_policy": {
+        "data_dir": "/var/lib/two-step-a/server",
+        "network": "signet",
+        "require_board_funding_tx": true,
+        "max_board_amount": "30000 sat",
+        "max_round_amount": "60000 sat",
+        "max_arkoor_amount": "10000 sat",
+        "max_offboard_amount": "0 sat",
+        "max_ln_send_amount": "0 sat",
+        "max_ln_receive_amount": "0 sat",
+        "vtxo_lifetime": 48,
+        "min_board_amount": "20000 sat",
+        "vtxo_exit_delta": 12,
+        "max_vtxo_exit_depth": 100,
+        "max_arkoor_fanout": 4,
+        "required_board_confirmations": 3,
+        "min_trusted_confs": 2,
+        "rpc_rich_errors": true,
+        "sync_manager_block_poll_interval": "100ms",
+        "nursery_confirm_target_blocks": 6,
+        "otel_deployment_name": "two-step-a-exploratory-20261015",
+        "max_read_mailbox_items": 100,
+        "round_interval": "10m",
+        "round_submit_time": "2s",
+        "round_sign_time": "2s",
+        "nb_round_nonces": 8,
+        "round_forfeit_nonces_timeout": "30s",
+        "offboard_session_timeout": "30s",
+        "offboard_check_interval": "1s",
+        "offboard_acceptable_fee_rate_duration": "15m",
+        "cln_reconnect_interval": "10s",
+        "invoice_check_interval": "3s",
+        "cln_xpay_timeout": "60s",
+        "cln_xpay_max_retry_for": "5m",
+        "invoice_check_base_delay": "10s",
+        "max_invoice_check_delay": "10m",
+        "invoice_poll_interval": "30s",
+        "htlc_settlement_poll_interval": "3s",
+        "track_all_base_delay": "1s",
+        "max_track_all_delay": "60s",
+        "htlc_expiry_delta": 40,
+        "htlc_send_expiry_delta": 258,
+        "max_user_invoice_cltv_delta": 250,
+        "invoice_expiry": "48h",
+        "receive_htlc_forward_timeout": "3min",
+        "ln_receive_anti_dos_required": false,
+        "ln_max_fee_ppm": 900000,
+        "fees": {
+          "board": {
+            "min_fee_sat": 330,
+            "base_fee_sat": 100,
+            "ppm": 1000
+          },
+          "offboard": {
+            "base_fee_sat": 200,
+            "fixed_additional_vb": 221,
+            "ppm_expiry_table": [
+              {
+                "expiry_blocks_threshold": 0,
+                "ppm": 0
+              },
+              {
+                "expiry_blocks_threshold": 97,
+                "ppm": 1000
+              },
+              {
+                "expiry_blocks_threshold": 199,
+                "ppm": 4000
+              },
+              {
+                "expiry_blocks_threshold": 2161,
+                "ppm": 8000
+              }
+            ]
+          },
+          "refresh": {
+            "base_fee_sat": 150,
+            "ppm_expiry_table": [
+              {
+                "expiry_blocks_threshold": 0,
+                "ppm": 0
+              },
+              {
+                "expiry_blocks_threshold": 97,
+                "ppm": 1000
+              },
+              {
+                "expiry_blocks_threshold": 199,
+                "ppm": 4000
+              },
+              {
+                "expiry_blocks_threshold": 2161,
+                "ppm": 8000
+              }
+            ]
+          },
+          "lightning_receive": {
+            "base_fee_sat": 100,
+            "ppm": 2000
+          },
+          "lightning_send": {
+            "min_fee_sat": 10,
+            "base_fee_sat": 75,
+            "ppm_expiry_table": [
+              {
+                "expiry_blocks_threshold": 0,
+                "ppm": 0
+              },
+              {
+                "expiry_blocks_threshold": 97,
+                "ppm": 1000
+              },
+              {
+                "expiry_blocks_threshold": 199,
+                "ppm": 4000
+              },
+              {
+                "expiry_blocks_threshold": 2161,
+                "ppm": 8000
+              }
+            ]
+          }
+        },
+        "vtxopool": {
+          "vtxo_targets": [],
+          "vtxo_target_issue_threshold": 80,
+          "vtxo_lifetime": 48,
+          "vtxo_pre_expiry": 18,
+          "max_vtxo_exit_depth": 50
+        },
+        "fee_estimator": {
+          "update_interval": "1m",
+          "history_duration": "60m",
+          "fallback_fee_rate_fast": "5sat/vb",
+          "fallback_fee_rate_regular": "3sat/vb",
+          "fallback_fee_rate_slow": "1sat/vb",
+          "max_fee_rate": "5sat/vb"
+        },
+        "rpc": {
+          "public_address": "172.16.0.19:3535",
+          "admin_address": "127.0.0.1:3536",
+          "integration_address": "127.0.0.1:3537"
+        },
+        "expiry_payout": {
+          "recovery_fee_headroom_sat": 20000,
+          "watchman_config": "/etc/two-step-a/watchmand.toml",
+          "enabled": false
+        }
+      },
+      "wallet_status_omitted": "rpc wallet reveals a newaddress; use read-only inventory",
+      "rounds_inventory": {
+        "exit": 0,
+        "stderr": "",
+        "data": {
+          "complete": false,
+          "missing_sources": [
+            "watchmand owns its wallet; inventory unavailable from captaind"
+          ],
+          "rounds": {
+            "complete": true,
+            "last_revealed_index": 1,
+            "min_trusted_confirmations": 2,
+            "network": "signet",
+            "pending_parents": [],
+            "pending_transaction_scope": "canonical_wallet_graph_only",
+            "pending_transactions": [],
+            "public_descriptor": "tr(tpubD8sZ4z8i4P7tD7H9JnXkviUY3T6bxV82v2tiitcPXfKTTC9biWonrRZbBgXrPEyJw4UDi4qWEwDEChr1sTAWBnkNquMtSUiBJW6gCUR5qyy/0/*)#ps2lph6l",
+            "reserved_outpoints": [],
+            "tip_hash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+            "tip_height": 326474,
+            "unavailable_parent_txids": [],
+            "utxos": [
+              {
+                "coinbase": false,
+                "confirmation_block_hash": "00000006b227fb106b21691ad90d93e2a07ab2053b85fb2dff5d5cdb43dcb43f",
+                "confirmation_time": 1792076443,
+                "confirmations": 3,
+                "confirmed_fee_eligible": true,
+                "confirmed_height_upper_bound": 326472,
+                "confirming_descendant_txid": null,
+                "derivation_index": 1,
+                "keychain": "external",
+                "mature": true,
+                "outpoint": "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef:0",
+                "reserved": false,
+                "script_pubkey": "51208f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69",
+                "transaction_eligible": true,
+                "trusted": true,
+                "unconfirmed_first_seen": null,
+                "unconfirmed_last_seen": null,
+                "value_sat": 90000
+              }
+            ],
+            "wallet": "rounds"
+          },
+          "watchman": null
+        }
+      },
+      "watchman_inventory": {
+        "exit": 0,
+        "stderr": "",
+        "data": {
+          "complete": false,
+          "missing_sources": [
+            "captaind owns its rounds wallet; collect its separate source without assuming global atomicity"
+          ],
+          "rounds": null,
+          "watchman": {
+            "complete": true,
+            "last_revealed_index": 0,
+            "min_trusted_confirmations": 1,
+            "network": "signet",
+            "pending_parents": [],
+            "pending_transaction_scope": "canonical_wallet_graph_only",
+            "pending_transactions": [],
+            "public_descriptor": "tr(tpubD8sZ4z8azwn869sNvEUR5sgSYuttduVYqHmbxT9bCdoDwD8WVvjPFxSq3LLqGYBNVJkFRQcfSctELkqATwRQCzpijX8SmBDNcUttEYzqPH2/0/*)#p4g3q7xn",
+            "reserved_outpoints": [],
+            "tip_hash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+            "tip_height": 326474,
+            "unavailable_parent_txids": [],
+            "utxos": [],
+            "wallet": "watchman"
+          }
+        }
+      },
+      "nursery_all": {
+        "exit": 0,
+        "stderr": "",
+        "literal_text": "No nursery txs\n"
+      },
+      "postgres_public_table_counts": {
+        "tables": {
+          "arkoor_mailbox": 0,
+          "captaind_block": 104,
+          "checkpoint_state": 1,
+          "ephemeral_tweak": 0,
+          "expiry_cancelled_participation": 0,
+          "expiry_settlement": 0,
+          "fallback_record": 12,
+          "htlc_settlement": 0,
+          "htlc_vtxo": 0,
+          "integration": 1,
+          "integration_api_key": 2,
+          "integration_api_key_history": 4,
+          "integration_token": 0,
+          "integration_token_config": 0,
+          "integration_token_config_history": 0,
+          "integration_token_history": 0,
+          "key_link": 96,
+          "lightning_htlc_subscription": 0,
+          "lightning_htlc_subscription_history": 0,
+          "lightning_invoice": 0,
+          "lightning_invoice_history": 0,
+          "lightning_node": 0,
+          "lightning_node_history": 0,
+          "lightning_payment_attempt": 0,
+          "lightning_payment_attempt_history": 0,
+          "lightning_payment_attempt_htlc_vtxo": 0,
+          "mailbox": 0,
+          "nursery_tx": 0,
+          "offboards": 0,
+          "pending_board": 2,
+          "recovery_capital_release": 0,
+          "recovery_receipt": 0,
+          "recovery_reserve": 1,
+          "recovery_source_hold": 0,
+          "refinery_schema_history": 70,
+          "round": 0,
+          "round_part_input": 0,
+          "round_part_output": 0,
+          "round_participation": 0,
+          "sweep": 0,
+          "virtual_transaction": 4,
+          "virtual_transaction_history": 0,
+          "vtxo": 2,
+          "vtxo_history": 4,
+          "vtxo_pool": 0,
+          "wallet_changeset": 208,
+          "watchmand_block": 104
+        },
+        "financial_details": {
+          "recovery_reserve": [
+            {
+              "id": "rounds",
+              "sweep_spk": "\\x51201c440178c0a15b465498d76149d215e76d8d65519ecf88975343a7e8834a6510",
+              "checkpoint_height": 326474,
+              "checkpoint_hash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+              "fee_headroom_sat": 20000
+            }
+          ],
+          "recovery_receipt": [],
+          "recovery_source_hold": [],
+          "recovery_capital_release": [],
+          "expiry_settlement": [],
+          "expiry_cancelled_participation": [],
+          "earliest_round_expiry": null,
+          "earliest_vtxo_expiry": 326521,
+          "nursery": [],
+          "vtxo_states": [
+            {
+              "vtxo_id": "cee083dbe3fc34f53e64e4c1649be7fc66ce2fc17eab2eb5d46c40ff649bbc20:0",
+              "expiry": 326521,
+              "amount": 28000,
+              "policy_hex": "0427636699bb37e2811ea0513d686fbb79bf810ccdf43832cac1342be995d5236c",
+              "anchor_point": "cee083dbe3fc34f53e64e4c1649be7fc66ce2fc17eab2eb5d46c40ff649bbc20:0",
+              "vtxo_txid": "cee083dbe3fc34f53e64e4c1649be7fc66ce2fc17eab2eb5d46c40ff649bbc20",
+              "policy_type": "expiry",
+              "spend_state": "spent",
+              "confirmed_height": 326474,
+              "onchain_spent_txid": null
+            },
+            {
+              "vtxo_id": "d80cb898fc6c644ae6b7e821c4acac56f0cd98d92588cf9e57c1302599764529:0",
+              "expiry": 326521,
+              "amount": 28000,
+              "policy_hex": "0432f79d6d9c357f32ff76e9a7c7f3528995d8207ead334f3cdcbf911b089d179e",
+              "anchor_point": "d80cb898fc6c644ae6b7e821c4acac56f0cd98d92588cf9e57c1302599764529:0",
+              "vtxo_txid": "d80cb898fc6c644ae6b7e821c4acac56f0cd98d92588cf9e57c1302599764529",
+              "policy_type": "expiry",
+              "spend_state": "spent",
+              "confirmed_height": 326474,
+              "onchain_spent_txid": null
+            }
+          ],
+          "native_recovery_reserve_state": {
+            "id": "rounds",
+            "sweep_spk": "51201c440178c0a15b465498d76149d215e76d8d65519ecf88975343a7e8834a6510",
+            "checkpoint_height": 326474,
+            "checkpoint_hash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+            "fee_headroom_sat": 20000,
+            "held_sat": 0,
+            "unknown_gross": false
+          },
+          "exploratory_summary": {
+            "earliest_expiry_height": 326521,
+            "customer_principal_sat": 0,
+            "funding_txids": [
+              "cee083dbe3fc34f53e64e4c1649be7fc66ce2fc17eab2eb5d46c40ff649bbc20",
+              "d80cb898fc6c644ae6b7e821c4acac56f0cd98d92588cf9e57c1302599764529"
+            ],
+            "conditional_count": 0,
+            "exit_count": 0,
+            "payout_count": 0,
+            "recovery_hold_sat": 0,
+            "customer_principal_scope": "Current ordinary pubkey leaf IDs in spendable/unclaimed/unregistered states; excludes exact protocol padding policy, onchain-spent and expiry-settled leaves. Independently verify attribution; not a global economic classification across conditional/delegated histories."
+          }
+        },
+        "row_limit": 1001
+      },
+      "postgres_financial_rows": {
+        "earliest_expiry_height": 326521,
+        "customer_principal_sat": 0,
+        "funding_txids": [
+          "cee083dbe3fc34f53e64e4c1649be7fc66ce2fc17eab2eb5d46c40ff649bbc20",
+          "d80cb898fc6c644ae6b7e821c4acac56f0cd98d92588cf9e57c1302599764529"
+        ],
+        "conditional_count": 0,
+        "exit_count": 0,
+        "payout_count": 0,
+        "recovery_hold_sat": 0,
+        "customer_principal_scope": "Current ordinary pubkey leaf IDs in spendable/unclaimed/unregistered states; excludes exact protocol padding policy, onchain-spent and expiry-settled leaves. Independently verify attribution; not a global economic classification across conditional/delegated histories."
+      },
+      "postgres_count_snapshot": "REPEATABLE READ READ ONLY",
+      "signing_possession_proof": null,
+      "missing_signing_proof_reason": "No bounded native read-only signing challenge exists; genuine signed wallet spend may prove possession only after separately authorized financial release.",
+      "last_stopped_watchman_inventory_snapshot": {
+        "utc": "2026-10-15T14:41:24.297701+00:00",
+        "scope": "EMPTY_WATCHMAN_NATIVE_INVENTORY_ONLY",
+        "watchman_inventory": {
+          "complete": false,
+          "missing_sources": [
+            "captaind owns its rounds wallet; collect its separate source without assuming global atomicity"
+          ],
+          "rounds": null,
+          "watchman": {
+            "complete": true,
+            "last_revealed_index": 0,
+            "min_trusted_confirmations": 1,
+            "network": "signet",
+            "pending_parents": [],
+            "pending_transaction_scope": "canonical_wallet_graph_only",
+            "pending_transactions": [],
+            "public_descriptor": "tr(tpubD8sZ4z8azwn869sNvEUR5sgSYuttduVYqHmbxT9bCdoDwD8WVvjPFxSq3LLqGYBNVJkFRQcfSctELkqATwRQCzpijX8SmBDNcUttEYzqPH2/0/*)#p4g3q7xn",
+            "reserved_outpoints": [],
+            "tip_hash": "000000062da3bec423383f45817bfce532dc02cb9a130b24fec6f3eff8daebad",
+            "tip_height": 326471,
+            "unavailable_parent_txids": [],
+            "utxos": [],
+            "wallet": "watchman"
+          }
+        },
+        "container_id": "e54f3a94ab9fe8e383d5a98c196980984c24a375333178b6928f449b02b498b7",
+        "stopped": true,
+        "terminal_state": {
+          "Status": "exited",
+          "Running": false,
+          "Paused": false,
+          "Restarting": false,
+          "OOMKilled": false,
+          "Dead": false,
+          "Pid": 0,
+          "ExitCode": 0,
+          "Error": "",
+          "StartedAt": "2026-10-15T14:41:23.790523639Z",
+          "FinishedAt": "2026-10-15T14:41:24.159722666Z"
+        },
+        "elapsed_seconds": "0.5716033990029246",
+        "failed_prior_setup_preserved": true
+      },
+      "container_runtime_stable": true,
+      "core_after": {
+        "chain": "signet",
+        "blocks": 326474,
+        "headers": 326474,
+        "bestblockhash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "bits": "1d14cbb2",
+        "target": "00000014cbb20000000000000000000000000000000000000000000000000000",
+        "difficulty": "0.04808616547775056",
+        "time": 1792078119,
+        "mediantime": 1792073773,
+        "verificationprogress": 1,
+        "initialblockdownload": false,
+        "chainwork": "0000000000000000000000000000000000000000000000000000118d4e89dcd9",
+        "size_on_disk": 24356694198,
+        "pruned": false,
+        "signet_challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+        "warnings": []
+      },
+      "completed_at": "2026-10-15T15:46:20.919430+00:00",
+      "stable_tip": true,
+      "complete": false,
+      "unqualified_notes": [
+        "source snapshot only; independent reconciliation and policy validation required",
+        "normal estimator ceiling is not cumulative fee or urgent reserve enforcement"
+      ]
+    },
+    "native_after": {
+      "observed_at": "2026-10-15T15:47:12.783363+00:00",
+      "host": "two-step-signet-20261014",
+      "network": "signet",
+      "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+      "core_before": {
+        "chain": "signet",
+        "blocks": 326474,
+        "headers": 326474,
+        "bestblockhash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "bits": "1d14cbb2",
+        "target": "00000014cbb20000000000000000000000000000000000000000000000000000",
+        "difficulty": "0.04808616547775056",
+        "time": 1792078119,
+        "mediantime": 1792073773,
+        "verificationprogress": 1,
+        "initialblockdownload": false,
+        "chainwork": "0000000000000000000000000000000000000000000000000000118d4e89dcd9",
+        "size_on_disk": 24356694198,
+        "pruned": false,
+        "signet_challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+        "warnings": []
+      },
+      "container_inspect": {
+        "Id": "f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4",
+        "Created": "2026-10-15T14:38:35.565721958Z",
+        "Path": "/app/captaind",
+        "Args": [
+          "--config",
+          "/etc/two-step-a/captaind-enrollment.toml",
+          "start"
+        ],
+        "State": {
+          "Status": "running",
+          "Running": true,
+          "Paused": false,
+          "Restarting": false,
+          "OOMKilled": false,
+          "Dead": false,
+          "Pid": 157545,
+          "ExitCode": 0,
+          "Error": "",
+          "StartedAt": "2026-10-15T14:50:56.79075719Z",
+          "FinishedAt": "2026-10-15T14:50:56.05724176Z"
+        },
+        "Image": "sha256:ef8279e1ffc6d216da8445fef05dbd1963b11a36f7c1c2aa68dd56ad216700a0",
+        "ResolvConfPath": "/var/lib/docker/containers/f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4/hostname",
+        "HostsPath": "/var/lib/docker/containers/f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4/hosts",
+        "LogPath": "/var/lib/docker/containers/f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4/f8ad030e83bea79562762c64cc10659f93478d0f1a525ad48d0c1657c69b53f4-json.log",
+        "Name": "/abandon-signet-fallback-two-step-a-captaind-20261015",
+        "RestartCount": 0,
+        "Driver": "overlayfs",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "docker-default",
+        "ExecIDs": null,
+        "HostConfig": {
+          "Binds": null,
+          "ContainerIDFile": "",
+          "LogConfig": {
+            "Type": "json-file",
+            "Config": {}
+          },
+          "NetworkMode": "host",
+          "PortBindings": {},
+          "RestartPolicy": {
+            "Name": "no",
+            "MaximumRetryCount": 0
+          },
+          "AutoRemove": false,
+          "VolumeDriver": "",
+          "VolumesFrom": null,
+          "ConsoleSize": [
+            0,
+            0
+          ],
+          "CapAdd": null,
+          "CapDrop": [
+            "ALL"
+          ],
+          "CgroupnsMode": "private",
+          "Dns": null,
+          "DnsOptions": [],
+          "DnsSearch": [],
+          "ExtraHosts": null,
+          "GroupAdd": null,
+          "IpcMode": "private",
+          "Cgroup": "",
+          "Links": null,
+          "OomScoreAdj": 0,
+          "PidMode": "",
+          "Privileged": false,
+          "PublishAllPorts": false,
+          "ReadonlyRootfs": true,
+          "SecurityOpt": [
+            "no-new-privileges:true"
+          ],
+          "Tmpfs": {
+            "/tmp": "rw,nosuid,noexec,size=64m,mode=1777"
+          },
+          "UTSMode": "",
+          "UsernsMode": "",
+          "ShmSize": 67108864,
+          "Runtime": "runc",
+          "Isolation": "",
+          "CpuShares": 0,
+          "Memory": 0,
+          "NanoCpus": 0,
+          "CgroupParent": "",
+          "BlkioWeight": 0,
+          "BlkioWeightDevice": [],
+          "BlkioDeviceReadBps": [],
+          "BlkioDeviceWriteBps": [],
+          "BlkioDeviceReadIOps": [],
+          "BlkioDeviceWriteIOps": [],
+          "CpuPeriod": 0,
+          "CpuQuota": 0,
+          "CpuRealtimePeriod": 0,
+          "CpuRealtimeRuntime": 0,
+          "CpusetCpus": "",
+          "CpusetMems": "",
+          "Devices": [],
+          "DeviceCgroupRules": null,
+          "DeviceRequests": null,
+          "MemoryReservation": 0,
+          "MemorySwap": 0,
+          "MemorySwappiness": null,
+          "OomKillDisable": null,
+          "PidsLimit": null,
+          "Ulimits": [],
+          "CpuCount": 0,
+          "CpuPercent": 0,
+          "IOMaximumIOps": 0,
+          "IOMaximumBandwidth": 0,
+          "Mounts": [
+            {
+              "Type": "bind",
+              "Source": "/etc/two-step-a",
+              "Target": "/etc/two-step-a",
+              "ReadOnly": true
+            },
+            {
+              "Type": "bind",
+              "Source": "/var/lib/two-step-a/server",
+              "Target": "/var/lib/two-step-a/server"
+            }
+          ],
+          "MaskedPaths": [
+            "/proc/acpi",
+            "/proc/asound",
+            "/proc/interrupts",
+            "/proc/kcore",
+            "/proc/keys",
+            "/proc/latency_stats",
+            "/proc/sched_debug",
+            "/proc/scsi",
+            "/proc/timer_list",
+            "/proc/timer_stats",
+            "/sys/devices/virtual/powercap",
+            "/sys/firmware"
+          ],
+          "ReadonlyPaths": [
+            "/proc/bus",
+            "/proc/fs",
+            "/proc/irq",
+            "/proc/sys",
+            "/proc/sysrq-trigger"
+          ]
+        },
+        "Storage": {
+          "RootFS": {
+            "Snapshot": {
+              "Name": "overlayfs"
+            }
+          }
+        },
+        "Mounts": [
+          {
+            "Type": "bind",
+            "Source": "/etc/two-step-a",
+            "Destination": "/etc/two-step-a",
+            "Mode": "",
+            "RW": false,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/var/lib/two-step-a/server",
+            "Destination": "/var/lib/two-step-a/server",
+            "Mode": "",
+            "RW": true,
+            "Propagation": "rprivate"
+          }
+        ],
+        "Config": {
+          "Hostname": "two-step-signet-20261014",
+          "Domainname": "",
+          "User": "2001:2001",
+          "AttachStdin": false,
+          "AttachStdout": true,
+          "AttachStderr": true,
+          "Tty": false,
+          "OpenStdin": false,
+          "StdinOnce": false,
+          "Env": [
+            "PATH=/app",
+            "RUST_LOG=info",
+            "HOME=/var/lib/two-step-a"
+          ],
+          "Cmd": [
+            "--config",
+            "/etc/two-step-a/captaind-enrollment.toml",
+            "start"
+          ],
+          "Image": "sha256:ef8279e1ffc6d216da8445fef05dbd1963b11a36f7c1c2aa68dd56ad216700a0",
+          "Volumes": null,
+          "WorkingDir": "/var/lib/two-step-a",
+          "Entrypoint": [
+            "/app/captaind"
+          ],
+          "Labels": {
+            "org.bullishnode.source-key": "ba9451d2aac67e0aed930946e9b3a17d64b62c9f497d6e525d46eeded20971c1"
+          }
+        },
+        "NetworkSettings": {
+          "SandboxID": "048741f6b8c96b13752e664b67bf080b85c54a5e8d7daa9f3c13f524956d35cc",
+          "SandboxKey": "/var/run/docker/netns/default",
+          "Ports": {},
+          "Networks": {
+            "host": {
+              "IPAMConfig": null,
+              "Links": null,
+              "Aliases": null,
+              "DriverOpts": null,
+              "GwPriority": 0,
+              "NetworkID": "46eecf1db717f4555538b934232493f48bca965d0e0c57ab80c3a3fe7e6fdbe7",
+              "EndpointID": "8b40fc9a03e03b39d455bbbaf5330351665ee0c22874f683a37091c5fa7795f7",
+              "Gateway": "",
+              "IPAddress": "",
+              "MacAddress": "",
+              "IPPrefixLen": 0,
+              "IPv6Gateway": "",
+              "GlobalIPv6Address": "",
+              "GlobalIPv6PrefixLen": 0,
+              "DNSNames": null
+            }
+          }
+        },
+        "ImageManifestDescriptor": {
+          "mediaType": "application/vnd.oci.image.manifest.v1+json",
+          "digest": "sha256:ef8279e1ffc6d216da8445fef05dbd1963b11a36f7c1c2aa68dd56ad216700a0",
+          "size": 1200,
+          "platform": {
+            "architecture": "amd64",
+            "os": "linux"
+          }
+        }
+      },
+      "binary_sha256": {
+        "captaind": "37483e7ef7470117fe0cde30449e807f150ed0d4e271a27467db0eed8163ef88",
+        "watchmand": "9179d455c8fb90dd07b8918467cf9ebf4efdd9ff47551895073e665aaaa74349",
+        "bark": "7c79f757d4027809caf6806dfb0c0c527354e39e73417ceb84a213ad43403b4f",
+        "barkd": "df8a44d084465bad57b7ae96eb0ca1a3cf234d6e1cd5e078520d9577c1c7d78b"
+      },
+      "binary_identity_pid": 157545,
+      "binary_identity_startticks": "6742059",
+      "recovery_reserve": {
+        "id": "rounds",
+        "sweep_spk": "51201c440178c0a15b465498d76149d215e76d8d65519ecf88975343a7e8834a6510",
+        "checkpoint_height": 326474,
+        "checkpoint_hash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "fee_headroom_sat": 20000,
+        "held_sat": 0,
+        "unknown_gross": false
+      },
+      "source_key": "ba9451d2aac67e0aed930946e9b3a17d64b62c9f497d6e525d46eeded20971c1",
+      "config_sha256": "a1a53bd7103b068b6cf3f497803c00dcd5bc5e28de2013c0102945d6b98aa739",
+      "public_policy": {
+        "data_dir": "/var/lib/two-step-a/server",
+        "network": "signet",
+        "require_board_funding_tx": true,
+        "max_board_amount": "30000 sat",
+        "max_round_amount": "60000 sat",
+        "max_arkoor_amount": "10000 sat",
+        "max_offboard_amount": "0 sat",
+        "max_ln_send_amount": "0 sat",
+        "max_ln_receive_amount": "0 sat",
+        "vtxo_lifetime": 48,
+        "min_board_amount": "20000 sat",
+        "vtxo_exit_delta": 12,
+        "max_vtxo_exit_depth": 100,
+        "max_arkoor_fanout": 4,
+        "required_board_confirmations": 3,
+        "min_trusted_confs": 2,
+        "rpc_rich_errors": true,
+        "sync_manager_block_poll_interval": "100ms",
+        "nursery_confirm_target_blocks": 6,
+        "otel_deployment_name": "two-step-a-exploratory-20261015",
+        "max_read_mailbox_items": 100,
+        "round_interval": "10m",
+        "round_submit_time": "2s",
+        "round_sign_time": "2s",
+        "nb_round_nonces": 8,
+        "round_forfeit_nonces_timeout": "30s",
+        "offboard_session_timeout": "30s",
+        "offboard_check_interval": "1s",
+        "offboard_acceptable_fee_rate_duration": "15m",
+        "cln_reconnect_interval": "10s",
+        "invoice_check_interval": "3s",
+        "cln_xpay_timeout": "60s",
+        "cln_xpay_max_retry_for": "5m",
+        "invoice_check_base_delay": "10s",
+        "max_invoice_check_delay": "10m",
+        "invoice_poll_interval": "30s",
+        "htlc_settlement_poll_interval": "3s",
+        "track_all_base_delay": "1s",
+        "max_track_all_delay": "60s",
+        "htlc_expiry_delta": 40,
+        "htlc_send_expiry_delta": 258,
+        "max_user_invoice_cltv_delta": 250,
+        "invoice_expiry": "48h",
+        "receive_htlc_forward_timeout": "3min",
+        "ln_receive_anti_dos_required": false,
+        "ln_max_fee_ppm": 900000,
+        "fees": {
+          "board": {
+            "min_fee_sat": 330,
+            "base_fee_sat": 100,
+            "ppm": 1000
+          },
+          "offboard": {
+            "base_fee_sat": 200,
+            "fixed_additional_vb": 221,
+            "ppm_expiry_table": [
+              {
+                "expiry_blocks_threshold": 0,
+                "ppm": 0
+              },
+              {
+                "expiry_blocks_threshold": 97,
+                "ppm": 1000
+              },
+              {
+                "expiry_blocks_threshold": 199,
+                "ppm": 4000
+              },
+              {
+                "expiry_blocks_threshold": 2161,
+                "ppm": 8000
+              }
+            ]
+          },
+          "refresh": {
+            "base_fee_sat": 150,
+            "ppm_expiry_table": [
+              {
+                "expiry_blocks_threshold": 0,
+                "ppm": 0
+              },
+              {
+                "expiry_blocks_threshold": 97,
+                "ppm": 1000
+              },
+              {
+                "expiry_blocks_threshold": 199,
+                "ppm": 4000
+              },
+              {
+                "expiry_blocks_threshold": 2161,
+                "ppm": 8000
+              }
+            ]
+          },
+          "lightning_receive": {
+            "base_fee_sat": 100,
+            "ppm": 2000
+          },
+          "lightning_send": {
+            "min_fee_sat": 10,
+            "base_fee_sat": 75,
+            "ppm_expiry_table": [
+              {
+                "expiry_blocks_threshold": 0,
+                "ppm": 0
+              },
+              {
+                "expiry_blocks_threshold": 97,
+                "ppm": 1000
+              },
+              {
+                "expiry_blocks_threshold": 199,
+                "ppm": 4000
+              },
+              {
+                "expiry_blocks_threshold": 2161,
+                "ppm": 8000
+              }
+            ]
+          }
+        },
+        "vtxopool": {
+          "vtxo_targets": [],
+          "vtxo_target_issue_threshold": 80,
+          "vtxo_lifetime": 48,
+          "vtxo_pre_expiry": 18,
+          "max_vtxo_exit_depth": 50
+        },
+        "fee_estimator": {
+          "update_interval": "1m",
+          "history_duration": "60m",
+          "fallback_fee_rate_fast": "5sat/vb",
+          "fallback_fee_rate_regular": "3sat/vb",
+          "fallback_fee_rate_slow": "1sat/vb",
+          "max_fee_rate": "5sat/vb"
+        },
+        "rpc": {
+          "public_address": "172.16.0.19:3535",
+          "admin_address": "127.0.0.1:3536",
+          "integration_address": "127.0.0.1:3537"
+        },
+        "expiry_payout": {
+          "recovery_fee_headroom_sat": 20000,
+          "watchman_config": "/etc/two-step-a/watchmand.toml",
+          "enabled": false
+        }
+      },
+      "wallet_status_omitted": "rpc wallet reveals a newaddress; use read-only inventory",
+      "rounds_inventory": {
+        "exit": 0,
+        "stderr": "",
+        "data": {
+          "complete": false,
+          "missing_sources": [
+            "watchmand owns its wallet; inventory unavailable from captaind"
+          ],
+          "rounds": {
+            "complete": true,
+            "last_revealed_index": 1,
+            "min_trusted_confirmations": 2,
+            "network": "signet",
+            "pending_parents": [],
+            "pending_transaction_scope": "canonical_wallet_graph_only",
+            "pending_transactions": [],
+            "public_descriptor": "tr(tpubD8sZ4z8i4P7tD7H9JnXkviUY3T6bxV82v2tiitcPXfKTTC9biWonrRZbBgXrPEyJw4UDi4qWEwDEChr1sTAWBnkNquMtSUiBJW6gCUR5qyy/0/*)#ps2lph6l",
+            "reserved_outpoints": [],
+            "tip_hash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+            "tip_height": 326474,
+            "unavailable_parent_txids": [],
+            "utxos": [
+              {
+                "coinbase": false,
+                "confirmation_block_hash": "00000006b227fb106b21691ad90d93e2a07ab2053b85fb2dff5d5cdb43dcb43f",
+                "confirmation_time": 1792076443,
+                "confirmations": 3,
+                "confirmed_fee_eligible": true,
+                "confirmed_height_upper_bound": 326472,
+                "confirming_descendant_txid": null,
+                "derivation_index": 1,
+                "keychain": "external",
+                "mature": true,
+                "outpoint": "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef:0",
+                "reserved": false,
+                "script_pubkey": "51208f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69",
+                "transaction_eligible": true,
+                "trusted": true,
+                "unconfirmed_first_seen": null,
+                "unconfirmed_last_seen": null,
+                "value_sat": 90000
+              }
+            ],
+            "wallet": "rounds"
+          },
+          "watchman": null
+        }
+      },
+      "watchman_inventory": {
+        "exit": 0,
+        "stderr": "",
+        "data": {
+          "complete": false,
+          "missing_sources": [
+            "captaind owns its rounds wallet; collect its separate source without assuming global atomicity"
+          ],
+          "rounds": null,
+          "watchman": {
+            "complete": true,
+            "last_revealed_index": 0,
+            "min_trusted_confirmations": 1,
+            "network": "signet",
+            "pending_parents": [],
+            "pending_transaction_scope": "canonical_wallet_graph_only",
+            "pending_transactions": [],
+            "public_descriptor": "tr(tpubD8sZ4z8azwn869sNvEUR5sgSYuttduVYqHmbxT9bCdoDwD8WVvjPFxSq3LLqGYBNVJkFRQcfSctELkqATwRQCzpijX8SmBDNcUttEYzqPH2/0/*)#p4g3q7xn",
+            "reserved_outpoints": [],
+            "tip_hash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+            "tip_height": 326474,
+            "unavailable_parent_txids": [],
+            "utxos": [],
+            "wallet": "watchman"
+          }
+        }
+      },
+      "nursery_all": {
+        "exit": 0,
+        "stderr": "",
+        "literal_text": "No nursery txs\n"
+      },
+      "postgres_public_table_counts": {
+        "tables": {
+          "arkoor_mailbox": 0,
+          "captaind_block": 104,
+          "checkpoint_state": 1,
+          "ephemeral_tweak": 0,
+          "expiry_cancelled_participation": 0,
+          "expiry_settlement": 0,
+          "fallback_record": 12,
+          "htlc_settlement": 0,
+          "htlc_vtxo": 0,
+          "integration": 1,
+          "integration_api_key": 2,
+          "integration_api_key_history": 4,
+          "integration_token": 0,
+          "integration_token_config": 0,
+          "integration_token_config_history": 0,
+          "integration_token_history": 0,
+          "key_link": 96,
+          "lightning_htlc_subscription": 0,
+          "lightning_htlc_subscription_history": 0,
+          "lightning_invoice": 0,
+          "lightning_invoice_history": 0,
+          "lightning_node": 0,
+          "lightning_node_history": 0,
+          "lightning_payment_attempt": 0,
+          "lightning_payment_attempt_history": 0,
+          "lightning_payment_attempt_htlc_vtxo": 0,
+          "mailbox": 0,
+          "nursery_tx": 0,
+          "offboards": 0,
+          "pending_board": 2,
+          "recovery_capital_release": 0,
+          "recovery_receipt": 0,
+          "recovery_reserve": 1,
+          "recovery_source_hold": 0,
+          "refinery_schema_history": 70,
+          "round": 0,
+          "round_part_input": 0,
+          "round_part_output": 0,
+          "round_participation": 0,
+          "sweep": 0,
+          "virtual_transaction": 4,
+          "virtual_transaction_history": 0,
+          "vtxo": 2,
+          "vtxo_history": 4,
+          "vtxo_pool": 0,
+          "wallet_changeset": 208,
+          "watchmand_block": 104
+        },
+        "financial_details": {
+          "recovery_reserve": [
+            {
+              "id": "rounds",
+              "sweep_spk": "\\x51201c440178c0a15b465498d76149d215e76d8d65519ecf88975343a7e8834a6510",
+              "checkpoint_height": 326474,
+              "checkpoint_hash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+              "fee_headroom_sat": 20000
+            }
+          ],
+          "recovery_receipt": [],
+          "recovery_source_hold": [],
+          "recovery_capital_release": [],
+          "expiry_settlement": [],
+          "expiry_cancelled_participation": [],
+          "earliest_round_expiry": null,
+          "earliest_vtxo_expiry": 326521,
+          "nursery": [],
+          "vtxo_states": [
+            {
+              "vtxo_id": "cee083dbe3fc34f53e64e4c1649be7fc66ce2fc17eab2eb5d46c40ff649bbc20:0",
+              "expiry": 326521,
+              "amount": 28000,
+              "policy_hex": "0427636699bb37e2811ea0513d686fbb79bf810ccdf43832cac1342be995d5236c",
+              "anchor_point": "cee083dbe3fc34f53e64e4c1649be7fc66ce2fc17eab2eb5d46c40ff649bbc20:0",
+              "vtxo_txid": "cee083dbe3fc34f53e64e4c1649be7fc66ce2fc17eab2eb5d46c40ff649bbc20",
+              "policy_type": "expiry",
+              "spend_state": "spent",
+              "confirmed_height": 326474,
+              "onchain_spent_txid": null
+            },
+            {
+              "vtxo_id": "d80cb898fc6c644ae6b7e821c4acac56f0cd98d92588cf9e57c1302599764529:0",
+              "expiry": 326521,
+              "amount": 28000,
+              "policy_hex": "0432f79d6d9c357f32ff76e9a7c7f3528995d8207ead334f3cdcbf911b089d179e",
+              "anchor_point": "d80cb898fc6c644ae6b7e821c4acac56f0cd98d92588cf9e57c1302599764529:0",
+              "vtxo_txid": "d80cb898fc6c644ae6b7e821c4acac56f0cd98d92588cf9e57c1302599764529",
+              "policy_type": "expiry",
+              "spend_state": "spent",
+              "confirmed_height": 326474,
+              "onchain_spent_txid": null
+            }
+          ],
+          "native_recovery_reserve_state": {
+            "id": "rounds",
+            "sweep_spk": "51201c440178c0a15b465498d76149d215e76d8d65519ecf88975343a7e8834a6510",
+            "checkpoint_height": 326474,
+            "checkpoint_hash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+            "fee_headroom_sat": 20000,
+            "held_sat": 0,
+            "unknown_gross": false
+          },
+          "exploratory_summary": {
+            "earliest_expiry_height": 326521,
+            "customer_principal_sat": 0,
+            "funding_txids": [
+              "cee083dbe3fc34f53e64e4c1649be7fc66ce2fc17eab2eb5d46c40ff649bbc20",
+              "d80cb898fc6c644ae6b7e821c4acac56f0cd98d92588cf9e57c1302599764529"
+            ],
+            "conditional_count": 0,
+            "exit_count": 0,
+            "payout_count": 0,
+            "recovery_hold_sat": 0,
+            "customer_principal_scope": "Current ordinary pubkey leaf IDs in spendable/unclaimed/unregistered states; excludes exact protocol padding policy, onchain-spent and expiry-settled leaves. Independently verify attribution; not a global economic classification across conditional/delegated histories."
+          }
+        },
+        "row_limit": 1001
+      },
+      "postgres_financial_rows": {
+        "earliest_expiry_height": 326521,
+        "customer_principal_sat": 0,
+        "funding_txids": [
+          "cee083dbe3fc34f53e64e4c1649be7fc66ce2fc17eab2eb5d46c40ff649bbc20",
+          "d80cb898fc6c644ae6b7e821c4acac56f0cd98d92588cf9e57c1302599764529"
+        ],
+        "conditional_count": 0,
+        "exit_count": 0,
+        "payout_count": 0,
+        "recovery_hold_sat": 0,
+        "customer_principal_scope": "Current ordinary pubkey leaf IDs in spendable/unclaimed/unregistered states; excludes exact protocol padding policy, onchain-spent and expiry-settled leaves. Independently verify attribution; not a global economic classification across conditional/delegated histories."
+      },
+      "postgres_count_snapshot": "REPEATABLE READ READ ONLY",
+      "signing_possession_proof": null,
+      "missing_signing_proof_reason": "No bounded native read-only signing challenge exists; genuine signed wallet spend may prove possession only after separately authorized financial release.",
+      "last_stopped_watchman_inventory_snapshot": {
+        "utc": "2026-10-15T14:41:24.297701+00:00",
+        "scope": "EMPTY_WATCHMAN_NATIVE_INVENTORY_ONLY",
+        "watchman_inventory": {
+          "complete": false,
+          "missing_sources": [
+            "captaind owns its rounds wallet; collect its separate source without assuming global atomicity"
+          ],
+          "rounds": null,
+          "watchman": {
+            "complete": true,
+            "last_revealed_index": 0,
+            "min_trusted_confirmations": 1,
+            "network": "signet",
+            "pending_parents": [],
+            "pending_transaction_scope": "canonical_wallet_graph_only",
+            "pending_transactions": [],
+            "public_descriptor": "tr(tpubD8sZ4z8azwn869sNvEUR5sgSYuttduVYqHmbxT9bCdoDwD8WVvjPFxSq3LLqGYBNVJkFRQcfSctELkqATwRQCzpijX8SmBDNcUttEYzqPH2/0/*)#p4g3q7xn",
+            "reserved_outpoints": [],
+            "tip_hash": "000000062da3bec423383f45817bfce532dc02cb9a130b24fec6f3eff8daebad",
+            "tip_height": 326471,
+            "unavailable_parent_txids": [],
+            "utxos": [],
+            "wallet": "watchman"
+          }
+        },
+        "container_id": "e54f3a94ab9fe8e383d5a98c196980984c24a375333178b6928f449b02b498b7",
+        "stopped": true,
+        "terminal_state": {
+          "Status": "exited",
+          "Running": false,
+          "Paused": false,
+          "Restarting": false,
+          "OOMKilled": false,
+          "Dead": false,
+          "Pid": 0,
+          "ExitCode": 0,
+          "Error": "",
+          "StartedAt": "2026-10-15T14:41:23.790523639Z",
+          "FinishedAt": "2026-10-15T14:41:24.159722666Z"
+        },
+        "elapsed_seconds": "0.5716033990029246",
+        "failed_prior_setup_preserved": true
+      },
+      "container_runtime_stable": true,
+      "core_after": {
+        "chain": "signet",
+        "blocks": 326474,
+        "headers": 326474,
+        "bestblockhash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "bits": "1d14cbb2",
+        "target": "00000014cbb20000000000000000000000000000000000000000000000000000",
+        "difficulty": "0.04808616547775056",
+        "time": 1792078119,
+        "mediantime": 1792073773,
+        "verificationprogress": 1,
+        "initialblockdownload": false,
+        "chainwork": "0000000000000000000000000000000000000000000000000000118d4e89dcd9",
+        "size_on_disk": 24356694198,
+        "pruned": false,
+        "signet_challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+        "warnings": []
+      },
+      "completed_at": "2026-10-15T15:47:15.168419+00:00",
+      "stable_tip": true,
+      "complete": false,
+      "unqualified_notes": [
+        "source snapshot only; independent reconciliation and policy validation required",
+        "normal estimator ceiling is not cumulative fee or urgent reserve enforcement"
+      ]
+    },
+    "core_before": {
+      "chain": "signet",
+      "blocks": 326474,
+      "headers": 326474,
+      "bestblockhash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+      "bits": "1d14cbb2",
+      "target": "00000014cbb20000000000000000000000000000000000000000000000000000",
+      "difficulty": "0.04808616547775056",
+      "time": 1792078119,
+      "mediantime": 1792073773,
+      "verificationprogress": 1,
+      "initialblockdownload": false,
+      "chainwork": "0000000000000000000000000000000000000000000000000000118d4e89dcd9",
+      "size_on_disk": 24356694198,
+      "pruned": false,
+      "signet_challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+      "warnings": []
+    },
+    "core_after": {
+      "chain": "signet",
+      "blocks": 326474,
+      "headers": 326474,
+      "bestblockhash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+      "bits": "1d14cbb2",
+      "target": "00000014cbb20000000000000000000000000000000000000000000000000000",
+      "difficulty": "0.04808616547775056",
+      "time": 1792078119,
+      "mediantime": 1792073773,
+      "verificationprogress": 1,
+      "initialblockdownload": false,
+      "chainwork": "0000000000000000000000000000000000000000000000000000118d4e89dcd9",
+      "size_on_disk": 24356694198,
+      "pruned": false,
+      "signet_challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+      "warnings": []
+    },
+    "scan": {
+      "success": true,
+      "txouts": 80164524,
+      "height": 326474,
+      "bestblock": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+      "unspents": [
+        {
+          "txid": "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef",
+          "vout": 0,
+          "scriptPubKey": "51208f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69",
+          "desc": "tr([2c533d9f/0/1]b6180d12ae328063ae9044f79e7fb04cb287539387bf44a25e261a65c4f08464)#snefemyz",
+          "amount": "0.0009",
+          "coinbase": false,
+          "height": 326472,
+          "blockhash": "00000006b227fb106b21691ad90d93e2a07ab2053b85fb2dff5d5cdb43dcb43f",
+          "confirmations": 3
+        }
+      ],
+      "total_amount": "0.0009"
+    },
+    "script_ownership": {
+      "51207ad6f33f0313c9a4fc055d77ebc431d9694c2a76903da249f4fb0693bc8237a6": {
+        "owner": "rounds",
+        "index": 0,
+        "address": "tb1p0tt0x0crz0y6flq9t4m7h3p3m955c2nkjq76yj05lvrf80yzx7nq2gpf33"
+      },
+      "51208f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69": {
+        "owner": "rounds",
+        "index": 1,
+        "address": "tb1p37pcs66fz2uyreujlylhq7292cc9hpew0mlxv3cua86njk4f335svkl0k2"
+      },
+      "51206b716bad96bb6b27784b049b930585c8bf7dae58a3720bd1ac79c2f9d51429b8": {
+        "owner": "rounds",
+        "index": 2,
+        "address": "tb1pddckhtvkhd4jw7ztqjdexpv9ezlhmtjc5deqh5dv08p0n4g59xuqfkvtvn"
+      },
+      "51201c440178c0a15b465498d76149d215e76d8d65519ecf88975343a7e8834a6510": {
+        "owner": "rounds",
+        "index": 3,
+        "address": "tb1pr3zqz7xq59d5v4yc6as5n5s4uakc6e23nm8c396ngwn73q62v5gqetu0m3"
+      },
+      "5120bb87fda283afe791b80a55adbf8752bf77a722df03e24d12a91a21ff61b99ae7": {
+        "owner": "rounds",
+        "index": 4,
+        "address": "tb1phwrlmg5r4lnerwq22kkmlp6jham6wgklq03y6y4frgsl7cdentnskz04ww"
+      },
+      "512050b8c323a1d101a6c4c0d561d860ced0d6c053e049879b68596ea65f96131e29": {
+        "owner": "rounds",
+        "index": 5,
+        "address": "tb1p2zuvxgap6yq6d3xq64sascxw6rtvq5lqfxrek6zed6n9l9snrc5sp9ghvd"
+      },
+      "5120aff8d76dd4e8b368a3cb603bd052c1ba5a360221ba657920c1eb1a4f84bfe2d7": {
+        "owner": "rounds",
+        "index": 6,
+        "address": "tb1p4ludwmw5azek3g7tvqaaq5kphfdrvq3phfjhjgxpavdylp9luttse8cqeh"
+      },
+      "51206d7c1c8c2fcbde5930b3abe91e6db0026ae2b26327a224177d41c6ba20b643b9": {
+        "owner": "rounds",
+        "index": 7,
+        "address": "tb1pd47perp0e009jv9n4053umdsqf4w9vnry73zg9mag8rt5g9kgwus65zurj"
+      },
+      "512090329e72b396ce53d063013b7abffa88b0bb92287b1ee896122052cdaecbe972": {
+        "owner": "rounds",
+        "index": 8,
+        "address": "tb1pjqefuu4njm8985rrqyah40l63zcthy3g0v0w39sjypfvmtkta9eqmmx5qp"
+      },
+      "5120b274a485e110e4458e207b72e1004c0e1d480b99b0a4a073833a0bd007c8a8c3": {
+        "owner": "rounds",
+        "index": 9,
+        "address": "tb1pkf62fp0pzrjytr3q0dewzqzvpcw5szuekzj2quur8g9aqp7g4rpsle7tmh"
+      },
+      "51203f33dbe79b148dcd18fb1fc62e461072cc1a2eea1629b1b3fc9f36f5ab4324b3": {
+        "owner": "rounds",
+        "index": 10,
+        "address": "tb1p8ueaheumzjxu6x8mrlrzu3sswtxp5th2zc5mrvlunum0t26ryjes3qzdr9"
+      },
+      "5120295f1657da87088fabadb177d198264171c71c326863c505a23ce6715c59438b": {
+        "owner": "rounds",
+        "index": 11,
+        "address": "tb1p9903v476suygl2adk9marxpxg9cuw8pjdp3u2pdz8nn8zhzegw9stjme77"
+      },
+      "512050337b2970d15422d563415431f65eacb260babb3dde6dcdcc0195fa6406deda": {
+        "owner": "rounds",
+        "index": 12,
+        "address": "tb1p2qehk2ts692z94trg92rraj74jexpw4m8h0xmnwvqx2l5eqxmmdq65lqxd"
+      },
+      "5120625164b844ac8cdea4e8864226a4b0ae2de33f21a52dc739d03067579b8695e8": {
+        "owner": "rounds",
+        "index": 13,
+        "address": "tb1pvfgkfwzy4jxdaf8gsepzdf9s4ck7x0ep55kuwwwsxpn40xuxjh5qgfepls"
+      },
+      "512001351637f96acf51a039cfc465a002a43965c929e5bac8c49afa05654a0a30bd": {
+        "owner": "rounds",
+        "index": 14,
+        "address": "tb1pqy63vdledt84rgpeelzxtgqz5suktjffukav33y6lgzk2js2xz7sthpsm8"
+      },
+      "5120dd588c9192221c08e2620a9fe9ab00a7d87c004828194499f8242ec21547f218": {
+        "owner": "rounds",
+        "index": 15,
+        "address": "tb1pm4vgeyvjygwq3cnzp207n2cq5lv8cqzg9qv5fx0cyshvy9287gvqh07h9k"
+      },
+      "5120a2b1af386d70154124c05b1de55216eff4c41c91b99327a24ce86bcef0d811b1": {
+        "owner": "rounds",
+        "index": 16,
+        "address": "tb1p52c67wrdwq25zfxqtvw725skal6vg8y3hxfj0gjvap4uauxczxcsshwq7x"
+      },
+      "5120e1ecf1d4593dc3bfe114f85dc1cc64efb7514c42354b09e43dcca23f07395eed": {
+        "owner": "rounds",
+        "index": 17,
+        "address": "tb1pu8k0r4ze8hpmlcg5lpwurnrya7m4znzzx49snepaej3r7peetmksz86shj"
+      },
+      "51204dc5bc406019c2c4ca8770e01589aefc16939b969bd4f8e1ac5e1c7bb8e2f238": {
+        "owner": "rounds",
+        "index": 18,
+        "address": "tb1pfhzmcsrqr8pvfj58wrsptzdwlstf8xukn0203cdvtcw8hw8z7guqp7dnw7"
+      },
+      "51207323673720899d17d2703a4b3d0f66a762daf02bc52ebce603f4d50c86174e47": {
+        "owner": "rounds",
+        "index": 19,
+        "address": "tb1pwv3kwdeq3xw305ns8f9n6rmx5a3d4uptc5hteesr7n2sepshferstwpvh8"
+      },
+      "51204c5cc7fa7556735f204f0befe6ce5087ef04b9061a423fa86d5ab0733ea05d66": {
+        "owner": "rounds",
+        "index": 20,
+        "address": "tb1pf3wv07n42ee47gz0p0h7dnjsslhsfwgxrfprl2rdt2c8x04qt4nqym9044"
+      },
+      "51205ada3bd0de6c7460de9c02f15fee5f3593a63a1ceb4a7a72503a6eedbb9cd385": {
+        "owner": "rounds",
+        "index": 21,
+        "address": "tb1pttdrh5x7d36xph5uqtc4lmjlxkf6vwsuad985ujs8fhwmwuu6wzsf880ga"
+      },
+      "512069839838727e03b5d758fd038daab61da51d5fa9bdb779e915b729155c162e33": {
+        "owner": "rounds",
+        "index": 22,
+        "address": "tb1pdxpeswrj0cpmt46cl5pcm24krkj36hafhkmhn6g4ku532hqk9cesgmvpm5"
+      },
+      "51207751602a2d9b25cd44833769814c71b3b5b2bb28ccc2fa660d76767632327e02": {
+        "owner": "rounds",
+        "index": 23,
+        "address": "tb1pwagkq23dnvju63yrxa5cznr3kw6m9wegenp05esdwem8vv3j0cpqla5dq7"
+      },
+      "5120b98da8cd4024ae94a6c882957b6c75c99be2337f1eb4f265a13faf9ed38cf9ad": {
+        "owner": "rounds",
+        "index": 24,
+        "address": "tb1phxx63n2qyjhfffkgs22hkmr4exd7yvmlr660yedp87hea5uvlxksnrmcq5"
+      },
+      "512022e56ecedd8e1c98a12fa5fa2d073e03168075af39f3865e22da2415ba7f6455": {
+        "owner": "rounds",
+        "index": 25,
+        "address": "tb1pytjkanka3cwf3gf05haz6pe7qvtgqad088ecvh3zmgjptwnlv32suhscup"
+      },
+      "5120c0792e3e1a868785a41d07631f14888a78a1a35906cf38bfb75830ad88f7da48": {
+        "owner": "rounds",
+        "index": 26,
+        "address": "tb1pcpuju0s6s6rctfqaqa3379yg3fu2rg6eqm8n30ahtqc2mz8hmfyqfh4gwk"
+      },
+      "5120c6705bd942d049d129f9e453a4810a3f0a2be2b0ce05c1ee0676dbd462946c3e": {
+        "owner": "rounds",
+        "index": 27,
+        "address": "tb1pcec9hk2z6pyaz20eu3f6fqg28u9zhc4seczurmsxwmdagc55dslqryzg5c"
+      },
+      "512076728904a04488558e3b85f8658bd13157d85c7a561026c1b3e1b852ec849b73": {
+        "owner": "rounds",
+        "index": 28,
+        "address": "tb1pweegjp9qgjy9tr3mshuxtz73x9tashr62cgzdsdnuxu99myyndes285cdg"
+      },
+      "5120ff41c713399aaa1ab94ace1cfbb8cd3ee31f2ed943d388e400946d1d3f81c544": {
+        "owner": "rounds",
+        "index": 29,
+        "address": "tb1plaquwyeen24p4w22ecw0hwxd8m337tkeg0fc3eqqj3k360upc4zq52r30l"
+      },
+      "5120ecae87646fdea1e5c3bedeb70fb05cca68c7ad737ac38e974f9f1a1585194aba": {
+        "owner": "rounds",
+        "index": 30,
+        "address": "tb1pajhgwer0m6s7tsa7m6mslvzuef5v0ttn0tpca960nudptpgef2aqgugq2f"
+      },
+      "5120617e610051439ac3e4dda8ef06041c9a173ef6cda1c509a0743f184974faef1d": {
+        "owner": "rounds",
+        "index": 31,
+        "address": "tb1pv9lxzqz3gwdv8exa4rhsvpqungtnaakd58zsngr58uvyja86auwsfv8qzs"
+      },
+      "5120161633001ffa83734b039fc8773838890b56a7aabc8f0d4ab6baa8064422cbe5": {
+        "owner": "rounds",
+        "index": 32,
+        "address": "tb1pzctrxqqll2phxjcrnly8wwpc3y94dfa2hj8s6j4kh25qv3pze0jsqg4t7t"
+      },
+      "51204e9bff580969137941ef507115a892381135ad8576503349afb585803b5783ba": {
+        "owner": "watchman",
+        "index": 0,
+        "address": "tb1pf6dl7kqfdyfhjs002pc3t2yj8qgnttv9wegrxjd0kkzcqw6hswaqv4kvv9"
+      },
+      "512052184d72c3697131cde70c145dffa9732da3c1d270cd2c2b0444dca17f58f1f2": {
+        "owner": "watchman",
+        "index": 1,
+        "address": "tb1p2gvy6ukrd9cnrn08ps29mlafwvk68swjwrxjc2cygnw2zl6c78eqsmsqyr"
+      },
+      "51206acfd13064509abece8439cb821fb31244180fc76f617e1c8dc89f93faf898f4": {
+        "owner": "watchman",
+        "index": 2,
+        "address": "tb1pdt8azvry2zdtan5y889cy8anzfzpsr78dashu8ydez0e87hcnr6qvsqgkw"
+      },
+      "5120d37c5e4960579c6b95d3f4156fac66ab18edffe210cf83c2040e8629b84892d5": {
+        "owner": "watchman",
+        "index": 3,
+        "address": "tb1p6d79ujtq27wxh9wn7s2kltrx4vvwmllzzr8c8ssyp6rznwzgjt2s8ankwv"
+      },
+      "512086b568ed2030c6f478719a94a06ba9595580ef1feef8a381e18c0ad7e2d22eb2": {
+        "owner": "watchman",
+        "index": 4,
+        "address": "tb1ps66k3mfqxrr0g7r3n222q6aft92cpmclamu28q0p3s9d0ckj96eqe9syrz"
+      },
+      "51205d425b011ec56480ac7b398ae1ca360c5869afa481c3009e42f39e85d574c80c": {
+        "owner": "watchman",
+        "index": 5,
+        "address": "tb1pt4p9kqg7c4jgptrm8x9wrj3kp3vxntays8psp8jz7w0gt4t5eqxqd8n5et"
+      },
+      "5120ae0b0b24c57a711c4ffdbd9ef9bdd2b323e11e0c1d1ae218255e0adf2ad4d561": {
+        "owner": "watchman",
+        "index": 6,
+        "address": "tb1p4c9skfx90fc3cnlahk00n0wjkv37z8svr5dwyxp9tc9d72k564ssa8jdl0"
+      },
+      "5120b17c9d2e4aee707844fbb2f4cf129e4bfb66dc6ce83034c970aafdae44b6ecc0": {
+        "owner": "watchman",
+        "index": 7,
+        "address": "tb1pk97f6tj2aec8s38mkt6v7y57f0akdhrvaqcrfjts4t76u39kanqqtjejjw"
+      },
+      "5120a1dd930d39f204ebf236fcf0803515d637c78ee8dd52e0750b6638fedc46b92b": {
+        "owner": "watchman",
+        "index": 8,
+        "address": "tb1p58wexrfe7gzwhu3klncgqdg46cmu0rhgm4fwqagtvcu0ahzxhy4synr207"
+      },
+      "51203e2ed49d6dc24c58a71b70ade24f3dea61e8879b37a2e9535377311c9481b7a8": {
+        "owner": "watchman",
+        "index": 9,
+        "address": "tb1p8chdf8tdcfx93fcmwzk7yneaafs73pumx73wj56nwuc3e9ypk75qs8cmjj"
+      },
+      "5120dac85eef68b2e649b34922486cf06d81a20c930271f7436b787c708c29fcfe57": {
+        "owner": "watchman",
+        "index": 10,
+        "address": "tb1pmty9ammgktnynv6fyfyxeurdsx3qeyczw8m5x6mc03cgc20uletskk54n9"
+      },
+      "5120fea77d27f10fa459f7d7b9b2c4b91cf975374a6d8cf8141d55eb7d4f87acc807": {
+        "owner": "watchman",
+        "index": 11,
+        "address": "tb1pl6nh6fl3p7j9na7hhxevfwgul96nwjnd3nupg824ad75lpaveqrs8hgleu"
+      },
+      "5120718d75d520478260b98e0bbea9e188b524558c7141253a98759d02e48d80e2a2": {
+        "owner": "watchman",
+        "index": 12,
+        "address": "tb1pwxxht4fqg7pxpwvwpwl2ncvgk5j9trr3gyjn4xr4n5pwfrvqu23qz9h2pn"
+      },
+      "512057253c17e3a018dc91d58be5cf20eeb075928d1a9e398948392750c3d0fed03c": {
+        "owner": "watchman",
+        "index": 13,
+        "address": "tb1p2ujnc9lr5qvdeyw430ju7g8wkp6e9rg6ncucjjpeyagv85876q7qwuhckx"
+      },
+      "51203e4c0e52fc22be77e257c5dccfd90e596ef33cb242897e44a31985df86ca89fa": {
+        "owner": "watchman",
+        "index": 14,
+        "address": "tb1p8exqu5huy2l80cjhchwvlkgwt9h0x09jg2yhu39rrxzalpk238aqppuyur"
+      },
+      "5120aae2f1d85f1a2209ae389c30c66c874bd81761845ffaf73700c37d2bf5f40dd6": {
+        "owner": "watchman",
+        "index": 15,
+        "address": "tb1p4t30rkzlrg3qnt3cnscvvmy8f0vpwcvytla0wdcqcd7jha05phtqkhpkev"
+      },
+      "5120c14f860baaa77b8a21b5a599bfd613cb68c02344f08d388c03ff35fff6339c71": {
+        "owner": "watchman",
+        "index": 16,
+        "address": "tb1pc98cvza25aac5gd45kvml4sned5vqg6y7zxn3rqrlu6lla3nn3csfjvw7k"
+      },
+      "512059174771b9ae10fbe300bda0cf7d1e4b06dcc2ea2a2427b08c08445aa8fcf82d": {
+        "owner": "watchman",
+        "index": 17,
+        "address": "tb1ptyt5wude4cg0hccqhksv7lg7fvrdesh29gjz0vyvppz9428ulqkspgqvyp"
+      },
+      "51205e91110ac2e13b270546d57cbbb5654fddf143057b47ffb96e60309b9a1b1ebe": {
+        "owner": "watchman",
+        "index": 18,
+        "address": "tb1pt6g3zzkzuyajwp2x647thdt9flwlzsc90drllwtwvqcfhxsmr6lqepuc4q"
+      },
+      "5120b432ae9b8b37a17598385275ebcd1186253f407b5c340111f88f9804e2b70292": {
+        "owner": "watchman",
+        "index": 19,
+        "address": "tb1pkse2axutx7shtxpc2f67hng3scjn7srmts6qzy0c37vqfc4hq2fqk3q5y5"
+      },
+      "5120a89c07d151bf2720a942addee7bfb6d1efa4cd4d34e1e8da43452a2bea3fa9dc": {
+        "owner": "watchman",
+        "index": 20,
+        "address": "tb1p4zwq0523hunjp22z4h0w00ak68h6fn2dxns73kjrg54zh63l48wq8uykcg"
+      },
+      "5120e7a31dc0c7c0031107087f02d7b103a0e50bfa0cd6c83f448e7905b7a88e8db1": {
+        "owner": "watchman",
+        "index": 21,
+        "address": "tb1pu733msx8cqp3zpcg0upd0vgr5rjsh7sv6myr73yw0yzm02yw3kcsjz5t7d"
+      },
+      "51204293131eac28887acf65c7b34f4d038ad6577d78c5d997bfdf20d7b5ab66462e": {
+        "owner": "watchman",
+        "index": 22,
+        "address": "tb1pg2f3x84v9zy84nm9c7e57ngr3tt9wltcchve007lyrtmt2mxgchqhpgrv4"
+      },
+      "51204bb5d75cc994184dac37fd74a5f8e1054e4cadef1b48bbcd4d29ef6983403cc8": {
+        "owner": "watchman",
+        "index": 23,
+        "address": "tb1pfw6awhxfjsvymtphl462t78pq48yet00rdythn2d98hknq6q8nyqmrr30u"
+      },
+      "5120c936b5758f1e0e1d6621cc470f43413eac299c19f016019ad696a9124c8013cd": {
+        "owner": "watchman",
+        "index": 24,
+        "address": "tb1peymt2av0rc8p6e3pe3rs7s6p86kzn8qe7qtqrxkkj653ynyqz0xsaev65e"
+      },
+      "51201b891a8b0a6f02d8f39d8498209584349516af70bd4a2bfbbd0195b101af7b69": {
+        "owner": "watchman",
+        "index": 25,
+        "address": "tb1prwy34zc2dupd3uuasjvzp9vyxj23dtmsh49zh7aaqx2mzqd00d5stlvll4"
+      },
+      "51201bf7a4eec1ed0073e3fafdaaf7b86e7a8323c1e4951dbe8aea4b6fd3a51bc0e4": {
+        "owner": "watchman",
+        "index": 26,
+        "address": "tb1pr0m6fmkpa5q88cl6lk400wrw02pj8s0yj5wmazh2fdha8fgmcrjqgnhcn0"
+      },
+      "5120da00197e35b35f8e4c0429b91e9d10d2d74f5beb4f905db64b53252f02443323": {
+        "owner": "watchman",
+        "index": 27,
+        "address": "tb1pmgqpjl34kd0cunqy9xu3a8gs6tt57kltf7g9mdjt2vjj7qjyxv3smae4ll"
+      },
+      "512017f7edadcdbd699938f008cdf9f800ecd33c727a8683ae37222c87fe7edd6a48": {
+        "owner": "watchman",
+        "index": 28,
+        "address": "tb1pzlm7mtwdh45ejw8sprxln7qqanfncun6s6p6udez9jrlulkadfyqquv8hu"
+      },
+      "512097a9817ebb5bbb49972383fccb178773f5b86d51ab7bf558e1892f9d7d5c599f": {
+        "owner": "watchman",
+        "index": 29,
+        "address": "tb1pj75czl4mtwa5n9ers07vk9u8w06msm234dal2k8p3yhe6l2utx0stuegnw"
+      },
+      "5120f8084c9852c809772a17f1ebf0d21f388753d919c15e3d28998bad02efea7a4a": {
+        "owner": "watchman",
+        "index": 30,
+        "address": "tb1plqyyexzjeqyhw2sh784lp5sl8zr48kgec90r62ye3wks9ml20f9qmmycju"
+      },
+      "512040eb8f8de2181e130117b82e60b561a8db95937bb8167969f226836b6cd411ec": {
+        "owner": "watchman",
+        "index": 31,
+        "address": "tb1pgr4clr0zrq0pxqghhqhxpdtp4rdetymmhqt8j60jy6pkkmx5z8kq6hahl9"
+      },
+      "512051642258f98620c7dc52f26f0dbac1a2f28b89cab441951507886d340d0a7035": {
+        "owner": "watchman",
+        "index": 32,
+        "address": "tb1p29jzyk8escsv0hzj7fhsmwkp5teghzw2k3qe29g83pkngrg2wq6ss8g4em"
+      }
+    },
+    "scanned_outpoint_mempool_spends": [
+      {
+        "txid": "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef",
+        "vout": 0
+      }
+    ],
+    "requests": [
+      {
+        "method": "getblockchaininfo",
+        "params": [],
+        "utc": "2026-10-15T15:46:20.950764+00:00"
+      },
+      {
+        "method": "getblockhash",
+        "params": [
+          0
+        ],
+        "utc": "2026-10-15T15:46:21.030087+00:00"
+      },
+      {
+        "method": "scantxoutset",
+        "params": [
+          "status"
+        ],
+        "utc": "2026-10-15T15:46:21.035237+00:00"
+      },
+      {
+        "method": "scantxoutset",
+        "params": [
+          "start",
+          [
+            {
+              "desc": "tr(tpubD8sZ4z8i4P7tD7H9JnXkviUY3T6bxV82v2tiitcPXfKTTC9biWonrRZbBgXrPEyJw4UDi4qWEwDEChr1sTAWBnkNquMtSUiBJW6gCUR5qyy/0/*)#ps2lph6l",
+              "range": [
+                0,
+                32
+              ]
+            },
+            {
+              "desc": "tr(tpubD8sZ4z8azwn869sNvEUR5sgSYuttduVYqHmbxT9bCdoDwD8WVvjPFxSq3LLqGYBNVJkFRQcfSctELkqATwRQCzpijX8SmBDNcUttEYzqPH2/0/*)#p4g3q7xn",
+              "range": [
+                0,
+                32
+              ]
+            }
+          ]
+        ],
+        "utc": "2026-10-15T15:46:21.038367+00:00"
+      },
+      {
+        "method": "deriveaddresses",
+        "params": [
+          "tr(tpubD8sZ4z8i4P7tD7H9JnXkviUY3T6bxV82v2tiitcPXfKTTC9biWonrRZbBgXrPEyJw4UDi4qWEwDEChr1sTAWBnkNquMtSUiBJW6gCUR5qyy/0/*)#ps2lph6l",
+          [
+            0,
+            32
+          ]
+        ],
+        "utc": "2026-10-15T15:47:12.431824+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p0tt0x0crz0y6flq9t4m7h3p3m955c2nkjq76yj05lvrf80yzx7nq2gpf33"
+        ],
+        "utc": "2026-10-15T15:47:12.446312+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p37pcs66fz2uyreujlylhq7292cc9hpew0mlxv3cua86njk4f335svkl0k2"
+        ],
+        "utc": "2026-10-15T15:47:12.449541+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pddckhtvkhd4jw7ztqjdexpv9ezlhmtjc5deqh5dv08p0n4g59xuqfkvtvn"
+        ],
+        "utc": "2026-10-15T15:47:12.451417+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pr3zqz7xq59d5v4yc6as5n5s4uakc6e23nm8c396ngwn73q62v5gqetu0m3"
+        ],
+        "utc": "2026-10-15T15:47:12.453284+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1phwrlmg5r4lnerwq22kkmlp6jham6wgklq03y6y4frgsl7cdentnskz04ww"
+        ],
+        "utc": "2026-10-15T15:47:12.455318+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p2zuvxgap6yq6d3xq64sascxw6rtvq5lqfxrek6zed6n9l9snrc5sp9ghvd"
+        ],
+        "utc": "2026-10-15T15:47:12.457128+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p4ludwmw5azek3g7tvqaaq5kphfdrvq3phfjhjgxpavdylp9luttse8cqeh"
+        ],
+        "utc": "2026-10-15T15:47:12.459548+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pd47perp0e009jv9n4053umdsqf4w9vnry73zg9mag8rt5g9kgwus65zurj"
+        ],
+        "utc": "2026-10-15T15:47:12.461429+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pjqefuu4njm8985rrqyah40l63zcthy3g0v0w39sjypfvmtkta9eqmmx5qp"
+        ],
+        "utc": "2026-10-15T15:47:12.463330+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pkf62fp0pzrjytr3q0dewzqzvpcw5szuekzj2quur8g9aqp7g4rpsle7tmh"
+        ],
+        "utc": "2026-10-15T15:47:12.466174+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p8ueaheumzjxu6x8mrlrzu3sswtxp5th2zc5mrvlunum0t26ryjes3qzdr9"
+        ],
+        "utc": "2026-10-15T15:47:12.468554+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p9903v476suygl2adk9marxpxg9cuw8pjdp3u2pdz8nn8zhzegw9stjme77"
+        ],
+        "utc": "2026-10-15T15:47:12.470632+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p2qehk2ts692z94trg92rraj74jexpw4m8h0xmnwvqx2l5eqxmmdq65lqxd"
+        ],
+        "utc": "2026-10-15T15:47:12.472896+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pvfgkfwzy4jxdaf8gsepzdf9s4ck7x0ep55kuwwwsxpn40xuxjh5qgfepls"
+        ],
+        "utc": "2026-10-15T15:47:12.475450+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pqy63vdledt84rgpeelzxtgqz5suktjffukav33y6lgzk2js2xz7sthpsm8"
+        ],
+        "utc": "2026-10-15T15:47:12.478099+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pm4vgeyvjygwq3cnzp207n2cq5lv8cqzg9qv5fx0cyshvy9287gvqh07h9k"
+        ],
+        "utc": "2026-10-15T15:47:12.480610+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p52c67wrdwq25zfxqtvw725skal6vg8y3hxfj0gjvap4uauxczxcsshwq7x"
+        ],
+        "utc": "2026-10-15T15:47:12.483103+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pu8k0r4ze8hpmlcg5lpwurnrya7m4znzzx49snepaej3r7peetmksz86shj"
+        ],
+        "utc": "2026-10-15T15:47:12.488974+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pfhzmcsrqr8pvfj58wrsptzdwlstf8xukn0203cdvtcw8hw8z7guqp7dnw7"
+        ],
+        "utc": "2026-10-15T15:47:12.492160+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pwv3kwdeq3xw305ns8f9n6rmx5a3d4uptc5hteesr7n2sepshferstwpvh8"
+        ],
+        "utc": "2026-10-15T15:47:12.494991+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pf3wv07n42ee47gz0p0h7dnjsslhsfwgxrfprl2rdt2c8x04qt4nqym9044"
+        ],
+        "utc": "2026-10-15T15:47:12.497751+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pttdrh5x7d36xph5uqtc4lmjlxkf6vwsuad985ujs8fhwmwuu6wzsf880ga"
+        ],
+        "utc": "2026-10-15T15:47:12.500749+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pdxpeswrj0cpmt46cl5pcm24krkj36hafhkmhn6g4ku532hqk9cesgmvpm5"
+        ],
+        "utc": "2026-10-15T15:47:12.503437+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pwagkq23dnvju63yrxa5cznr3kw6m9wegenp05esdwem8vv3j0cpqla5dq7"
+        ],
+        "utc": "2026-10-15T15:47:12.505510+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1phxx63n2qyjhfffkgs22hkmr4exd7yvmlr660yedp87hea5uvlxksnrmcq5"
+        ],
+        "utc": "2026-10-15T15:47:12.507636+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pytjkanka3cwf3gf05haz6pe7qvtgqad088ecvh3zmgjptwnlv32suhscup"
+        ],
+        "utc": "2026-10-15T15:47:12.510609+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pcpuju0s6s6rctfqaqa3379yg3fu2rg6eqm8n30ahtqc2mz8hmfyqfh4gwk"
+        ],
+        "utc": "2026-10-15T15:47:12.513464+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pcec9hk2z6pyaz20eu3f6fqg28u9zhc4seczurmsxwmdagc55dslqryzg5c"
+        ],
+        "utc": "2026-10-15T15:47:12.516643+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pweegjp9qgjy9tr3mshuxtz73x9tashr62cgzdsdnuxu99myyndes285cdg"
+        ],
+        "utc": "2026-10-15T15:47:12.519269+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1plaquwyeen24p4w22ecw0hwxd8m337tkeg0fc3eqqj3k360upc4zq52r30l"
+        ],
+        "utc": "2026-10-15T15:47:12.521843+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pajhgwer0m6s7tsa7m6mslvzuef5v0ttn0tpca960nudptpgef2aqgugq2f"
+        ],
+        "utc": "2026-10-15T15:47:12.524630+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pv9lxzqz3gwdv8exa4rhsvpqungtnaakd58zsngr58uvyja86auwsfv8qzs"
+        ],
+        "utc": "2026-10-15T15:47:12.527458+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pzctrxqqll2phxjcrnly8wwpc3y94dfa2hj8s6j4kh25qv3pze0jsqg4t7t"
+        ],
+        "utc": "2026-10-15T15:47:12.530269+00:00"
+      },
+      {
+        "method": "deriveaddresses",
+        "params": [
+          "tr(tpubD8sZ4z8azwn869sNvEUR5sgSYuttduVYqHmbxT9bCdoDwD8WVvjPFxSq3LLqGYBNVJkFRQcfSctELkqATwRQCzpijX8SmBDNcUttEYzqPH2/0/*)#p4g3q7xn",
+          [
+            0,
+            32
+          ]
+        ],
+        "utc": "2026-10-15T15:47:12.534773+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pf6dl7kqfdyfhjs002pc3t2yj8qgnttv9wegrxjd0kkzcqw6hswaqv4kvv9"
+        ],
+        "utc": "2026-10-15T15:47:12.546339+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p2gvy6ukrd9cnrn08ps29mlafwvk68swjwrxjc2cygnw2zl6c78eqsmsqyr"
+        ],
+        "utc": "2026-10-15T15:47:12.549031+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pdt8azvry2zdtan5y889cy8anzfzpsr78dashu8ydez0e87hcnr6qvsqgkw"
+        ],
+        "utc": "2026-10-15T15:47:12.551402+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p6d79ujtq27wxh9wn7s2kltrx4vvwmllzzr8c8ssyp6rznwzgjt2s8ankwv"
+        ],
+        "utc": "2026-10-15T15:47:12.553859+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1ps66k3mfqxrr0g7r3n222q6aft92cpmclamu28q0p3s9d0ckj96eqe9syrz"
+        ],
+        "utc": "2026-10-15T15:47:12.556587+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pt4p9kqg7c4jgptrm8x9wrj3kp3vxntays8psp8jz7w0gt4t5eqxqd8n5et"
+        ],
+        "utc": "2026-10-15T15:47:12.559207+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p4c9skfx90fc3cnlahk00n0wjkv37z8svr5dwyxp9tc9d72k564ssa8jdl0"
+        ],
+        "utc": "2026-10-15T15:47:12.561680+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pk97f6tj2aec8s38mkt6v7y57f0akdhrvaqcrfjts4t76u39kanqqtjejjw"
+        ],
+        "utc": "2026-10-15T15:47:12.564081+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p58wexrfe7gzwhu3klncgqdg46cmu0rhgm4fwqagtvcu0ahzxhy4synr207"
+        ],
+        "utc": "2026-10-15T15:47:12.566612+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p8chdf8tdcfx93fcmwzk7yneaafs73pumx73wj56nwuc3e9ypk75qs8cmjj"
+        ],
+        "utc": "2026-10-15T15:47:12.568896+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pmty9ammgktnynv6fyfyxeurdsx3qeyczw8m5x6mc03cgc20uletskk54n9"
+        ],
+        "utc": "2026-10-15T15:47:12.571286+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pl6nh6fl3p7j9na7hhxevfwgul96nwjnd3nupg824ad75lpaveqrs8hgleu"
+        ],
+        "utc": "2026-10-15T15:47:12.573741+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pwxxht4fqg7pxpwvwpwl2ncvgk5j9trr3gyjn4xr4n5pwfrvqu23qz9h2pn"
+        ],
+        "utc": "2026-10-15T15:47:12.576177+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p2ujnc9lr5qvdeyw430ju7g8wkp6e9rg6ncucjjpeyagv85876q7qwuhckx"
+        ],
+        "utc": "2026-10-15T15:47:12.578611+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p8exqu5huy2l80cjhchwvlkgwt9h0x09jg2yhu39rrxzalpk238aqppuyur"
+        ],
+        "utc": "2026-10-15T15:47:12.581127+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p4t30rkzlrg3qnt3cnscvvmy8f0vpwcvytla0wdcqcd7jha05phtqkhpkev"
+        ],
+        "utc": "2026-10-15T15:47:12.584618+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pc98cvza25aac5gd45kvml4sned5vqg6y7zxn3rqrlu6lla3nn3csfjvw7k"
+        ],
+        "utc": "2026-10-15T15:47:12.587223+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1ptyt5wude4cg0hccqhksv7lg7fvrdesh29gjz0vyvppz9428ulqkspgqvyp"
+        ],
+        "utc": "2026-10-15T15:47:12.589619+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pt6g3zzkzuyajwp2x647thdt9flwlzsc90drllwtwvqcfhxsmr6lqepuc4q"
+        ],
+        "utc": "2026-10-15T15:47:12.591896+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pkse2axutx7shtxpc2f67hng3scjn7srmts6qzy0c37vqfc4hq2fqk3q5y5"
+        ],
+        "utc": "2026-10-15T15:47:12.594347+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p4zwq0523hunjp22z4h0w00ak68h6fn2dxns73kjrg54zh63l48wq8uykcg"
+        ],
+        "utc": "2026-10-15T15:47:12.597395+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pu733msx8cqp3zpcg0upd0vgr5rjsh7sv6myr73yw0yzm02yw3kcsjz5t7d"
+        ],
+        "utc": "2026-10-15T15:47:12.600073+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pg2f3x84v9zy84nm9c7e57ngr3tt9wltcchve007lyrtmt2mxgchqhpgrv4"
+        ],
+        "utc": "2026-10-15T15:47:12.602483+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pfw6awhxfjsvymtphl462t78pq48yet00rdythn2d98hknq6q8nyqmrr30u"
+        ],
+        "utc": "2026-10-15T15:47:12.604418+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1peymt2av0rc8p6e3pe3rs7s6p86kzn8qe7qtqrxkkj653ynyqz0xsaev65e"
+        ],
+        "utc": "2026-10-15T15:47:12.606250+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1prwy34zc2dupd3uuasjvzp9vyxj23dtmsh49zh7aaqx2mzqd00d5stlvll4"
+        ],
+        "utc": "2026-10-15T15:47:12.608041+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pr0m6fmkpa5q88cl6lk400wrw02pj8s0yj5wmazh2fdha8fgmcrjqgnhcn0"
+        ],
+        "utc": "2026-10-15T15:47:12.610037+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pmgqpjl34kd0cunqy9xu3a8gs6tt57kltf7g9mdjt2vjj7qjyxv3smae4ll"
+        ],
+        "utc": "2026-10-15T15:47:12.611998+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pzlm7mtwdh45ejw8sprxln7qqanfncun6s6p6udez9jrlulkadfyqquv8hu"
+        ],
+        "utc": "2026-10-15T15:47:12.613890+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pj75czl4mtwa5n9ers07vk9u8w06msm234dal2k8p3yhe6l2utx0stuegnw"
+        ],
+        "utc": "2026-10-15T15:47:12.615734+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1plqyyexzjeqyhw2sh784lp5sl8zr48kgec90r62ye3wks9ml20f9qmmycju"
+        ],
+        "utc": "2026-10-15T15:47:12.617753+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1pgr4clr0zrq0pxqghhqhxpdtp4rdetymmhqt8j60jy6pkkmx5z8kq6hahl9"
+        ],
+        "utc": "2026-10-15T15:47:12.619674+00:00"
+      },
+      {
+        "method": "validateaddress",
+        "params": [
+          "tb1p29jzyk8escsv0hzj7fhsmwkp5teghzw2k3qe29g83pkngrg2wq6ss8g4em"
+        ],
+        "utc": "2026-10-15T15:47:12.621456+00:00"
+      },
+      {
+        "method": "gettxspendingprevout",
+        "params": [
+          [
+            {
+              "txid": "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef",
+              "vout": 0
+            }
+          ]
+        ],
+        "utc": "2026-10-15T15:47:12.623261+00:00"
+      },
+      {
+        "method": "getblockchaininfo",
+        "params": [],
+        "utc": "2026-10-15T15:47:12.625883+00:00"
+      }
+    ],
+    "stable_tip": true,
+    "source_scope": "Exactly two actual native public descriptors external indices0..32; all keychain indices0..32 incl explicitly issued recoveryindex3. Not global treasury or signer proof.",
+    "remaining_gaps": [
+      "beyond_declared_issuance_horizon_unmeasured",
+      "global_pending_spend_completeness_unqualified",
+      "economic_liabilities_and_capital_attribution_unqualified",
+      "fee_cost_budgets_and_urgent_reserve_unqualified",
+      "signer_possession_not_proved_by_scan"
+    ],
+    "evidence": "/home/ubuntu/two-step-a-deploy-staging-20261015/declared-wallet-range-scan-0-32-20261015"
+  },
+  "original_core_observations": [
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pvfgkfwzy4jxdaf8gsepzdf9s4ck7x0ep55kuwwwsxpn40xuxjh5qgfepls"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pvfgkfwzy4jxdaf8gsepzdf9s4ck7x0ep55kuwwwsxpn40xuxjh5qgfepls",
+        "scriptPubKey": "5120625164b844ac8cdea4e8864226a4b0ae2de33f21a52dc739d03067579b8695e8",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "625164b844ac8cdea4e8864226a4b0ae2de33f21a52dc739d03067579b8695e8"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1ptyt5wude4cg0hccqhksv7lg7fvrdesh29gjz0vyvppz9428ulqkspgqvyp"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1ptyt5wude4cg0hccqhksv7lg7fvrdesh29gjz0vyvppz9428ulqkspgqvyp",
+        "scriptPubKey": "512059174771b9ae10fbe300bda0cf7d1e4b06dcc2ea2a2427b08c08445aa8fcf82d",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "59174771b9ae10fbe300bda0cf7d1e4b06dcc2ea2a2427b08c08445aa8fcf82d"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p2gvy6ukrd9cnrn08ps29mlafwvk68swjwrxjc2cygnw2zl6c78eqsmsqyr"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p2gvy6ukrd9cnrn08ps29mlafwvk68swjwrxjc2cygnw2zl6c78eqsmsqyr",
+        "scriptPubKey": "512052184d72c3697131cde70c145dffa9732da3c1d270cd2c2b0444dca17f58f1f2",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "52184d72c3697131cde70c145dffa9732da3c1d270cd2c2b0444dca17f58f1f2"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p8chdf8tdcfx93fcmwzk7yneaafs73pumx73wj56nwuc3e9ypk75qs8cmjj"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p8chdf8tdcfx93fcmwzk7yneaafs73pumx73wj56nwuc3e9ypk75qs8cmjj",
+        "scriptPubKey": "51203e2ed49d6dc24c58a71b70ade24f3dea61e8879b37a2e9535377311c9481b7a8",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "3e2ed49d6dc24c58a71b70ade24f3dea61e8879b37a2e9535377311c9481b7a8"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pmgqpjl34kd0cunqy9xu3a8gs6tt57kltf7g9mdjt2vjj7qjyxv3smae4ll"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pmgqpjl34kd0cunqy9xu3a8gs6tt57kltf7g9mdjt2vjj7qjyxv3smae4ll",
+        "scriptPubKey": "5120da00197e35b35f8e4c0429b91e9d10d2d74f5beb4f905db64b53252f02443323",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "da00197e35b35f8e4c0429b91e9d10d2d74f5beb4f905db64b53252f02443323"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pl6nh6fl3p7j9na7hhxevfwgul96nwjnd3nupg824ad75lpaveqrs8hgleu"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pl6nh6fl3p7j9na7hhxevfwgul96nwjnd3nupg824ad75lpaveqrs8hgleu",
+        "scriptPubKey": "5120fea77d27f10fa459f7d7b9b2c4b91cf975374a6d8cf8141d55eb7d4f87acc807",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "fea77d27f10fa459f7d7b9b2c4b91cf975374a6d8cf8141d55eb7d4f87acc807"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pr3zqz7xq59d5v4yc6as5n5s4uakc6e23nm8c396ngwn73q62v5gqetu0m3"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pr3zqz7xq59d5v4yc6as5n5s4uakc6e23nm8c396ngwn73q62v5gqetu0m3",
+        "scriptPubKey": "51201c440178c0a15b465498d76149d215e76d8d65519ecf88975343a7e8834a6510",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "1c440178c0a15b465498d76149d215e76d8d65519ecf88975343a7e8834a6510"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pkse2axutx7shtxpc2f67hng3scjn7srmts6qzy0c37vqfc4hq2fqk3q5y5"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pkse2axutx7shtxpc2f67hng3scjn7srmts6qzy0c37vqfc4hq2fqk3q5y5",
+        "scriptPubKey": "5120b432ae9b8b37a17598385275ebcd1186253f407b5c340111f88f9804e2b70292",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "b432ae9b8b37a17598385275ebcd1186253f407b5c340111f88f9804e2b70292"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pytjkanka3cwf3gf05haz6pe7qvtgqad088ecvh3zmgjptwnlv32suhscup"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pytjkanka3cwf3gf05haz6pe7qvtgqad088ecvh3zmgjptwnlv32suhscup",
+        "scriptPubKey": "512022e56ecedd8e1c98a12fa5fa2d073e03168075af39f3865e22da2415ba7f6455",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "22e56ecedd8e1c98a12fa5fa2d073e03168075af39f3865e22da2415ba7f6455"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pdxpeswrj0cpmt46cl5pcm24krkj36hafhkmhn6g4ku532hqk9cesgmvpm5"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pdxpeswrj0cpmt46cl5pcm24krkj36hafhkmhn6g4ku532hqk9cesgmvpm5",
+        "scriptPubKey": "512069839838727e03b5d758fd038daab61da51d5fa9bdb779e915b729155c162e33",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "69839838727e03b5d758fd038daab61da51d5fa9bdb779e915b729155c162e33"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pj75czl4mtwa5n9ers07vk9u8w06msm234dal2k8p3yhe6l2utx0stuegnw"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pj75czl4mtwa5n9ers07vk9u8w06msm234dal2k8p3yhe6l2utx0stuegnw",
+        "scriptPubKey": "512097a9817ebb5bbb49972383fccb178773f5b86d51ab7bf558e1892f9d7d5c599f",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "97a9817ebb5bbb49972383fccb178773f5b86d51ab7bf558e1892f9d7d5c599f"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p9903v476suygl2adk9marxpxg9cuw8pjdp3u2pdz8nn8zhzegw9stjme77"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p9903v476suygl2adk9marxpxg9cuw8pjdp3u2pdz8nn8zhzegw9stjme77",
+        "scriptPubKey": "5120295f1657da87088fabadb177d198264171c71c326863c505a23ce6715c59438b",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "295f1657da87088fabadb177d198264171c71c326863c505a23ce6715c59438b"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1phxx63n2qyjhfffkgs22hkmr4exd7yvmlr660yedp87hea5uvlxksnrmcq5"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1phxx63n2qyjhfffkgs22hkmr4exd7yvmlr660yedp87hea5uvlxksnrmcq5",
+        "scriptPubKey": "5120b98da8cd4024ae94a6c882957b6c75c99be2337f1eb4f265a13faf9ed38cf9ad",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "b98da8cd4024ae94a6c882957b6c75c99be2337f1eb4f265a13faf9ed38cf9ad"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pfhzmcsrqr8pvfj58wrsptzdwlstf8xukn0203cdvtcw8hw8z7guqp7dnw7"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pfhzmcsrqr8pvfj58wrsptzdwlstf8xukn0203cdvtcw8hw8z7guqp7dnw7",
+        "scriptPubKey": "51204dc5bc406019c2c4ca8770e01589aefc16939b969bd4f8e1ac5e1c7bb8e2f238",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "4dc5bc406019c2c4ca8770e01589aefc16939b969bd4f8e1ac5e1c7bb8e2f238"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pt6g3zzkzuyajwp2x647thdt9flwlzsc90drllwtwvqcfhxsmr6lqepuc4q"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pt6g3zzkzuyajwp2x647thdt9flwlzsc90drllwtwvqcfhxsmr6lqepuc4q",
+        "scriptPubKey": "51205e91110ac2e13b270546d57cbbb5654fddf143057b47ffb96e60309b9a1b1ebe",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "5e91110ac2e13b270546d57cbbb5654fddf143057b47ffb96e60309b9a1b1ebe"
+      }
+    },
+    {
+      "method": "scantxoutset",
+      "params": [
+        "status"
+      ],
+      "result": null
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pf3wv07n42ee47gz0p0h7dnjsslhsfwgxrfprl2rdt2c8x04qt4nqym9044"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pf3wv07n42ee47gz0p0h7dnjsslhsfwgxrfprl2rdt2c8x04qt4nqym9044",
+        "scriptPubKey": "51204c5cc7fa7556735f204f0befe6ce5087ef04b9061a423fa86d5ab0733ea05d66",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "4c5cc7fa7556735f204f0befe6ce5087ef04b9061a423fa86d5ab0733ea05d66"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pgr4clr0zrq0pxqghhqhxpdtp4rdetymmhqt8j60jy6pkkmx5z8kq6hahl9"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pgr4clr0zrq0pxqghhqhxpdtp4rdetymmhqt8j60jy6pkkmx5z8kq6hahl9",
+        "scriptPubKey": "512040eb8f8de2181e130117b82e60b561a8db95937bb8167969f226836b6cd411ec",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "40eb8f8de2181e130117b82e60b561a8db95937bb8167969f226836b6cd411ec"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p2zuvxgap6yq6d3xq64sascxw6rtvq5lqfxrek6zed6n9l9snrc5sp9ghvd"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p2zuvxgap6yq6d3xq64sascxw6rtvq5lqfxrek6zed6n9l9snrc5sp9ghvd",
+        "scriptPubKey": "512050b8c323a1d101a6c4c0d561d860ced0d6c053e049879b68596ea65f96131e29",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "50b8c323a1d101a6c4c0d561d860ced0d6c053e049879b68596ea65f96131e29"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pajhgwer0m6s7tsa7m6mslvzuef5v0ttn0tpca960nudptpgef2aqgugq2f"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pajhgwer0m6s7tsa7m6mslvzuef5v0ttn0tpca960nudptpgef2aqgugq2f",
+        "scriptPubKey": "5120ecae87646fdea1e5c3bedeb70fb05cca68c7ad737ac38e974f9f1a1585194aba",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "ecae87646fdea1e5c3bedeb70fb05cca68c7ad737ac38e974f9f1a1585194aba"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pzlm7mtwdh45ejw8sprxln7qqanfncun6s6p6udez9jrlulkadfyqquv8hu"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pzlm7mtwdh45ejw8sprxln7qqanfncun6s6p6udez9jrlulkadfyqquv8hu",
+        "scriptPubKey": "512017f7edadcdbd699938f008cdf9f800ecd33c727a8683ae37222c87fe7edd6a48",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "17f7edadcdbd699938f008cdf9f800ecd33c727a8683ae37222c87fe7edd6a48"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pwxxht4fqg7pxpwvwpwl2ncvgk5j9trr3gyjn4xr4n5pwfrvqu23qz9h2pn"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pwxxht4fqg7pxpwvwpwl2ncvgk5j9trr3gyjn4xr4n5pwfrvqu23qz9h2pn",
+        "scriptPubKey": "5120718d75d520478260b98e0bbea9e188b524558c7141253a98759d02e48d80e2a2",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "718d75d520478260b98e0bbea9e188b524558c7141253a98759d02e48d80e2a2"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p4c9skfx90fc3cnlahk00n0wjkv37z8svr5dwyxp9tc9d72k564ssa8jdl0"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p4c9skfx90fc3cnlahk00n0wjkv37z8svr5dwyxp9tc9d72k564ssa8jdl0",
+        "scriptPubKey": "5120ae0b0b24c57a711c4ffdbd9ef9bdd2b323e11e0c1d1ae218255e0adf2ad4d561",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "ae0b0b24c57a711c4ffdbd9ef9bdd2b323e11e0c1d1ae218255e0adf2ad4d561"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pv9lxzqz3gwdv8exa4rhsvpqungtnaakd58zsngr58uvyja86auwsfv8qzs"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pv9lxzqz3gwdv8exa4rhsvpqungtnaakd58zsngr58uvyja86auwsfv8qzs",
+        "scriptPubKey": "5120617e610051439ac3e4dda8ef06041c9a173ef6cda1c509a0743f184974faef1d",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "617e610051439ac3e4dda8ef06041c9a173ef6cda1c509a0743f184974faef1d"
+      }
+    },
+    {
+      "method": "getblockchaininfo",
+      "params": [],
+      "result": {
+        "chain": "signet",
+        "blocks": 326474,
+        "headers": 326474,
+        "bestblockhash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "bits": "1d14cbb2",
+        "target": "00000014cbb20000000000000000000000000000000000000000000000000000",
+        "difficulty": "0.04808616547775056",
+        "time": 1792078119,
+        "mediantime": 1792073773,
+        "verificationprogress": 1,
+        "initialblockdownload": false,
+        "chainwork": "0000000000000000000000000000000000000000000000000000118d4e89dcd9",
+        "size_on_disk": 24356694198,
+        "pruned": false,
+        "signet_challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+        "warnings": []
+      }
+    },
+    {
+      "method": "deriveaddresses",
+      "params": [
+        "tr(tpubD8sZ4z8i4P7tD7H9JnXkviUY3T6bxV82v2tiitcPXfKTTC9biWonrRZbBgXrPEyJw4UDi4qWEwDEChr1sTAWBnkNquMtSUiBJW6gCUR5qyy/0/*)#ps2lph6l",
+        [
+          0,
+          32
+        ]
+      ],
+      "result": [
+        "tb1p0tt0x0crz0y6flq9t4m7h3p3m955c2nkjq76yj05lvrf80yzx7nq2gpf33",
+        "tb1p37pcs66fz2uyreujlylhq7292cc9hpew0mlxv3cua86njk4f335svkl0k2",
+        "tb1pddckhtvkhd4jw7ztqjdexpv9ezlhmtjc5deqh5dv08p0n4g59xuqfkvtvn",
+        "tb1pr3zqz7xq59d5v4yc6as5n5s4uakc6e23nm8c396ngwn73q62v5gqetu0m3",
+        "tb1phwrlmg5r4lnerwq22kkmlp6jham6wgklq03y6y4frgsl7cdentnskz04ww",
+        "tb1p2zuvxgap6yq6d3xq64sascxw6rtvq5lqfxrek6zed6n9l9snrc5sp9ghvd",
+        "tb1p4ludwmw5azek3g7tvqaaq5kphfdrvq3phfjhjgxpavdylp9luttse8cqeh",
+        "tb1pd47perp0e009jv9n4053umdsqf4w9vnry73zg9mag8rt5g9kgwus65zurj",
+        "tb1pjqefuu4njm8985rrqyah40l63zcthy3g0v0w39sjypfvmtkta9eqmmx5qp",
+        "tb1pkf62fp0pzrjytr3q0dewzqzvpcw5szuekzj2quur8g9aqp7g4rpsle7tmh",
+        "tb1p8ueaheumzjxu6x8mrlrzu3sswtxp5th2zc5mrvlunum0t26ryjes3qzdr9",
+        "tb1p9903v476suygl2adk9marxpxg9cuw8pjdp3u2pdz8nn8zhzegw9stjme77",
+        "tb1p2qehk2ts692z94trg92rraj74jexpw4m8h0xmnwvqx2l5eqxmmdq65lqxd",
+        "tb1pvfgkfwzy4jxdaf8gsepzdf9s4ck7x0ep55kuwwwsxpn40xuxjh5qgfepls",
+        "tb1pqy63vdledt84rgpeelzxtgqz5suktjffukav33y6lgzk2js2xz7sthpsm8",
+        "tb1pm4vgeyvjygwq3cnzp207n2cq5lv8cqzg9qv5fx0cyshvy9287gvqh07h9k",
+        "tb1p52c67wrdwq25zfxqtvw725skal6vg8y3hxfj0gjvap4uauxczxcsshwq7x",
+        "tb1pu8k0r4ze8hpmlcg5lpwurnrya7m4znzzx49snepaej3r7peetmksz86shj",
+        "tb1pfhzmcsrqr8pvfj58wrsptzdwlstf8xukn0203cdvtcw8hw8z7guqp7dnw7",
+        "tb1pwv3kwdeq3xw305ns8f9n6rmx5a3d4uptc5hteesr7n2sepshferstwpvh8",
+        "tb1pf3wv07n42ee47gz0p0h7dnjsslhsfwgxrfprl2rdt2c8x04qt4nqym9044",
+        "tb1pttdrh5x7d36xph5uqtc4lmjlxkf6vwsuad985ujs8fhwmwuu6wzsf880ga",
+        "tb1pdxpeswrj0cpmt46cl5pcm24krkj36hafhkmhn6g4ku532hqk9cesgmvpm5",
+        "tb1pwagkq23dnvju63yrxa5cznr3kw6m9wegenp05esdwem8vv3j0cpqla5dq7",
+        "tb1phxx63n2qyjhfffkgs22hkmr4exd7yvmlr660yedp87hea5uvlxksnrmcq5",
+        "tb1pytjkanka3cwf3gf05haz6pe7qvtgqad088ecvh3zmgjptwnlv32suhscup",
+        "tb1pcpuju0s6s6rctfqaqa3379yg3fu2rg6eqm8n30ahtqc2mz8hmfyqfh4gwk",
+        "tb1pcec9hk2z6pyaz20eu3f6fqg28u9zhc4seczurmsxwmdagc55dslqryzg5c",
+        "tb1pweegjp9qgjy9tr3mshuxtz73x9tashr62cgzdsdnuxu99myyndes285cdg",
+        "tb1plaquwyeen24p4w22ecw0hwxd8m337tkeg0fc3eqqj3k360upc4zq52r30l",
+        "tb1pajhgwer0m6s7tsa7m6mslvzuef5v0ttn0tpca960nudptpgef2aqgugq2f",
+        "tb1pv9lxzqz3gwdv8exa4rhsvpqungtnaakd58zsngr58uvyja86auwsfv8qzs",
+        "tb1pzctrxqqll2phxjcrnly8wwpc3y94dfa2hj8s6j4kh25qv3pze0jsqg4t7t"
+      ]
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pd47perp0e009jv9n4053umdsqf4w9vnry73zg9mag8rt5g9kgwus65zurj"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pd47perp0e009jv9n4053umdsqf4w9vnry73zg9mag8rt5g9kgwus65zurj",
+        "scriptPubKey": "51206d7c1c8c2fcbde5930b3abe91e6db0026ae2b26327a224177d41c6ba20b643b9",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "6d7c1c8c2fcbde5930b3abe91e6db0026ae2b26327a224177d41c6ba20b643b9"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p4ludwmw5azek3g7tvqaaq5kphfdrvq3phfjhjgxpavdylp9luttse8cqeh"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p4ludwmw5azek3g7tvqaaq5kphfdrvq3phfjhjgxpavdylp9luttse8cqeh",
+        "scriptPubKey": "5120aff8d76dd4e8b368a3cb603bd052c1ba5a360221ba657920c1eb1a4f84bfe2d7",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "aff8d76dd4e8b368a3cb603bd052c1ba5a360221ba657920c1eb1a4f84bfe2d7"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1plaquwyeen24p4w22ecw0hwxd8m337tkeg0fc3eqqj3k360upc4zq52r30l"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1plaquwyeen24p4w22ecw0hwxd8m337tkeg0fc3eqqj3k360upc4zq52r30l",
+        "scriptPubKey": "5120ff41c713399aaa1ab94ace1cfbb8cd3ee31f2ed943d388e400946d1d3f81c544",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "ff41c713399aaa1ab94ace1cfbb8cd3ee31f2ed943d388e400946d1d3f81c544"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p8exqu5huy2l80cjhchwvlkgwt9h0x09jg2yhu39rrxzalpk238aqppuyur"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p8exqu5huy2l80cjhchwvlkgwt9h0x09jg2yhu39rrxzalpk238aqppuyur",
+        "scriptPubKey": "51203e4c0e52fc22be77e257c5dccfd90e596ef33cb242897e44a31985df86ca89fa",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "3e4c0e52fc22be77e257c5dccfd90e596ef33cb242897e44a31985df86ca89fa"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p58wexrfe7gzwhu3klncgqdg46cmu0rhgm4fwqagtvcu0ahzxhy4synr207"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p58wexrfe7gzwhu3klncgqdg46cmu0rhgm4fwqagtvcu0ahzxhy4synr207",
+        "scriptPubKey": "5120a1dd930d39f204ebf236fcf0803515d637c78ee8dd52e0750b6638fedc46b92b",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "a1dd930d39f204ebf236fcf0803515d637c78ee8dd52e0750b6638fedc46b92b"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p0tt0x0crz0y6flq9t4m7h3p3m955c2nkjq76yj05lvrf80yzx7nq2gpf33"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p0tt0x0crz0y6flq9t4m7h3p3m955c2nkjq76yj05lvrf80yzx7nq2gpf33",
+        "scriptPubKey": "51207ad6f33f0313c9a4fc055d77ebc431d9694c2a76903da249f4fb0693bc8237a6",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "7ad6f33f0313c9a4fc055d77ebc431d9694c2a76903da249f4fb0693bc8237a6"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pm4vgeyvjygwq3cnzp207n2cq5lv8cqzg9qv5fx0cyshvy9287gvqh07h9k"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pm4vgeyvjygwq3cnzp207n2cq5lv8cqzg9qv5fx0cyshvy9287gvqh07h9k",
+        "scriptPubKey": "5120dd588c9192221c08e2620a9fe9ab00a7d87c004828194499f8242ec21547f218",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "dd588c9192221c08e2620a9fe9ab00a7d87c004828194499f8242ec21547f218"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pdt8azvry2zdtan5y889cy8anzfzpsr78dashu8ydez0e87hcnr6qvsqgkw"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pdt8azvry2zdtan5y889cy8anzfzpsr78dashu8ydez0e87hcnr6qvsqgkw",
+        "scriptPubKey": "51206acfd13064509abece8439cb821fb31244180fc76f617e1c8dc89f93faf898f4",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "6acfd13064509abece8439cb821fb31244180fc76f617e1c8dc89f93faf898f4"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pcec9hk2z6pyaz20eu3f6fqg28u9zhc4seczurmsxwmdagc55dslqryzg5c"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pcec9hk2z6pyaz20eu3f6fqg28u9zhc4seczurmsxwmdagc55dslqryzg5c",
+        "scriptPubKey": "5120c6705bd942d049d129f9e453a4810a3f0a2be2b0ce05c1ee0676dbd462946c3e",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "c6705bd942d049d129f9e453a4810a3f0a2be2b0ce05c1ee0676dbd462946c3e"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pr0m6fmkpa5q88cl6lk400wrw02pj8s0yj5wmazh2fdha8fgmcrjqgnhcn0"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pr0m6fmkpa5q88cl6lk400wrw02pj8s0yj5wmazh2fdha8fgmcrjqgnhcn0",
+        "scriptPubKey": "51201bf7a4eec1ed0073e3fafdaaf7b86e7a8323c1e4951dbe8aea4b6fd3a51bc0e4",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "1bf7a4eec1ed0073e3fafdaaf7b86e7a8323c1e4951dbe8aea4b6fd3a51bc0e4"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pweegjp9qgjy9tr3mshuxtz73x9tashr62cgzdsdnuxu99myyndes285cdg"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pweegjp9qgjy9tr3mshuxtz73x9tashr62cgzdsdnuxu99myyndes285cdg",
+        "scriptPubKey": "512076728904a04488558e3b85f8658bd13157d85c7a561026c1b3e1b852ec849b73",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "76728904a04488558e3b85f8658bd13157d85c7a561026c1b3e1b852ec849b73"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p2ujnc9lr5qvdeyw430ju7g8wkp6e9rg6ncucjjpeyagv85876q7qwuhckx"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p2ujnc9lr5qvdeyw430ju7g8wkp6e9rg6ncucjjpeyagv85876q7qwuhckx",
+        "scriptPubKey": "512057253c17e3a018dc91d58be5cf20eeb075928d1a9e398948392750c3d0fed03c",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "57253c17e3a018dc91d58be5cf20eeb075928d1a9e398948392750c3d0fed03c"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pwv3kwdeq3xw305ns8f9n6rmx5a3d4uptc5hteesr7n2sepshferstwpvh8"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pwv3kwdeq3xw305ns8f9n6rmx5a3d4uptc5hteesr7n2sepshferstwpvh8",
+        "scriptPubKey": "51207323673720899d17d2703a4b3d0f66a762daf02bc52ebce603f4d50c86174e47",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "7323673720899d17d2703a4b3d0f66a762daf02bc52ebce603f4d50c86174e47"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pzctrxqqll2phxjcrnly8wwpc3y94dfa2hj8s6j4kh25qv3pze0jsqg4t7t"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pzctrxqqll2phxjcrnly8wwpc3y94dfa2hj8s6j4kh25qv3pze0jsqg4t7t",
+        "scriptPubKey": "5120161633001ffa83734b039fc8773838890b56a7aabc8f0d4ab6baa8064422cbe5",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "161633001ffa83734b039fc8773838890b56a7aabc8f0d4ab6baa8064422cbe5"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p6d79ujtq27wxh9wn7s2kltrx4vvwmllzzr8c8ssyp6rznwzgjt2s8ankwv"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p6d79ujtq27wxh9wn7s2kltrx4vvwmllzzr8c8ssyp6rznwzgjt2s8ankwv",
+        "scriptPubKey": "5120d37c5e4960579c6b95d3f4156fac66ab18edffe210cf83c2040e8629b84892d5",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "d37c5e4960579c6b95d3f4156fac66ab18edffe210cf83c2040e8629b84892d5"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pu733msx8cqp3zpcg0upd0vgr5rjsh7sv6myr73yw0yzm02yw3kcsjz5t7d"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pu733msx8cqp3zpcg0upd0vgr5rjsh7sv6myr73yw0yzm02yw3kcsjz5t7d",
+        "scriptPubKey": "5120e7a31dc0c7c0031107087f02d7b103a0e50bfa0cd6c83f448e7905b7a88e8db1",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "e7a31dc0c7c0031107087f02d7b103a0e50bfa0cd6c83f448e7905b7a88e8db1"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pcpuju0s6s6rctfqaqa3379yg3fu2rg6eqm8n30ahtqc2mz8hmfyqfh4gwk"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pcpuju0s6s6rctfqaqa3379yg3fu2rg6eqm8n30ahtqc2mz8hmfyqfh4gwk",
+        "scriptPubKey": "5120c0792e3e1a868785a41d07631f14888a78a1a35906cf38bfb75830ad88f7da48",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "c0792e3e1a868785a41d07631f14888a78a1a35906cf38bfb75830ad88f7da48"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1plqyyexzjeqyhw2sh784lp5sl8zr48kgec90r62ye3wks9ml20f9qmmycju"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1plqyyexzjeqyhw2sh784lp5sl8zr48kgec90r62ye3wks9ml20f9qmmycju",
+        "scriptPubKey": "5120f8084c9852c809772a17f1ebf0d21f388753d919c15e3d28998bad02efea7a4a",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "f8084c9852c809772a17f1ebf0d21f388753d919c15e3d28998bad02efea7a4a"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pttdrh5x7d36xph5uqtc4lmjlxkf6vwsuad985ujs8fhwmwuu6wzsf880ga"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pttdrh5x7d36xph5uqtc4lmjlxkf6vwsuad985ujs8fhwmwuu6wzsf880ga",
+        "scriptPubKey": "51205ada3bd0de6c7460de9c02f15fee5f3593a63a1ceb4a7a72503a6eedbb9cd385",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "5ada3bd0de6c7460de9c02f15fee5f3593a63a1ceb4a7a72503a6eedbb9cd385"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p4t30rkzlrg3qnt3cnscvvmy8f0vpwcvytla0wdcqcd7jha05phtqkhpkev"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p4t30rkzlrg3qnt3cnscvvmy8f0vpwcvytla0wdcqcd7jha05phtqkhpkev",
+        "scriptPubKey": "5120aae2f1d85f1a2209ae389c30c66c874bd81761845ffaf73700c37d2bf5f40dd6",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "aae2f1d85f1a2209ae389c30c66c874bd81761845ffaf73700c37d2bf5f40dd6"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1peymt2av0rc8p6e3pe3rs7s6p86kzn8qe7qtqrxkkj653ynyqz0xsaev65e"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1peymt2av0rc8p6e3pe3rs7s6p86kzn8qe7qtqrxkkj653ynyqz0xsaev65e",
+        "scriptPubKey": "5120c936b5758f1e0e1d6621cc470f43413eac299c19f016019ad696a9124c8013cd",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "c936b5758f1e0e1d6621cc470f43413eac299c19f016019ad696a9124c8013cd"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1phwrlmg5r4lnerwq22kkmlp6jham6wgklq03y6y4frgsl7cdentnskz04ww"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1phwrlmg5r4lnerwq22kkmlp6jham6wgklq03y6y4frgsl7cdentnskz04ww",
+        "scriptPubKey": "5120bb87fda283afe791b80a55adbf8752bf77a722df03e24d12a91a21ff61b99ae7",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "bb87fda283afe791b80a55adbf8752bf77a722df03e24d12a91a21ff61b99ae7"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p4zwq0523hunjp22z4h0w00ak68h6fn2dxns73kjrg54zh63l48wq8uykcg"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p4zwq0523hunjp22z4h0w00ak68h6fn2dxns73kjrg54zh63l48wq8uykcg",
+        "scriptPubKey": "5120a89c07d151bf2720a942addee7bfb6d1efa4cd4d34e1e8da43452a2bea3fa9dc",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "a89c07d151bf2720a942addee7bfb6d1efa4cd4d34e1e8da43452a2bea3fa9dc"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pwagkq23dnvju63yrxa5cznr3kw6m9wegenp05esdwem8vv3j0cpqla5dq7"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pwagkq23dnvju63yrxa5cznr3kw6m9wegenp05esdwem8vv3j0cpqla5dq7",
+        "scriptPubKey": "51207751602a2d9b25cd44833769814c71b3b5b2bb28ccc2fa660d76767632327e02",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "7751602a2d9b25cd44833769814c71b3b5b2bb28ccc2fa660d76767632327e02"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1prwy34zc2dupd3uuasjvzp9vyxj23dtmsh49zh7aaqx2mzqd00d5stlvll4"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1prwy34zc2dupd3uuasjvzp9vyxj23dtmsh49zh7aaqx2mzqd00d5stlvll4",
+        "scriptPubKey": "51201b891a8b0a6f02d8f39d8498209584349516af70bd4a2bfbbd0195b101af7b69",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "1b891a8b0a6f02d8f39d8498209584349516af70bd4a2bfbbd0195b101af7b69"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p8ueaheumzjxu6x8mrlrzu3sswtxp5th2zc5mrvlunum0t26ryjes3qzdr9"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p8ueaheumzjxu6x8mrlrzu3sswtxp5th2zc5mrvlunum0t26ryjes3qzdr9",
+        "scriptPubKey": "51203f33dbe79b148dcd18fb1fc62e461072cc1a2eea1629b1b3fc9f36f5ab4324b3",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "3f33dbe79b148dcd18fb1fc62e461072cc1a2eea1629b1b3fc9f36f5ab4324b3"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pg2f3x84v9zy84nm9c7e57ngr3tt9wltcchve007lyrtmt2mxgchqhpgrv4"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pg2f3x84v9zy84nm9c7e57ngr3tt9wltcchve007lyrtmt2mxgchqhpgrv4",
+        "scriptPubKey": "51204293131eac28887acf65c7b34f4d038ad6577d78c5d997bfdf20d7b5ab66462e",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "4293131eac28887acf65c7b34f4d038ad6577d78c5d997bfdf20d7b5ab66462e"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1ps66k3mfqxrr0g7r3n222q6aft92cpmclamu28q0p3s9d0ckj96eqe9syrz"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1ps66k3mfqxrr0g7r3n222q6aft92cpmclamu28q0p3s9d0ckj96eqe9syrz",
+        "scriptPubKey": "512086b568ed2030c6f478719a94a06ba9595580ef1feef8a381e18c0ad7e2d22eb2",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "86b568ed2030c6f478719a94a06ba9595580ef1feef8a381e18c0ad7e2d22eb2"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pt4p9kqg7c4jgptrm8x9wrj3kp3vxntays8psp8jz7w0gt4t5eqxqd8n5et"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pt4p9kqg7c4jgptrm8x9wrj3kp3vxntays8psp8jz7w0gt4t5eqxqd8n5et",
+        "scriptPubKey": "51205d425b011ec56480ac7b398ae1ca360c5869afa481c3009e42f39e85d574c80c",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "5d425b011ec56480ac7b398ae1ca360c5869afa481c3009e42f39e85d574c80c"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pu8k0r4ze8hpmlcg5lpwurnrya7m4znzzx49snepaej3r7peetmksz86shj"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pu8k0r4ze8hpmlcg5lpwurnrya7m4znzzx49snepaej3r7peetmksz86shj",
+        "scriptPubKey": "5120e1ecf1d4593dc3bfe114f85dc1cc64efb7514c42354b09e43dcca23f07395eed",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "e1ecf1d4593dc3bfe114f85dc1cc64efb7514c42354b09e43dcca23f07395eed"
+      }
+    },
+    {
+      "method": "deriveaddresses",
+      "params": [
+        "tr(tpubD8sZ4z8azwn869sNvEUR5sgSYuttduVYqHmbxT9bCdoDwD8WVvjPFxSq3LLqGYBNVJkFRQcfSctELkqATwRQCzpijX8SmBDNcUttEYzqPH2/0/*)#p4g3q7xn",
+        [
+          0,
+          32
+        ]
+      ],
+      "result": [
+        "tb1pf6dl7kqfdyfhjs002pc3t2yj8qgnttv9wegrxjd0kkzcqw6hswaqv4kvv9",
+        "tb1p2gvy6ukrd9cnrn08ps29mlafwvk68swjwrxjc2cygnw2zl6c78eqsmsqyr",
+        "tb1pdt8azvry2zdtan5y889cy8anzfzpsr78dashu8ydez0e87hcnr6qvsqgkw",
+        "tb1p6d79ujtq27wxh9wn7s2kltrx4vvwmllzzr8c8ssyp6rznwzgjt2s8ankwv",
+        "tb1ps66k3mfqxrr0g7r3n222q6aft92cpmclamu28q0p3s9d0ckj96eqe9syrz",
+        "tb1pt4p9kqg7c4jgptrm8x9wrj3kp3vxntays8psp8jz7w0gt4t5eqxqd8n5et",
+        "tb1p4c9skfx90fc3cnlahk00n0wjkv37z8svr5dwyxp9tc9d72k564ssa8jdl0",
+        "tb1pk97f6tj2aec8s38mkt6v7y57f0akdhrvaqcrfjts4t76u39kanqqtjejjw",
+        "tb1p58wexrfe7gzwhu3klncgqdg46cmu0rhgm4fwqagtvcu0ahzxhy4synr207",
+        "tb1p8chdf8tdcfx93fcmwzk7yneaafs73pumx73wj56nwuc3e9ypk75qs8cmjj",
+        "tb1pmty9ammgktnynv6fyfyxeurdsx3qeyczw8m5x6mc03cgc20uletskk54n9",
+        "tb1pl6nh6fl3p7j9na7hhxevfwgul96nwjnd3nupg824ad75lpaveqrs8hgleu",
+        "tb1pwxxht4fqg7pxpwvwpwl2ncvgk5j9trr3gyjn4xr4n5pwfrvqu23qz9h2pn",
+        "tb1p2ujnc9lr5qvdeyw430ju7g8wkp6e9rg6ncucjjpeyagv85876q7qwuhckx",
+        "tb1p8exqu5huy2l80cjhchwvlkgwt9h0x09jg2yhu39rrxzalpk238aqppuyur",
+        "tb1p4t30rkzlrg3qnt3cnscvvmy8f0vpwcvytla0wdcqcd7jha05phtqkhpkev",
+        "tb1pc98cvza25aac5gd45kvml4sned5vqg6y7zxn3rqrlu6lla3nn3csfjvw7k",
+        "tb1ptyt5wude4cg0hccqhksv7lg7fvrdesh29gjz0vyvppz9428ulqkspgqvyp",
+        "tb1pt6g3zzkzuyajwp2x647thdt9flwlzsc90drllwtwvqcfhxsmr6lqepuc4q",
+        "tb1pkse2axutx7shtxpc2f67hng3scjn7srmts6qzy0c37vqfc4hq2fqk3q5y5",
+        "tb1p4zwq0523hunjp22z4h0w00ak68h6fn2dxns73kjrg54zh63l48wq8uykcg",
+        "tb1pu733msx8cqp3zpcg0upd0vgr5rjsh7sv6myr73yw0yzm02yw3kcsjz5t7d",
+        "tb1pg2f3x84v9zy84nm9c7e57ngr3tt9wltcchve007lyrtmt2mxgchqhpgrv4",
+        "tb1pfw6awhxfjsvymtphl462t78pq48yet00rdythn2d98hknq6q8nyqmrr30u",
+        "tb1peymt2av0rc8p6e3pe3rs7s6p86kzn8qe7qtqrxkkj653ynyqz0xsaev65e",
+        "tb1prwy34zc2dupd3uuasjvzp9vyxj23dtmsh49zh7aaqx2mzqd00d5stlvll4",
+        "tb1pr0m6fmkpa5q88cl6lk400wrw02pj8s0yj5wmazh2fdha8fgmcrjqgnhcn0",
+        "tb1pmgqpjl34kd0cunqy9xu3a8gs6tt57kltf7g9mdjt2vjj7qjyxv3smae4ll",
+        "tb1pzlm7mtwdh45ejw8sprxln7qqanfncun6s6p6udez9jrlulkadfyqquv8hu",
+        "tb1pj75czl4mtwa5n9ers07vk9u8w06msm234dal2k8p3yhe6l2utx0stuegnw",
+        "tb1plqyyexzjeqyhw2sh784lp5sl8zr48kgec90r62ye3wks9ml20f9qmmycju",
+        "tb1pgr4clr0zrq0pxqghhqhxpdtp4rdetymmhqt8j60jy6pkkmx5z8kq6hahl9",
+        "tb1p29jzyk8escsv0hzj7fhsmwkp5teghzw2k3qe29g83pkngrg2wq6ss8g4em"
+      ]
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pddckhtvkhd4jw7ztqjdexpv9ezlhmtjc5deqh5dv08p0n4g59xuqfkvtvn"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pddckhtvkhd4jw7ztqjdexpv9ezlhmtjc5deqh5dv08p0n4g59xuqfkvtvn",
+        "scriptPubKey": "51206b716bad96bb6b27784b049b930585c8bf7dae58a3720bd1ac79c2f9d51429b8",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "6b716bad96bb6b27784b049b930585c8bf7dae58a3720bd1ac79c2f9d51429b8"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p29jzyk8escsv0hzj7fhsmwkp5teghzw2k3qe29g83pkngrg2wq6ss8g4em"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p29jzyk8escsv0hzj7fhsmwkp5teghzw2k3qe29g83pkngrg2wq6ss8g4em",
+        "scriptPubKey": "512051642258f98620c7dc52f26f0dbac1a2f28b89cab441951507886d340d0a7035",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "51642258f98620c7dc52f26f0dbac1a2f28b89cab441951507886d340d0a7035"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pc98cvza25aac5gd45kvml4sned5vqg6y7zxn3rqrlu6lla3nn3csfjvw7k"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pc98cvza25aac5gd45kvml4sned5vqg6y7zxn3rqrlu6lla3nn3csfjvw7k",
+        "scriptPubKey": "5120c14f860baaa77b8a21b5a599bfd613cb68c02344f08d388c03ff35fff6339c71",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "c14f860baaa77b8a21b5a599bfd613cb68c02344f08d388c03ff35fff6339c71"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p52c67wrdwq25zfxqtvw725skal6vg8y3hxfj0gjvap4uauxczxcsshwq7x"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p52c67wrdwq25zfxqtvw725skal6vg8y3hxfj0gjvap4uauxczxcsshwq7x",
+        "scriptPubKey": "5120a2b1af386d70154124c05b1de55216eff4c41c91b99327a24ce86bcef0d811b1",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "a2b1af386d70154124c05b1de55216eff4c41c91b99327a24ce86bcef0d811b1"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pmty9ammgktnynv6fyfyxeurdsx3qeyczw8m5x6mc03cgc20uletskk54n9"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pmty9ammgktnynv6fyfyxeurdsx3qeyczw8m5x6mc03cgc20uletskk54n9",
+        "scriptPubKey": "5120dac85eef68b2e649b34922486cf06d81a20c930271f7436b787c708c29fcfe57",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "dac85eef68b2e649b34922486cf06d81a20c930271f7436b787c708c29fcfe57"
+      }
+    },
+    {
+      "method": "getblockhash",
+      "params": [
+        0
+      ],
+      "result": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6"
+    },
+    {
+      "method": "gettxspendingprevout",
+      "params": [
+        [
+          {
+            "txid": "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef",
+            "vout": 0
+          }
+        ]
+      ],
+      "result": [
+        {
+          "txid": "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef",
+          "vout": 0
+        }
+      ]
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pkf62fp0pzrjytr3q0dewzqzvpcw5szuekzj2quur8g9aqp7g4rpsle7tmh"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pkf62fp0pzrjytr3q0dewzqzvpcw5szuekzj2quur8g9aqp7g4rpsle7tmh",
+        "scriptPubKey": "5120b274a485e110e4458e207b72e1004c0e1d480b99b0a4a073833a0bd007c8a8c3",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "b274a485e110e4458e207b72e1004c0e1d480b99b0a4a073833a0bd007c8a8c3"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pf6dl7kqfdyfhjs002pc3t2yj8qgnttv9wegrxjd0kkzcqw6hswaqv4kvv9"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pf6dl7kqfdyfhjs002pc3t2yj8qgnttv9wegrxjd0kkzcqw6hswaqv4kvv9",
+        "scriptPubKey": "51204e9bff580969137941ef507115a892381135ad8576503349afb585803b5783ba",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "4e9bff580969137941ef507115a892381135ad8576503349afb585803b5783ba"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p2qehk2ts692z94trg92rraj74jexpw4m8h0xmnwvqx2l5eqxmmdq65lqxd"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p2qehk2ts692z94trg92rraj74jexpw4m8h0xmnwvqx2l5eqxmmdq65lqxd",
+        "scriptPubKey": "512050337b2970d15422d563415431f65eacb260babb3dde6dcdcc0195fa6406deda",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "50337b2970d15422d563415431f65eacb260babb3dde6dcdcc0195fa6406deda"
+      }
+    },
+    {
+      "method": "getblockchaininfo",
+      "params": [],
+      "result": {
+        "chain": "signet",
+        "blocks": 326474,
+        "headers": 326474,
+        "bestblockhash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "bits": "1d14cbb2",
+        "target": "00000014cbb20000000000000000000000000000000000000000000000000000",
+        "difficulty": "0.04808616547775056",
+        "time": 1792078119,
+        "mediantime": 1792073773,
+        "verificationprogress": 1,
+        "initialblockdownload": false,
+        "chainwork": "0000000000000000000000000000000000000000000000000000118d4e89dcd9",
+        "size_on_disk": 24356694198,
+        "pruned": false,
+        "signet_challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+        "warnings": []
+      }
+    },
+    {
+      "method": "scantxoutset",
+      "params": [
+        "start",
+        [
+          {
+            "desc": "tr(tpubD8sZ4z8i4P7tD7H9JnXkviUY3T6bxV82v2tiitcPXfKTTC9biWonrRZbBgXrPEyJw4UDi4qWEwDEChr1sTAWBnkNquMtSUiBJW6gCUR5qyy/0/*)#ps2lph6l",
+            "range": [
+              0,
+              32
+            ]
+          },
+          {
+            "desc": "tr(tpubD8sZ4z8azwn869sNvEUR5sgSYuttduVYqHmbxT9bCdoDwD8WVvjPFxSq3LLqGYBNVJkFRQcfSctELkqATwRQCzpijX8SmBDNcUttEYzqPH2/0/*)#p4g3q7xn",
+            "range": [
+              0,
+              32
+            ]
+          }
+        ]
+      ],
+      "result": {
+        "success": true,
+        "txouts": 80164524,
+        "height": 326474,
+        "bestblock": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "unspents": [
+          {
+            "txid": "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef",
+            "vout": 0,
+            "scriptPubKey": "51208f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69",
+            "desc": "tr([2c533d9f/0/1]b6180d12ae328063ae9044f79e7fb04cb287539387bf44a25e261a65c4f08464)#snefemyz",
+            "amount": "0.0009",
+            "coinbase": false,
+            "height": 326472,
+            "blockhash": "00000006b227fb106b21691ad90d93e2a07ab2053b85fb2dff5d5cdb43dcb43f",
+            "confirmations": 3
+          }
+        ],
+        "total_amount": "0.0009"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pqy63vdledt84rgpeelzxtgqz5suktjffukav33y6lgzk2js2xz7sthpsm8"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pqy63vdledt84rgpeelzxtgqz5suktjffukav33y6lgzk2js2xz7sthpsm8",
+        "scriptPubKey": "512001351637f96acf51a039cfc465a002a43965c929e5bac8c49afa05654a0a30bd",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "01351637f96acf51a039cfc465a002a43965c929e5bac8c49afa05654a0a30bd"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pjqefuu4njm8985rrqyah40l63zcthy3g0v0w39sjypfvmtkta9eqmmx5qp"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pjqefuu4njm8985rrqyah40l63zcthy3g0v0w39sjypfvmtkta9eqmmx5qp",
+        "scriptPubKey": "512090329e72b396ce53d063013b7abffa88b0bb92287b1ee896122052cdaecbe972",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "90329e72b396ce53d063013b7abffa88b0bb92287b1ee896122052cdaecbe972"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1p37pcs66fz2uyreujlylhq7292cc9hpew0mlxv3cua86njk4f335svkl0k2"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1p37pcs66fz2uyreujlylhq7292cc9hpew0mlxv3cua86njk4f335svkl0k2",
+        "scriptPubKey": "51208f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "8f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pk97f6tj2aec8s38mkt6v7y57f0akdhrvaqcrfjts4t76u39kanqqtjejjw"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pk97f6tj2aec8s38mkt6v7y57f0akdhrvaqcrfjts4t76u39kanqqtjejjw",
+        "scriptPubKey": "5120b17c9d2e4aee707844fbb2f4cf129e4bfb66dc6ce83034c970aafdae44b6ecc0",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "b17c9d2e4aee707844fbb2f4cf129e4bfb66dc6ce83034c970aafdae44b6ecc0"
+      }
+    },
+    {
+      "method": "validateaddress",
+      "params": [
+        "tb1pfw6awhxfjsvymtphl462t78pq48yet00rdythn2d98hknq6q8nyqmrr30u"
+      ],
+      "result": {
+        "isvalid": true,
+        "address": "tb1pfw6awhxfjsvymtphl462t78pq48yet00rdythn2d98hknq6q8nyqmrr30u",
+        "scriptPubKey": "51204bb5d75cc994184dac37fd74a5f8e1054e4cadef1b48bbcd4d29ef6983403cc8",
+        "isscript": true,
+        "iswitness": true,
+        "witness_version": 1,
+        "witness_program": "4bb5d75cc994184dac37fd74a5f8e1054e4cadef1b48bbcd4d29ef6983403cc8"
+      }
+    },
+    {
+      "method": "getdescriptorinfo",
+      "params": [
+        "tr(tpubD8sZ4z8i4P7tD7H9JnXkviUY3T6bxV82v2tiitcPXfKTTC9biWonrRZbBgXrPEyJw4UDi4qWEwDEChr1sTAWBnkNquMtSUiBJW6gCUR5qyy/0/*)#ps2lph6l"
+      ],
+      "result": {
+        "descriptor": "tr(tpubD8sZ4z8i4P7tD7H9JnXkviUY3T6bxV82v2tiitcPXfKTTC9biWonrRZbBgXrPEyJw4UDi4qWEwDEChr1sTAWBnkNquMtSUiBJW6gCUR5qyy/0/*)#ps2lph6l",
+        "checksum": "ps2lph6l",
+        "isrange": true,
+        "issolvable": true,
+        "hasprivatekeys": false
+      }
+    },
+    {
+      "method": "getdescriptorinfo",
+      "params": [
+        "tr(tpubD8sZ4z8azwn869sNvEUR5sgSYuttduVYqHmbxT9bCdoDwD8WVvjPFxSq3LLqGYBNVJkFRQcfSctELkqATwRQCzpijX8SmBDNcUttEYzqPH2/0/*)#p4g3q7xn"
+      ],
+      "result": {
+        "descriptor": "tr(tpubD8sZ4z8azwn869sNvEUR5sgSYuttduVYqHmbxT9bCdoDwD8WVvjPFxSq3LLqGYBNVJkFRQcfSctELkqATwRQCzpijX8SmBDNcUttEYzqPH2/0/*)#p4g3q7xn",
+        "checksum": "p4g3q7xn",
+        "isrange": true,
+        "issolvable": true,
+        "hasprivatekeys": false
+      }
+    },
+    {
+      "method": "getblockchaininfo",
+      "params": [],
+      "result": {
+        "chain": "signet",
+        "blocks": 326474,
+        "headers": 326474,
+        "bestblockhash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "bits": "1d14cbb2",
+        "target": "00000014cbb20000000000000000000000000000000000000000000000000000",
+        "difficulty": "0.04808616547775056",
+        "time": 1792078119,
+        "mediantime": 1792073773,
+        "verificationprogress": 1,
+        "initialblockdownload": false,
+        "chainwork": "0000000000000000000000000000000000000000000000000000118d4e89dcd9",
+        "size_on_disk": 24356694198,
+        "pruned": false,
+        "signet_challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+        "warnings": []
+      }
+    },
+    {
+      "method": "getrawtransaction",
+      "params": [
+        "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef",
+        true
+      ],
+      "result": {
+        "txid": "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef",
+        "hash": "866e362ceb2f4ecd8f327319723307eb0701e045dd0030d75493b315974fe6d4",
+        "version": 2,
+        "size": 246,
+        "vsize": 165,
+        "weight": 657,
+        "locktime": 0,
+        "vin": [
+          {
+            "txid": "64f39f75e890abee6e8cffef80e89e664e0f8202368e7b9c7d2dcd19451359d7",
+            "vout": 0,
+            "scriptSig": {
+              "asm": "",
+              "hex": ""
+            },
+            "txinwitness": [
+              "304402206f556d4bb30e85a215d5823488bd1b3321355e04941dee562a26f0215b247841022048cb30b3d79ed5f41083caf07fbc2722ebce1cafbc8747de10f7b1436a9c25ed01",
+              "027a7b7504516262b9223b5f400f277532ea08ef55f2c75a6e8888e7363a8930ee"
+            ],
+            "sequence": 4294967293
+          }
+        ],
+        "vout": [
+          {
+            "value": "0.0009",
+            "n": 0,
+            "scriptPubKey": {
+              "asm": "1 8f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69",
+              "desc": "rawtr(8f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69)#d97gk35d",
+              "hex": "51208f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69",
+              "address": "tb1p37pcs66fz2uyreujlylhq7292cc9hpew0mlxv3cua86njk4f335svkl0k2",
+              "type": "witness_v1_taproot"
+            }
+          },
+          {
+            "value": "0.00009175",
+            "n": 1,
+            "scriptPubKey": {
+              "asm": "1 a939b5fad51a7ad81723145d76c3b3cfb02220aa9040d6f88b12c49bbb94dbc5",
+              "desc": "rawtr(a939b5fad51a7ad81723145d76c3b3cfb02220aa9040d6f88b12c49bbb94dbc5)#h4pye4j9",
+              "hex": "5120a939b5fad51a7ad81723145d76c3b3cfb02220aa9040d6f88b12c49bbb94dbc5",
+              "address": "tb1p4yumt7k4rfads9erz3whdsane7czyg92jpqdd7ytztzfhwu5m0zsc5r53y",
+              "type": "witness_v1_taproot"
+            }
+          }
+        ],
+        "hex": "02000000000101d759134519cd2d7d9c7b8e3602820f4e669ee880efff8c6eeeab90e8759ff3640000000000fdffffff02905f0100000000002251208f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69d723000000000000225120a939b5fad51a7ad81723145d76c3b3cfb02220aa9040d6f88b12c49bbb94dbc50247304402206f556d4bb30e85a215d5823488bd1b3321355e04941dee562a26f0215b247841022048cb30b3d79ed5f41083caf07fbc2722ebce1cafbc8747de10f7b1436a9c25ed0121027a7b7504516262b9223b5f400f277532ea08ef55f2c75a6e8888e7363a8930ee00000000",
+        "blockhash": "00000006b227fb106b21691ad90d93e2a07ab2053b85fb2dff5d5cdb43dcb43f",
+        "confirmations": 3,
+        "time": 1792076443,
+        "blocktime": 1792076443
+      }
+    },
+    {
+      "method": "gettxout",
+      "params": [
+        "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef",
+        0,
+        false
+      ],
+      "result": {
+        "bestblock": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "confirmations": 3,
+        "value": "0.0009",
+        "scriptPubKey": {
+          "asm": "1 8f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69",
+          "desc": "rawtr(8f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69)#d97gk35d",
+          "hex": "51208f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69",
+          "address": "tb1p37pcs66fz2uyreujlylhq7292cc9hpew0mlxv3cua86njk4f335svkl0k2",
+          "type": "witness_v1_taproot"
+        },
+        "coinbase": false
+      }
+    },
+    {
+      "method": "gettxout",
+      "params": [
+        "a6ae70c705f27514b52fe5df2ef9351206dbce2dbf487a28113950d3e9e571ef",
+        0,
+        true
+      ],
+      "result": {
+        "bestblock": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "confirmations": 3,
+        "value": "0.0009",
+        "scriptPubKey": {
+          "asm": "1 8f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69",
+          "desc": "rawtr(8f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69)#d97gk35d",
+          "hex": "51208f83886b4912b841e792f93f70794556305b872e7efe66471ce9f5395aa98c69",
+          "address": "tb1p37pcs66fz2uyreujlylhq7292cc9hpew0mlxv3cua86njk4f335svkl0k2",
+          "type": "witness_v1_taproot"
+        },
+        "coinbase": false
+      }
+    },
+    {
+      "method": "getblockchaininfo",
+      "params": [],
+      "result": {
+        "chain": "signet",
+        "blocks": 326474,
+        "headers": 326474,
+        "bestblockhash": "0000000418c626cf0411429570e2af8745b1b9567a1dc55488269d1df2ab5012",
+        "bits": "1d14cbb2",
+        "target": "00000014cbb20000000000000000000000000000000000000000000000000000",
+        "difficulty": "0.04808616547775056",
+        "time": 1792078119,
+        "mediantime": 1792073773,
+        "verificationprogress": 1,
+        "initialblockdownload": false,
+        "chainwork": "0000000000000000000000000000000000000000000000000000118d4e89dcd9",
+        "size_on_disk": 24356694198,
+        "pruned": false,
+        "signet_challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+        "warnings": []
+      }
+    },
+    {
+      "method": "getblockhash",
+      "params": [
+        326472
+      ],
+      "result": "00000006b227fb106b21691ad90d93e2a07ab2053b85fb2dff5d5cdb43dcb43f"
+    }
+  ],
+  "financial_pins": {
+    "product_commit": "3d3b28428cd33eb5e703342a8441c1a8d5f4a71b",
+    "sdk_commit": "3d3b28428cd33eb5e703342a8441c1a8d5f4a71b",
+    "driver_sha256": "99933e4aff393dcaae3dd6bc89f65b1c7c441189c082e3bccb9d1fb53c986eaa",
+    "configuration_sha256": "a1a53bd7103b068b6cf3f497803c00dcd5bc5e28de2013c0102945d6b98aa739",
+    "schema_sha256": "af68418be86f3d55813971a244ebe3e8ed084584fa917dba501405e84b7fff9e"
+  },
+  "provenance": {
+    "scan_original_sha256": "553a4ac0cf900f1f29b5d08eee89819015d89e3cc13397f99f7e056383bfbe3c",
+    "original_public_sources_archive_sha256": "f5579c525364ed78838c3a3d05c95a656781f294937f5f37fc05664963545563",
+    "raw_core_original_sha256": "19f880d21da0275dad9ce907aa8cbb8012c872d97726a40e24facbe0da7145f4",
+    "value_normalization": "Original JSON numeric BTC values parsed as exact Decimal and serialized as decimal strings; no fabricated native/chain entries."
+  }
+}
