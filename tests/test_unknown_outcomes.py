@@ -257,7 +257,8 @@ class ArkUnknownTests(unittest.TestCase):
         UnknownOutcomeTests.setUp(self)
         self.s.db.execute('DELETE FROM action');self.s.db.execute('DELETE FROM event')
         self.recipient='actor-09';self.receipt_key='02'+'33'*32
-        self.s.db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)',(self.recipient,'recipient-mailbox','synthetic-account','recipient-script',canonical({})))
+        recipient_binding=account_fixtures.binding({'mailbox_pk':'recipient-mailbox','seq':1,'spk':'recipient-script','record_signature_valid':True,'account_child_verified':True})
+        self.s.db.execute('INSERT INTO owner_record VALUES (?,?,?,?,?)',(self.recipient,'recipient-mailbox','synthetic-account','recipient-script',canonical(recipient_binding)))
         self.s.queue('address',self.recipient,'H07','address',{},0)
         self.s.db.execute("UPDATE action SET state='completed',result=? WHERE id='address'",(canonical({'data':{'address':'destination','user_pubkey':self.receipt_key}}),))
         self.s.queue('lost',self.actor,'H08','send_arkoor',{'amount_sat':1000,'destination':'destination','recipient_actor':self.recipient},2000)

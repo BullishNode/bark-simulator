@@ -6,7 +6,8 @@ Reconciliation preserves the original activity time and client online state.
 """
 import asyncio,base64,datetime,hashlib,json,re,sqlite3
 from .model import InvariantError,canonical,integer,public_payload,transaction_fee
-from .ownership import EvidenceGap
+from .ownership import EvidenceGap, binding_matches, proof_matches_profile
+from .architecture import profile, TWO_STEP
 from .fees import movement_fee,board_fee,offboard_fee,_proposal
 from .campaign import _receipt_origin
 from .process import json_command
@@ -21,6 +22,16 @@ def _intent(store,action):
     if actual!=expected:raise InvariantError('unknown action identity, arguments or fee budget changed since authorization')
 
 
+def _owner_record_matches(store,actor,binding):
+    legacy=profile(store)==TWO_STEP
+    field='seq' if legacy else 'account_xpub'
+    if legacy and (type(binding.get('seq')) is not int or not 0<=binding['seq']<=2**63-1):
+        return False
+    row=store.db.execute('SELECT proof FROM owner_record WHERE actor=? AND mailbox=? AND '+field+'=? AND script=?',
+        (actor,binding.get('mailbox_pk'),binding.get(field),binding.get('spk'))).fetchone()
+    return row is not None and binding_matches(json.loads(row['proof']),binding,legacy=legacy)
+
+
 def _coins(store,ids,actor):
     if not ids or len(ids)!=len(set(ids)):raise EvidenceGap('signed principal set is empty or ambiguous')
     coins=[]
@@ -33,10 +44,12 @@ def _coins(store,ids,actor):
         if (proof.get('id'),proof.get('user_pubkey'),proof.get('amount_sat'))!=(coin['id'],coin['pubkey'],coin['amount_sat']):
             raise InvariantError('unknown outcome signed identity or value changed')
         if (proof.get('signed_path_valid') is not True or type(proof.get('anchor_confirmations')) is not int
-                or proof['anchor_confirmations']<1 or binding.get('record_signature_valid') is not True
-                or binding.get('account_child_verified') is not True):raise EvidenceGap('unknown outcome signed proof is incomplete')
-        if (binding.get('mailbox_pk')!=coin['mailbox'] or not store.db.execute('SELECT 1 FROM owner_record WHERE actor=? AND mailbox=? AND account_xpub=? AND script=?',
-                (actor,coin['mailbox'],binding.get('account_xpub'),binding.get('spk'))).fetchone()):raise EvidenceGap('unknown outcome lacks checked owner record')
+                or proof['anchor_confirmations']<1
+                or not proof_matches_profile(store,proof,{'user_pubkey':coin['pubkey'],
+                    'child_index':binding.get('child_index'),'blinded_mailbox_id':binding.get('blinded_mailbox_id')})):
+            raise EvidenceGap('unknown outcome signed proof is incomplete')
+        if binding.get('mailbox_pk')!=coin['mailbox'] or not _owner_record_matches(store,actor,binding):
+            raise EvidenceGap('unknown outcome lacks checked owner record')
         if hashlib.sha256(bytes.fromhex(coin['signed_vtxo'])).hexdigest()!=coin['signed_hash']:
             raise InvariantError('unknown outcome signed bytes changed')
         coins.append((coin,proof))
@@ -98,8 +111,8 @@ def _frame(store,action,phase):
     if len(rows)!=1:raise EvidenceGap('unknown read lacks unique fresh native evidence boundaries')
     data=json.loads(rows[0]['payload'])['data']
     evidence=boundary_evidence(store,action,phase,data);binding=evidence['binding']
-    if not store.db.execute('SELECT 1 FROM owner_record WHERE actor=? AND mailbox=? AND account_xpub=? AND script=?',
-        (action['actor_id'],binding['mailbox_pk'],binding['account_xpub'],binding['spk'])).fetchone():raise EvidenceGap('unknown native boundary lacks verified actor binding')
+    if not _owner_record_matches(store,action['actor_id'],binding):
+        raise EvidenceGap('unknown native boundary lacks verified actor binding')
     ids=[c['id'] for c in evidence['coins']]
     if len(ids)!=len(set(ids)):raise InvariantError('native boundary duplicates a coin')
     if ids:
@@ -269,7 +282,15 @@ def _prove(store,action,transactions,status):
         if not bseq<aseq<sequence:raise EvidenceGap('native read boundaries do not bracket the reply')
         if type(response.get('actual_fee_sat')) is not int or response['actual_fee_sat']!=0:raise InvariantError('readonly/initiation outcome has an unexpected charge')
         if canonical(before['coins'])!=canonical(after['coins']) or canonical(before['movements'])!=canonical(after['movements']):raise EvidenceGap('read/initiation boundary changed money inventory; retain uncertainty')
-        data=dict(response['data']);proof={'actor':action['actor_id'],'actual_fee_sat':0,'native_response_event_sequence':sequence,
+        data=dict(response['data'])
+        if operation=='create' and profile(store)==TWO_STEP:
+            checked=after['binding']
+            if (not isinstance(data.get('binding'),dict)
+                    or not binding_matches(data['binding'],checked,legacy=True)
+                    or data.get('fallback_script')!=checked['spk']):
+                raise EvidenceGap('create reply differs from independently checked per-key binding')
+            data['binding']=dict(checked)
+        proof={'actor':action['actor_id'],'actual_fee_sat':0,'native_response_event_sequence':sequence,
             'before_event_sequence':bseq,'after_event_sequence':aseq,'scope':'explicit native acknowledgement and unchanged independently bound fresh wallet inventory; no failed-action inference'}
     else:raise EvidenceGap('unknown operation has no complete independent resolver')
     if native and native.get('status')=='ok' and native.get('actual_fee_sat') is not None:
@@ -302,7 +323,8 @@ def resolve(store,action_id,chain_transactions=None,payment_status=None):
         detail.update(needs_sync=True,snapshot_at=0)
         if action['operation']=='board':detail['board_submitted']=True
         if action['operation']=='create':
-            detail.update(created=True,**{k:data[k] for k in ('funding_address','fallback_script','account_xpub') if k in data})
+            fields=('funding_address','fallback_script','binding') if profile(store)==TWO_STEP else ('funding_address','fallback_script','account_xpub')
+            detail.update(created=True,**{k:data[k] for k in fields if k in data})
         if action['operation']=='address':detail['ark_address']=data['address']
         if action['operation']=='invoice':detail.update(latest_invoice=data['invoice'],invoice_action_id=action_id,invoice_at=action['updated_at'])
         store.db.execute('UPDATE actor SET details=? WHERE id=?',(canonical(detail),action['actor_id']))
