@@ -53,6 +53,7 @@ class IdentityBootstrapTests(unittest.TestCase):
 
     def declare(self):
         bootstrap.declare(self.store,self.config,self.value)
+        self.store.add_snapshot(self.snapshot)
         self.store.db.execute("DELETE FROM meta WHERE key='paused'")
 
     def action(self,operation='create',fee=0,args=None,actor='actor-01'):

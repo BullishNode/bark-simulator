@@ -30,6 +30,7 @@ class ScopedOperatingTests(TreasuryFixture, unittest.TestCase):
                 ('ordinary', 'create', 'address', 'snapshot', 'sync', 'board', 'send_arkoor')},
         }
         self.inventories = {'rounds': self.inventory(self.wallet), 'peer': self.inventory(self.peer)}
+        self.store.add_snapshot({'observed_at': time.time(), 'financial_pins': PINS})
 
     def declare(self):
         declare_envelope(self.store, self.limits, self.config, self.inventories, self.chain)
