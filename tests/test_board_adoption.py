@@ -67,7 +67,7 @@ class BoardDatabaseControls(unittest.TestCase):
         link={'user_pubkey':self.origin['user_pubkey'],'mailbox_pk':self.origin['binding']['mailbox_pk'],'child_index':0}
         self.database['rows']['links']=[link];self.database['rows']['journal_links']=[link]
         self.anchor={'vtxo_id':self.origin['anchor'],'anchor_point':self.origin['anchor'],'amount':20000,'expiry':200,
-            'policy_type':'expiry','spend_state':'oor-spent','oor_spent_txid':'f'*64,'spent_in_round':None,
+            'policy_type':'expiry','spend_state':'spent','oor_spent_txid':'f'*64,'spent_in_round':None,
             'offboarded_in':None,'onchain_spent_txid':None,'onchain_spent_height':None}
         self.database['rows']['coins']=[self.anchor];self.database['rows']['pending_boards']=[{'vtxo_id':'f'*64+':0','expiry':200}]
     def test_pending_and_registered_views_have_one_liability_without_counting_anchor_twice(self):
@@ -75,6 +75,8 @@ class BoardDatabaseControls(unittest.TestCase):
         leaf={**self.anchor,'vtxo_id':self.origin['vtxo_id'],'amount':19500,'policy_type':'pubkey','spend_state':'spendable','oor_spent_txid':None}
         self.database['rows']['coins'].append(leaf)
         self.assertTrue(_database(self.database,self.prior,self.origin)['registered'])
+        invalid=copy.deepcopy(self.database);invalid['rows']['coins'][0]['spend_state']='oor-spent'
+        with self.assertRaisesRegex(ValueError,'server state differs'):_database(invalid,self.prior,self.origin)
     def test_foreign_coin_or_round_or_expiry_carrier_refuses(self):
         for name in ('htlcs','rounds','journal_allocations'):
             value=copy.deepcopy(self.database);value['rows'][name]=[{'unexpected':True}]
@@ -201,6 +203,25 @@ class BoardOriginalEvidenceControls(unittest.TestCase):
                 chain.tx=lambda txid:{'txid':txid,'weight':800,'vsize':200}
                 boardtx['inputs'][0]['amount_sat']=60000
                 with self.assertRaisesRegex(ValueError,'original50k'):_origin(store,chain)
+                boardtx['inputs'][0]['amount_sat']=50000
+                # Reuse the existing resolver to create its real result/event
+                # envelope from synthetic public sources, without any SDK call.
+                from simulator import unknown_outcomes
+                native_sequence=store.db.execute("SELECT sequence FROM event WHERE kind='driver_response' AND json_extract(payload,'$.action_id')=?",(action['id'],)).fetchone()[0]
+                public_proof={'actor':'actor-01','actual_fee_sat':2700,'native_response_event_sequence':native_sequence,
+                    'chain_transaction':boardtx}
+                wrapped={'action_id':action['id'],'status':'ok','data':data,'actual_fee_sat':2700,
+                    'resolution':{'original_result':{'reason':'synthetic parked reply'},'proof':public_proof,'scope':'synthetic'}}
+                store.db.execute('UPDATE action SET result=?,actual_fee_sat=2700 WHERE id=?',(canonical(wrapped),action['id']))
+                with self.assertRaises(ValueError):_origin(store,chain)  # orphan wrapper cannot qualify
+                store.db.execute("UPDATE action SET state='outcome_unknown',result=?,actual_fee_sat=NULL WHERE id=?",(canonical({'reason':'synthetic parked reply'}),action['id']))
+                with patch('simulator.unknown_outcomes._prove',return_value=(data,public_proof,{'reason':'synthetic parked reply'})):
+                    self.assertTrue(unknown_outcomes.resolve(store,action['id']))
+                self.assertEqual(19500,_origin(store,chain)['net_liability_sat'])
+                resolved=json.loads(store.db.execute("SELECT payload FROM event WHERE kind='unknown_outcome_resolved'").fetchone()[0])
+                fixture.event('unknown_outcome_resolved',resolved)
+                with self.assertRaisesRegex(ValueError,'unique original Board'):_origin(store,chain)
+
         finally:fixture.tearDown()
 
 

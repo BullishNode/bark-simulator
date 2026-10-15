@@ -33,7 +33,25 @@ def _origin(store,chain):
             or json.loads(boards[0]['args'])!={'amount_sat':20000}):raise ValueError('one original completed actor-01 Board required')
     _action_pins(store,action_id,plan['pins'])
     response_event,reply=_unique(store,'driver_response',action_id);response=reply['response']
-    if response!=json.loads(boards[0]['result']) or response.get('status')!='ok' or response.get('action_id')!=action_id:raise ValueError('original Board reply differs')
+    result=json.loads(boards[0]['result']);resolution_proof=None
+    if response.get('status')!='ok' or response.get('action_id')!=action_id:
+        raise ValueError('original Board reply differs')
+    if response!=result:
+        # The existing read-only unknown-outcome resolver preserves the native
+        # data and records its independently checked fee in a new wrapper. It
+        # must have one authenticated original resolution event; a caller-made
+        # wrapper or a repeated resolution never substitutes for that source.
+        _,resolved=_unique(store,'unknown_outcome_resolved',action_id)
+        resolution=result.get('resolution',{})
+        resolution_proof=resolution.get('proof')
+        if (result.get('action_id')!=action_id or result.get('status')!='ok'
+                or result.get('data')!=response.get('data') or not isinstance(resolution_proof,dict)
+                or resolved.get('actor')!='actor-01' or resolved.get('wallet_opened') is not False
+                or resolved.get('monetary_request_retried') is not False
+                or resolved.get('proof')!=resolution_proof
+                or resolved.get('original_result')!=resolution.get('original_result')
+                or resolution_proof.get('native_response_event_sequence')!=response_event['sequence']):
+            raise ValueError('original Board positive resolution differs')
     data=response['data'];board=data['board'];ids=board['vtxos']
     if len(ids)!=1:raise ValueError('one original Board VTXO required')
     _,proposal=_unique(store,'driver_evidence',action_id,'board_proposal');proposal=proposal['data']
@@ -75,6 +93,12 @@ def _origin(store,chain):
             or miner!=data['planned_mining_fee_sat'] or miner!=proposal['planned_mining_fee_sat']
             or not 0<miner+service<=4000 or boards[0]['actual_fee_sat'] not in (None,miner+service)):
         raise ValueError('actual Board principal/miner/service amounts differ')
+    if resolution_proof is not None:
+        prior_tx=resolution_proof.get('chain_transaction',{})
+        if (resolution_proof.get('actual_fee_sat')!=miner+service
+                or result.get('actual_fee_sat')!=miner+service
+                or any(prior_tx.get(key)!=tx.get(key) for key in ('txid','inputs','outputs','fee_sat','blockhash'))):
+            raise ValueError('original resolved Board fee/confirmed transaction differs')
     raw=chain.tx(txid);weight=raw.get('weight');vsize=raw.get('vsize')
     if (type(weight) is not int or type(vsize) is not int or not decoded['weight']<=weight<=4000000
             or vsize!=(weight+3)//4 or not 1000*miner<=20000*vsize):
@@ -178,7 +202,7 @@ def _database(database,prior,origin):
         anchor=point==origin['anchor']
         if (coin['anchor_point']!=origin['anchor'] or coin['amount']!=(20000 if anchor else origin['net_liability_sat'])
                 or coin['expiry']!=origin['expiry_height'] or coin['policy_type']!=('expiry' if anchor else 'pubkey')
-                or coin['spend_state']!=('oor-spent' if anchor else 'spendable')
+                or coin['spend_state']!=('spent' if anchor else 'spendable')
                 or coin['oor_spent_txid']!=(origin['vtxo_id'].split(':')[0] if anchor else None)
                 or any(coin.get(key) is not None for key in ('spent_in_round','offboarded_in','onchain_spent_txid','onchain_spent_height'))):raise ValueError('original Board server state differs')
     if (origin['vtxo_id'] not in coins and not rows['pending_boards']
