@@ -40,7 +40,7 @@ Rust 1.90.0, builds every driver binary, and runs the library/binary pure tests.
 `GIT_HASH` must identify that actual SDK checkout: the Noah private helper embeds
 it as `SDK_COMMIT`. The simulator commit is recorded separately.
 
-The workflow currently pins compatibility candidates A `c73bb909`, B `69ca8cce`,
+The workflow currently pins compatibility candidates A `e2291996`, B `69ca8cce`,
 and C `8c4478cf`; those pins are not production promotion. Update them explicitly
 when an owning candidate changes. The jobs retain exact commits/trees, profile,
 feature, lock/catalogue hashes, compiler versions and original failed/passing
@@ -71,3 +71,25 @@ state is opened. An unknown, null, missing or mismatched explicit profile is
 refused. Omitting both profile fields preserves the historical Track B fixture.
 This propagation does not change the selected SDK, build the historical Rust
 harness against it, or replace its architecture-specific economic assertions.
+
+## Profile-specific scenario contracts
+
+`simulator/scenario_profiles.json` records the common risk and each native
+profile's source-backed predicates for H25, H27, H29 and H32. Explicit fresh
+campaigns select their own description through `engine.catalog(profile)`;
+historical stored descriptions are preserved. The unprofiled catalogue remains
+unchanged. CI and the isolated native wrapper record both JSON source hashes.
+
+A allows signed higher-sequence destination rotation and retains below-minimum
+rights. B/C use immutable destinations and their terminal flat-fee/forfeit
+policy. A's 25 real rotations, separate pre-rotation backup restoration and
+independent mnemonic-only gap-20 recovery remain required. A valid compromised
+mailbox signature is distinct from a forged signature and must retain its actual
+threat outcome. C has individual key links and no attribution xpub. These are
+explicit product-policy axes in the comparison, not identical capabilities or
+architecture-only performance differences.
+
+Contract metadata does not implement controllers or qualify scenarios. All 80
+original cases and their remaining native/live predicates still apply. No driver
+availability, scenario verdict, financial guard or raw-protocol fence is changed
+by selecting this metadata.
