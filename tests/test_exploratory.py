@@ -1,5 +1,6 @@
 """Synthetic source/controller controls; never native or live qualification."""
 import copy
+import hashlib
 import tempfile
 import time
 import unittest
@@ -9,7 +10,7 @@ from types import SimpleNamespace
 
 from simulator import exploratory as e
 from simulator.engine import initialize
-from simulator.model import SIGNET_GENESIS
+from simulator.model import SIGNET_GENESIS,canonical
 from simulator.store import Store
 from tests.test_final_campaign import PINS
 from tests.test_wallet_projection import Core,DESCRIPTOR,SCRIPTS,native_coin
@@ -264,3 +265,19 @@ class ExploratoryTests(unittest.TestCase):
         self.assertIsNone(e.scope(self.store))
         self.assertEqual(original_events,self.store.db.execute('SELECT COUNT(*) FROM event').fetchone()[0])
         self.assertEqual('0',self.store.get_meta('qualified_campaign_active_seconds'))
+
+    def test_only_exact_input_limit_transition_can_use_fresh_after_with_historical_closure(self):
+        new,after=self.input_limit_transition();later=self.now+120
+        after['observed_at']=after['completed_at']=datetime.fromtimestamp(later,timezone.utc).isoformat()
+        new={**new,'started_at':later,'deadline':later+1800}
+        oldclosure=self.store.get_meta(e.KEY+':closed:'+hashlib.sha256(canonical(self.d).encode()).hexdigest())
+        self.assertTrue(e.continue_scope(self.store,new,now=later,arkoor_input_limit_transition=(self.p,after,self.chain)))
+        self.assertEqual(oldclosure,self.store.get_meta(e.KEY+':closed:'+hashlib.sha256(canonical(self.d).encode()).hexdigest()))
+        self.assertEqual(new,e.scope(self.store))
+
+    def test_input_limit_transition_refuses_stale_after_despite_bound_historical_closure(self):
+        new,after=self.input_limit_transition();later=self.now+120
+        new={**new,'started_at':later,'deadline':later+1800}
+        with self.assertRaisesRegex(ValueError,'stale owning source'):
+            e.continue_scope(self.store,new,now=later,arkoor_input_limit_transition=(self.p,after,self.chain))
+        self.assertIsNone(e.scope(self.store))
