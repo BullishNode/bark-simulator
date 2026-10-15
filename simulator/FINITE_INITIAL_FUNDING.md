@@ -40,11 +40,15 @@ derived scripts. No health RPC is called to reveal a new operator address.
 Core scans every supplied owning descriptor prefix at one unchanged synchronized
 tip. At most 12 descriptors are sent per scan, a running scan defers without
 abort, each scan is at most 120 seconds, and qualification is bounded to 180
-seconds. The complete scanned coin set must equal the exact named bank's native
+seconds. Exact public scan replies and the actual fee estimate are retained.
+The complete scanned coin set must equal the exact named bank's native
 coins; every other member must have no confirmed assets. Every transaction in a
-stable mempool is checked for owned output scripts, within the explicitly
+current mempool is checked for owned output scripts, within the explicitly
 authorized 2,500 transaction / 50,000 output / 8 MiB bounds. No prefix is
-accepted. Public output-script projections are retained without witnesses.
+accepted. At most eight observation passes establish that every currently
+present transaction was checked; unrelated removals are safe, and every new
+arrival is checked. Nonconvergence defers. Public output-script projections and
+the final current transaction-ID set are retained without witnesses.
 
 The fixed forced bridge supplies a new complete `closed_frontier` snapshot.
 Exactly the three original native customer signed public bindings must appear

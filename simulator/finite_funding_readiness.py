@@ -160,7 +160,7 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
                 scripts[script]={'member_id':member_id,'descriptor_index':descriptor_index,'child_index':child,'address':address}
                 addresses[(member_id,descriptor_index,child)]=(address,script)
             scans.append({'desc':descriptor,'range':[0,last]})
-    confirmed={}
+    confirmed={};scan_observations=[]
     for offset in range(0,len(scans),12):
         if chain.call('scantxoutset','status') is not None:raise ValueError('existing Core scan still running; defer without abort')
         result=chain.call('scantxoutset','start',scans[offset:offset+12],timeout=remaining(120))
@@ -174,6 +174,7 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             if point in confirmed or coin.get('scriptPubKey') not in scripts:raise ValueError('overlapping or foreign scanned coin')
             total+=btc_to_sat(coin['amount']);confirmed[point]=coin
         if total!=btc_to_sat(result['total_amount']):raise ValueError('complete scan balance differs')
+        scan_observations.append({'descriptors':scans[offset:offset+12],'response':normalized(result)})
     bank_points={coin['txid']+':'+str(coin['vout']):coin for coin in bank_coins}
     if set(confirmed)!=set(bank_points):raise ValueError('initial six-wallet assets differ from exact bank opening')
     inventories={member_id:[] for member_id in wallet_specs}
@@ -183,22 +184,34 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             raise ValueError('actual bank coin ownership or amount differs')
         inventories['bank'].append({'outpoint':point,'amount_sat':btc_to_sat(coin['amount']),'script':coin['scriptPubKey'],
             'descriptor_index':position['descriptor_index'],'child_index':position['child_index']})
-    mempool=chain.call('getrawmempool',False)
-    if not isinstance(mempool,list) or len(mempool)>2500 or len(set(mempool))!=len(mempool):raise ValueError('complete mempool exceeds declared 2500 transaction bound')
+    def mempool_ids():
+        value=chain.call('getrawmempool',False)
+        if (not isinstance(value,list) or len(value)>2500 or len(set(value))!=len(value)
+                or any(not isinstance(txid,str) or len(txid)!=64 or any(c not in '0123456789abcdef' for c in txid) for txid in value)):
+            raise ValueError('complete mempool exceeds declared transaction bound or has invalid IDs')
+        return set(value)
+    mempool=mempool_ids();checked_ids=set()
     mempool_bytes=outputs=0;mempool_projection=[]
-    for txid in mempool:
-        if time.monotonic()-started>180:raise ValueError('initial funding source deadline exceeded')
-        transaction=chain.tx(txid);mempool_bytes+=len(canonical(normalized(transaction)).encode())
-        vout=transaction.get('vout')
-        if not isinstance(vout,list):raise ValueError('complete mempool output inventory required')
-        outputs+=len(vout)
-        if mempool_bytes>8*1024*1024 or outputs>50000:raise ValueError('complete mempool exceeds declared byte/output bound')
-        for output in vout:
-            script=output.get('scriptPubKey',{}).get('hex')
-            if not isinstance(script,str):raise ValueError('complete mempool output script required')
-            if script in scripts:raise ValueError('initial owned wallet has unconfirmed assets')
-        mempool_projection.append({'txid':txid,'outputs':[{'n':output['n'],'script':output['scriptPubKey']['hex']} for output in vout]})
-    if set(chain.call('getrawmempool',False))!=set(mempool):raise ValueError('mempool changed during initial funding observation')
+    # Bound the union, not each convenient page. Every currently present ID
+    # must have its actual outputs checked; removal of unrelated IDs is safe.
+    for mempool_pass in range(1,9):
+        if len(checked_ids|mempool)>2500:raise ValueError('complete mempool union exceeds declared transaction bound')
+        for txid in sorted(mempool-checked_ids):
+            if time.monotonic()-started>180:raise ValueError('initial funding source deadline exceeded')
+            transaction=chain.tx(txid);mempool_bytes+=len(canonical(normalized(transaction)).encode())
+            vout=transaction.get('vout')
+            if not isinstance(vout,list):raise ValueError('complete mempool output inventory required')
+            outputs+=len(vout)
+            if mempool_bytes>8*1024*1024 or outputs>50000:raise ValueError('complete mempool exceeds declared byte/output bound')
+            for output in vout:
+                script=output.get('scriptPubKey',{}).get('hex')
+                if not isinstance(script,str):raise ValueError('complete mempool output script required')
+                if script in scripts:raise ValueError('initial owned wallet has unconfirmed assets')
+            mempool_projection.append({'txid':txid,'outputs':[{'n':output['n'],'script':output['scriptPubKey']['hex']} for output in vout]})
+            checked_ids.add(txid)
+        mempool=mempool_ids()
+        if mempool<=checked_ids:break
+    else:raise ValueError('complete mempool did not reach bounded output coverage')
     refreshed_bank_sequence=collect_funding_bank_source(store,bank_rpc,chain,timeout_seconds=remaining(30))
     _,fresh_bank=_source_event(store,refreshed_bank_sequence)
     for field in ('source_identity','getwalletinfo','listdescriptors','listunspent','listlockunspent','listsinceblock','getbalances','locked_coins','pending_transactions','pending_parents'):
@@ -244,8 +257,13 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             'address':address,'script':script,'amount_sat':amount,'descriptor_index':descriptor_index,'child_index':child})
     members=[];inventory_sequences={}
     with store.transaction():
+        store._event('finite_initial_funding_core_inventory',{'height':tip[0],'tip_hash':tip[1],
+            'scans':scan_observations,'fee_estimate_target':6,'fee_estimate':normalized(estimate),
+            'financial_pins':pins,'observed_at':time.time()})
+        core_inventory_sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
         store._event('finite_initial_funding_mempool_outputs',{'height':tip[0],'tip_hash':tip[1],
-            'transactions':mempool_projection,'financial_pins':pins,'observed_at':time.time(),
+            'transactions':mempool_projection,'current_txids':sorted(mempool),
+            'financial_pins':pins,'observed_at':time.time(),
             'scope':'complete direct Core transaction-id/output-script projection; no witness or scriptSig bytes'})
         mempool_sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
         for member_id,spec in wallet_specs.items():
@@ -267,11 +285,13 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             'bank_source_sequence':refreshed_bank_sequence,'database_source_sequence':database_sequence,
             'runtime_source_sequence':runtime_source_sequence,'customer_source_sequences':customer_sequences,
             'mempool_projection_source_sequence':mempool_sequence,
+            'core_inventory_source_sequence':core_inventory_sequence,
             'opening_total_sat':OPENING_SAT,'opening_liabilities_sat':0,'funding_recipients':recipients,
             'funding_plan_sha256':_digest(recipients),'principal_sat':PRINCIPAL_SAT,
             'maximum_funding_fee_sat':FUNDING_FEE_SAT,'maximum_fee_rate_sat_kvb':MAX_RATE_SAT_KVB,
             'estimated_fee_rate_sat_kvb':rate,'inventory_sequences':inventory_sequences,'members':members,
-            'descriptor_ranges':scans,'mempool_transactions_checked':len(mempool),'mempool_bytes_checked':mempool_bytes,
+            'descriptor_ranges':scans,'mempool_transactions_checked':len(checked_ids),'mempool_current_transactions':len(mempool),
+            'mempool_observation_passes':mempool_pass,'mempool_bytes_checked':mempool_bytes,
             'mempool_outputs_checked':outputs,'ordinary_fee_holds_sat':{'funding':10000,'three_boards':12000,'three_normal_expiry_carriers':30000},
             'urgent_fee_reserve_sat':15000,'operation_scope':['funding'],
             'scope':'only initial funding of six fully enumerated owned wallets; all monetary database rows absent; no subsequent wallet operation admission'}

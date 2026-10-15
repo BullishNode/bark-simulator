@@ -28,7 +28,7 @@ class Chain:
     def __init__(self):
         self.tip={'chain':'signet','blocks':100,'bestblockhash':'a'*64,'initialblockdownload':False}
         self.coin={'txid':'b'*64,'vout':0,'scriptPubKey':script(address('bank-descriptor',0)),'amount':'0.00665454'}
-        self.unexpected=[];self.mempool=[];self.pending_script='other';self.active_scan=False;self.scans=[]
+        self.unexpected=[];self.mempool=[];self.mempool_views=[];self.pending_script='other';self.active_scan=False;self.scans=[]
     def identity(self):return self.tip.copy()
     def tx(self,txid):return {'txid':txid,'vin':[],'vout':[{'n':0,'scriptPubKey':{'hex':self.pending_script},'value':'0.00000001'}]}
     def call(self,method,*args,**kwargs):
@@ -41,7 +41,7 @@ class Chain:
             coins=copy.deepcopy(coins+self.unexpected)
             return {'success':True,'height':100,'bestblock':'a'*64,'unspents':coins,
                 'total_amount':sum(Decimal(coin['amount']) for coin in coins)}
-        if method=='getrawmempool':return self.mempool.copy()
+        if method=='getrawmempool':return self.mempool_views.pop(0) if self.mempool_views else self.mempool.copy()
         if method=='gettxout':return {'confirmations':10,'value':'0.00665454','scriptPubKey':{'hex':self.coin['scriptPubKey']}}
         if method=='estimatesmartfee':return {'feerate':'0.00001001','blocks':6}
         raise AssertionError(method)
@@ -154,5 +154,16 @@ class InitialFundingReadinessTests(unittest.TestCase):
         foreign.rmdir()
         self.store.db.execute("UPDATE action SET operation='board' WHERE actor_id='actor-01'")
         with self.assertRaisesRegex(ValueError,'bootstrap'):self.collect()
+    def test_current_mempool_coverage_allows_removal_and_checks_new_arrival(self):
+        self.chain.mempool_views=[['c'*64],['d'*64],['d'*64]]
+        source=self.collect()['source']
+        self.assertEqual(2,source['mempool_transactions_checked']);self.assertEqual(1,source['mempool_current_transactions'])
+        self.assertEqual(2,source['mempool_observation_passes'])
+    def test_mempool_nonconvergence_and_new_owned_arrival_refuse(self):
+        self.chain.mempool_views=[[str(i).zfill(64)] for i in range(9)]
+        with self.assertRaisesRegex(ValueError,'bounded output coverage'):self.collect()
+        self.chain.mempool_views=[[],['d'*64]]
+        self.chain.pending_script=script(address('actor-01-descriptor',1))
+        with self.assertRaisesRegex(ValueError,'unconfirmed assets'):self.collect()
 
 if __name__=='__main__':unittest.main()
