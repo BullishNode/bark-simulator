@@ -182,14 +182,20 @@ def _empty_mempool(chain,scripts,started):
             rows=transaction.get('vout')
             if not isinstance(rows,list):raise ValueError('complete cash mempool outputs required')
             outputs+=len(rows)
-            if bytes_read>8*1024*1024 or outputs>50000:raise ValueError('cash mempool byte/output bound exceeded')
+            if bytes_read>16*1024*1024 or outputs>50000:
+                raise ValueError('cash mempool byte/output bound exceeded: '
+                    f'observed_bytes={bytes_read}; maximum_bytes={16*1024*1024}; '
+                    f'observed_outputs={outputs}; maximum_outputs=50000; '
+                    f'observed_transactions={len(checked)+1}; maximum_unique_transactions=2500; maximum_seconds=180')
             for row in rows:
                 script=row.get('scriptPubKey',{}).get('hex')
                 if not isinstance(script,str) or script in scripts:raise ValueError('cash wallet has missing or unconfirmed output source')
             checked.add(txid)
         pending=current()
         if pending<=checked:return {'unique_checked':len(checked),'current_count':len(pending),
-            'current_set_sha256':_digest(sorted(pending)),'passes':passes,'bytes':bytes_read,'outputs':outputs}
+            'current_set_sha256':_digest(sorted(pending)),'passes':passes,'bytes':bytes_read,'outputs':outputs,
+            'maximum_bytes':16*1024*1024,'maximum_outputs':50000,'maximum_unique_transactions':2500,
+            'maximum_passes':8,'maximum_seconds':180}
     raise ValueError('complete cash mempool fixed point unavailable')
 
 

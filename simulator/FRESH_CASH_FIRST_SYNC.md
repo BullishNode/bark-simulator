@@ -87,3 +87,10 @@ current public owning inventory through last_revealed_index+20. The recorded
 scan still has at most16 descriptors and2000 derived scripts. Readiness checks
 that a later current owning frontier remains inside the completed scan. A new
 owned mempool output beyond the original initial interval is therefore covered.
+
+Prospective observation capacity amendment: the complete current-mempool scan
+allows16MiB aggregate canonical verbose JSON (Core duplicates transaction data
+in hex, ASM and decoded fields), with transaction2500/output50000/time180s and
+eight fixed-point passes unchanged. Exceeding a limit refuses the whole source;
+byte/output refusals include exact observed counts and declared limits. No
+financial fee, capital, output or protocol policy changes with this capacity.
