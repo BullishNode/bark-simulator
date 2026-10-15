@@ -14,7 +14,7 @@ from .final_campaign import _source_event,_recipient_pins
 from .fresh_cash_readiness import _fresh,_current_operator_ranges,_empty_mempool,_operator_fee_funding
 from .model import SIGNET_GENESIS,InvariantError,btc_to_sat,canonical,public_payload
 from .ownership import EvidenceGap
-from .public_treasury import confirmed_frontier,match_scanned_cash,check_named_bank
+from .public_treasury import confirmed_frontier,match_scanned_cash,check_named_bank,check_current_outputs
 
 KIND='public_absent_recipient_observation'
 TABLES={'coins','pending_boards','links','records','pool','lightning_nodes','htlcs','receives','payments',
@@ -234,14 +234,7 @@ async def collect_public_absence_sources(store,config,chain,bank_rpc,*,journey_s
                 if chain.call('gettxout',txid,int(index),False) is not None:raise EvidenceGap('confirmed physical root and successor are both reported unspent')
         expected={point:coin for point,coin in physical.items() if coin['script'] in scripts}
         observed=match_scanned_cash(scan,expected)
-        for point,coin in physical.items():
-            txid,index=point.rsplit(':',1);actual=chain.call('gettxout',txid,int(index),False)
-            if (actual is None or actual.get('confirmations',0)<1 or btc_to_sat(actual['value'])!=coin['amount_sat']
-                    or actual.get('scriptPubKey',{}).get('hex')!=coin['script']):raise EvidenceGap('physical source spent without an accounted confirmed successor')
-            active=chain.call('gettxout',txid,int(index),True)
-            if active is None:raise EvidenceGap('known physical source has an unresolved mempool spend')
-            if (active.get('confirmations',0)<1 or btc_to_sat(active['value'])!=coin['amount_sat']
-                    or active.get('scriptPubKey',{}).get('hex')!=coin['script']):raise InvariantError('current mempool-aware physical source contradicts confirmed output')
+        check_current_outputs(chain,physical,started)
         source.update(physical_assets=physical,physical_total_sat=sum(coin['amount_sat'] for coin in physical.values()),physical_complete=True)
         source['capital_exposure_msat']=source['physical_total_sat']*1000
         if source['capital_exposure_msat']>limits['capital_exposure_msat']:source['gaps'].append('actual physical capital exceeds original declared exposure ceiling')
@@ -292,6 +285,7 @@ async def collect_public_absence_sources(store,config,chain,bank_rpc,*,journey_s
         source['database_end_source_sequence']=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
         _,current_end_sha=_read(current_startup_path)
         if current_end_sha!=current_sha:raise EvidenceGap('actual loaded runtime source changed during observation')
+        check_current_outputs(chain,physical,started)
         _fresh(runtime['observed_at'])
         if time.monotonic()-started>180:raise EvidenceGap('whole public source deadline exceeded')
         end=chain.identity()

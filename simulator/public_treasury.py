@@ -1,6 +1,21 @@
 """Shared public cash and physical-frontier arithmetic; no wallet or admission."""
+import time
 from .model import InvariantError,btc_to_sat
 from .ownership import EvidenceGap
+
+
+def check_current_outputs(chain,physical,started):
+    """Sample known outputs with and without mempool spends; never predict them."""
+    for point,coin in physical.items():
+        txid,index=point.rsplit(':',1)
+        for include_mempool in (False,True):
+            remaining=180-(time.monotonic()-started)
+            if remaining<=0:raise EvidenceGap('whole public source deadline exceeded')
+            actual=chain.call('gettxout',txid,int(index),include_mempool,timeout=min(12,remaining))
+            if actual is None:
+                raise EvidenceGap('known physical source has an unresolved mempool spend' if include_mempool else 'physical source spent without an accounted confirmed successor')
+            if (actual.get('confirmations',0)<1 or btc_to_sat(actual['value'])!=coin['amount_sat']
+                    or actual.get('scriptPubKey',{}).get('hex')!=coin['script']):raise InvariantError('current physical source contradicts confirmed output')
 
 
 def match_scanned_cash(scan,expected):

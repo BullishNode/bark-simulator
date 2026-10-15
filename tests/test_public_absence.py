@@ -74,7 +74,7 @@ class PublicAbsenceControls(unittest.IsolatedAsyncioTestCase):
         for txid,fee,action in [('funding',708,None),('a'*64,171,'original-board')]:
             self.store.event('financial_cost_verified',{'monetary_id':'bitcoin-miner:'+txid,'financial_pins':PINS,'budget':'ordinary','amount_msat':fee*1000,**({'action_id':action} if action else {})})
         self.config=SimpleNamespace(network='signet',expected_genesis=SIGNET_GENESIS,inventory_command=('fixed-public-bridge',),wallet_root=f.root)
-        self.current={};self.transactions={};self.raw_transactions={};self.mem=[];self.scan_extra=[];self.missing=set();self.started=[];self.refresh_current();outer=self
+        self.current={};self.transactions={};self.raw_transactions={};self.mem=[];self.scan_extra=[];self.missing=set();self.started=[];self.mempool_reads=0;self.spend_after_mempool=False;self.late_pending=False;self.refresh_current();outer=self
         class Core:
             def identity(self):return {'chain':'signet','initialblockdownload':False,'blocks':outer.height,'bestblockhash':outer.tip}
             def transaction(self,txid):
@@ -87,11 +87,14 @@ class PublicAbsenceControls(unittest.IsolatedAsyncioTestCase):
                 if method=='getdescriptorinfo':return {'descriptor':args[0],'hasprivatekeys':False,'isrange':True}
                 if method=='deriveaddresses':return [args[0][5:]+':'+str(child) for child in range(args[1][0],args[1][1]+1)]
                 if method=='validateaddress':return {'isvalid':True,'scriptPubKey':outer.script(args[0])}
-                if method=='getrawmempool':return outer.mem
+                if method=='getrawmempool':
+                    outer.mempool_reads+=1
+                    if outer.spend_after_mempool and outer.mempool_reads>=2:outer.late_pending=True
+                    return outer.mem
                 if method=='estimatesmartfee':return {'feerate':'0.00001001'}
                 if method=='gettxout':
                     point=args[0]+':'+str(args[1]);coin=outer.physical.get(point)
-                    if point in outer.missing or coin is None:return None
+                    if point in outer.missing or coin is None or args[2] is True and outer.late_pending and point==outer.f.anchor:return None
                     return {'confirmations':1,'value':str(Decimal(coin['amount_sat'])/100000000),'scriptPubKey':{'hex':coin['script']}}
                 if method=='scantxoutset':
                     if args[0]=='status':return None
@@ -272,3 +275,10 @@ class PublicAbsenceControls(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(source['observation_complete']);self.assertFalse(source['physical_complete'])
         self.assertFalse(source['liabilities_complete']);self.assertFalse(source['fee_inventory_complete'])
         self.assertIsNone(source['eligible_fee_funding_msat']);self.assertIsNone(source['remaining_fee_budget_backed'])
+
+    async def test_new_pending_spend_after_mempool_pass_revokes_current_fee_inventory(self):
+        self.spend_after_mempool=True
+        source=await self.collect()
+        self.assertFalse(source['observation_complete']);self.assertFalse(source['physical_complete'])
+        self.assertFalse(source['fee_inventory_complete']);self.assertIsNone(source['eligible_fee_funding_msat'])
+        self.assertIn('unresolved mempool spend',source['gaps'][0])
