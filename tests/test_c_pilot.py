@@ -75,6 +75,32 @@ class CPilotControls(unittest.TestCase):
         for change in ({'board_actions':{'actor-02':'c-board-original'}},{'maximum_fee_sat':4000},
                        {'board_actions':{'actor-01':'replacement'}}):
             with self.subTest(change=change),self.assertRaises(ValueError):_validate_plan({**board,**change},self.store)
+    def test_real_config_loader_requires_explicit_c_systemd_unit_and_keeps_b_container_gate(self):
+        from simulator.config import Config
+        path=self.path/'actual-config.toml'
+        text=f'''[target]
+network="signet"
+genesis="{SIGNET_GENESIS}"
+architecture_profile="direct_per_key"
+sdk_commit="{'2'*40}"
+runtime_transport="systemd"
+container="track-c-captaind.service"
+image_digest="sha256:{'a'*64}"
+server_pubkey="02{'b'*64}"
+[runtime]
+state_dir="{self.path}/unused"
+wallet_root="{self.path}/unused-wallets"
+observer_command=["observer"]
+fee_budget_sat=60000
+workload="none"
+'''
+        path.write_text(text);cfg=Config.load(path)
+        self.assertEqual('track-c-captaind.service',cfg.expected_container)
+        for old,new in [('runtime_transport="systemd"','runtime_transport="docker"'),
+                        ('container="track-c-captaind.service"','container="abandon-signet-fallback-a"'),
+                        ('architecture_profile="direct_per_key"','architecture_profile="direct_xpub"')]:
+            path.write_text(text.replace(old,new))
+            with self.subTest(new=new),self.assertRaises(ValueError):Config.load(path)
     def test_budget_principal_confirmation_lifetime_and_mutability_controls(self):
         for field,value in [('bank_opening_sat',125999),('bank_opening_sat',900001),
                             ('grants_sat',{'actor-01':25000,'actor-02':25000}),
