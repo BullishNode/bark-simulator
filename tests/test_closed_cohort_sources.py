@@ -20,14 +20,16 @@ class Chain:
     def __init__(self):
         self.tip={'chain':'signet','blocks':100,'bestblockhash':'a'*64,'initialblockdownload':False}
         self.scan={'success':True,'height':100,'bestblock':'a'*64,'unspents':[],'total_amount':0}
-        self.mempool=[]; self.tx_script='other'; self.changed=False
+        self.mempool=[]; self.tx_script='other'; self.changed=False;self.scan_status=None;self.scan_calls=[]
     def identity(self): return self.tip.copy()
     def tx(self,txid): return {'vout':[{'scriptPubKey':{'hex':self.tx_script}}]}
-    def call(self,method,*args):
+    def call(self,method,*args,**kwargs):
         if method=='getdescriptorinfo': return {'hasprivatekeys':False,'isrange':True,'issolvable':True,'descriptor':args[0]}
         if method=='deriveaddresses': return ['address'+str(i) for i in range(20)]
         if method=='validateaddress': return {'isvalid':True,'scriptPubKey':'script'+args[0]}
-        if method=='scantxoutset': return self.scan
+        if method=='scantxoutset':
+            self.scan_calls.append((args,kwargs))
+            return self.scan_status if args==('status',) else self.scan
         if method=='getrawmempool':
             answer=self.mempool.copy()
             if self.changed:self.mempool.append('b'*64)
@@ -102,13 +104,22 @@ class BootstrapSourceTests(unittest.TestCase):
         with patch('simulator.closed_cohort_sources.MAX_MEMPOOL_OUTPUTS',1),self.assertRaisesRegex(ValueError,'output'):
             self.verify()
         self.chain.mempool=[];clock=[0];original=self.chain.call
-        def delayed(method,*args):
-            result=original(method,*args)
-            if method=='scantxoutset':clock[0]=26
+        def delayed(method,*args,**kwargs):
+            result=original(method,*args,**kwargs)
+            if method=='scantxoutset' and args[0]=='start':clock[0]=181
             return result
         with patch('simulator.closed_cohort_sources.time.monotonic',side_effect=lambda:clock[0]), \
              patch.object(self.chain,'call',side_effect=delayed),self.assertRaisesRegex(ValueError,'deadline'):
             self.verify()
+    def test_busy_scan_holds_without_start_or_abort_and_start_timeout_is_explicit(self):
+        self.chain.scan_status={'progress':25}
+        with self.assertRaisesRegex(ValueError,'already running'):self.verify()
+        self.assertEqual([(('status',),{})],self.chain.scan_calls)
+        self.chain.scan_status=None;self.chain.scan_calls=[]
+        receipt=self.verify()
+        self.assertEqual('status',self.chain.scan_calls[0][0][0])
+        self.assertEqual(120,self.chain.scan_calls[1][1]['timeout'])
+        self.assertEqual(180,receipt['source_deadline_seconds'])
     def test_actual_core_decimal_amounts_and_missing_output_scripts(self):
         self.chain.mempool=['b'*64]
         with patch.object(self.chain,'tx',return_value={'vout':[{'value':Decimal('0.00010000'),

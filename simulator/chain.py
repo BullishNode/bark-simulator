@@ -15,17 +15,19 @@ class ChainReader:
     def call(self,method,*args,timeout=12,max_response_bytes=16*1024*1024):
         if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress','scantxoutset','getrawmempool'}:raise ValueError('read-only RPC required')
         if method=='scantxoutset':
-            if (len(args)!=2 or args[0]!='start' or not isinstance(args[1],list) or not 1<=len(args[1])<=12
+            if args==('status',):pass
+            elif (len(args)!=2 or args[0]!='start' or not isinstance(args[1],list) or not 1<=len(args[1])<=12
                     or any(not isinstance(row,dict) or set(row)!={'desc','range'} or not isinstance(row['desc'],str)
                         or not row['desc'] or len(row['desc'])>4096 or not isinstance(row['range'],list)
                         or len(row['range'])!=2 or any(type(index) is not int for index in row['range'])
                         or row['range'][0]!=0 or not 19<=row['range'][1]<2000 for row in args[1])):
                 raise ValueError('bounded public bootstrap descriptor scan required')
-            public_payload(args[1])
+            if args!=('status',):public_payload(args[1])
         if method=='getrawmempool' and args!=(False,):raise ValueError('bounded transaction-id inventory required')
         token=base64.b64encode(self.credential.read_text().strip().encode()).decode()
         req=urllib.request.Request(self.url,json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':args}).encode(),{'Authorization':'Basic '+token,'Content-Type':'application/json'})
-        if not 0<timeout<=12 or not 0<max_response_bytes<=16*1024*1024:raise ValueError('invalid Core response bounds')
+        maximum_timeout=120 if method=='scantxoutset' and args[0]=='start' else 12
+        if not 0<timeout<=maximum_timeout or not 0<max_response_bytes<=16*1024*1024:raise ValueError('invalid Core response bounds')
         self.last_response_bytes=0
         raw=None
         try:

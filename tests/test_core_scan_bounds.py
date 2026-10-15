@@ -27,7 +27,21 @@ class CoreScanBoundsTests(unittest.TestCase):
             for interval in ranges:
                 with self.subTest(interval=interval),self.assertRaisesRegex(ValueError,'bounded public'):
                     self.chain.call('scantxoutset','start',[{'desc':'wpkh(public)#checksum','range':interval}])
-            for operation in ('abort','status'):
+            for operation in ('abort','status-with-args'):
                 with self.subTest(operation=operation),self.assertRaisesRegex(ValueError,'bounded public'):
                     self.chain.call('scantxoutset',operation,[])
+            transport.assert_not_called()
+    def test_only_scan_start_accepts_extended_timeout_and_status_is_read_only(self):
+        for method,args,timeout,result in (
+                ('scantxoutset',('start',[{'desc':'wpkh(public)#checksum','range':[0,97]}]),120,{'success':True}),
+                ('scantxoutset',('status',),12,None)):
+            reply=io.BytesIO(json.dumps({'result':result,'error':None}).encode())
+            with patch('simulator.chain.urllib.request.urlopen',return_value=reply) as transport:
+                self.assertEqual(result,self.chain.call(method,*args,timeout=timeout))
+                self.assertEqual(timeout,transport.call_args.kwargs['timeout'])
+        with patch('simulator.chain.urllib.request.urlopen') as transport:
+            for method,args,timeout in (('getblockchaininfo',(),120),('scantxoutset',('status',),120),
+                    ('scantxoutset',('start',[{'desc':'wpkh(public)#checksum','range':[0,97]}]),121)):
+                with self.subTest(method=method,args=args),self.assertRaisesRegex(ValueError,'response bounds'):
+                    self.chain.call(method,*args,timeout=timeout)
             transport.assert_not_called()

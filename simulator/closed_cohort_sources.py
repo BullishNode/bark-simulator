@@ -16,6 +16,8 @@ from .trace import normalized
 MAX_MEMPOOL_TRANSACTIONS = 2500
 MAX_MEMPOOL_SCAN_BYTES = 8 * 1024 * 1024
 MAX_MEMPOOL_OUTPUTS = 50000
+MAX_SOURCE_SECONDS = 180
+MAX_SCAN_SECONDS = 120
 
 
 def _digest(value):
@@ -192,7 +194,7 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         if not isinstance(addresses, list) or len(addresses) != 20 or len(set(addresses)) != 20:
             raise ValueError('complete fresh descriptor derivation required')
         for address in addresses:
-            if time.monotonic() - started > 25:
+            if time.monotonic() - started > MAX_SOURCE_SECONDS:
                 raise ValueError('bootstrap source deadline exceeded')
             checked = chain.call('validateaddress', address)
             if checked.get('isvalid') is not True or not checked.get('scriptPubKey'):
@@ -201,7 +203,9 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
                 raise ValueError('bootstrap descriptors overlap')
             scripts.add(checked['scriptPubKey'])
         scans.append({'desc': descriptor, 'range': [0,19]})
-    scan = chain.call('scantxoutset', 'start', scans)
+    if chain.call('scantxoutset','status') is not None:
+        raise ValueError('independent descriptor scan already running; hold without starting or aborting')
+    scan = chain.call('scantxoutset', 'start', scans, timeout=MAX_SCAN_SECONDS)
     if (scan.get('success') is not True or scan.get('height') != before['blocks']
             or scan.get('bestblock') != before['bestblockhash'] or scan.get('unspents') != []
             or scan.get('total_amount') != 0):
@@ -212,7 +216,7 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         raise ValueError('complete mempool exceeds bootstrap observation bound')
     mempool_bytes=mempool_outputs=0
     for txid in mempool:
-        if time.monotonic() - started > 25:
+        if time.monotonic() - started > MAX_SOURCE_SECONDS:
             raise ValueError('bootstrap source deadline exceeded')
         transaction = chain.tx(txid)
         mempool_bytes+=len(canonical(normalized(transaction)).encode())
@@ -235,7 +239,7 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
     if (ending.get('initialblockdownload') is not False
             or (ending['blocks'], ending['bestblockhash']) != (before['blocks'], before['bestblockhash'])):
         raise ValueError('independent chain changed during bootstrap observation')
-    if time.monotonic()-started>25:raise ValueError('bootstrap source deadline exceeded')
+    if time.monotonic()-started>MAX_SOURCE_SECONDS:raise ValueError('bootstrap source deadline exceeded')
     receipt = {'actor': actor, 'action_id': action_id, 'bootstrap_id': bootstrap_declaration['id'],
         'complete': True, 'zero_assets': True,
         'driver_response_sequence': source['sequence'], 'native_response_sha256': _digest(response),
@@ -248,6 +252,7 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         'mempool_transaction_bound':MAX_MEMPOOL_TRANSACTIONS,'mempool_bytes_checked':mempool_bytes,
         'mempool_byte_bound':MAX_MEMPOOL_SCAN_BYTES,'mempool_outputs_checked':mempool_outputs,
         'mempool_output_bound':MAX_MEMPOOL_OUTPUTS,
+        'source_deadline_seconds':MAX_SOURCE_SECONDS,'descriptor_scan_timeout_seconds':MAX_SCAN_SECONDS,
         'confirmed_assets_sat': 0, 'unconfirmed_assets_sat': 0,
         'observed_at': time.time(), 'scope': 'fresh sole-writer bootstrap descriptors only; not financial readiness'}
     store.event('identity_bootstrap_zero_assets_verified', receipt)
