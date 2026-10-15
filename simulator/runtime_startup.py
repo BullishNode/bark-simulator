@@ -63,8 +63,13 @@ def verify_owned_startup_sources(store, startup_path, current_path, *, expected)
     process. Current ctime/mtime before process start proves the file has not
     changed since Config::load, under the trusted-host/sole-writer model.
     """
+    from .target_epochs import active_runtime_manifest
+    manifest=active_runtime_manifest(store) if getattr(store,'db',None) is not None else None
+    product=manifest['expected']['product_commit'] if manifest else PRODUCT_COMMIT
+    if manifest is not None and expected!=manifest['expected']:
+        raise ValueError('runtime expectations differ from declared finite release')
     required={'product_commit','image_sha256','schema_sha256','database','containers','binary_sha256','config_sha256','config_paths'}
-    if not isinstance(expected,dict) or set(expected)!=required or expected['product_commit']!=PRODUCT_COMMIT:
+    if not isinstance(expected,dict) or set(expected)!=required or expected['product_commit']!=product:
         raise ValueError('exact reviewed finite release declaration required')
     _sha(expected['schema_sha256'])
     if not isinstance(expected['image_sha256'],str) or not expected['image_sha256'].startswith('sha256:'):
@@ -73,8 +78,10 @@ def verify_owned_startup_sources(store, startup_path, current_path, *, expected)
     for key in ('containers','binary_sha256','config_sha256','config_paths'):
         if not isinstance(expected[key],dict) or set(expected[key])!=SERVICES:raise ValueError('both declared daemon identities required')
     startup,startup_sha=_read(startup_path);current,current_sha=_read(current_path)
+    if manifest is not None and startup_sha!=manifest['startup_source_sha256']:
+        raise ValueError('new epoch startup baseline differs from immutable manifest')
     for observation in (startup,current):
-        if (observation.get('kind')!='owned_startup_source' or observation.get('product_commit')!=PRODUCT_COMMIT
+        if (observation.get('kind')!='owned_startup_source' or observation.get('product_commit')!=product
                 or not isinstance(observation.get('daemons'),dict) or set(observation['daemons'])!=SERVICES):
             raise ValueError('actual startup source release/schema/daemon scope differs')
         _sha(observation.get('schema_sha256'))
@@ -87,6 +94,14 @@ def verify_owned_startup_sources(store, startup_path, current_path, *, expected)
                 or canonical_schema.get('sha256')!=canonical_schema.get('repeat_sha256')):
             raise ValueError('current canonical schema observation differs or is unstable')
         _sha(canonical_schema.get('sha256'))
+    if manifest is not None:
+        from .final_campaign import _source_event
+        _,prior=_source_event(store,manifest['previous_runtime_source_sequence'])
+        old_canonical=prior.get('current_canonical_schema',{})
+        digest=old_canonical.get('sha256')
+        if (not isinstance(digest,str) or any(observation.get('canonical_schema',{}).get('sha256')!=digest
+                or observation.get('canonical_schema',{}).get('repeat_sha256')!=digest for observation in (startup,current))):
+            raise ValueError('new epoch requires retained unchanged canonical schema observations')
     observed=_time_ns(current['observed_at']);original_at=_time_ns(startup['observed_at'])
     if not 0<=time.time_ns()-observed<=90*10**9 or original_at>observed:
         raise ValueError('fresh current startup observation required')
@@ -122,7 +137,7 @@ def verify_owned_startup_sources(store, startup_path, current_path, *, expected)
         if (not isinstance(command,list) or len(command)!=4 or Path(command[0]).name!=service
                 or command[1:]!=['--config',paths['container'],'start']
                 or now.get('process_exe_sha256')!=pinned['binary_sha256']
-                or PRODUCT_COMMIT not in now.get('version','') or PRODUCT_COMMIT not in original.get('version','')):
+                or product not in now.get('version','') or product not in original.get('version','')):
             raise ValueError('actual running executable or config command differs')
         names=now.get('environment_names');overrides=now.get('config_overrides')
         if (not isinstance(names,list) or len(names)>256 or len(set(names))!=len(names)
@@ -150,7 +165,7 @@ def verify_owned_startup_sources(store, startup_path, current_path, *, expected)
             'config_device':now['config_device'],'config_inode':now['config_inode'],
             'config_ctime_ns':now['config_ctime_ns'],'config_mtime_ns':now['config_mtime_ns'],
             'environment_names':names,'config_overrides':overrides,'public_loaded_config_provenance':config}
-    receipt={'kind':'owned_runtime_configuration_verified','product_commit':PRODUCT_COMMIT,
+    receipt={'kind':'owned_runtime_configuration_verified','product_commit':product,
         'schema_sha256':expected['schema_sha256'],'startup_source_sha256':startup_sha,'current_source_sha256':current_sha,
         'current_schema_artifact_sha256':current['schema_sha256'],'current_canonical_schema':canonical_schema,
         'schema_identity_scope':'original pin identifies its immutable raw artifact; current canonical observation does not prove equality to an unavailable original canonical dump',
@@ -158,5 +173,9 @@ def verify_owned_startup_sources(store, startup_path, current_path, *, expected)
         'effective_fee_ceilings_sat_kvb':{'round':None,'pool':None,'sweep':20000,'payout':20000,'claim':None,'progression':None},
         'direct_carrier_max_miner_fee_sat':10000,'complete':False,'qualified':False,
         'scope':'trusted owned host same-process loaded configuration only; no treasury, cumulative budget, economic closure or financial readiness claim'}
+    if manifest is not None:
+        receipt.update(execution_release=manifest['execution_release'],deployment_epoch_id=manifest['deployment_epoch_id'],
+            origin_financial_pins=manifest['origin_financial_pins'],
+            previous_runtime_source_sequence=manifest['previous_runtime_source_sequence'])
     public_payload(receipt);store.event('owned_runtime_configuration_verified',receipt)
     return receipt

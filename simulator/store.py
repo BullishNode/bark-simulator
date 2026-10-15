@@ -139,6 +139,29 @@ class Store:
                 if 'financial_pins' in payload and payload['financial_pins']!=pins:
                     raise CampaignPaused('exploratory event pins differ from actual fresh financial context')
             payload={**payload,'financial_pins':payload.get('financial_pins',pins)}
+        from .target_epochs import active_runtime_manifest, verified_execution_context
+        manifest=active_runtime_manifest(self)
+        if manifest is not None and kind in {'action_intent','action_dispatched','driver_request','driver_response',
+                'driver_evidence','driver_stderr','public_ownership_verified','ark_transfer_verified','client_fee_reconciled'}:
+            from .final_campaign import _source_event
+            if kind=='action_intent':
+                context=verified_execution_context(self)
+            else:
+                rows=self.db.execute("SELECT sequence FROM event WHERE kind='action_intent' AND json_extract(payload,'$.action_id')=?",(payload.get('action_id'),)).fetchall()
+                if len(rows)!=1:raise CampaignPaused('unique original execution intent required')
+                _,intent=_source_event(self,rows[0][0])
+                fields=('execution_release','deployment_epoch_id','runtime_source_sequence','financial_pins_scope')
+                if any(key not in intent for key in fields):raise CampaignPaused('pre-cutover intent cannot execute in new deployment')
+                context={key:intent[key] for key in fields}
+                if kind=='action_dispatched':
+                    current=verified_execution_context(self)
+                    _,original_runtime=_source_event(self,context['runtime_source_sequence'])
+                    if (any(context[key]!=current[key] for key in fields if key!='runtime_source_sequence')
+                            or not 0<=time.time()-original_runtime.get('observed_at',-1)<=90):
+                        raise CampaignPaused('original intent execution context differs; no retry or repinning')
+            if any(key in payload and payload[key]!=value for key,value in context.items()):
+                raise CampaignPaused('execution context differs from original action')
+            payload={**payload,**context}
         public_payload(payload)
         last = self.db.execute("SELECT sequence,hash FROM event ORDER BY sequence DESC LIMIT 1").fetchone()
         seq, previous = (last[0] + 1, last[1]) if last else (1, "0" * 64)

@@ -19,6 +19,12 @@ IMMUTABLE_META = ('mode', 'fee_budget_sat', 'wallet_root', 'target_identity',
                   'owner_renewal_funding_source',
                   'seed_recovery_declaration', 'campaign_seed', 'campaign_realism',
                   'ramp_plan', 'realism_started_at')
+RUNTIME_META = ('zero_principal_identity_bootstrap', 'conserved_treasury_boundary',
+                'financial_operating_envelope', 'finite_initial_funding_plan', 'finite_first_board_plan')
+SERVER_COMMIT = '4d041f7f2f13ba0a5a95e540c70d6aba60f9bb50'
+DEPLOY_COMMIT = 'c59a9907373c1dcae8bed96d4cfabcd31148e88b'
+SERVER_IMAGE = 'sha256:da797d16bd5441e04cc3564540c166a2885c0b63588ec0b5c3773f17f3eae014'
+ORIGIN_COMMIT = '5e5994d3ab6844a443cef1e9d19a9195ed785486'
 IMMUTABLE_FAMILIES = ('owner_renewal_declaration:', 'owner_renewal_funding_source:')
 RECEIPTS = {'upgrade_completion', 'independent_identity', 'sdk_qualification',
             'simulator_release', 'nursery_reconciliation'}
@@ -66,7 +72,9 @@ def active_identity(store):
         _legacy_binding(store, json.loads(legacy[0]['payload']))
     elif original_event and original != original_event['payload']:
         raise ValueError('original target metadata differs from preserved manifest evidence')
-    declarations = [row[0] for row in store.db.execute("SELECT payload FROM event WHERE kind='target_epoch_declared' ORDER BY sequence")]
+    epoch_events = list(store.db.execute("SELECT * FROM event WHERE kind='target_epoch_declared' ORDER BY sequence"))
+    for event in epoch_events:_event_frame(event)
+    declarations = [row['payload'] for row in epoch_events]
     table = store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='target_epoch'").fetchone()
     rows = list(store.db.execute('SELECT sequence,id,declaration,identity FROM target_epoch ORDER BY sequence')) if table else []
     if len(rows) != len(declarations):
@@ -192,7 +200,7 @@ def _hashes(value, required, *, key_pattern=r'[a-zA-Z0-9_-]{1,100}'):
 
 def _validate(declaration):
     public_payload(declaration)
-    if not isinstance(declaration, dict) or set(declaration) != FIELDS:
+    if not isinstance(declaration, dict) or set(declaration) not in (FIELDS, FIELDS | {'runtime_manifest'}):
         raise ValueError('epoch declaration has missing or unsupported fields')
     if not isinstance(declaration['id'], str) or re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,99}', declaration['id']) is None:
         raise ValueError('epoch requires a new immutable identifier')
@@ -227,6 +235,7 @@ def declare(store, declaration):
         if previous:
             if previous[0] != encoded:
                 raise ValueError('target epoch declaration is immutable')
+            if 'runtime_manifest' in declaration:_validate_runtime_manifest(store,declaration)
             return False
         if not 0 <= time.time() - declaration['observed_at'] <= 600:
             raise ValueError('epoch requires a fresh independent audit')
@@ -235,7 +244,166 @@ def declare(store, declaration):
             raise ValueError('epoch predecessor differs from the active deployment')
         if declaration_hashes(store) != declaration['declaration_hashes']:
             raise ValueError('original campaign declarations changed during qualification')
+        if 'runtime_manifest' in declaration:
+            _validate_runtime_manifest(store, declaration, declaring=True)
+        elif active_runtime_manifest(store) is not None:
+            raise ValueError('finite runtime manifest cannot be silently removed')
         store.db.execute('INSERT INTO target_epoch(id,declaration,identity) VALUES (?,?,?)',
                          (declaration['id'], encoded, canonical(declaration['identity'])))
         store._event('target_epoch_declared', declaration)
     return True
+
+
+
+def runtime_declaration_hashes(store):
+    """Additional finite-pilot account/budget declarations, never mutable telemetry."""
+    return {key:hashlib.sha256(value.encode()).hexdigest()
+        for key,value in store.db.execute('SELECT key,value FROM meta') if key in RUNTIME_META}
+
+
+def _validate_runtime_manifest(store, declaration, *, declaring=False):
+    from .final_campaign import _pins, _source_event
+    manifest=declaration['runtime_manifest']
+    fields={'scope','origin_financial_pins','execution_release','expected','startup_source_sha256',
+        'previous_runtime_source_sequence','precutover_source_sequence','checkpoint','preserved_declaration_hashes'}
+    if not isinstance(manifest,dict) or set(manifest)!=fields or manifest['scope']!='finite_exploratory':
+        raise ValueError('exact finite exploratory runtime manifest required')
+    if store.get_meta('financial_qualification_required') is None:
+        raise ValueError('finite financial qualification mode required')
+    if store.get_meta('final_financial_epoch') is not None:
+        raise ValueError('finite exploratory deployment cannot qualify a final campaign')
+    pins=_pins(manifest['origin_financial_pins']);release=manifest['execution_release'];expected=manifest['expected']
+    if not isinstance(expected,dict) or 'schema_sha256' not in expected:raise ValueError('complete qualified runtime expectations required')
+    _hashes({'schema':expected['schema_sha256']},{'schema'})
+    if (pins['product_commit']!=ORIGIN_COMMIT or pins['sdk_commit']!=ORIGIN_COMMIT
+            or declaration['sdk_commit']!=ORIGIN_COMMIT
+            or declaration['native_hashes']['bark-sim-driver']!=pins['driver_sha256']
+            or release!={'product_commit':SERVER_COMMIT,'deploy_commit':DEPLOY_COMMIT,'image_sha256':SERVER_IMAGE,
+                'sdk_commit':ORIGIN_COMMIT,'driver_sha256':pins['driver_sha256'],
+                'configuration_sha256':pins['configuration_sha256'],'schema_sha256':expected['schema_sha256']}
+            or declaration['identity']['image_digest']!=SERVER_IMAGE):
+        raise ValueError('only qualified4d server and unchanged5e native lineage permitted')
+    if (not isinstance(expected,dict) or set(expected)!={'product_commit','image_sha256','schema_sha256',
+            'database','containers','binary_sha256','config_sha256','config_paths'}
+            or expected['product_commit']!=SERVER_COMMIT or expected['image_sha256']!=SERVER_IMAGE):
+        raise ValueError('complete qualified runtime expectations required')
+    _hashes({'startup':manifest['startup_source_sha256']}, {'startup'})
+    if (set(manifest['preserved_declaration_hashes'])!=set(RUNTIME_META)
+            or manifest['preserved_declaration_hashes']!=runtime_declaration_hashes(store)):
+        raise ValueError('original finite account or financial declaration changed')
+    bootstrap=store.get_meta('zero_principal_identity_bootstrap')
+    if bootstrap is None:raise ValueError('original finite bootstrap required')
+    from .identity_bootstrap import declaration as bootstrap_declaration
+    bootstrap=bootstrap_declaration(store)['declaration']
+    if (bootstrap['pins']!=pins or bootstrap['identity']!=declaration['previous_identity']
+            or bootstrap['wallet_root']!=store.get_meta('wallet_root')):
+        raise ValueError('original wallet/account/target lineage differs')
+    event,prior=_source_event(store,manifest['previous_runtime_source_sequence'])
+    if (event['kind']!='owned_runtime_configuration_verified' or prior.get('product_commit')!=ORIGIN_COMMIT
+            or prior.get('loaded_configuration_identity_verified') is not True):
+        raise ValueError('original verified5e runtime source required')
+    for service in ('captaind','watchmand'):
+        original=prior['daemons'][service]
+        if (original['image_sha256']!=declaration['previous_identity']['image_digest']
+                or expected['containers'].get(service)!=original['container']
+                or expected['config_sha256'].get(service)!=original['config_sha256']
+                or expected['config_paths'].get(service)!={'host':original['config_path'],
+                    'container':original['config_mount']['destination']}
+                or expected['database']!=original['public_loaded_config_provenance']['postgres_database']):
+            raise ValueError('runtime transition cannot change accounts/database/config/containers')
+    journey_event,journey=_source_event(store,manifest['precutover_source_sequence'])
+    if (journey_event['kind']!='ordinary_arkoor_journey_verified' or journey.get('financial_pins')!=pins
+            or journey.get('sender_actor')!='actor-01' or journey.get('recipient_actor')!='actor-02'
+            or journey.get('amount_sat')!=2000 or journey.get('miner_fee_sat')!=0 or journey.get('internal_service_fee_sat')!=0):
+        raise ValueError('original verified finite2k journey required before cutover')
+    transfer_event,transfer=_source_event(store,journey['ark_transfer_sequence'])
+    from .final_campaign import _action_pins
+    _action_pins(store,journey['action_id'],pins)
+    action=store.db.execute('SELECT state,operation FROM action WHERE id=?',(journey['action_id'],)).fetchone()
+    if (transfer_event['kind']!='ark_transfer_verified' or transfer.get('action_id')!=journey['action_id']
+            or action['state']!='completed' or action['operation']!='send_arkoor'):
+        raise ValueError('original finite journey transfer source differs')
+    checkpoint=manifest['checkpoint']
+    if not isinstance(checkpoint,dict) or set(checkpoint)!={'sequence','hash'}:raise ValueError('retained journal checkpoint required')
+    integer(checkpoint['sequence'],'journal checkpoint sequence',1)
+    if checkpoint['sequence']>10000:raise ValueError('runtime checkpoint exceeds bounded pilot journal')
+    previous='0'*64;count=0
+    for row in store.db.execute('SELECT * FROM event WHERE sequence<=? ORDER BY sequence',(checkpoint['sequence'],)):
+        count+=1;_event_frame(row)
+        if row['sequence']!=count or row['previous_hash']!=previous:raise ValueError('retained journal prefix differs')
+        previous=row['hash']
+    if count!=checkpoint['sequence'] or previous!=checkpoint['hash'] or event['sequence']>count or journey_event['sequence']>count or transfer_event['sequence']>count:
+        raise ValueError('retained journal checkpoint differs')
+    if declaring:
+        if store.db.execute("SELECT 1 FROM action WHERE state IN ('queued','dispatched','outcome_unknown') LIMIT 1").fetchone():
+            raise ValueError('complete original actions before runtime cutover; no queued replay')
+        if store.db.execute("SELECT 1 FROM event WHERE sequence>? AND kind IN ('action_intent','action_dispatched','financial_cost_verified')",(count,)).fetchone():
+            raise ValueError('financial history advanced after runtime checkpoint')
+    return manifest
+
+
+def active_runtime_manifest(store):
+    """Return the declared finite runtime transition, never infer compatibility."""
+    if not store.db.execute("SELECT 1 FROM event WHERE kind='target_epoch_declared' AND json_type(payload,'$.runtime_manifest')='object' LIMIT 1").fetchone():return None
+    active_identity(store)
+    exists=store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='target_epoch'").fetchone()
+    row=store.db.execute('SELECT id,declaration FROM target_epoch ORDER BY sequence DESC LIMIT 1').fetchone() if exists else None
+    if row is None:return None
+    declaration=json.loads(row['declaration'])
+    if 'runtime_manifest' not in declaration:
+        if store.db.execute("SELECT 1 FROM event WHERE kind='target_epoch_declared' AND json_type(payload,'$.runtime_manifest')='object'").fetchone():
+            raise ValueError('finite runtime manifest cannot be silently removed')
+        return None
+    return {'deployment_epoch_id':row['id'],**_validate_runtime_manifest(store,declaration)}
+
+
+def verified_execution_context(store, snapshot=None):
+    """Authenticate fresh actual execution separately from old origin/budget pins."""
+    from .final_campaign import _source_event
+    manifest=active_runtime_manifest(store)
+    if manifest is None:return None
+    if snapshot is None:
+        row=store.db.execute('SELECT payload FROM snapshot ORDER BY id DESC LIMIT 1').fetchone()
+        snapshot=json.loads(row[0]) if row else {}
+    if (not 0<=time.time()-snapshot.get('observed_at',-1)<=90
+            or snapshot.get('financial_pins')!=manifest['origin_financial_pins']
+            or snapshot.get('financial_pins_scope')!='preserved_origin_and_budget_lineage'
+            or snapshot.get('execution_release')!=manifest['execution_release']
+            or snapshot.get('deployment_epoch_id')!=manifest['deployment_epoch_id']
+            or snapshot.get('identity')!=active_identity(store)):
+        raise ValueError('actual fresh finite execution context required')
+    sequence=snapshot.get('runtime_source_sequence');event,runtime=_source_event(store,sequence)
+    if (event['kind']!='owned_runtime_configuration_verified' or runtime.get('loaded_configuration_identity_verified') is not True
+            or runtime.get('deployment_epoch_id')!=manifest['deployment_epoch_id']
+            or runtime.get('execution_release')!=manifest['execution_release']
+            or runtime.get('origin_financial_pins')!=manifest['origin_financial_pins']
+            or runtime.get('product_commit')!=manifest['execution_release']['product_commit']
+            or runtime.get('schema_sha256')!=manifest['execution_release']['schema_sha256']
+            or runtime.get('startup_source_sha256')!=manifest['startup_source_sha256']
+            or not 0<=time.time()-runtime.get('observed_at',-1)<=90):
+        raise ValueError('fresh declared runtime source required')
+    return {'execution_release':manifest['execution_release'],'deployment_epoch_id':manifest['deployment_epoch_id'],
+        'runtime_source_sequence':sequence,'financial_pins_scope':'preserved_origin_and_budget_lineage'}
+
+
+
+def verified_runtime_source(store, sequence, *, origin_pins, current_source_sha256):
+    """Readiness hook: current executable identity never replaces historical pins."""
+    from .final_campaign import _source_event
+    event,runtime=_source_event(store,sequence)
+    manifest=active_runtime_manifest(store)
+    if (event['kind']!='owned_runtime_configuration_verified' or runtime.get('loaded_configuration_identity_verified') is not True
+            or runtime.get('current_source_sha256')!=current_source_sha256
+            or not 0<=time.time()-runtime.get('observed_at',-1)<=90):
+        raise ValueError('fresh authenticated loaded runtime source required')
+    if manifest is None:
+        if runtime.get('product_commit')!=origin_pins['product_commit'] or runtime.get('schema_sha256')!=origin_pins['schema_sha256']:
+            raise ValueError('original loaded runtime identity differs')
+    elif (origin_pins!=manifest['origin_financial_pins']
+            or runtime.get('product_commit')!=manifest['execution_release']['product_commit']
+            or runtime.get('schema_sha256')!=manifest['execution_release']['schema_sha256']
+            or runtime.get('execution_release')!=manifest['execution_release']
+            or runtime.get('deployment_epoch_id')!=manifest['deployment_epoch_id']
+            or runtime.get('startup_source_sha256')!=manifest['startup_source_sha256']):
+        raise ValueError('runtime differs from declared lineage and execution release')
+    return runtime
