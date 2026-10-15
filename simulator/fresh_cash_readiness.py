@@ -377,25 +377,10 @@ def _operator_fee_funding(store,source,assets,current):
             if coin['confirmed_fee_eligible']:
                 if coin['mature'] is not True or coin['trusted'] is not True:
                     raise ValueError('native fee eligibility contradicts maturity/trust')
-                available+=actual['amount_msat']
-    if profile(store)==DIRECT_PER_KEY:
-        # Initial C reserves remain in the actual bank. They are available for
-        # financial affordability, not represented as spendable daemon funds.
-        _,bank=_source_event(store,source['bank_source_sequence'])
-        bank_assets={point:coin for point,coin in assets['assets'].items() if coin['member']=='bank'}
-        observed={row['txid']+':'+str(row['vout']):row for row in bank['listunspent']}
-        if (set(observed)!=set(bank_assets) or any(bank.get(k)!=[] for k in
-                ('locked_coins','listlockunspent','pending_transactions','pending_parents'))):
-            raise ValueError('C actual unreserved bank reserve source differs')
-        bank_sat=0
-        for point,row in observed.items():
-            amount=btc_to_sat(row['amount'])
-            if (amount*1000!=bank_assets[point]['amount_msat'] or row.get('spendable') is not True
-                    or row.get('safe') is not True or type(row.get('confirmations')) is not int or row['confirmations']<1):
-                raise ValueError('C bank fee reserve not confirmed and controlled')
-            bank_sat+=amount
-        if bank_sat<40000:raise ValueError('C urgent 40000-sat bank ringfence exhausted')
-        available+=bank_sat*1000
+                # The C direct-expiry signer is watchman. Bank capital and
+                # rounds liquidity cannot stand in for actual signer funds.
+                if profile(store)!=DIRECT_PER_KEY or owner=='watchman':
+                    available+=actual['amount_msat']
     return available
 
 
@@ -459,6 +444,10 @@ def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_sou
         'capital_exposure_msat':assets['total_msat'],'available_fee_funding_msat':available,
         'estimated_fee_rate_sat_kvb':rate,'pool_ready':False,'channel_route_ready':False,
         'scope':'confirmed cash only and no persisted monetary intents; sync/snapshot/address only; no Board or Ark send admission'}
+    if profile(store)==DIRECT_PER_KEY:
+        receipt.update(fee_signer_member='watchman',actual_daemon_fee_liquidity_msat=available,
+            bank_capital_counts_as_signer_liquidity=False,urgent_isolation_qualified=False,
+            urgent_qualification_scope='C11 separate urgent selection/reservation proof OPEN; labels and aggregate budgets alone do not qualify it')
     validate_client_action_scope(store,receipt,operation='sync',maximum_fee_sat=0,reserved_action_id=None)
     store.event('financial_operating_readiness',receipt)
     return {'operating_readiness_sequence':store.db.execute('SELECT max(sequence) FROM event').fetchone()[0],**receipt}

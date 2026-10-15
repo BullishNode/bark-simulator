@@ -34,7 +34,7 @@ class IdentityBootstrapTests(unittest.TestCase):
         self.store=Store(self.root/'state','synthetic',10000,architecture_profile=selected)
         initialize(self.store)
         self.config=Config(self.root/'state',('observer',),(str(self.driver),),self.wallets,
-            SIGNET_GENESIS,'abandon-signet-fallback-fresh','sha256:'+'a'*64,'02'+'b'*64,
+            SIGNET_GENESIS,('track-c-captaind.service' if selected=='direct_per_key' else 'abandon-signet-fallback-fresh'),'sha256:'+'a'*64,'02'+'b'*64,
             10000,1,10,True,architecture_profile=selected,expected_sdk_commit='5e5994d3ab6844a443cef1e9d19a9195ed785486',
             trace_enabled=False)
         self.identity={'network':'signet','genesis':SIGNET_GENESIS,'container':self.config.expected_container,
@@ -47,6 +47,7 @@ class IdentityBootstrapTests(unittest.TestCase):
         self.snapshot={'identity':self.identity,'financial_pins':self.pins,'architecture_profile':selected,
             'observed_at':time.time(),'stable_tip':True,'initial_block_download':False,
             'server_status':{'status':'running'},'height':100,'tip_hash':'a'*64}
+        if selected=='direct_per_key':self.snapshot['runtime_transport']='systemd'
         self.store.db.execute("INSERT INTO meta VALUES ('paused','declare')")
 
     def tearDown(self):

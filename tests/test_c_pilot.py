@@ -59,9 +59,11 @@ class CPilotControls(unittest.TestCase):
         self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','true')")
         c_pilot.declare(self.store,pilot())
     def tearDown(self):self.store.close();self.tmp.cleanup()
-    def test_c_uses_one_sender_output_and_exact_ids_while_b_policy_is_unchanged(self):
+    def test_c_funds_actual_watchman_and_one_sender_while_b_policy_is_unchanged(self):
         policy=funding_policy(self.store)
-        self.assertEqual({'actor-01':25000},policy['amounts']);self.assertEqual(1000,policy['maximum_fee_sat'])
+        self.assertEqual({'actor-01':25000,'watchman':100000},policy['amounts']);self.assertEqual(1000,policy['maximum_fee_sat'])
+        self.assertEqual(125000,policy['principal_sat']);self.assertEqual(25000,policy['client_principal_sat'])
+        self.assertFalse(policy['urgent_isolation_qualified'])
         self.assertEqual(150000,policy['opening_sat']);self.assertEqual(40000,policy['urgent_budget_sat'])
         b=Store(self.path/'b','synthetic',60000)
         try:
@@ -110,6 +112,41 @@ workload="none"
             with self.subTest(field=field),self.assertRaises(ValueError):c_pilot.validate({**pilot(),field:value})
         self.assertFalse(c_pilot.declare(self.store,pilot()))
         with self.assertRaisesRegex(ValueError,'immutable'):c_pilot.declare(self.store,{**pilot(),'bank_opening_sat':160000})
+    def test_bank_and_rounds_capital_cannot_substitute_for_actual_watchman_fee_liquidity(self):
+        from simulator.fresh_cash_readiness import _operator_fee_funding
+        tip='a'*64;source={'height':100,'tip_hash':tip,'members':[],
+            'descriptor_ranges':[],'inventory_sequences':{}}
+        current={};assets={'assets':{'b'*64+':0':{'member':'bank','amount_msat':900000000}}}
+        for owner in ('rounds','watchman'):
+            descriptor='synthetic-'+owner
+            source['members'].append({'id':owner,'descriptors':[descriptor]})
+            source['descriptor_ranges'].append({'desc':descriptor,'range':[0,20]})
+            self.store.event('treasury_inventory',{'utxos':[]})
+            source['inventory_sequences'][owner]=self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
+            current[owner+'_inventory']={owner:{'wallet':owner,'network':'signet','complete':True,
+                'public_descriptor':descriptor,'last_revealed_index':0,'tip_height':100,'tip_hash':tip,
+                'reserved_outpoints':[],'pending_transactions':[],'pending_parents':[],
+                'unavailable_parent_txids':[],'utxos':[]}}
+        # Regression: abundant true bank capital with ZERO actual signer funds
+        # must supply zero eligible liquidity, rather than admit a first Board.
+        self.assertEqual(0,_operator_fee_funding(self.store,source,assets,current))
+        for owner,index in (('rounds',1),('watchman',2)):
+            point=str(index)*64+':0';script='synthetic-script-'+owner
+            self.store.event('treasury_inventory',{'utxos':[{'outpoint':point,'script':script}]})
+            source['inventory_sequences'][owner]=self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
+            assets['assets'][point]={'member':owner,'amount_msat':100000000}
+            coin={'outpoint':point,'value_sat':100000,'script_pubkey':script,
+                'confirmed_fee_eligible':True,'trusted':True,'mature':True,'reserved':False}
+            current[owner+'_inventory'][owner]['utxos']=[coin]
+            self.assertEqual(0 if owner=='rounds' else 100000000,
+                _operator_fee_funding(self.store,source,assets,current))
+        coin=current['watchman_inventory']['watchman']['utxos'][0]
+        coin['confirmed_fee_eligible']=False;coin['trusted']=False
+        self.assertEqual(0,_operator_fee_funding(self.store,source,assets,current))
+        coin['confirmed_fee_eligible']=True
+        with self.assertRaisesRegex(ValueError,'trust'):_operator_fee_funding(self.store,source,assets,current)
+        coin['trusted']=True;coin['reserved']=True
+        with self.assertRaises(ValueError):_operator_fee_funding(self.store,source,assets,current)
     def test_original_51_link_frame_requires_unique_exact_order_and_signed_metadata(self):
         data,_=initial_data();self.assertEqual(51,len(initial_origins(data)))
         for case in ('missing','duplicate','reorder','wrong-index','old-profile'):

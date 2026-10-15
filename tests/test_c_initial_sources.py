@@ -95,8 +95,9 @@ class CInitialSourceControls(unittest.TestCase):
     def test_common_source_emits_two_customers_one_grant_and_real_declared_opening_only(self):
         result=self.collect();source=result['source']
         self.assertEqual(5,len(source['members']));self.assertEqual(150000,source['opening_total_sat'])
-        self.assertEqual(25000,source['principal_sat']);self.assertEqual(40000,source['urgent_fee_reserve_sat'])
-        self.assertEqual([('actor-01',25000)],[(r['member_id'],r['amount_sat']) for r in source['funding_recipients']])
+        self.assertEqual(125000,source['principal_sat']);self.assertEqual(25000,source['client_principal_sat'])
+        self.assertEqual(40000,source['urgent_fee_reserve_sat']);self.assertFalse(source['urgent_isolation_qualified'])
+        self.assertEqual([('actor-01',25000),('watchman',100000)],[(r['member_id'],r['amount_sat']) for r in source['funding_recipients']])
         self.assertFalse(any(self.database['rows'][name] for name in TABLES-{'links','journal_links','records','journal_records'}))
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
     def test_missing_or_extra_link_monetary_state_and_wrong_profile_hold(self):
@@ -119,7 +120,7 @@ class CInitialSourceControls(unittest.TestCase):
         declare_envelope(self.store,limits,self.config,result['inventory_sequences'],self.chain)
         ready=record_initial_funding_readiness(self.store,self.config,self.chain,result['source_sequence'])
         snapshot={'financial_pins':f.pins,'height':100,'tip_hash':'a'*64,'operating_readiness_sequence':ready['operating_readiness_sequence']}
-        self.assertTrue(preflight(self.store,self.config,snapshot,operation='funding',amount_sat=25000,maximum_fee_sat=1000)['allowed'])
+        self.assertTrue(preflight(self.store,self.config,snapshot,operation='funding',amount_sat=125000,maximum_fee_sat=1000)['allowed'])
         for operation in ('board','sync','claim','send_arkoor'):
             with self.subTest(operation=operation),self.assertRaises(ValueError):preflight(self.store,self.config,snapshot,operation=operation)
         with self.assertRaises(ValueError):preflight(self.store,self.config,snapshot,operation='funding',amount_sat=25000,maximum_fee_sat=1001)

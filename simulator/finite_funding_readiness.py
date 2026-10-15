@@ -341,8 +341,12 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             'scope':'only initial funding of six fully enumerated owned wallets; all monetary database rows absent; no subsequent wallet operation admission'}
         if per_key:
             source.update(architecture_profile=DIRECT_PER_KEY,c_pilot_id=policy['pilot_id'],
+                client_principal_sat=policy['client_principal_sat'],
+                operator_fee_grants_sat=policy['operator_fee_grants_sat'],
+                fee_signer_member=policy['fee_signer_member'],
+                actual_daemon_fee_liquidity_msat=0,urgent_isolation_qualified=False,
                 ordinary_fee_holds_sat={'funding':1000,'one_board':1000},
-                scope='C bounded pilot initial funding only; 2 zero-principal customers, 102 verified links, one 25000-sat sender output; operator wallets and recipient remain zero; full qualification held')
+                scope='C initial Core-bank funding only: exact 25000-sat sender and 100000-sat watchman outputs; recipient/rounds zero; actual signer liquidity must be independently observed after confirmation; urgent separation/C11 and full qualification open')
         public_payload(source);store._event('finite_initial_funding_sources_verified',source)
         sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
     return {'source_sequence':sequence,'source':source,
@@ -386,6 +390,14 @@ def record_initial_funding_readiness(store,config,chain,source_sequence):
         'pool_ready':False,'channel_route_ready':False,
         'scope':'complete only for the initial once-only five-output funding prerequisite; subsequent monetary state requires new source qualification'}
     if per_key:receipt.update(architecture_profile=DIRECT_PER_KEY,c_pilot_id=policy['pilot_id'],
-        scope='C bounded pilot once-only 25000-sat sender funding only; zero recipient and operator grants; all later monetary operations require fresh qualification')
+        # Core bank is the real signer for THIS funding operation only. The
+        # internal watchman allocation remains operator capital, not principal
+        # leaving the treasury or already-observed daemon spending authority.
+        available_fee_funding_msat=(policy['opening_sat']-policy['client_principal_sat']-policy['maximum_fee_sat'])*1000,
+        funding_total_transfer_sat=policy['principal_sat'],client_principal_sat=policy['client_principal_sat'],
+        operator_fee_grants_sat=policy['operator_fee_grants_sat'],
+        fee_signer_member='bank',actual_daemon_fee_liquidity_msat=0,
+        urgent_isolation_qualified=False,
+        scope='C once-only Core-bank batch: sender25000/watchman100000; postfunding Board requires true confirmed/trusted watchman liquidity; urgent separation/C11 and full qualification open')
     store.event('financial_operating_readiness',receipt)
     return {'operating_readiness_sequence':store.db.execute('SELECT max(sequence) FROM event').fetchone()[0],**receipt}

@@ -421,6 +421,10 @@ def _record_backing_readiness(store,config,chain,*,source_sequence,runtime_sourc
         'capital_exposure_msat':source['physical_total_sat']*1000,'available_fee_funding_msat':available,'estimated_fee_rate_sat_kvb':rate,
         'net_liability_sat':origin['net_liability_sat'],'runtime_source_sequence':runtime_source_sequence,'native_economic_state':native,
         'pool_ready':False,'channel_route_ready':False,'scope':scope_description}
+    if profile(store)==DIRECT_PER_KEY:
+        receipt.update(fee_signer_member='watchman',actual_daemon_fee_liquidity_msat=available,
+            bank_capital_counts_as_signer_liquidity=False,urgent_isolation_qualified=False,
+            urgent_qualification_scope='C11 separate urgent selection/reservation proof OPEN; aggregate signer funds do not qualify isolation')
     scope_validator(store,config,receipt,operation=allowed_operations[0],maximum_fee_sat=0,reserved_action_id=None)
     public_payload(receipt);store.event('financial_operating_readiness',receipt)
     return {'operating_readiness_sequence':store.db.execute('SELECT max(sequence) FROM event').fetchone()[0],**receipt}

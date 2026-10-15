@@ -17,6 +17,9 @@ FIXED = {'schema_version': 1, 'architecture_profile': DIRECT_PER_KEY,
          'sender': 'actor-01', 'recipient': 'actor-02', 'grants_sat': GRANTS,
          'board_amount_sat': 20000, 'arkoor_amount_sat': 2000,
          'funding_max_miner_fee_sat': 1000, 'board_max_miner_fee_sat': 1000,
+         'operator_fee_grants_sat': {'rounds': 0, 'watchman': 100000},
+         'client_principal_sat': 25000, 'funding_total_transfer_sat': 125000,
+         'fee_signer_member': 'watchman', 'urgent_isolation_qualified': False,
          'ordinary_fee_budget_sat': 60000, 'urgent_fee_budget_sat': 40000,
          'board_confirmations': 3, 'ordinary_lifetime_blocks': 48,
          'pool_lifetime_blocks': 48}
@@ -29,10 +32,11 @@ def validate(value):
         raise ValueError('complete explicit C bounded pilot declaration required')
     public_payload(value); _pins(value['pins'])
     for key, expected in FIXED.items():
-        if value[key] != expected or isinstance(expected, int) and type(value[key]) is not int:
+        if value[key] != expected or type(expected) in (int, bool) and type(value[key]) is not type(expected):
             raise ValueError('C pilot fixed scope differs: '+key)
     if (set(value['grants_sat']) != CUSTOMERS
             or any(type(amount) is not int for amount in value['grants_sat'].values())
+            or any(type(amount) is not int for amount in value['operator_fee_grants_sat'].values())
             or type(value['bank_opening_sat']) is not int
             or not 126000 <= value['bank_opening_sat'] <= 900000):
         raise ValueError('C pilot actual declared opening cannot cover principal and protected budgets')
@@ -78,8 +82,10 @@ def declare(store, value):
 def funding_policy(store):
     """Only the source policy varies; Core signing/once-only state stays common."""
     value = declaration(store)
-    return {'customers': CUSTOMERS, 'amounts': {'actor-01': 25000},
-            'opening_sat': value['bank_opening_sat'], 'principal_sat': 25000,
+    return {'customers': CUSTOMERS, 'amounts': {'actor-01': 25000, 'watchman': 100000},
+            'opening_sat': value['bank_opening_sat'], 'principal_sat': 125000,
+            'client_principal_sat': 25000, 'operator_fee_grants_sat': value['operator_fee_grants_sat'],
+            'fee_signer_member': 'watchman', 'urgent_isolation_qualified': False,
             'maximum_fee_sat': 1000, 'maximum_rate_sat_kvb': 20000,
             'ordinary_budget_sat': 60000, 'urgent_budget_sat': 40000,
             'grant_sat': 25000, 'board_sat': 20000, 'board_fee_reserve_sat': 1000,
