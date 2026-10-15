@@ -153,6 +153,27 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
         source=result['source'];self.assertEqual(664454,source['total_sat']);self.assertEqual(OPERATIONS,source['operation_scope'])
         self.assertEqual(6,len(source['inventory_sequences']));self.assertEqual(self.actors,source['actors'])
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
+    async def test_actual_thirteen_descriptor_shape_uses_one_scan_and_seventeen_refuses(self):
+        from simulator.fresh_cash_readiness import collect_fresh_cash_sources
+        bank=next(member for member in self.members if member['id']=='bank')
+        for index in range(7):
+            descriptor='desc-bank-extra'+str(index);bank['descriptors'].append(descriptor)
+            self.initial['descriptor_ranges'].append({'desc':descriptor,'range':[0,19]})
+        calls=[];original=self.chain.call
+        def capture(method,*args,**kwargs):
+            if method=='scantxoutset' and args[0]=='start':calls.append(args[1])
+            return original(method,*args,**kwargs)
+        self.chain.call=capture
+        with self.dependencies():await collect_fresh_cash_sources(self.store,self.config,self.chain,None)
+        self.assertEqual([13],[len(rows) for rows in calls])
+        for index in range(7,11):
+            descriptor='desc-bank-extra'+str(index);bank['descriptors'].append(descriptor)
+            self.initial['descriptor_ranges'].append({'desc':descriptor,'range':[0,19]})
+        calls.clear()
+        with self.dependencies(),self.assertRaisesRegex(ValueError,'scan count'):
+            await collect_fresh_cash_sources(self.store,self.config,self.chain,None)
+        self.assertEqual([],calls)
+
     async def test_changed_database_or_foreign_funding_output_refuses_no_readiness(self):
         from simulator.fresh_cash_readiness import collect_fresh_cash_sources
         original=copy.deepcopy(self.db);self.db['rows']['coins']=1

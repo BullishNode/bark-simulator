@@ -16,7 +16,7 @@ class ChainReader:
         if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress','scantxoutset','getrawmempool'}:raise ValueError('read-only RPC required')
         if method=='scantxoutset':
             if args==('status',):pass
-            elif (len(args)!=2 or args[0]!='start' or not isinstance(args[1],list) or not 1<=len(args[1])<=12
+            elif (len(args)!=2 or args[0]!='start' or not isinstance(args[1],list) or not 1<=len(args[1])<=16
                     or any(not isinstance(row,dict) or set(row)!={'desc','range'} or not isinstance(row['desc'],str)
                         or not row['desc'] or len(row['desc'])>4096 or not isinstance(row['range'],list)
                         or len(row['range'])!=2 or any(type(index) is not int for index in row['range'])

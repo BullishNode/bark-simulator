@@ -45,3 +45,15 @@ class CoreScanBoundsTests(unittest.TestCase):
                 with self.subTest(method=method,args=args),self.assertRaisesRegex(ValueError,'response bounds'):
                     self.chain.call(method,*args,timeout=timeout)
             transport.assert_not_called()
+
+    def test_thirteen_and_sixteen_public_descriptors_share_one_bounded_scan(self):
+        for count in (13,16):
+            reply=io.BytesIO(json.dumps({'result':{'success':True},'error':None}).encode())
+            scans=[{'desc':'wpkh(public-'+str(index)+')#checksum','range':[0,19]} for index in range(count)]
+            with self.subTest(count=count),patch('simulator.chain.urllib.request.urlopen',return_value=reply) as transport:
+                self.assertTrue(self.chain.call('scantxoutset','start',scans)['success'])
+                self.assertEqual(count,len(json.loads(transport.call_args.args[0].data)['params'][1]))
+        with patch('simulator.chain.urllib.request.urlopen') as transport:
+            with self.assertRaisesRegex(ValueError,'bounded public'):
+                self.chain.call('scantxoutset','start',[{'desc':'wpkh(public)#checksum','range':[0,19]}]*17)
+            transport.assert_not_called()

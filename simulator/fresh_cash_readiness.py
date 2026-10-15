@@ -255,20 +255,20 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc):
     if seen!={row['member_id'] for row in plan['recipients']} or sum(c['amount_sat'] for c in expected.values())!=665454-transaction['fee_sat']:
         raise ValueError('exact finite cash conservation differs')
     observed={}
-    for offset in range(0,len(scans),12):
-        if chain.call('scantxoutset','status') is not None:raise ValueError('existing Core scan running; cash source held')
-        scan=chain.call('scantxoutset','start',scans[offset:offset+12],timeout=120)
-        if scan.get('success') is not True or (scan.get('height'),scan.get('bestblock'))!=tip:
-            raise ValueError('actual current complete cash descriptor scan required')
-        rows=scan.get('unspents')
-        if not isinstance(rows,list) or len(rows)>2000:raise ValueError('cash coin source bound exceeded')
-        total=0
-        for coin in rows:
-            point=coin['txid']+':'+str(coin['vout']);amount=btc_to_sat(coin['amount']);total+=amount
-            if point in observed or point not in expected or (amount,coin.get('scriptPubKey'))!=(expected[point]['amount_sat'],expected[point]['script']):
-                raise ValueError('actual cash footprint contains missing, extra or changed capital')
-            observed[point]=expected[point]
-        if total!=btc_to_sat(scan['total_amount']):raise ValueError('complete cash scan total differs')
+    if not 1<=len(scans)<=16:raise ValueError('cash descriptor scan count exceeds fixed bound')
+    if chain.call('scantxoutset','status') is not None:raise ValueError('existing Core scan running; cash source held')
+    scan=chain.call('scantxoutset','start',scans,timeout=120)
+    if scan.get('success') is not True or (scan.get('height'),scan.get('bestblock'))!=tip:
+        raise ValueError('actual current complete cash descriptor scan required')
+    rows=scan.get('unspents')
+    if not isinstance(rows,list) or len(rows)>2000:raise ValueError('cash coin source bound exceeded')
+    total=0
+    for coin in rows:
+        point=coin['txid']+':'+str(coin['vout']);amount=btc_to_sat(coin['amount']);total+=amount
+        if point in observed or point not in expected or (amount,coin.get('scriptPubKey'))!=(expected[point]['amount_sat'],expected[point]['script']):
+            raise ValueError('actual cash footprint contains missing, extra or changed capital')
+        observed[point]=expected[point]
+    if total!=btc_to_sat(scan['total_amount']):raise ValueError('complete cash scan total differs')
     if set(observed)!=set(expected):raise ValueError('complete cash scan omitted declared owned output')
     for point,coin in observed.items():
         txid,index=point.rsplit(':',1)
