@@ -233,7 +233,9 @@ class Store:
             if self.get_meta("fee_budget_sat") is None:
                 raise ValueError("an explicit fee budget is required for actions")
             used = self.db.execute("SELECT COALESCE(SUM(COALESCE(actual_fee_sat,fee_reservation_sat)),0) FROM action WHERE state!='canceled'").fetchone()[0]
-            if used + fee_reservation_sat > int(self.get_meta("fee_budget_sat")):
+            from .financial_transition import client_budget
+            transitioned=client_budget(self)
+            if (used+fee_reservation_sat>int(self.get_meta('fee_budget_sat')) if transitioned is None else fee_reservation_sat>transitioned):
                 raise ValueError("declared fee budget exhausted")
             self.db.execute("INSERT INTO action VALUES (?,?,?,?,?,'queued',?,?,NULL,NULL,?,?)",
                             (action_id, actor, scenario, operation, canonical(args), due,
@@ -266,6 +268,9 @@ class Store:
         return None
 
     def remaining_fee_budget(self) -> int:
+        from .financial_transition import client_budget
+        transitioned=client_budget(self)
+        if transitioned is not None:return transitioned
         used = self.db.execute("SELECT COALESCE(SUM(COALESCE(actual_fee_sat,fee_reservation_sat)),0) FROM action WHERE state!='canceled'").fetchone()[0]
         return int(self.get_meta("fee_budget_sat") or 0) - used
 
