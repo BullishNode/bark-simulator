@@ -105,6 +105,10 @@ def fee_totals(store,pins,*,reserved_action_id=None):
 
 def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_fee_sat=0,now=None,reserved_action_id=None):
     """Reject stale, underfunded or unaffordable dispatch; return a declared hold."""
+    from . import exploratory
+    if exploratory.scope(store) is not None:
+        return exploratory.preflight(store,config,snapshot,operation=operation,amount_sat=amount_sat,
+            maximum_fee_sat=maximum_fee_sat,now=now,reserved_action_id=reserved_action_id)
     declaration=envelope(store,config);now=time.time() if now is None else now
     if snapshot.get('financial_pins')!=declaration['pins']:raise ValueError('current actual financial pins differ')
     proof_sequence=snapshot.get('operating_readiness_sequence')

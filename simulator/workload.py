@@ -100,12 +100,24 @@ def record_actor_result(store: Store, actor: str, operation: str, data: dict):
             for key in ("funding_address", "fallback_script"):
                 if not isinstance(data[key], str) or not data[key]:
                     raise ValueError("missing wallet identity evidence")
-            if not isinstance(data.get("account_xpub"),str) or not data["account_xpub"]:raise ValueError("missing immutable coin account")
-            details.update(created=True, needs_sync=True, **{k: data[k] for k in ("funding_address", "fallback_script", "account_xpub", "binding") if k in data})
+            from .architecture import profile,TWO_STEP
+            per_key=profile(store)==TWO_STEP
+            if per_key:
+                binding=data.get('binding',{})
+                if (type(binding.get('seq')) is not int or not 0<=binding['seq']<=2**63-1
+                        or binding.get('onchain_ownership_checked') is not True
+                        or any(not isinstance(binding.get(k),str) or not binding[k] for k in ('mailbox_pk','spk','record_attestation'))):
+                    raise ValueError('missing per-key fallback record evidence')
+            elif not isinstance(data.get("account_xpub"),str) or not data["account_xpub"]:
+                raise ValueError("missing immutable coin account")
+            fields=("funding_address","fallback_script","binding") if per_key else ("funding_address","fallback_script","account_xpub","binding")
+            details.update(created=True,needs_sync=True,**{k:data[k] for k in fields if k in data})
         elif operation == "address":
             details["ark_address"] = data["address"]
             if "binding" in data:
-                details["advertised_key_proof"]={k:data[k] for k in ("user_pubkey","child_index","blinded_mailbox_id","binding")}
+                from .architecture import profile,TWO_STEP
+                fields=("user_pubkey","key_link_attestation","binding") if profile(store)==TWO_STEP else ("user_pubkey","child_index","blinded_mailbox_id","binding")
+                details["advertised_key_proof"]={k:data[k] for k in fields}
         elif operation == "snapshot":
             details["snapshot_at"] = time.time()
             details["registered_spendable_sat"] = integer(data["balance"]["spendable_sat"], "client spendable balance")

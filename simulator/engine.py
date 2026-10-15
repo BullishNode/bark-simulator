@@ -101,6 +101,11 @@ class Engine:
     async def refresh_financial_sources(self):
         """Observe before admission; partial facts never replace full preflight."""
         if not self._requires_financial_qualification():return True
+        from . import exploratory
+        if exploratory.scope(self.store) is not None:
+            # Its independent source proof was collected in observe(), before
+            # persisting this snapshot. Partial/global sources stay separate.
+            return True
         try:
             last=float(self.store.get_meta('financial_partial_observed_at') or '0')
             if 0<=time.time()-last<60:return True
@@ -134,6 +139,12 @@ class Engine:
         for sample in snapshot.pop('trace_samples',[]):self.store.trace_sample(sample)
         self.config.validate_identity(snapshot)
         self.store.bind_target(snapshot["identity"])
+        from . import exploratory
+        if exploratory.scope(self.store) is not None:
+            if len(self.config.proof_command)!=4:raise ValueError('independent Core required for exploratory source validation')
+            chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],self.config.expected_genesis,
+                capture=self.store.trace_sample,consumer='exploratory-operating-readiness')
+            snapshot=await exploratory.collect(self.store,self.config,chain,snapshot)
         self.store.add_snapshot(snapshot)
         for item in snapshot.get("rounds_owned_scripts",[]):
             self.store.db.execute("INSERT OR IGNORE INTO operator_script VALUES (?,?)",(item["script"],canonical(item)))
@@ -529,7 +540,12 @@ class Engine:
                         schedule_continuous(self.store,self.config,snapshot)
                 if ready:
                     await self.dispatch_batch()
-            if self.campaign_clock:
+            from . import exploratory
+            if exploratory.scope(self.store) is not None:
+                # Stage-two traffic is useful evidence, never final clock time.
+                if self.store.get_meta('qualified_campaign_active_seconds') not in (None,'0'):
+                    raise InvariantError('preserve historical qualified clock; exploratory scope cannot reset it')
+            if self.campaign_clock and exploratory.scope(self.store) is None:
                 collect_ark_receipts(self.store)
                 if self.store.get_meta('final_financial_epoch') is not None:
                     from .final_campaign import collect_traffic
