@@ -13,7 +13,14 @@ class ChainReader:
         self.cache={}
         self.capture,self.consumer=capture,consumer
     def call(self,method,*args):
-        if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress'}:raise ValueError('read-only RPC required')
+        if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress','scantxoutset','getrawmempool'}:raise ValueError('read-only RPC required')
+        if method=='scantxoutset':
+            if (len(args)!=2 or args[0]!='start' or not isinstance(args[1],list) or not 1<=len(args[1])<=12
+                    or any(not isinstance(row,dict) or set(row)!={'desc','range'} or not isinstance(row['desc'],str)
+                        or len(row['desc'])>4096 or row['range']!=[0,19] for row in args[1])):
+                raise ValueError('bounded public bootstrap descriptor scan required')
+            public_payload(args[1])
+        if method=='getrawmempool' and args!=(False,):raise ValueError('bounded transaction-id inventory required')
         token=base64.b64encode(self.credential.read_text().strip().encode()).decode()
         req=urllib.request.Request(self.url,json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':args}).encode(),{'Authorization':'Basic '+token,'Content-Type':'application/json'})
         raw=None
