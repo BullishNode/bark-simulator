@@ -195,9 +195,50 @@ class Store:
 
     def set_online(self, actor_id: str, online: bool):
         with self.transaction():
+            if online and self.permanent_absence(actor_id) is not None:
+                raise ActorHeld('original actor is permanently absent; reactivation refused')
             if self.db.execute("UPDATE actor SET online=? WHERE id=?", (online, actor_id)).rowcount != 1:
                 raise ValueError("unknown actor")
             self._event("actor_online" if online else "actor_offline", {"actor": actor_id})
+
+    def permanent_absence(self, actor: str):
+        """Authenticate the original irreversible closure, without opening a wallet."""
+        from .final_campaign import _source_event
+        row=self.db.execute('SELECT role,details FROM actor WHERE id=?',(actor,)).fetchone()
+        if row is None:return None
+        details=json.loads(row['details'])
+        events=self.db.execute("SELECT sequence FROM event WHERE kind='actor_permanent_absence_declared' AND json_extract(payload,'$.actor')=?",(actor,)).fetchall()
+        marker=details.get('permanent_absence_sequence')
+        if not events and marker is None:return None
+        if len(events)!=1 or type(marker) is not int or marker!=events[0]['sequence'] or details.get('permanent_absence') is not True:
+            raise InvariantError('original permanent absence declaration missing or changed')
+        _,proof=_source_event(self,marker)
+        if (set(proof)!={'actor','role','reason','scope'} or proof['actor']!=actor or proof['role']!=row['role']
+                or proof['scope']!='original native identity permanently closed'
+                or not isinstance(proof['reason'],str) or not 1<=len(proof['reason'])<=512):
+            raise InvariantError('original permanent absence identity differs')
+        return proof
+
+    def declare_permanent_absence(self, actor: str, *, reason: str):
+        """Close a quiescent original identity atomically; public proofs are retained."""
+        if not isinstance(reason,str) or not 1<=len(reason)<=512:
+            raise ValueError('explicit bounded permanent absence reason required')
+        public_payload({'reason':reason})
+        with (nullcontext() if self.db.in_transaction else self.transaction()):
+            row=self.db.execute('SELECT role,details FROM actor WHERE id=?',(actor,)).fetchone()
+            if row is None:raise ValueError('unknown actor')
+            proof={'actor':actor,'role':row['role'],'reason':reason,'scope':'original native identity permanently closed'}
+            previous=self.permanent_absence(actor)
+            if previous is not None:
+                if previous!=proof:raise InvariantError('permanent absence declaration is immutable')
+                return previous
+            if (self.actor_held(actor) or self.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('queued','dispatched','outcome_unknown')",(actor,)).fetchone()):
+                raise ActorHeld('permanent absence requires no queued, dispatched, unknown action or active actor lease')
+            self._event('actor_permanent_absence_declared',proof)
+            sequence=self.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
+            details={**json.loads(row['details']),'permanent_absence':True,'permanent_absence_sequence':sequence}
+            self.db.execute('UPDATE actor SET online=0,details=? WHERE id=?',(canonical(details),actor))
+            return proof
 
     def online(self, actor_id: str) -> bool:
         row = self.db.execute("SELECT online FROM actor WHERE id=?", (actor_id,)).fetchone()
@@ -218,7 +259,7 @@ class Store:
         return False
 
     def ordinary_actor_available(self, actor: str, *, native_action: str | None = None) -> bool:
-        if self.actor_namespace(actor)!='ordinary' or self.actor_held(actor):return False
+        if self.permanent_absence(actor) is not None or self.actor_namespace(actor)!='ordinary' or self.actor_held(actor):return False
         return self.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('dispatched','outcome_unknown') AND (? IS NULL OR id!=?)",(actor,native_action,native_action)).fetchone() is None
 
     def acquire_actor_lease(self, actor: str, owner: str, purpose: str) -> bool:
@@ -226,7 +267,7 @@ class Store:
         if not all(isinstance(v,str) and 1<=len(v)<=128 for v in (actor,owner,purpose)):
             raise ValueError('explicit actor lease identity required')
         with (nullcontext() if self.db.in_transaction else self.transaction()):
-            if self.get_meta('paused') or self.actor_held(actor):return False
+            if self.permanent_absence(actor) is not None or self.get_meta('paused') or self.actor_held(actor):return False
             if self.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('dispatched','outcome_unknown')",(actor,)).fetchone():return False
             if self.db.execute("SELECT 1 FROM action WHERE actor_id=? AND id!=? AND state='queued' AND operation NOT IN ('snapshot','address')",(actor,owner)).fetchone():return False
             self.db.execute("INSERT INTO actor_lease VALUES (?,?,?,'active') ON CONFLICT(actor) DO UPDATE SET owner=excluded.owner,purpose=excluded.purpose,state='active'",(actor,owner,purpose))
@@ -256,6 +297,7 @@ class Store:
         at = time.time()
         due = at if due_at is None else timestamp(due_at, "action due time")
         with (nullcontext() if self.db.in_transaction else self.transaction()):
+            if self.permanent_absence(actor) is not None:raise ActorHeld('original actor is permanently absent; new intent refused')
             if namespace not in {'ordinary','noah'} or self.actor_namespace(actor)!=namespace:
                 raise ValueError('action participant namespace differs from explicit dispatcher')
             if self.actor_held(actor):raise ActorHeld('actor belongs to an unresolved private controller')
@@ -283,7 +325,7 @@ class Store:
             rows = self.db.execute("SELECT a.* FROM action a JOIN actor u ON u.id=a.actor_id WHERE a.state='queued' AND a.due_at<=? AND u.online=1 ORDER BY a.due_at,a.id", (time.time(),)).fetchall()
             for row in rows:
                 if action_id is not None and row['id']!=action_id:continue
-                if self.actor_namespace(row['actor_id'])!=namespace or self.actor_held(row['actor_id']):continue
+                if self.permanent_absence(row['actor_id']) is not None or self.actor_namespace(row['actor_id'])!=namespace or self.actor_held(row['actor_id']):continue
                 if row["operation"] not in supported:
                     continue
                 busy = self.db.execute("SELECT 1 FROM action WHERE actor_id=? AND state IN ('dispatched','outcome_unknown')", (row["actor_id"],)).fetchone()
