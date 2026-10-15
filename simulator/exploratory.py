@@ -21,13 +21,18 @@ ZERO_TABLES = {'expiry_settlement','htlc_settlement','htlc_vtxo','offboards','sw
 
 
 def scope(store):
-    raw = store.get_meta(KEY)
+    raw = store.get_meta(KEY+':continuation') or store.get_meta(KEY)
     if raw is None:
         return None
     value = json.loads(raw)
-    rows = store.db.execute("SELECT payload FROM event WHERE kind='exploratory_operating_scope_declared'").fetchall()
-    if len(rows) != 1 or rows[0][0] != raw or canonical(value) != raw:
+    rows = store.db.execute("SELECT payload FROM event WHERE kind='exploratory_operating_scope_declared' AND payload=?",(raw,)).fetchall()
+    if len(rows) != 1 or canonical(value) != raw:
         raise InvariantError('exploratory scope differs from original declaration')
+    closed = store.get_meta(KEY+':closed:'+hashlib.sha256(raw.encode()).hexdigest())
+    if closed is not None:
+        events=store.db.execute("SELECT payload FROM event WHERE kind='exploratory_operating_scope_closed' AND payload=?",(closed,)).fetchall()
+        if len(events)!=1:raise InvariantError('scope closure differs from original event')
+        return None
     if store.get_meta('final_financial_epoch') is not None:
         raise ValueError('exploratory authority cannot qualify a final financial epoch')
     return value
@@ -71,6 +76,74 @@ def declare(store, declaration):
         store.db.execute("INSERT OR REPLACE INTO meta VALUES ('financial_qualification_required','true')")
         store.db.execute("INSERT OR IGNORE INTO meta VALUES ('qualified_campaign_active_seconds','0')")
         store._event('exploratory_operating_scope_declared',declaration)
+    return True
+
+
+def close(store,snapshot,reason,*,now=None):
+    """Append closure; pending signed boards and every fee hold remain intact."""
+    now=time.time() if now is None else now
+    declaration=scope(store)
+    if declaration is None:raise ValueError('no active exploratory scope to close')
+    if not isinstance(reason,str) or not 1<=len(reason)<=500:raise ValueError('bounded closure reason required')
+    with store.transaction():
+        if not store.get_meta('paused') or store.db.execute("SELECT 1 FROM action WHERE state IN ('queued','dispatched','outcome_unknown') LIMIT 1").fetchone():
+            raise ValueError('close while paused with zero queued, in-flight and unknown')
+        row=store.db.execute("SELECT * FROM event WHERE sequence=?",(snapshot.get('exploratory_readiness_sequence'),)).fetchone()
+        if row is None or row['kind']!='exploratory_operating_readiness':raise ValueError('fresh checked closure source required')
+        proof=json.loads(row['payload'])
+        if (proof['scope_id']!=declaration['id'] or proof['financial_pins']!=declaration['pins']
+                or (proof['height'],proof['tip_hash'])!=(snapshot['height'],snapshot['tip_hash'])
+                or not 0<=now-proof['observed_at']<=90 or proof['ordinary_path_checked'] is not True
+                or proof['global_complete'] is not False):raise ValueError('fresh checked closure source required')
+        held=store.db.execute("SELECT COALESCE(SUM(fee_reservation_sat),0) FROM action WHERE operation IN ('board','send_arkoor','sync') AND state IN ('queued','dispatched','outcome_unknown','completed')").fetchone()[0]
+        if held+proof['operator_miner_fees_sat']>declaration['fee_budget_sat'] or proof['available_fee_funding_sat']<held:
+            raise ValueError('preserve unresolved costs; closure cannot renew an exhausted budget')
+        if store.get_meta('qualified_campaign_active_seconds') not in (None,'0'):
+            raise ValueError('preserve unexpected positive qualified counter')
+        declaration_hash=hashlib.sha256(canonical(declaration).encode()).hexdigest()
+        closure={'declaration_sha256':declaration_hash,'scope_id':declaration['id'],'reason':reason,
+            'source_sequence':row['sequence'],'source_event_hash':row['hash'],'source_height':proof['height'],
+            'source_tip_hash':proof['tip_hash'],'source_observed_at':proof['observed_at'],
+            'remaining_fee_budget_sat':declaration['fee_budget_sat']-held-proof['operator_miner_fees_sat'],
+            'retained_fee_holds_sat':held,'operator_miner_fees_sat':proof['operator_miner_fees_sat'],
+            'action_count':store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0],
+            'qualified_seconds':0,'closed_at':now,'pending_signed_liabilities_preserved':True}
+        store.db.execute('INSERT INTO meta VALUES (?,?)',(KEY+':closed:'+declaration_hash,canonical(closure)))
+        store._event('exploratory_operating_scope_closed',closure)
+    return closure
+
+
+def continue_scope(store,declaration,*,now=None):
+    """An explicit reviewed continuation; original cumulative budgets/counts apply."""
+    now=time.time() if now is None else now
+    raw=store.get_meta(KEY+':continuation') or store.get_meta(KEY)
+    if raw is None or scope(store) is not None:raise ValueError('close original scope before continuation')
+    if store.get_meta('final_financial_epoch') is not None:raise ValueError('cannot continue after final financial epoch')
+    previous=json.loads(raw);allowed={'id','started_at','deadline'}
+    if set(declaration)!=set(previous) or any(declaration[k]!=v for k,v in previous.items() if k not in allowed):
+        raise ValueError('continuation cannot change pins, actors, fees, capital or operation bounds')
+    if (not isinstance(declaration['id'],str) or declaration['id']==previous['id']
+            or not declaration['started_at']<=now<declaration['deadline']
+            or not 0<declaration['deadline']-declaration['started_at']<=1800):
+        raise ValueError('fresh distinct at-most-thirty-minute continuation required')
+    encoded=canonical(declaration);oldhash=hashlib.sha256(raw.encode()).hexdigest()
+    closed=json.loads(store.get_meta(KEY+':closed:'+oldhash))
+    with store.transaction():
+        if store.get_meta('qualified_campaign_active_seconds') not in (None,'0'):
+            raise ValueError('preserve unexpected positive qualified counter')
+        if (not store.get_meta('paused') or not 0<=now-closed['source_observed_at']<=90
+                or store.db.execute("SELECT 1 FROM action WHERE state IN ('queued','dispatched','outcome_unknown') LIMIT 1").fetchone()
+                or closed['action_count']!=store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]
+                or closed['remaining_fee_budget_sat']<0):raise ValueError('fresh unchanged reconciled closure required')
+        if store.db.execute("SELECT 1 FROM event WHERE kind='exploratory_operating_scope_declared' AND json_extract(payload,'$.id')=?",(declaration['id'],)).fetchone():
+            raise ValueError('scope id already declared')
+        store.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',(KEY+':continuation',encoded))
+        store._event('exploratory_operating_scope_declared',declaration)
+        store._event('exploratory_operating_scope_continued',{'previous_declaration_sha256':oldhash,
+            'previous_closure_sha256':hashlib.sha256(canonical(closed).encode()).hexdigest(),
+            'new_declaration_sha256':hashlib.sha256(encoded.encode()).hexdigest(),
+            'retained_action_count':closed['action_count'],'retained_fee_holds_sat':closed['retained_fee_holds_sat'],
+            'remaining_cumulative_fee_budget_sat':closed['remaining_fee_budget_sat'],'qualified_seconds':0})
     return True
 
 
