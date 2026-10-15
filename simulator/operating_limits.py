@@ -21,14 +21,32 @@ def validate(declaration,config):
     fields={'id','pins','boundary_id','capital_exposure_msat','fee_budgets_msat','fee_ceilings_sat_kvb',
             'per_action_fee_sat','grant_sat','board_sat','board_fee_reserve_sat','minimum_pool_sat',
             'minimum_channel_msat','fee_assets'}
-    if set(declaration)!=fields:raise ValueError('complete explicit operating envelope required')
+    if set(declaration) not in (fields, fields|{'operation_fee_paths'}):
+        raise ValueError('complete explicit operating envelope required')
     _pins(declaration['pins']);public_payload(declaration)
     if not declaration['id'] or not declaration['boundary_id']:raise ValueError('immutable envelope/boundary identifiers required')
     for field in ('capital_exposure_msat','per_action_fee_sat','grant_sat','board_sat','board_fee_reserve_sat','minimum_pool_sat','minimum_channel_msat'):
         integer(declaration[field],field,1)
     if set(declaration['fee_budgets_msat'])!=BUDGETS or set(declaration['fee_ceilings_sat_kvb'])!=PATHS:
         raise ValueError('ordinary/urgent budgets and every real fee path required')
-    for amount in [*declaration['fee_budgets_msat'].values(),*declaration['fee_ceilings_sat_kvb'].values()]:integer(amount,'explicit positive financial limit',1)
+    for amount in declaration['fee_budgets_msat'].values():integer(amount,'explicit positive financial limit',1)
+    if 'operation_fee_paths' in declaration:
+        scope=declaration['operation_fee_paths']
+        if not isinstance(scope,dict) or not scope or len(scope)>128:
+            raise ValueError('bounded explicit operation fee paths required')
+        supported=set()
+        for operation,paths in scope.items():
+            if (not isinstance(operation,str) or not operation or len(operation)>64
+                    or not isinstance(paths,list) or not paths
+                    or any(not isinstance(path,str) for path in paths)
+                    or len(set(paths))!=len(paths) or set(paths)-PATHS):
+                raise ValueError('each scoped operation requires distinct existing fee paths')
+            supported.update(paths)
+        for path,amount in declaration['fee_ceilings_sat_kvb'].items():
+            if path in supported:integer(amount,'explicit positive supported fee ceiling',1)
+            elif amount is not None:raise ValueError('unavailable fee paths require null ceilings')
+    else:
+        for amount in declaration['fee_ceilings_sat_kvb'].values():integer(amount,'explicit positive financial limit',1)
     if declaration['board_sat']+declaration['board_fee_reserve_sat']>declaration['grant_sat']:
         raise ValueError('declared grant cannot fund its board and fees')
     if config.board_amount_sat!=declaration['board_sat'] or config.action_fee_reserve_sat!=declaration['board_fee_reserve_sat']:
@@ -106,6 +124,9 @@ def fee_totals(store,pins,*,reserved_action_id=None):
 def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_fee_sat=0,now=None,reserved_action_id=None):
     """Reject stale, underfunded or unaffordable dispatch; return a declared hold."""
     declaration=envelope(store,config);now=time.time() if now is None else now
+    scope=declaration.get('operation_fee_paths')
+    if scope is not None and operation not in scope:
+        raise ValueError('operation not declared in immutable fee path scope')
     if snapshot.get('financial_pins')!=declaration['pins']:raise ValueError('current actual financial pins differ')
     proof_sequence=snapshot.get('operating_readiness_sequence')
     if proof_sequence is None:raise ValueError('original checked operating readiness missing')
@@ -133,7 +154,7 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
         raise ValueError('per-action or cumulative fee limit exhausted')
     if actual_funds<sum(remaining.values()):raise ValueError('remaining ordinary/urgent budgets no longer backed by available funds')
     estimate=integer(proof['estimated_fee_rate_sat_kvb'],'actual fee estimate',1)
-    paths={operation} if urgent else {'round','pool','sweep','payout'}
+    paths=set(scope[operation]) if scope is not None else ({operation} if urgent else {'round','pool','sweep','payout'})
     if any(estimate>declaration['fee_ceilings_sat_kvb'][path] for path in paths):
         return {'allowed':False,'reason':'fee estimate exceeds affordable declared ceiling','budget':budget,
                 'urgent_claims_and_progression':'separate declared budget and path ceiling; never inherit ordinary approval'}

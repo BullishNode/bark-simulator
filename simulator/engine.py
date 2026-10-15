@@ -147,11 +147,18 @@ class Engine:
         if not healthy:
             return False
         if self._requires_financial_qualification():
-            from .operating_limits import preflight
+            from .operating_limits import envelope,preflight
             try:
                 # Sync/claim progression can continue under its own explicit limits
                 # while an ordinary fee spike holds new financial actions.
-                return preflight(self.store,self.config,snapshot,operation='progression')['allowed']
+                declaration=envelope(self.store,self.config)
+                scope=declaration.get('operation_fee_paths')
+                operations=('progression',) if scope is None else tuple(
+                    operation for operation in ('ordinary','claim','progression') if operation in scope)
+                for operation in operations:
+                    if preflight(self.store,self.config,snapshot,operation=operation)['allowed']:
+                        return True
+                return False
             except ValueError:
                 return False
         return True
@@ -285,6 +292,17 @@ class Engine:
             }
         latest = self.store.db.execute("SELECT id,payload FROM snapshot ORDER BY id DESC LIMIT 1").fetchone()
         snapshot = json.loads(latest["payload"]) if latest else {}
+        financial_declaration=None
+        if self._requires_financial_qualification():
+            from .operating_limits import envelope
+            try:
+                financial_declaration=envelope(self.store,self.config)
+                scope=financial_declaration.get('operation_fee_paths')
+                if scope is not None and action['operation'] not in scope:
+                    raise ValueError('operation not declared in immutable fee path scope')
+            except ValueError as error:
+                self.store.finish(action['id'],'blocked',{'reason':str(error),'scope':'financial preflight; no native call'},0)
+                return True
         if action['operation']=='pay_invoice':
             recipient=action['args'].get('recipient_actor')
             if recipient and (not self.store.online(recipient)
@@ -305,8 +323,9 @@ class Engine:
                 return True
         if self._requires_financial_qualification():
             from .operating_limits import preflight
-            operation = 'progression' if action['operation']=='sync' else action['operation']
             try:
+                scoped='operation_fee_paths' in financial_declaration
+                operation = 'progression' if action['operation']=='sync' and not scoped else action['operation']
                 decision=preflight(self.store,self.config,snapshot,operation=operation,
                     amount_sat=action['args'].get('amount_sat',0),maximum_fee_sat=action['fee_reservation_sat'],
                     reserved_action_id=action['id'])
