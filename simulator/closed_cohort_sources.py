@@ -11,8 +11,11 @@ import time
 from .model import SIGNET_GENESIS, canonical, public_payload
 from .final_campaign import _pins, _source_event
 from .process import json_command, public_command_capture
+from .trace import normalized
 
-MAX_MEMPOOL_TRANSACTIONS = 64
+MAX_MEMPOOL_TRANSACTIONS = 256
+MAX_MEMPOOL_SCAN_BYTES = 8 * 1024 * 1024
+MAX_MEMPOOL_OUTPUTS = 8192
 
 
 def _digest(value):
@@ -173,7 +176,9 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         raise ValueError('independent synchronized signet required')
     scans, scripts = [], set()
     for row in descriptors:
-        if row.get('last_revealed_index') not in (None, 0):
+        # SDK5e load_or_create reserves fallback external0. The existing native
+        # create then reveals its one funding address at external1.
+        if type(row.get('last_revealed_index')) is not int or row['last_revealed_index'] != 1:
             raise ValueError('fresh wallet derivation frontier differs')
         descriptor = row.get('descriptor')
         if not isinstance(descriptor, str) or not 1 <= len(descriptor) <= 4096:
@@ -205,18 +210,32 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
     if (not isinstance(mempool, list) or len(mempool) > MAX_MEMPOOL_TRANSACTIONS
             or len(set(mempool)) != len(mempool)):
         raise ValueError('complete mempool exceeds bootstrap observation bound')
+    mempool_bytes=mempool_outputs=0
     for txid in mempool:
         if time.monotonic() - started > 25:
             raise ValueError('bootstrap source deadline exceeded')
         transaction = chain.tx(txid)
-        if any(output.get('scriptPubKey', {}).get('hex') in scripts for output in transaction['vout']):
-            raise ValueError('bootstrap wallet has unconfirmed assets')
+        mempool_bytes+=len(canonical(normalized(transaction)).encode())
+        if mempool_bytes>MAX_MEMPOOL_SCAN_BYTES:
+            raise ValueError('complete mempool exceeds bootstrap aggregate byte bound')
+        outputs=transaction.get('vout')
+        if not isinstance(outputs,list):raise ValueError('complete mempool output inventory required')
+        mempool_outputs+=len(outputs)
+        if mempool_outputs>MAX_MEMPOOL_OUTPUTS:
+            raise ValueError('complete mempool exceeds bootstrap aggregate output bound')
+        for output in outputs:
+            if (not isinstance(output,dict) or not isinstance(output.get('scriptPubKey'),dict)
+                    or not isinstance(output['scriptPubKey'].get('hex'),str)):
+                raise ValueError('complete mempool output script inventory required')
+            if output['scriptPubKey']['hex'] in scripts:
+                raise ValueError('bootstrap wallet has unconfirmed assets')
     if set(chain.call('getrawmempool', False)) != set(mempool):
         raise ValueError('mempool changed during bootstrap observation')
     ending = chain.identity()
     if (ending.get('initialblockdownload') is not False
             or (ending['blocks'], ending['bestblockhash']) != (before['blocks'], before['bestblockhash'])):
         raise ValueError('independent chain changed during bootstrap observation')
+    if time.monotonic()-started>25:raise ValueError('bootstrap source deadline exceeded')
     receipt = {'actor': actor, 'action_id': action_id, 'bootstrap_id': bootstrap_declaration['id'],
         'complete': True, 'zero_assets': True,
         'driver_response_sequence': source['sequence'], 'native_response_sha256': _digest(response),
@@ -226,6 +245,9 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         'native_inventory_sha256': _digest(native), 'descriptors': descriptors,
         'genesis': SIGNET_GENESIS, 'height': ending['blocks'], 'tip_hash': ending['bestblockhash'],
         'descriptor_range': [0,19], 'mempool_transactions_checked': len(mempool),
+        'mempool_transaction_bound':MAX_MEMPOOL_TRANSACTIONS,'mempool_bytes_checked':mempool_bytes,
+        'mempool_byte_bound':MAX_MEMPOOL_SCAN_BYTES,'mempool_outputs_checked':mempool_outputs,
+        'mempool_output_bound':MAX_MEMPOOL_OUTPUTS,
         'confirmed_assets_sat': 0, 'unconfirmed_assets_sat': 0,
         'observed_at': time.time(), 'scope': 'fresh sole-writer bootstrap descriptors only; not financial readiness'}
     store.event('identity_bootstrap_zero_assets_verified', receipt)

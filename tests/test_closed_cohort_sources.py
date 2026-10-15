@@ -4,6 +4,7 @@ import asyncio
 import json
 import tempfile
 import unittest
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -43,7 +44,7 @@ class BootstrapSourceTests(unittest.TestCase):
         self.store.db.execute('INSERT INTO meta VALUES (?,?)',('zero_principal_identity_bootstrap',canonical(self.declaration)))
         self.store.event('identity_bootstrap_declared',{'declaration':self.declaration})
         self.native={'schema_version':1,'network':'signet','read_only':True,'complete':True,
-            'descriptors':[{'keychain':'external','descriptor':'wpkh(public)#checksum','last_revealed_index':0}],
+            'descriptors':[{'keychain':'external','descriptor':'wpkh(public)#checksum','last_revealed_index':1}],
             'utxos':[],'pending_transactions':[],'pending_parents':[],'unavailable_parent_txids':[]}
         self.response={'action_id':'create-one','status':'ok','actual_fee_sat':0,'data':{'onchain_inventory':self.native}}
         self.store.db.execute("INSERT INTO action VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",('create-one','actor-01',None,'create','{}','completed',0,0,0,canonical(self.response),0,0))
@@ -67,10 +68,48 @@ class BootstrapSourceTests(unittest.TestCase):
     def test_unconfirmed_assets_complete_mempool_bound_and_churn_refuse(self):
         self.chain.mempool=['b'*64];self.chain.tx_script='scriptaddress0'
         with self.assertRaisesRegex(ValueError,'unconfirmed assets'):self.verify()
-        self.chain.tx_script='other';self.chain.mempool=[str(i) for i in range(65)]
+        self.chain.tx_script='other';self.chain.mempool=[f'{i:064x}' for i in range(257)]
         with self.assertRaisesRegex(ValueError,'bound'):self.verify()
         self.chain.mempool=[];self.chain.changed=True
         with self.assertRaisesRegex(ValueError,'mempool changed'):self.verify()
+    def test_exact_native_create_frontier_one_is_required(self):
+        result=self.verify();self.assertEqual(1,result['descriptors'][0]['last_revealed_index'])
+        # Check wrong frontiers before the successful marker on fresh fixtures.
+        for frontier in (None,0,2,True):
+            with self.subTest(frontier=frontier):
+                self.tearDown();self.setUp()
+                self.native['descriptors'][0]['last_revealed_index']=frontier;self.source()
+                with self.assertRaisesRegex(ValueError,'frontier'):self.verify()
+    def test_full_observed_210_transaction_mempool_is_checked_under_explicit_bound(self):
+        self.chain.mempool=[f'{i:064x}' for i in range(210)]
+        with patch.object(self.chain,'tx',wraps=self.chain.tx) as reads:
+            result=self.verify()
+        self.assertEqual(210,reads.call_count)
+        self.assertEqual(210,result['mempool_transactions_checked'])
+        self.assertEqual(256,result['mempool_transaction_bound'])
+    def test_mempool_aggregate_byte_output_and_total_deadline_bounds_refuse(self):
+        self.chain.mempool=['b'*64,'c'*64]
+        with patch('simulator.closed_cohort_sources.MAX_MEMPOOL_SCAN_BYTES',1),self.assertRaisesRegex(ValueError,'byte'):
+            self.verify()
+        with patch('simulator.closed_cohort_sources.MAX_MEMPOOL_OUTPUTS',1),self.assertRaisesRegex(ValueError,'output'):
+            self.verify()
+        self.chain.mempool=[];clock=[0];original=self.chain.call
+        def delayed(method,*args):
+            result=original(method,*args)
+            if method=='scantxoutset':clock[0]=26
+            return result
+        with patch('simulator.closed_cohort_sources.time.monotonic',side_effect=lambda:clock[0]), \
+             patch.object(self.chain,'call',side_effect=delayed),self.assertRaisesRegex(ValueError,'deadline'):
+            self.verify()
+    def test_actual_core_decimal_amounts_and_missing_output_scripts(self):
+        self.chain.mempool=['b'*64]
+        with patch.object(self.chain,'tx',return_value={'vout':[{'value':Decimal('0.00010000'),
+                'scriptPubKey':{'hex':'other'}}]}):
+            self.assertTrue(self.verify()['zero_assets'])
+        self.tearDown();self.setUp();self.chain.mempool=['b'*64]
+        with patch.object(self.chain,'tx',return_value={'vout':[{}]}), \
+             self.assertRaisesRegex(ValueError,'script inventory'):
+            self.verify()
     def test_missing_native_rows_and_fabricated_internal_keychain_refuse(self):
         del self.native['pending_transactions'];self.source()
         with self.assertRaisesRegex(ValueError,'native'):self.verify()
