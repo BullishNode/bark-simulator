@@ -108,5 +108,10 @@
     "B mounted-config source follows actual runtime target, not repository disk path",
     "C uses declared native config path bound to actual process and read-only public-config ops",
     "C installed-file validation uses descriptor-relative O_NOFOLLOW and before/after device/inode/size/mtime/ctime checks"
+  ],
+  "C_specific_privilege_hardening": [
+    "Never grant raw unlock_preimage/signed_forfeit_tx columns to observer",
+    "Owner-defined security-barrier views expose only unlock_available/forfeit_signed booleans",
+    "SQL producer references these declared public views; role grants explicit public columns only"
   ]
 }

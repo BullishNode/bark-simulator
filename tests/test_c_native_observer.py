@@ -56,10 +56,12 @@ class NativeObserverControls(unittest.TestCase):
         for sql in (public.claimant_sql(closed=True),public.direct_journal_sql()):
             self.assertTrue(sql.startswith('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;'))
             self.assertIn('statement_timeout',sql);self.assertIn('LIMIT 2001',sql)
-            for forbidden in ('account_xpub','account_sig','child_index','source_evidence','signed_tx','encoded_vtxo'):
+            for forbidden in ('account_xpub','account_sig','child_index','source_evidence','signed_tx','encoded_vtxo','unlock_preimage','signed_forfeit_tx'):
                 self.assertNotIn(forbidden,sql)
             self.assertIn("encode(sig,'hex') AS sig,recovery_index",sql)
         sql=public.claimant_sql(closed=True)
+        self.assertIn('public.track_c_observer_round_participation',sql)
+        self.assertIn('public.track_c_observer_round_part_input',sql)
         for name in ('journal_allocations','journal_carriers','journal_mappings','journal_records','journal_links','nursery','rounds'):
             self.assertIn("'"+name+"'",sql)
         self.assertIn('WHERE EXISTS',public.direct_journal_sql())

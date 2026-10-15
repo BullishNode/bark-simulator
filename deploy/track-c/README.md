@@ -91,6 +91,16 @@ Unsupported log, raw binding and other source requests refuse. Every financial
 frame remains `complete=false` and `qualified=false`; actual source collectors
 and common financial preflight decide their much narrower operation scope.
 
+`observer-role.sql` is a root-reviewed installation proposal, not executed by
+this source. It grants explicit public columns on17 base tables and2 owner-defined
+security-barrier views. The views expose only whether a round unlock preimage or
+signed forfeit exists; the observer gets no privilege on either private base
+column. `observer-role.json` records the full table/column allowlist. Install
+the matching producer and views together, then capture the resulting observed
+schema identity. Additive grants do not remove pre-existing grants or role
+memberships, which root must inspect. No C legacy settlement path receives
+extra privileges. SQL generation and the read-only PG role are separate controls.
+
 On the simulator host, use the existing `simulator.remote_observer` with
 `--architecture-profile direct_per_key`, explicit `--target-ssh USER@HOST`,
 `--financial-context ABSOLUTE_PUBLIC_JSON` and `--campaign-config ACTUAL_TOML`,

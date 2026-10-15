@@ -1,0 +1,194 @@
+{
+  "created_at": "2026-10-15T18:27:48.643416+00:00",
+  "scope": "Root review/install only, no SQL executed by C worker",
+  "database": "trackc",
+  "role": "trackcobserver",
+  "owner": "trackcserver",
+  "source_candidate": "9358fe0 plus required public-presence-view patch",
+  "base_table_column_select": {
+    "vtxo": [
+      "id",
+      "vtxo_id",
+      "amount",
+      "expiry",
+      "spend_state",
+      "policy_type",
+      "policy",
+      "anchor_point",
+      "vtxo_txid",
+      "oor_spent_txid",
+      "spent_in_round",
+      "offboarded_in",
+      "frontier_at",
+      "confirmed_height",
+      "onchain_spent_height",
+      "onchain_spent_txid",
+      "lightning_htlc_subscription_id"
+    ],
+    "pending_board": [
+      "id",
+      "vtxo_id",
+      "expiry"
+    ],
+    "key_link": [
+      "user_pubkey",
+      "mailbox_pk",
+      "sig",
+      "recovery_index"
+    ],
+    "fallback_record": [
+      "mailbox_pk",
+      "spk",
+      "mailbox_sig"
+    ],
+    "vtxo_pool": [
+      "id",
+      "vtxo_id",
+      "expiry_height",
+      "amount",
+      "spent_at"
+    ],
+    "lightning_node": [
+      "id",
+      "pubkey"
+    ],
+    "htlc_vtxo": [
+      "id",
+      "payment_hash",
+      "htlc_expiry",
+      "direction",
+      "offchain_resolution",
+      "chain_resolution",
+      "chain_resolution_height"
+    ],
+    "htlc_settlement": [
+      "payment_hash"
+    ],
+    "lightning_htlc_subscription": [
+      "id",
+      "lightning_node_id",
+      "payment_hash",
+      "status",
+      "lowest_incoming_htlc_expiry",
+      "accepted_at",
+      "final_amount_msat",
+      "receiver_mailbox_id"
+    ],
+    "lightning_payment_attempt": [
+      "id",
+      "lightning_node_id",
+      "payment_hash",
+      "status",
+      "amount_msat",
+      "final_amount_msat",
+      "sender_mailbox_id",
+      "lightning_htlc_subscription_id",
+      "block_height",
+      "user_fee_sat",
+      "invoice_expires_at"
+    ],
+    "lightning_payment_attempt_htlc_vtxo": [
+      "lightning_payment_attempt_id",
+      "vtxo_id"
+    ],
+    "round_part_output": [
+      "participation_id",
+      "policy",
+      "amount",
+      "unblinded_mailbox_id"
+    ],
+    "expiry_allocation": [
+      "id",
+      "freeze_set",
+      "owner_pubkey",
+      "spk",
+      "disposition",
+      "gross_sat",
+      "fee_sat",
+      "payout_sat",
+      "forfeited_sat",
+      "source",
+      "retirement_ids",
+      "frozen_at"
+    ],
+    "expiry_carrier": [
+      "txid",
+      "generation",
+      "backing_ids",
+      "fee_inputs",
+      "miner_fee_sat",
+      "funding_subsidy_sat",
+      "created_at",
+      "confirmed_height",
+      "confirmed_block"
+    ],
+    "expiry_carrier_allocation": [
+      "txid",
+      "allocation_id",
+      "vout"
+    ],
+    "nursery_tx": [
+      "id",
+      "txid",
+      "confirm_target_height",
+      "confirmed_at_height",
+      "abandoned_at",
+      "created_at",
+      "updated_at",
+      "kind"
+    ],
+    "round": [
+      "id",
+      "seq",
+      "funding_txid",
+      "expiry",
+      "swept_at",
+      "created_at"
+    ]
+  },
+  "public_views": {
+    "track_c_observer_round_participation": {
+      "source": "round_participation",
+      "public_columns": [
+        "id",
+        "round_id",
+        "created_at",
+        "forfeited_at",
+        "scheduled_height",
+        "unlock_available"
+      ],
+      "owner_only_expression": "unlock_preimage IS NOT NULL AS unlock_available"
+    },
+    "track_c_observer_round_part_input": {
+      "source": "round_part_input",
+      "public_columns": [
+        "participation_id",
+        "vtxo_id",
+        "forfeit_signed"
+      ],
+      "owner_only_expression": "signed_forfeit_tx IS NOT NULL AS forfeit_signed"
+    }
+  },
+  "never_grant_base_columns": [
+    "round_participation.unlock_preimage",
+    "round_part_input.signed_forfeit_tx",
+    "expiry_allocation.source_evidence",
+    "expiry_carrier.signed_tx",
+    "vtxo.vtxo",
+    "nursery_tx.tx"
+  ],
+  "unsupported_C_paths": [
+    "legacy settlements page",
+    "raw binding probe",
+    "logs"
+  ],
+  "notes": [
+    "Column grant lists include fields required by predicates/joins, not only emitted columns",
+    "Nursery kind is a PostgreSQL enum, not transaction bytes",
+    "Public views are definer views owned by trackcserver with security_barrier true/security_invoker false, returning booleans only",
+    "Capture final observed canonical schema hash after installing these declared views/grants; do not claim original product schema artifact unchanged",
+    "Audit existing grants and memberships first; additive grants do not remove any pre-existing private grants",
+    "Read-only default/8s timeout are operational constraints, not a substitute for SELECT-only column privileges",
+    "Set restricted observer search_path to pg_catalog, public, pg_temp, with no role-owned public objects; revoke public CREATE on public schema in C DB if needed after root review"
+  ]
+}
