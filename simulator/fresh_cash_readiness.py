@@ -358,6 +358,41 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
     return {'source_sequence':sequence,'source':source}
 
 
+def _operator_fee_funding(store,source,assets,current):
+    available=0
+    for owner,field in (('rounds','rounds_inventory'),('watchman','watchman_inventory')):
+        frame=current.get(field,{}).get(owner)
+        scanned={row['desc']:row['range'][1] for row in source.get('descriptor_ranges',[])}
+        expected={point:coin for point,coin in assets['assets'].items() if coin['member']==owner}
+        member=next(member for member in source['members'] if member['id']==owner)
+        _,inventory=_source_event(store,source['inventory_sequences'][owner])
+        owned_scripts={coin['outpoint']:coin['script'] for coin in inventory['utxos']}
+        if (not isinstance(frame,dict) or frame.get('complete') is not True or frame.get('network')!='signet'
+                or frame.get('wallet')!=owner or member['descriptors']!=[frame.get('public_descriptor')]
+                or type(frame.get('last_revealed_index')) is not int
+                or not 0<=frame['last_revealed_index']<=scanned.get(frame.get('public_descriptor'),-1)
+                or (frame.get('tip_height'),frame.get('tip_hash'))!=(source['height'],source['tip_hash'])
+                or any(frame.get(key)!=[] for key in ('reserved_outpoints','pending_transactions','pending_parents','unavailable_parent_txids'))
+                or not isinstance(frame.get('utxos'),list) or len(frame['utxos'])!=len(expected)
+                or {coin['outpoint'] for coin in frame['utxos']}!=set(expected)):
+            raise ValueError('actual current unreserved operator cash inventory required')
+        for coin in frame['utxos']:
+            actual=expected[coin['outpoint']]
+            if (type(coin.get('value_sat')) is not int or coin['value_sat']*1000!=actual['amount_msat']
+                    or coin.get('script_pubkey')!=owned_scripts[coin['outpoint']]
+                    or type(coin.get('confirmed_fee_eligible')) is not bool
+                    or type(coin.get('trusted')) is not bool or type(coin.get('mature')) is not bool
+                    or coin.get('reserved') is not False):
+                raise ValueError('actual operator fee eligibility differs')
+            # An untrusted rounds output remains conserved capital. Only the
+            # actual native eligible subset backs fee budgets.
+            if coin['confirmed_fee_eligible']:
+                if coin['mature'] is not True or coin['trusted'] is not True:
+                    raise ValueError('native fee eligibility contradicts maturity/trust')
+                available+=actual['amount_msat']
+    return available
+
+
 def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_source_sequence,current_startup_path):
     """Admit only fee-free cash synchronization after actual source collection."""
     from .runtime_startup import _read
@@ -392,37 +427,7 @@ def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_sou
             or assets['total_msat']!=(665454-transaction['fee_sat'])*1000
             or fee_totals(store,plan['pins'])!={'ordinary':transaction['fee_sat']*1000,'urgent':0}):
         raise ValueError('cash closing conservation, tip or cumulative fees differ')
-    available=0
-    for owner,field in (('rounds','rounds_inventory'),('watchman','watchman_inventory')):
-        frame=current.get(field,{}).get(owner)
-        scanned={row['desc']:row['range'][1] for row in source.get('descriptor_ranges',[])}
-        expected={point:coin for point,coin in assets['assets'].items() if coin['member']==owner}
-        member=next(member for member in source['members'] if member['id']==owner)
-        _,inventory=_source_event(store,source['inventory_sequences'][owner])
-        owned_scripts={coin['outpoint']:coin['script'] for coin in inventory['utxos']}
-        if (not isinstance(frame,dict) or frame.get('complete') is not True or frame.get('network')!='signet'
-                or frame.get('wallet')!=owner or member['descriptors']!=[frame.get('public_descriptor')]
-                or type(frame.get('last_revealed_index')) is not int
-                or not 0<=frame['last_revealed_index']<=scanned.get(frame.get('public_descriptor'),-1)
-                or (frame.get('tip_height'),frame.get('tip_hash'))!=(source['height'],source['tip_hash'])
-                or any(frame.get(key)!=[] for key in ('reserved_outpoints','pending_transactions','pending_parents','unavailable_parent_txids'))
-                or not isinstance(frame.get('utxos'),list) or len(frame['utxos'])!=len(expected)
-                or {coin['outpoint'] for coin in frame['utxos']}!=set(expected)):
-            raise ValueError('actual current unreserved operator cash inventory required')
-        for coin in frame['utxos']:
-            actual=expected[coin['outpoint']]
-            if (type(coin.get('value_sat')) is not int or coin['value_sat']*1000!=actual['amount_msat']
-                    or coin.get('script_pubkey')!=owned_scripts[coin['outpoint']]
-                    or type(coin.get('confirmed_fee_eligible')) is not bool
-                    or type(coin.get('trusted')) is not bool or type(coin.get('mature')) is not bool
-                    or coin.get('reserved') is not False):
-                raise ValueError('actual operator fee eligibility differs')
-            # An untrusted rounds output remains conserved capital. Only the
-            # actual native eligible subset backs fee budgets.
-            if coin['confirmed_fee_eligible']:
-                if coin['mature'] is not True or coin['trusted'] is not True:
-                    raise ValueError('native fee eligibility contradicts maturity/trust')
-                available+=actual['amount_msat']
+    available=_operator_fee_funding(store,source,assets,current)
     used=fee_totals(store,plan['pins'])
     remaining={key:limits['fee_budgets_msat'][key]-used[key] for key in ('ordinary','urgent')}
     if min(remaining.values())<0 or available<sum(remaining.values()):
