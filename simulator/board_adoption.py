@@ -256,12 +256,8 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
         owner=scripts.get(output['script'])
         if owner is None or owner['member_id']!='actor-01':raise ValueError('Board change not in original customer descriptor')
         expected[point]={**owner,'amount_sat':output['amount_sat'],'script':output['script']}
-    observed={};total=0
-    for coin in scan['unspents']:
-        point=coin['txid']+':'+str(coin['vout']);amount=btc_to_sat(coin['amount']);total+=amount
-        if point in observed or point not in expected or (amount,coin['scriptPubKey'])!=(expected[point]['amount_sat'],expected[point]['script']):raise ValueError('Board cash source has extra/missing/changed asset')
-        observed[point]=expected[point]
-    if len(observed)>2000 or set(observed)!=set(expected) or total!=btc_to_sat(scan['total_amount']):raise ValueError('complete Board cash footprint differs')
+    from .public_treasury import match_scanned_cash,check_named_bank
+    observed=match_scanned_cash(scan,expected)
     anchor=origin['anchor_output'];physical={**observed,origin['anchor']:{'member_id':'original-board-backing','amount_sat':20000,'script':anchor['script']}}
     for point,coin in physical.items():
         txid,index=point.rsplit(':',1);actual=chain.call('gettxout',txid,int(index),True)
@@ -271,15 +267,7 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
     if physical_total!=665454-origin['funding_fee_sat']-origin['mining_fee_sat']:raise ValueError('cash plus single physical Board anchor does not conserve capital')
     mempool=_empty_mempool(chain,set(scripts)|{anchor['script']},started)
     bankseq=collect_funding_bank_source(store,bank_rpc,chain);_,bank=_source_event(store,bankseq)
-    expected_bank={point:coin for point,coin in observed.items() if coin['member_id']=='bank'}
-    bank_points={row['txid']+':'+str(row['vout']):row for row in bank['listunspent']}
-    if (bank['source_identity']['wallet_name']!=origin['funding_plan']['bank_wallet_name'] or (bank['height'],bank['tip_hash'])!=tip
-            or set(bank_points)!=set(expected_bank) or any(bank.get(key)!=[] for key in ('pending_transactions','pending_parents','locked_coins','listlockunspent'))
-            or btc_to_sat(bank['getbalances']['mine']['trusted'])!=sum(coin['amount_sat'] for coin in expected_bank.values())
-            or btc_to_sat(bank['getbalances']['mine']['untrusted_pending'])!=0):raise ValueError('actual complete bank closing source differs')
-    for point,coin in bank_points.items():
-        if (btc_to_sat(coin['amount'])!=expected_bank[point]['amount_sat'] or coin['scriptPubKey']!=expected_bank[point]['script']
-                or coin.get('spendable') is not True or coin.get('safe') is not True):raise ValueError('actual bank control differs')
+    check_named_bank(bank,origin['funding_plan']['bank_wallet_name'],observed,tip)
     _,prior=_source_event(store,cash['database_source_sequence'])
     request={'kind':'closed_frontier'}
     database=await json_command(list(config.inventory_command),request,timeout=25,**public_command_capture(store,'board_adoption.closed_frontier',request))
