@@ -68,7 +68,7 @@ class BootstrapSourceTests(unittest.TestCase):
     def test_unconfirmed_assets_complete_mempool_bound_and_churn_refuse(self):
         self.chain.mempool=['b'*64];self.chain.tx_script='scriptaddress0'
         with self.assertRaisesRegex(ValueError,'unconfirmed assets'):self.verify()
-        self.chain.tx_script='other';self.chain.mempool=[f'{i:064x}' for i in range(257)]
+        self.chain.tx_script='other';self.chain.mempool=[f'{i:064x}' for i in range(2501)]
         with self.assertRaisesRegex(ValueError,'bound'):self.verify()
         self.chain.mempool=[];self.chain.changed=True
         with self.assertRaisesRegex(ValueError,'mempool changed'):self.verify()
@@ -86,7 +86,15 @@ class BootstrapSourceTests(unittest.TestCase):
             result=self.verify()
         self.assertEqual(210,reads.call_count)
         self.assertEqual(210,result['mempool_transactions_checked'])
-        self.assertEqual(256,result['mempool_transaction_bound'])
+        self.assertEqual(2500,result['mempool_transaction_bound'])
+    def test_full_observed_1972_transaction_mempool_is_checked_without_truncation(self):
+        self.chain.mempool=[f'{i:064x}' for i in range(1972)]
+        with patch.object(self.chain,'tx',wraps=self.chain.tx) as reads:
+            result=self.verify()
+        self.assertEqual(1972,reads.call_count)
+        self.assertEqual(1972,result['mempool_transactions_checked'])
+        self.assertEqual(2500,result['mempool_transaction_bound'])
+        self.assertEqual(50000,result['mempool_output_bound'])
     def test_mempool_aggregate_byte_output_and_total_deadline_bounds_refuse(self):
         self.chain.mempool=['b'*64,'c'*64]
         with patch('simulator.closed_cohort_sources.MAX_MEMPOOL_SCAN_BYTES',1),self.assertRaisesRegex(ValueError,'byte'):
