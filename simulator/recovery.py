@@ -217,17 +217,64 @@ class RecoveryController:
                 self.store._event('seed_recovery_declared', declaration)
         return declaration
 
+    def _checked_rows(self, actor):
+        rows = [dict(row) for row in self.store.db.execute("""SELECT c.* FROM checked_settlement c
+            JOIN settlement_check s ON s.txid=c.txid WHERE c.actor=? AND s.state='amounts_checked'
+            ORDER BY c.txid,c.script""", (actor,))]
+        # Direct checks have their own durable marker. Never manufacture a
+        # legacy marker or accept a journal allocation as proof of payment.
+        from .direct_settlements import FIELDS
+        from .final_campaign import _source_event
+        for candidate in self.store.db.execute('SELECT * FROM checked_settlement WHERE actor=?', (actor,)):
+            evidence = json.loads(candidate['evidence'])
+            if evidence.get('route') != 'direct': continue
+            rows = [row for row in rows if row['coin_id'] != candidate['coin_id']]
+            if (evidence.get('actor') != actor or evidence.get('id') != candidate['coin_id']
+                    or evidence.get('spk') != candidate['script'] or evidence.get('payout_sat') != candidate['amount_sat']
+                    or evidence.get('source') not in {'registered', 'pending-board'}):
+                raise InvariantError('direct recovery source identity differs')
+            if evidence.get('disposition') == 'forfeit' and candidate['amount_sat'] == 0: continue
+            if evidence.get('disposition') != 'pay' or candidate['amount_sat'] <= 0:
+                raise InvariantError('direct recovery needs a positive checked payout')
+            marker = self.store.db.execute('SELECT state,payload FROM direct_check WHERE freeze_set=?',
+                                           (evidence.get('freeze_set'),)).fetchone()
+            if marker is None or marker['state'] != 'confirmed_checked': continue
+            checked = json.loads(marker['payload'])
+            event = self.store.db.execute("""SELECT sequence FROM event WHERE kind='direct_payment_checked'
+                AND json_extract(payload,'$.freeze_set')=? ORDER BY sequence DESC LIMIT 1""",
+                (evidence['freeze_set'],)).fetchone()
+            if (checked.get('freeze_set') != evidence['freeze_set'] or checked.get('txid') != candidate['txid']
+                    or event is None or _source_event(self.store, event[0])[1] != checked
+                    or any(evidence.get(key) != checked.get(key) for key in ('accounting', 'carrier_versions', 'scope'))):
+                raise InvariantError('original direct payment check differs')
+            allocation = self.store.db.execute("SELECT payload FROM direct_journal_object WHERE kind='allocations' AND id=?",
+                                               (candidate['coin_id'],)).fetchone()
+            mapping = self.store.db.execute("SELECT payload FROM direct_journal_object WHERE kind='mappings' AND id=?",
+                (canonical([candidate['txid'], candidate['coin_id']]),)).fetchone()
+            if (allocation is None or mapping is None
+                    or json.loads(allocation[0]) != {key: evidence.get(key) for key in FIELDS['allocations']}):
+                raise InvariantError('original direct allocation differs')
+            mapped = json.loads(mapping[0])
+            if (set(mapped) != FIELDS['mappings'] or mapped['txid'] != candidate['txid']
+                    or mapped['allocation_id'] != candidate['coin_id'] or type(mapped['vout']) is not int or mapped['vout'] < 0):
+                raise InvariantError('original direct payout mapping differs')
+            rows.append({**dict(candidate), 'direct_vout': mapped['vout']})
+        return rows
+
     def _sources(self, actor):
         sources = {}
-        rows = self.store.db.execute("""SELECT c.* FROM checked_settlement c
-            JOIN settlement_check s ON s.txid=c.txid WHERE c.actor=? AND s.state='amounts_checked'
-            ORDER BY c.txid,c.script""", (actor,)).fetchall()
-        for row in rows:
+        for row in self._checked_rows(actor):
             cached = self.store.db.execute('SELECT payload FROM chain_payout WHERE txid=?', (row['txid'],)).fetchone()
             if cached is None: continue
             candidates = [o for o in json.loads(cached[0])['outputs'] if o['script'] == row['script']]
             if len(candidates) != 1: raise InvariantError('checked payout output is ambiguous')
             output = candidates[0]; outpoint = row['txid'] + ':' + str(output['vout'])
+            if 'direct_vout' in row:
+                grouped = self.store.db.execute('SELECT actor,amount_sat FROM checked_settlement WHERE txid=? AND script=?',
+                                                (row['txid'], row['script'])).fetchall()
+                if (output['vout'] != row['direct_vout'] or any(item['actor'] != actor for item in grouped)
+                        or sum(item['amount_sat'] for item in grouped) != output['amount_sat']):
+                    raise InvariantError('direct recovery exact output or grouped owner amount differs')
             if self.store.db.execute('SELECT 1 FROM seed_recovery_input WHERE outpoint=?', (outpoint,)).fetchone(): continue
             tx = self.rpc.call('getrawtransaction', row['txid'], True)
             if tx['txid'] != row['txid'] or tx.get('confirmations', 0) < 1: continue
