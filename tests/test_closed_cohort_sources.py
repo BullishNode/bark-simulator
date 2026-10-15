@@ -32,7 +32,7 @@ class Chain:
             return self.scan_status if args==('status',) else self.scan
         if method=='getrawmempool':
             answer=self.mempool.copy()
-            if self.changed:self.mempool.append('b'*64)
+            if self.changed:self.mempool.append(f'{len(self.mempool)+1:064x}')
             return answer
         raise AssertionError(method)
 
@@ -73,7 +73,30 @@ class BootstrapSourceTests(unittest.TestCase):
         self.chain.tx_script='other';self.chain.mempool=[f'{i:064x}' for i in range(2501)]
         with self.assertRaisesRegex(ValueError,'bound'):self.verify()
         self.chain.mempool=[];self.chain.changed=True
-        with self.assertRaisesRegex(ValueError,'mempool changed'):self.verify()
+        with self.assertRaisesRegex(ValueError,'fixed point'):self.verify()
+    def test_new_owned_mempool_arrival_is_checked_and_refused(self):
+        snapshots=[['b'*64],['b'*64,'c'*64]];original=self.chain.call
+        def calls(method,*args,**kwargs):
+            if method=='getrawmempool':return snapshots.pop(0) if snapshots else ['b'*64,'c'*64]
+            return original(method,*args,**kwargs)
+        def transaction(txid):
+            return {'vout':[{'scriptPubKey':{'hex':'scriptaddress0' if txid=='c'*64 else 'other'}}]}
+        with patch.object(self.chain,'call',side_effect=calls),patch.object(self.chain,'tx',side_effect=transaction), \
+             self.assertRaisesRegex(ValueError,'unconfirmed assets'):
+            self.verify()
+    def test_new_unrelated_arrival_reaches_complete_fixed_point_and_removals_are_safe(self):
+        snapshots=[['b'*64],['c'*64],['c'*64]];original=self.chain.call
+        def calls(method,*args,**kwargs):
+            if method=='getrawmempool':return snapshots.pop(0) if snapshots else ['c'*64]
+            return original(method,*args,**kwargs)
+        with patch.object(self.chain,'call',side_effect=calls),patch.object(self.chain,'tx',wraps=self.chain.tx) as reads:
+            receipt=self.verify()
+        self.assertEqual(2,reads.call_count)
+        self.assertEqual(2,receipt['mempool_unique_transactions_checked'])
+        self.assertEqual(1,receipt['mempool_current_transactions'])
+        self.assertEqual(2,receipt['mempool_fixed_point_passes'])
+        import hashlib
+        self.assertEqual(hashlib.sha256(canonical(['c'*64]).encode()).hexdigest(),receipt['mempool_current_set_sha256'])
     def test_exact_native_create_frontier_one_is_required(self):
         result=self.verify();self.assertEqual(1,result['descriptors'][0]['last_revealed_index'])
         # Check wrong frontiers before the successful marker on fresh fixtures.

@@ -18,6 +18,7 @@ MAX_MEMPOOL_SCAN_BYTES = 8 * 1024 * 1024
 MAX_MEMPOOL_OUTPUTS = 50000
 MAX_SOURCE_SECONDS = 180
 MAX_SCAN_SECONDS = 120
+MAX_MEMPOOL_PASSES = 8
 
 
 def _digest(value):
@@ -210,31 +211,42 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
             or scan.get('bestblock') != before['bestblockhash'] or scan.get('unspents') != []
             or scan.get('total_amount') != 0):
         raise ValueError('independent bootstrap scan is not empty at exact tip')
-    mempool = chain.call('getrawmempool', False)
-    if (not isinstance(mempool, list) or len(mempool) > MAX_MEMPOOL_TRANSACTIONS
-            or len(set(mempool)) != len(mempool)):
-        raise ValueError('complete mempool exceeds bootstrap observation bound')
+    def current_mempool():
+        items=chain.call('getrawmempool',False)
+        if (not isinstance(items,list) or len(items)>MAX_MEMPOOL_TRANSACTIONS
+                or any(not isinstance(txid,str) or len(txid)!=64
+                    or any(character not in '0123456789abcdef' for character in txid) for txid in items)
+                or len(set(items))!=len(items)):
+            raise ValueError('complete mempool exceeds bootstrap observation bound')
+        return set(items)
+    current=current_mempool();checked_txids=set()
     mempool_bytes=mempool_outputs=0
-    for txid in mempool:
-        if time.monotonic() - started > MAX_SOURCE_SECONDS:
-            raise ValueError('bootstrap source deadline exceeded')
-        transaction = chain.tx(txid)
-        mempool_bytes+=len(canonical(normalized(transaction)).encode())
-        if mempool_bytes>MAX_MEMPOOL_SCAN_BYTES:
-            raise ValueError('complete mempool exceeds bootstrap aggregate byte bound')
-        outputs=transaction.get('vout')
-        if not isinstance(outputs,list):raise ValueError('complete mempool output inventory required')
-        mempool_outputs+=len(outputs)
-        if mempool_outputs>MAX_MEMPOOL_OUTPUTS:
-            raise ValueError('complete mempool exceeds bootstrap aggregate output bound')
-        for output in outputs:
-            if (not isinstance(output,dict) or not isinstance(output.get('scriptPubKey'),dict)
-                    or not isinstance(output['scriptPubKey'].get('hex'),str)):
-                raise ValueError('complete mempool output script inventory required')
-            if output['scriptPubKey']['hex'] in scripts:
-                raise ValueError('bootstrap wallet has unconfirmed assets')
-    if set(chain.call('getrawmempool', False)) != set(mempool):
-        raise ValueError('mempool changed during bootstrap observation')
+    for passes in range(1,MAX_MEMPOOL_PASSES+1):
+        if len(checked_txids|current)>MAX_MEMPOOL_TRANSACTIONS:
+            raise ValueError('complete mempool exceeds bootstrap unique transaction bound')
+        for txid in sorted(current-checked_txids):
+            if time.monotonic() - started > MAX_SOURCE_SECONDS:
+                raise ValueError('bootstrap source deadline exceeded')
+            transaction = chain.tx(txid)
+            mempool_bytes+=len(canonical(normalized(transaction)).encode())
+            if mempool_bytes>MAX_MEMPOOL_SCAN_BYTES:
+                raise ValueError('complete mempool exceeds bootstrap aggregate byte bound')
+            outputs=transaction.get('vout')
+            if not isinstance(outputs,list):raise ValueError('complete mempool output inventory required')
+            mempool_outputs+=len(outputs)
+            if mempool_outputs>MAX_MEMPOOL_OUTPUTS:
+                raise ValueError('complete mempool exceeds bootstrap aggregate output bound')
+            for output in outputs:
+                if (not isinstance(output,dict) or not isinstance(output.get('scriptPubKey'),dict)
+                        or not isinstance(output['scriptPubKey'].get('hex'),str)):
+                    raise ValueError('complete mempool output script inventory required')
+                if output['scriptPubKey']['hex'] in scripts:
+                    raise ValueError('bootstrap wallet has unconfirmed assets')
+            checked_txids.add(txid)
+        current=current_mempool()
+        if current<=checked_txids:break
+    else:
+        raise ValueError('complete mempool did not reach bounded checked fixed point')
     ending = chain.identity()
     if (ending.get('initialblockdownload') is not False
             or (ending['blocks'], ending['bestblockhash']) != (before['blocks'], before['bestblockhash'])):
@@ -248,7 +260,10 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         'source_event_hash': source['hash'], 'response_sha256': _digest(response),
         'native_inventory_sha256': _digest(native), 'descriptors': descriptors,
         'genesis': SIGNET_GENESIS, 'height': ending['blocks'], 'tip_hash': ending['bestblockhash'],
-        'descriptor_range': [0,19], 'mempool_transactions_checked': len(mempool),
+        'descriptor_range': [0,19], 'mempool_transactions_checked': len(checked_txids),
+        'mempool_unique_transactions_checked':len(checked_txids),'mempool_current_transactions':len(current),
+        'mempool_current_set_sha256':_digest(sorted(current)),'mempool_fixed_point_passes':passes,
+        'mempool_pass_bound':MAX_MEMPOOL_PASSES,
         'mempool_transaction_bound':MAX_MEMPOOL_TRANSACTIONS,'mempool_bytes_checked':mempool_bytes,
         'mempool_byte_bound':MAX_MEMPOOL_SCAN_BYTES,'mempool_outputs_checked':mempool_outputs,
         'mempool_output_bound':MAX_MEMPOOL_OUTPUTS,
