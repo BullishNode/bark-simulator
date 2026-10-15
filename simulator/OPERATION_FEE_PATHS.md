@@ -18,5 +18,5 @@ operation. Existing capital, confirmed fee backing, cost deduplication, queued
 reservation, freshness, exact-pin and Lightning ownership checks remain.
 
 This map is not bootstrap permission or a financial source producer. Full
-treasury/readiness remains required until a separate zero-principal identity
-bootstrap verifier is implemented and its actual source conditions are met.
+treasury/readiness remains required for funded actions. The separate opt-in
+zero-principal identity phase is described in IDENTITY_BOOTSTRAP.md.

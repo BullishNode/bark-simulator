@@ -39,6 +39,7 @@ from .entitlements import record_submitted as record_delegated, collect as colle
 from .operator_scripts import collect as collect_operator_scripts
 from .unknown_outcomes import collect as collect_unknown
 from .exits import collect as collect_exits
+from . import identity_bootstrap
 
 OPERATIONS = {"create", "snapshot", "sync", "address", "board", "send_arkoor", "refresh",
               "refresh_delegated", "refresh_scheduled", "fallback_record_check", "exit", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES) | {"phase_execute_d17","phase_register_saved"}
@@ -147,6 +148,11 @@ class Engine:
         if not healthy:
             return False
         if self._requires_financial_qualification():
+            try:
+                if identity_bootstrap.pending(self.store):
+                    return identity_bootstrap.eligible(self.store,self.config,snapshot)
+            except (ValueError,OSError,KeyError):
+                return False
             from .operating_limits import envelope,preflight
             try:
                 # Sync/claim progression can continue under its own explicit limits
@@ -250,7 +256,8 @@ class Engine:
         if not self.config.active:return False
         self.store.bind_wallet_root(self.config.wallet_root)
         actions=[]
-        for _ in range(self.config.dispatch_per_tick):
+        count=1 if identity_bootstrap.pending(self.store) else self.config.dispatch_per_tick
+        for _ in range(count):
             action=self.store.claim(OPERATIONS)
             if action is None:break
             actions.append(action)
@@ -293,14 +300,18 @@ class Engine:
         latest = self.store.db.execute("SELECT id,payload FROM snapshot ORDER BY id DESC LIMIT 1").fetchone()
         snapshot = json.loads(latest["payload"]) if latest else {}
         financial_declaration=None
+        bootstrap_action=False
         if self._requires_financial_qualification():
             from .operating_limits import envelope
             try:
-                financial_declaration=envelope(self.store,self.config)
-                scope=financial_declaration.get('operation_fee_paths')
-                if scope is not None and action['operation'] not in scope:
-                    raise ValueError('operation not declared in immutable fee path scope')
-            except ValueError as error:
+                if identity_bootstrap.pending(self.store):
+                    bootstrap_action=identity_bootstrap.eligible(self.store,self.config,snapshot,action)
+                else:
+                    financial_declaration=envelope(self.store,self.config)
+                    scope=financial_declaration.get('operation_fee_paths')
+                    if scope is not None and action['operation'] not in scope:
+                        raise ValueError('operation not declared in immutable fee path scope')
+            except (ValueError,OSError,KeyError) as error:
                 self.store.finish(action['id'],'blocked',{'reason':str(error),'scope':'financial preflight; no native call'},0)
                 return True
         if action['operation']=='pay_invoice':
@@ -321,7 +332,7 @@ class Engine:
             if not pool_ready(snapshot,action['args'].get('amount_sat',0)):
                 self.store.finish(action['id'],'blocked',{'reason':'confirmed usable pool is not proven','pool_status':pool},0)
                 return True
-        if self._requires_financial_qualification():
+        if self._requires_financial_qualification() and not bootstrap_action:
             from .operating_limits import preflight
             try:
                 scoped='operation_fee_paths' in financial_declaration
@@ -336,6 +347,12 @@ class Engine:
                 return True
         context = {"snapshot_id":latest["id"] if latest else None, "height":snapshot.get("height"),
                    "tip_hash":snapshot.get("tip_hash"), "mode":self.store.get_meta("mode")}
+        if bootstrap_action:
+            try:
+                identity_bootstrap.begin(self.store,self.config,snapshot,action)
+            except (ValueError,OSError,KeyError) as error:
+                self.store.finish(action['id'],'blocked',{'reason':str(error),'scope':'zero-principal bootstrap; no native call'},0)
+                return True
         self.store.trace_capture('driver.call',{'phase':'request','request':request,'context':context},
             actor=action['actor_id'],action_id=action['id'],raw=canonical(request).encode())
         self.store.event("driver_request", {"action_id": action["id"], "request": request, "context":context})
@@ -456,6 +473,15 @@ class Engine:
         else:
             self.store.finish(action["id"], "failed", {"reason": "unexpected driver outcome", "response": response})
         if receiver_tasks:await asyncio.gather(*receiver_tasks)
+        if bootstrap_action:
+            try:
+                if len(self.config.proof_command)!=4:raise ValueError('independent bootstrap Core source missing')
+                chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],
+                    self.config.expected_genesis,capture=self.store.trace_sample,consumer='identity-bootstrap')
+                identity_bootstrap.verify_created(self.store,self.config,chain,action['actor_id'],action['id'])
+            except Exception as error:
+                self.store.event('identity_bootstrap_held',{'action_id':action['id'],
+                    'reason':type(error).__name__,'scope':'await independent zero-asset source; never retry create'})
         return True
 
     def prepare_campaign_funding(self,snapshot):
@@ -528,7 +554,8 @@ class Engine:
                 # Never dispatch actions after failed identity or unavailable observation.
             else:
                 sources_observed = await self.refresh_financial_sources()
-                ready = sources_observed and self.ready_for_actions(snapshot)
+                bootstrap_active=identity_bootstrap.pending(self.store)
+                ready = (sources_observed or bootstrap_active) and self.ready_for_actions(snapshot)
                 if self.config.active and not ready:
                     self.store.event("dispatch_held", {"reason": "snapshot is stale, unstable, unhealthy or lacks readiness evidence"})
                 if self.config.active and ready and self.config.workload == "pilot":

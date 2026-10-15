@@ -59,6 +59,8 @@ def validate(declaration,config):
 
 def declare_envelope(store,declaration,config,inventory_sequences,chain):
     """Freeze affordable limits while paused, before a first funded live action."""
+    from .identity_bootstrap import pending
+    if pending(store):raise ValueError('bootstrap independent zero-asset proofs missing')
     validate(declaration,config);treasury=boundary(store)
     if declaration['boundary_id']!=treasury['id'] or declaration['pins']!=treasury['pins']:
         raise ValueError('operating envelope differs from declared actual treasury')
@@ -123,6 +125,8 @@ def fee_totals(store,pins,*,reserved_action_id=None):
 
 def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_fee_sat=0,now=None,reserved_action_id=None):
     """Reject stale, underfunded or unaffordable dispatch; return a declared hold."""
+    from .identity_bootstrap import pending
+    if pending(store):raise ValueError('bootstrap independent zero-asset proofs missing')
     declaration=envelope(store,config);now=time.time() if now is None else now
     scope=declaration.get('operation_fee_paths')
     if scope is not None and operation not in scope:
