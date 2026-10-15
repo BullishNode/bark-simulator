@@ -27,6 +27,11 @@ collection reports independent tip agreement and explicit remaining monetary
 gaps; it never converts a native graph's complete flag to exhaustive assets.
 An externally managed bank requires a separately authenticated actual source;
 it cannot be silently omitted or substituted by a customer.
+The optional `bank_source_sequence` accepts the original event produced by
+`funding_bank.collect_funding_bank_source`, kind `treasury_bank_original_source`,
+and exactly three customer actions instead. Its exact named Core wallet,
+canonical public descriptors, complete source projection, read-only status and
+independent tip must match; the original sequence/hash and frame are retained.
 
 Observer commit 67b3aa07d7f3aa45dd85104c9903ddfc572283f3 adds `closed_frontier`:
 one fixed no-argument repeatable-read/read-only SQL snapshot with an 8-second

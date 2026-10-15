@@ -9,7 +9,7 @@ import json
 import time
 
 from .model import SIGNET_GENESIS, canonical, public_payload
-from .final_campaign import _pins
+from .final_campaign import _pins, _source_event
 from .process import json_command, public_command_capture
 
 MAX_MEMPOOL_TRANSACTIONS = 64
@@ -19,7 +19,7 @@ def _digest(value):
     return hashlib.sha256(canonical(value).encode()).hexdigest()
 
 
-async def collect_closed_source_frames(store, config, chain, *, wallet_actions):
+async def collect_closed_source_frames(store, config, chain, *, wallet_actions, bank_source_sequence=None):
     """Capture actual fixed bridge replies and four original native wallet frames.
 
     ``wallet_actions`` enumerates the bank and three customers by actor/action
@@ -30,11 +30,26 @@ async def collect_closed_source_frames(store, config, chain, *, wallet_actions):
     if (chain is None or not config.inventory_command or config.network != 'signet'
             or config.expected_genesis != SIGNET_GENESIS or getattr(store, 'trace', None) is None):
         raise ValueError('actual traced readonly sources and independent signet required')
-    if not isinstance(wallet_actions, dict) or len(wallet_actions) != 4 or len(set(wallet_actions.values())) != 4:
+    count=4 if bank_source_sequence is None else 3
+    if not isinstance(wallet_actions, dict) or len(wallet_actions) != count or len(set(wallet_actions.values())) != count:
         raise ValueError('enumerate exactly bank and three customer native actions')
     before=chain.identity()
     if before.get('chain')!='signet' or before.get('initialblockdownload') is not False:
         raise ValueError('independent synchronized signet required')
+    bank=None
+    if bank_source_sequence is not None:
+        if type(bank_source_sequence) is not int or bank_source_sequence<1:raise ValueError('original bank source sequence required')
+        bank_event,bank_frame=_source_event(store,bank_source_sequence)
+        identity=bank_frame.get('source_identity',{})
+        if (bank_event['kind']!='treasury_bank_original_source' or bank_frame.get('schema_version')!=1
+                or bank_frame.get('network')!='signet' or bank_frame.get('genesis')!=SIGNET_GENESIS
+                or bank_frame.get('read_only') is not True or bank_frame.get('stable_tip') is not True
+                or bank_frame.get('complete_source_projection') is not True
+                or (bank_frame.get('height'),bank_frame.get('tip_hash'))!=(before['blocks'],before['bestblockhash'])
+                or not isinstance(identity,dict) or not identity.get('wallet_name') or not identity.get('descriptors')):
+            raise ValueError('original complete named Core bank source differs')
+        bank={'source_sequence':bank_source_sequence,'source_event_hash':bank_event['hash'],
+            'response_sha256':_digest(bank_frame),'frame':bank_frame}
     native={}
     for actor,action_id in wallet_actions.items():
         action=store.db.execute('SELECT * FROM action WHERE id=?',(action_id,)).fetchone()
@@ -43,7 +58,7 @@ async def collect_closed_source_frames(store, config, chain, *, wallet_actions):
             raise ValueError('original completed native wallet observation required')
         sources=store.db.execute("SELECT sequence,hash,payload FROM event WHERE kind='driver_response' AND json_extract(payload,'$.action_id')=?",(action_id,)).fetchall()
         if len(sources)!=1:raise ValueError('unique original native wallet response required')
-        source=sources[0];response=json.loads(source['payload'])['response']
+        source,original=_source_event(store,sources[0]['sequence']);response=original['response']
         if response!=json.loads(action['result']) or response.get('status')!='ok' or response.get('action_id')!=action_id:
             raise ValueError('native wallet observation provenance differs')
         frame=response.get('data',{}).get('onchain_inventory')
@@ -76,7 +91,7 @@ async def collect_closed_source_frames(store, config, chain, *, wallet_actions):
     stable=(ending.get('initialblockdownload') is False and financial.get('stable_tip') is True
         and (before['blocks'],before['bestblockhash'])==(ending['blocks'],ending['bestblockhash'])
         ==(financial.get('height'),financial.get('tip_hash')))
-    receipt={'kind':'closed_cohort_source_collection','native_wallets':native,'source_sequences':sequences,
+    receipt={'kind':'closed_cohort_source_collection','native_wallets':native,'bank_source':bank,'source_sequences':sequences,
         'height':ending['blocks'],'tip_hash':ending['bestblockhash'],'genesis':SIGNET_GENESIS,
         'independent_same_tip':stable,'observed_at':time.time(),'complete':False,'qualified':False,
         'gaps':['authenticate exact bank/customer membership and exhaustive wallet discovery',
@@ -105,8 +120,10 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
     _pins(bootstrap_declaration['pins'])
     if store.get_meta('zero_principal_identity_bootstrap') != canonical(bootstrap_declaration):
         raise ValueError('immutable bootstrap declaration required')
-    declarations = store.db.execute("SELECT payload FROM event WHERE kind='identity_bootstrap_declared'").fetchall()
-    if (len(declarations) != 1 or json.loads(declarations[0][0]).get('declaration') != bootstrap_declaration
+    declarations = store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_declared'").fetchall()
+    if len(declarations)!=1:raise ValueError('original bootstrap declaration required')
+    _,declared=_source_event(store,declarations[0]['sequence'])
+    if (declared.get('declaration') != bootstrap_declaration
             or actor not in bootstrap_declaration['actors']):
         raise ValueError('original bootstrap declaration scope differs')
     action = store.db.execute('SELECT * FROM action WHERE id=?', (action_id,)).fetchone()
@@ -119,11 +136,26 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
     sources = store.db.execute("SELECT sequence,hash,payload FROM event WHERE kind='driver_response' AND json_extract(payload,'$.action_id')=?", (action_id,)).fetchall()
     if len(sources) != 1:
         raise ValueError('unique original create response required')
-    source = sources[0]
-    response = json.loads(source['payload'])['response']
+    source,original = _source_event(store,sources[0]['sequence'])
+    response = original['response']
     if (response != json.loads(action['result']) or response.get('action_id') != action_id
             or response.get('status') != 'ok' or response.get('actual_fee_sat') != 0):
         raise ValueError('original create response differs from completed action')
+    existing=store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_zero_assets_verified' AND json_extract(payload,'$.actor')=?",(actor,)).fetchall()
+    if existing:
+        if len(existing)!=1:raise ValueError('ambiguous repeated bootstrap source proofs')
+        _,receipt=_source_event(store,existing[0]['sequence'])
+        expected={'actor':actor,'action_id':action_id,'bootstrap_id':bootstrap_declaration['id'],
+            'bootstrap_declaration_sha256':_digest(bootstrap_declaration),
+            'financial_pins':bootstrap_declaration['pins'],'source_sequence':source['sequence'],
+            'driver_response_sequence':source['sequence'],'source_event_hash':source['hash'],
+            'response_sha256':_digest(response),'native_response_sha256':_digest(response),
+            'complete':True,'zero_assets':True}
+        if any(receipt.get(key)!=value for key,value in expected.items()):
+            raise ValueError('existing bootstrap source proof context differs')
+        # This is an immutable historical bootstrap proof, not a fresh funded
+        # wallet inventory. Reconciliation must not append duplicate markers.
+        return receipt
     data = response.get('data', {})
     native = data.get('onchain_inventory', {})
     if (native.get('schema_version') != 1 or native.get('network') != 'signet'

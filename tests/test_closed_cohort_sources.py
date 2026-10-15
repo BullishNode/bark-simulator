@@ -56,6 +56,8 @@ class BootstrapSourceTests(unittest.TestCase):
     def verify(self): return verify_bootstrap_zero_assets(self.store,self.config,self.chain,'actor-01','create-one',bootstrap_declaration=self.declaration)
     def test_original_create_and_independent_zero_assets_emit_scoped_receipt_only(self):
         result=self.verify();self.assertTrue(result['zero_assets']);self.assertEqual([0,19],result['descriptor_range'])
+        self.assertEqual(result,self.verify())
+        self.assertEqual(1,self.store.db.execute("SELECT count(*) FROM event WHERE kind='identity_bootstrap_zero_assets_verified'").fetchone()[0])
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind IN ('financial_operating_readiness','treasury_inventory')").fetchone()[0])
     def test_confirmed_assets_and_wrong_tip_refuse(self):
         self.chain.scan['unspents']=[{'txid':'b'*64}]
@@ -100,3 +102,18 @@ class BootstrapSourceTests(unittest.TestCase):
         self.assertFalse(result['qualified']);self.assertFalse(result['complete']);self.assertEqual(2,command.await_count)
         self.assertEqual(2,self.store.db.execute("SELECT count(*) FROM event WHERE kind='closed_cohort_original_source'").fetchone()[0])
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
+        bank={'schema_version':1,'network':'signet','genesis':SIGNET_GENESIS,
+            'read_only':True,'stable_tip':True,'complete_source_projection':True,
+            'height':100,'tip_hash':'a'*64,'source_identity':{'wallet_name':'finite-bank','descriptors':['wpkh(public)#checksum']}}
+        self.store.event('treasury_bank_original_source',bank)
+        sequence=self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
+        del actions['actor-04']
+        with patch('simulator.closed_cohort_sources.json_command',AsyncMock(side_effect=replies)):
+            result=asyncio.run(collect_closed_source_frames(self.store,self.config,self.chain,
+                wallet_actions=actions,bank_source_sequence=sequence))
+        self.assertEqual(3,len(result['native_wallets']));self.assertEqual(sequence,result['bank_source']['source_sequence'])
+        self.assertEqual('finite-bank',result['bank_source']['frame']['source_identity']['wallet_name'])
+
+    def test_original_event_tampering_refuses(self):
+        self.store.db.execute("UPDATE event SET hash=? WHERE kind='driver_response'",('0'*64,))
+        with self.assertRaisesRegex(ValueError,'event frame changed'):self.verify()
