@@ -176,13 +176,13 @@ def _empty_mempool(chain,scripts,started):
     checked=set();bytes_read=outputs=0
     def current():
         ids=chain.call('getrawmempool',False)
-        if (not isinstance(ids,list) or len(ids)>2500 or any(not isinstance(txid,str)
+        if (not isinstance(ids,list) or len(ids)>4096 or any(not isinstance(txid,str)
                 or re.fullmatch('[0-9a-f]{64}',txid) is None for txid in ids) or len(set(ids))!=len(ids)):
             raise ValueError('complete cash mempool transaction bound exceeded')
         return set(ids)
     pending=current()
     for passes in range(1,9):
-        if len(pending|checked)>2500:raise ValueError('cash unique mempool bound exceeded')
+        if len(pending|checked)>4096:raise ValueError('cash unique mempool bound exceeded')
         for txid in sorted(pending-checked):
             if time.monotonic()-started>180:raise ValueError('cash source deadline exceeded')
             transaction=chain.tx(txid);bytes_read+=len(canonical(normalized(transaction)).encode())
@@ -193,7 +193,7 @@ def _empty_mempool(chain,scripts,started):
                 raise ValueError('cash mempool byte/output bound exceeded: '
                     f'observed_bytes={bytes_read}; maximum_bytes={16*1024*1024}; '
                     f'observed_outputs={outputs}; maximum_outputs=50000; '
-                    f'observed_transactions={len(checked)+1}; maximum_unique_transactions=2500; maximum_seconds=180')
+                    f'observed_transactions={len(checked)+1}; maximum_unique_transactions=4096; maximum_seconds=180')
             for row in rows:
                 script=row.get('scriptPubKey',{}).get('hex')
                 if not isinstance(script,str) or script in scripts:raise ValueError('cash wallet has missing or unconfirmed output source')
@@ -201,7 +201,7 @@ def _empty_mempool(chain,scripts,started):
         pending=current()
         if pending<=checked:return {'unique_checked':len(checked),'current_count':len(pending),
             'current_set_sha256':_digest(sorted(pending)),'passes':passes,'bytes':bytes_read,'outputs':outputs,
-            'maximum_bytes':16*1024*1024,'maximum_outputs':50000,'maximum_unique_transactions':2500,
+            'maximum_bytes':16*1024*1024,'maximum_outputs':50000,'maximum_unique_transactions':4096,
             'maximum_passes':8,'maximum_seconds':180}
     raise ValueError('complete cash mempool fixed point unavailable')
 

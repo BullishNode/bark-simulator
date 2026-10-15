@@ -17,7 +17,7 @@ class CashMempoolCapacityTests(unittest.TestCase):
         result=_empty_mempool(self.chain(16*1024*1024),{'owned'},time.monotonic())
         self.assertEqual(16*1024*1024,result['bytes']);self.assertEqual(16*1024*1024,result['maximum_bytes'])
         self.assertEqual(1,result['unique_checked']);self.assertEqual(1,result['current_count'])
-        self.assertEqual(50000,result['maximum_outputs']);self.assertEqual(2500,result['maximum_unique_transactions'])
+        self.assertEqual(50000,result['maximum_outputs']);self.assertEqual(4096,result['maximum_unique_transactions'])
         self.assertEqual(180,result['maximum_seconds'])
     def test_one_byte_over_sixteen_mib_refuses_with_exact_observed_counts(self):
         size=16*1024*1024+1

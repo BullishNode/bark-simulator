@@ -13,7 +13,7 @@ from .final_campaign import _pins, _source_event
 from .process import json_command, public_command_capture
 from .trace import normalized
 
-MAX_MEMPOOL_TRANSACTIONS = 2500
+MAX_MEMPOOL_TRANSACTIONS = 4096
 MAX_MEMPOOL_SCAN_BYTES = 8 * 1024 * 1024
 MAX_MEMPOOL_OUTPUTS = 50000
 MAX_SOURCE_SECONDS = 180

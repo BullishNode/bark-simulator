@@ -224,7 +224,7 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             'descriptor_index':position['descriptor_index'],'child_index':position['child_index']})
     def mempool_ids():
         value=chain.call('getrawmempool',False)
-        if (not isinstance(value,list) or len(value)>2500 or len(set(value))!=len(value)
+        if (not isinstance(value,list) or len(value)>4096 or len(set(value))!=len(value)
                 or any(not isinstance(txid,str) or len(txid)!=64 or any(c not in '0123456789abcdef' for c in txid) for txid in value)):
             raise ValueError('complete mempool exceeds declared transaction bound or has invalid IDs')
         return set(value)
@@ -233,7 +233,7 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
     # Bound the union, not each convenient page. Every currently present ID
     # must have its actual outputs checked; removal of unrelated IDs is safe.
     for mempool_pass in range(1,9):
-        if len(checked_ids|mempool)>2500:raise ValueError('complete mempool union exceeds declared transaction bound')
+        if len(checked_ids|mempool)>4096:raise ValueError('complete mempool union exceeds declared transaction bound')
         for txid in sorted(mempool-checked_ids):
             if time.monotonic()-started>180:raise ValueError('initial funding source deadline exceeded')
             transaction=chain.tx(txid);mempool_bytes+=len(canonical(normalized(transaction)).encode())
