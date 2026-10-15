@@ -156,6 +156,10 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
         from .board_adoption import validate_adoption_scope
         validate_adoption_scope(store,config,proof,operation=operation,
             maximum_fee_sat=maximum_fee_sat,reserved_action_id=reserved_action_id)
+    if 'ordinary_arkoor_scope' in proof:
+        from .ordinary_arkoor import validate_ordinary_scope
+        validate_ordinary_scope(store,config,proof,operation=operation,
+            maximum_fee_sat=maximum_fee_sat,reserved_action_id=reserved_action_id)
     if 'board_action_scope' in proof:
         from .first_board_readiness import validate_board_action_scope
         validate_board_action_scope(store,proof,operation=operation,

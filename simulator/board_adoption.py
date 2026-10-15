@@ -211,6 +211,14 @@ def _database(database,prior,origin):
 
 
 async def collect_board_adoption_sources(store,config,chain,bank_rpc,*,cash_source_sequence,current_startup_path):
+    return await _collect_backing_sources(store,config,chain,bank_rpc,
+        cash_source_sequence=cash_source_sequence,current_startup_path=current_startup_path,
+        history_validator=_history,client_validator=_client_state,database_validator=_database,
+        source_kind='original_board_adoption_sources_verified')
+
+
+async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_sequence,current_startup_path,
+        history_validator,client_validator,database_validator,source_kind):
     """Observe six current cash wallets plus one separately verified Board anchor."""
     from .runtime_startup import _read
     from .funding_bank import collect_funding_bank_source
@@ -218,7 +226,7 @@ async def collect_board_adoption_sources(store,config,chain,bank_rpc,*,cash_sour
     from .model import SIGNET_GENESIS
     if (config.network!='signet' or config.expected_genesis!=SIGNET_GENESIS or not config.inventory_command
             or getattr(store,'trace',None) is None):raise ValueError('actual traced signet Board sources required')
-    started=time.monotonic();origin=_origin(store,chain);_history(store,origin)
+    started=time.monotonic();origin=_origin(store,chain);history_validator(store,origin)
     event,cash=_source_event(store,cash_source_sequence)
     if (event['kind']!='finite_fresh_cash_sources_verified' or cash.get('financial_pins')!=origin['financial_pins']
             or cash.get('boundary_id')!=origin['boundary_id'] or cash.get('complete') is not True
@@ -226,7 +234,7 @@ async def collect_board_adoption_sources(store,config,chain,bank_rpc,*,cash_sour
             or set(cash['actors'])!={'actor-01','actor-02','actor-04'}):raise ValueError('original pre-Board complete cash source required')
     before=chain.identity();tip=(before['blocks'],before['bestblockhash'])
     if before.get('chain')!='signet' or before.get('initialblockdownload') is not False:raise ValueError('synced independent signet required')
-    _client_state(store,config,origin,tip[0]);current,current_sha=_read(current_startup_path)
+    client_validator(store,config,origin,tip[0]);current,current_sha=_read(current_startup_path)
     specs=_current_operator_ranges(cash,current,tip);scripts={};scans=[]
     for member in cash['members']:
         for index,descriptor in enumerate(member['descriptors']):
@@ -287,8 +295,8 @@ async def collect_board_adoption_sources(store,config,chain,bank_rpc,*,cash_sour
     _,prior=_source_event(store,cash['database_source_sequence'])
     request={'kind':'closed_frontier'}
     database=await json_command(list(config.inventory_command),request,timeout=25,**public_command_capture(store,'board_adoption.closed_frontier',request))
-    public_payload(database);server=_database(database,prior['response'],origin)
-    native=_client_state(store,config,origin,tip[0]);_history(store,origin)
+    public_payload(database);server=database_validator(database,prior['response'],origin)
+    native=client_validator(store,config,origin,tip[0]);history_validator(store,origin)
     ending=chain.identity()
     if (ending.get('initialblockdownload') is not False or (ending['blocks'],ending['bestblockhash'])!=tip or time.monotonic()-started>180):raise ValueError('Board source changed tip or exceeded180s')
     sequences={}
@@ -304,8 +312,8 @@ async def collect_board_adoption_sources(store,config,chain,bank_rpc,*,cash_sour
             'cash_source_sequence':cash_source_sequence,'inventory_sequences':sequences,'descriptor_ranges':scans,
             'range_runtime_source_sha256':current_sha,'bank_source_sequence':bankseq,'database':database,'server':server,
             'native':native,'mempool':mempool,'physical_assets':physical,'physical_total_sat':physical_total,
-            'net_liability_sat':origin['net_liability_sat'],'scope':'six cash wallets plus one signed original Board anchor; liability separate; adoption only'}
-        public_payload(source);store._event('original_board_adoption_sources_verified',source)
+            'net_liability_sat':origin['net_liability_sat'],'scope':'six cash wallets plus one signed original Board anchor; liability separate; source observation only'}
+        public_payload(source);store._event(source_kind,source)
         sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
     return {'source_sequence':sequence,'source':source}
 
@@ -330,14 +338,25 @@ def validate_adoption_scope(store,config,proof,*,operation,maximum_fee_sat,reser
 
 
 def record_board_adoption_readiness(store,config,chain,*,source_sequence,runtime_source_sequence,current_startup_path):
+    _,source=_source_event(store,source_sequence)
+    scope={'board_adoption_scope':{'actor':'actor-01','board_action_id':source['origin']['board_action_id'],
+        'source_sequence':source_sequence,'maximum_fee_sat':0,'args':{}}}
+    return _record_backing_readiness(store,config,chain,source_sequence=source_sequence,
+        runtime_source_sequence=runtime_source_sequence,current_startup_path=current_startup_path,
+        source_kind='original_board_adoption_sources_verified',history_validator=_history,
+        client_validator=_client_state,allowed_operations=OPS,action_scope=scope,scope_validator=validate_adoption_scope,scope_description='only original confirmed Board adoption; no new principal/signing intent or Arkoor permission')
+
+
+def _record_backing_readiness(store,config,chain,*,source_sequence,runtime_source_sequence,current_startup_path,
+        source_kind,history_validator,client_validator,allowed_operations,action_scope,scope_validator,scope_description):
     from .runtime_startup import _read
     from .operating_limits import envelope,fee_totals
     from .treasury import boundary,capture_assets
     event,source=_source_event(store,source_sequence)
-    if event['kind']!='original_board_adoption_sources_verified' or source.get('complete') is not True:raise ValueError('original complete Board adoption source required')
+    if event['kind']!=source_kind or source.get('complete') is not True:raise ValueError('original complete Board adoption source required')
     _fresh(source['observed_at']);origin=_origin(store,chain)
     if origin!=source['origin']:raise ValueError('original Board source changed')
-    _history(store,origin)
+    history_validator(store,origin)
     runtime_event,runtime=_source_event(store,runtime_source_sequence);current,current_sha=_read(current_startup_path)
     if (runtime_event['kind']!='owned_runtime_configuration_verified' or runtime.get('loaded_configuration_identity_verified') is not True
             or runtime.get('current_source_sha256')!=current_sha or runtime.get('product_commit')!=origin['financial_pins']['product_commit']
@@ -345,7 +364,7 @@ def record_board_adoption_readiness(store,config,chain,*,source_sequence,runtime
     _fresh(runtime['observed_at']);limits=envelope(store,config);treasury=boundary(store)
     if (limits['pins']!=source['financial_pins'] or treasury['members']!=source['members'] or treasury['id']!=source['boundary_id']
             or runtime['effective_fee_ceilings_sat_kvb']!=limits['fee_ceilings_sat_kvb']
-            or any(limits.get('operation_fee_paths',{}).get(operation)!=['sweep','payout'] for operation in OPS)):
+            or any(limits.get('operation_fee_paths',{}).get(operation)!=['sweep','payout'] for operation in allowed_operations)):
         raise ValueError('original immutable adoption envelope/membership differs')
     cash=capture_assets(store,source['inventory_sequences'],chain)
     anchor=source['physical_assets'][origin['anchor']];txid,index=origin['anchor'].rsplit(':',1)
@@ -354,7 +373,7 @@ def record_board_adoption_readiness(store,config,chain,*,source_sequence,runtime
             or cash['total_msat']+20000000!=source['physical_total_sat']*1000
             or (cash['height'],cash['tip_hash'])!=(source['height'],source['tip_hash'])):raise ValueError('current cash plus original signed anchor differs')
     available=_operator_fee_funding(store,source,cash,current)
-    native=_client_state(store,config,origin,source['height'])
+    native=client_validator(store,config,origin,source['height'])
     # Only the miner fee leaves this operator+customer treasury. The existing
     # client fee reconciler retains the total customer charge; the service
     # component stays inside the physical Board anchor.
@@ -381,11 +400,10 @@ def record_board_adoption_readiness(store,config,chain,*,source_sequence,runtime
     if tip.get('initialblockdownload') is not False or (tip['blocks'],tip['bestblockhash'])!=(source['height'],source['tip_hash']):raise ValueError('adoption tip changed')
     _fresh(source['observed_at']);_fresh(runtime['observed_at'])
     receipt={'financial_pins':source['financial_pins'],'boundary_id':source['boundary_id'],'height':source['height'],'tip_hash':source['tip_hash'],
-        'observed_at':time.time(),'complete':True,'operation_scope':OPS,'board_adoption_scope':{'actor':'actor-01','board_action_id':origin['board_action_id'],
-            'source_sequence':source_sequence,'maximum_fee_sat':0,'args':{}},'effective_fee_ceilings_sat_kvb':limits['fee_ceilings_sat_kvb'],
+        'observed_at':time.time(),'complete':True,'operation_scope':allowed_operations,**action_scope,'effective_fee_ceilings_sat_kvb':limits['fee_ceilings_sat_kvb'],
         'capital_exposure_msat':source['physical_total_sat']*1000,'available_fee_funding_msat':available,'estimated_fee_rate_sat_kvb':rate,
         'net_liability_sat':origin['net_liability_sat'],'runtime_source_sequence':runtime_source_sequence,'native_economic_state':native,
-        'pool_ready':False,'channel_route_ready':False,'scope':'only original confirmed Board adoption; no new principal/signing intent or Arkoor permission'}
-    validate_adoption_scope(store,config,receipt,operation='snapshot',maximum_fee_sat=0,reserved_action_id=None)
+        'pool_ready':False,'channel_route_ready':False,'scope':scope_description}
+    scope_validator(store,config,receipt,operation=allowed_operations[0],maximum_fee_sat=0,reserved_action_id=None)
     public_payload(receipt);store.event('financial_operating_readiness',receipt)
     return {'operating_readiness_sequence':store.db.execute('SELECT max(sequence) FROM event').fetchone()[0],**receipt}
