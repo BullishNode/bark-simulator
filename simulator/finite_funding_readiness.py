@@ -62,7 +62,7 @@ def _empty_owner(frame,owner,tip):
         raise ValueError('complete current empty owning '+owner+' wallet required')
     frontier=frame.get('last_revealed_index')
     if type(frontier) is not int or not 0<=frontier<1980:raise ValueError('bounded already-revealed owning wallet frontier required')
-    return {'descriptors':[frame['public_descriptor']],'ranges':[frontier+20],'recipient_index':frontier}
+    return {'descriptors':[frame['public_descriptor']],'ranges':[frontier+20],'recipient_index':0}
 
 
 async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_source_sequence,current_startup_path,boundary_id):

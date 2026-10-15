@@ -59,8 +59,8 @@ and Lightning records. The original response is retained even on refusal.
 The resulting source event, `finite_initial_funding_sources_verified`, contains
 six exact member/inventory references and a complete five-row recipient plan:
 
-* `rounds`: 100,000 sat to the actual already-revealed owning frontier.
-* `watchman`: 75,000 sat to its actual already-revealed owning frontier.
+* `rounds`: 100,000 sat to its already-revealed index 0.
+* `watchman`: 75,000 sat to its already-revealed index 0.
 * `actor-01`, `actor-02`, `actor-04`: 50,000 sat each to their original funding
   addresses, independently matched to their native descriptors.
 
@@ -85,3 +85,5 @@ fact or changed tip defers. Once the first funding intent exists this initial
 producer refuses to issue another positive proof. Subsequent state needs its
 own narrow, actual source qualification. Source-only tests carry no Core,
 native-wallet, payment or production credit.
+
+Operator funding uses already-revealed index 0 so health-status address revelation does not move the funding destination past an unused gap. The independent source scan still covers the actual revealed frontier plus 20.

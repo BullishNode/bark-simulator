@@ -109,7 +109,7 @@ class InitialFundingReadinessTests(unittest.TestCase):
         self.assertEqual(325000,sum(row['amount_sat'] for row in source['funding_recipients']))
         self.assertEqual(0,source['opening_liabilities_sat']);self.assertEqual(665454,source['opening_total_sat'])
         rounds=next(row for row in source['funding_recipients'] if row['member_id']=='rounds')
-        self.assertEqual(141,rounds['child_index']);self.assertIn({'desc':'rounds-descriptor','range':[0,161]},self.chain.scans)
+        self.assertEqual(0,rounds['child_index']);self.assertIn({'desc':'rounds-descriptor','range':[0,161]},self.chain.scans)
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
     def test_boundary_envelope_and_scope_admit_funding_but_refuse_wallet_actions(self):
         result=self.collect();declare_boundary(self.store,result['boundary_declaration'],self.chain)
