@@ -13,6 +13,7 @@ from dataclasses import dataclass, asdict
 from .model import canonical, integer
 from .store import Store
 from .ownership import proof_matches_profile
+from .architecture import profile, TWO_STEP
 
 TRAFFIC_WINDOW_SECONDS = 600
 LIGHTNING_WINDOW_SECONDS = 3600
@@ -65,6 +66,50 @@ def _receipt_origin(proof, inputs):
     return None
 
 
+def _proven_no_cosign_request(store, action_id, proposal):
+    """Only the explicit authenticated pre-cosign disposition releases a claim.
+
+    Failed status, missing movement, or a native error alone remain ambiguous.
+    Keep the original request and bind its positive reconciliation to the credit.
+    """
+    if profile(store) != TWO_STEP:
+        return None
+    row=store.db.execute('SELECT * FROM action WHERE id=?',(action_id,)).fetchone()
+    if row is None or row['operation']!='send_arkoor' or row['state']!='failed' or row['actual_fee_sat']!=0 or row['fee_reservation_sat']!=0:
+        return None
+    events=store.db.execute("SELECT * FROM event WHERE kind='unknown_outcome_rejected' AND json_extract(payload,'$.action_id')=?",(action_id,)).fetchall()
+    requests=store.db.execute("SELECT COUNT(*) FROM event WHERE kind='driver_evidence' AND json_extract(payload,'$.event')='arkoor_request' AND json_extract(payload,'$.action_id')=?",(action_id,)).fetchone()[0]
+    if len(events)!=1 or requests!=1:
+        return None
+    try:
+        result=json.loads(row['result']);proof=result['rejection_reconciliation'];event=json.loads(events[0]['payload']);args=json.loads(row['args'])
+        if (result['action_id']!=action_id or result['status']!='error'
+                or proof['disposition']!='known pre-cosign policy rejection; no Ark transfer'
+                or proof['input_coin_ids']!=proposal['input_vtxo_ids'] or len(proof['input_coin_ids'])!=1
+                or proposal['destination']!=args['destination'] or proposal['amount_sat']!=args['amount_sat']
+                or proof['actual_fee_sat']!=0 or proof['scenario_verdict']!='failed' or proof['qualified_seconds']!=0
+                or proof['legitimate_board_registration_preserved'] is not True
+                or event['monetary_request_retried'] is not False
+                or event['original_updated_at']!=row['updated_at'] or event['original_result']!=result['original_result']
+                or any(event.get(k)!=v for k,v in proof.items())):
+            return None
+        for field,length in [('server_source_sha256',64),('native_client_source_sha256',64),('server_trace_id',32)]:
+            value=proof[field]
+            if not isinstance(value,str) or len(value)!=length or any(c not in '0123456789abcdef' for c in value):return None
+        if not (type(proof['before_sequence']) is int and type(proof['after_sequence']) is int
+                and 0<proof['before_sequence']<proof['after_sequence']<events[0]['sequence']):return None
+        for field,tag in [('before_sequence','client_evidence_before'),('after_sequence','client_evidence_after')]:
+            frame=store.db.execute('SELECT kind,payload FROM event WHERE sequence=?',(proof[field],)).fetchone()
+            if frame is None or frame['kind']!='driver_evidence':return None
+            data=json.loads(frame['payload'])
+            if data.get('action_id')!=action_id or data.get('event')!=tag:return None
+        return {'action_id':action_id,'rejection_event_sequence':events[0]['sequence'],
+                'rejection_event_hash':events[0]['hash'],'server_source_sha256':proof['server_source_sha256'],
+                'native_client_source_sha256':proof['native_client_source_sha256']}
+    except (KeyError,TypeError,ValueError):
+        return None
+
+
 def collect_ark_receipts(store: Store, now: float | None = None):
     """Credit a frozen send once from already collected public receipt proofs.
 
@@ -80,11 +125,16 @@ def collect_ark_receipts(store: Store, now: float | None = None):
     claimed = {(c.get('recipient_actor'), c.get('receipt_movement_id')) for c in credits}
     proposals = {}
     input_claims = {}
+    rejected_claims = {}
     for row in store.db.execute("""SELECT payload FROM event WHERE kind='driver_evidence'
             AND json_extract(payload,'$.event')='arkoor_request'"""):
         payload = json.loads(row[0]); identity = payload['action_id']
         proposal = payload['data']
         proposals.setdefault(identity, []).append(proposal)
+        rejected=_proven_no_cosign_request(store,identity,proposal)
+        if rejected is not None:
+            rejected_claims[identity]=(set(proposal['input_vtxo_ids']),rejected)
+            continue
         for coin in proposal.get('input_vtxo_ids', []):
             input_claims.setdefault(coin, set()).add(identity)
     sends = store.db.execute("""SELECT * FROM action WHERE operation='send_arkoor'
@@ -159,12 +209,14 @@ def collect_ark_receipts(store: Store, now: float | None = None):
         if len(candidates) != 1:
             continue
         movement, receipts, observed_at = candidates[0]
+        exclusions=[proof for rejected_inputs,proof in rejected_claims.values() if rejected_inputs.intersection(inputs)]
         store.event('ark_transfer_verified', {'action_id': action['id'],
             'sender_actor': action['actor_id'], 'recipient_actor': recipient,
             'sender_movement_id': sender_movements[0]['id'], 'receipt_movement_id': movement['id'],
             'destination': args['destination'], 'recipient_pubkey': key, 'amount_sat': amount,
             'input_coin_ids': inputs, 'receipts': receipts, 'verified_at': observed_at,
             'absent_wallet_opened': False,
+            **({'proven_rejected_input_claims':exclusions} if exclusions else {}),
             'scope': 'signed recipient outputs and transaction paths linked to a unique frozen send'})
         credited.add(action['id']); claimed.add((recipient, movement['id']))
 

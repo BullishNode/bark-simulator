@@ -14,7 +14,8 @@ from simulator.store import Store
 class VerifiedClockTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.store = Store(Path(self.temp.name), 'synthetic', 10000)
+        self.store = Store(Path(self.temp.name), 'synthetic', 10000,
+                           architecture_profile=getattr(self,'architecture_profile',None))
         initialize(self.store)
         self.store.db.execute("INSERT INTO meta VALUES ('real_campaign_started','100')")
         self.input_id = 'a' * 64 + ':0'
@@ -35,22 +36,29 @@ class VerifiedClockTests(unittest.TestCase):
 
     def address(self, identity, actor, destination, key):
         self.action(identity, actor, 'address', {}, {'address': destination, 'user_pubkey': key}, 100)
-        bound = account_fixtures.binding({'mailbox_pk': actor, 'account_child_verified': True, 'record_signature_valid': True})
+        bound = self.owner_binding(actor)
         self.store.db.execute('INSERT OR IGNORE INTO owner_key VALUES (?,?,?,?)',
             (key, actor, actor, canonical({'binding': bound})))
 
     def coin(self, identity, actor, key, amount, path, observation, at, proven=True):
-        bound = account_fixtures.binding({'mailbox_pk': actor, 'account_child_verified': True, 'record_signature_valid': True})
+        bound = self.owner_binding(actor)
         self.store.db.execute('INSERT OR IGNORE INTO owner_key VALUES (?,?,?,?)',
             (key, actor, actor, canonical({'binding': bound})))
-        proof = account_fixtures.proof({'id': identity, 'user_pubkey': key, 'amount_sat': amount,
-            'signed_path_valid': proven, 'anchor_confirmations': 1, 'binding': bound, 'path': path})
+        proof = {'id': identity, 'user_pubkey': key, 'amount_sat': amount,
+            'signed_path_valid': proven, 'anchor_confirmations': 1, 'binding': bound, 'path': path}
+        if getattr(self,'architecture_profile',None)!='two_step_per_key':proof=account_fixtures.proof(proof)
         self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',
             (identity, key, amount, 'hash', '00', canonical(proof)))
         if self.store.db.execute('SELECT 1 FROM action WHERE id=?', (observation,)).fetchone() is None:
             self.action(observation, actor, 'sync', {}, {}, at)
         self.store.db.execute('INSERT INTO coin_observation VALUES (?,?,?,?)',
             (identity, observation, 'Spendable', at))
+
+    def owner_binding(self,actor):
+        if getattr(self,'architecture_profile',None)=='two_step_per_key':
+            return {'mailbox_pk':actor,'spk':'fixture-script','seq':0,
+                    'record_signature_valid':True,'key_link_signature_valid':True}
+        return account_fixtures.binding({'mailbox_pk': actor, 'account_child_verified': True, 'record_signature_valid': True})
 
     def send(self, identity='send', at=200, recipient='actor-02', inputs=None, amount=1000, state='completed'):
         inputs = [self.input_id] if inputs is None else inputs
@@ -294,3 +302,80 @@ class VerifiedClockTests(unittest.TestCase):
         clock.tick(healthy=True, real_campaign_started=True)
         self.assertEqual(13, self.store.db.execute('SELECT COUNT(*) FROM actor').fetchone()[0])
         self.assertEqual(0, self.store.db.execute("SELECT COUNT(*) FROM event WHERE kind='client_ramp_applied'").fetchone()[0])
+
+
+class PerKeyVerifiedClockTests(VerifiedClockTests):
+    """Same receipt invariants with per-key ownership; source proofs are fixtures."""
+    architecture_profile='two_step_per_key'
+
+    def proven_rejected_request(self):
+        self.send('rejected',at=199,state='failed')
+        self.store.event('driver_evidence',{'action_id':'rejected','event':'client_evidence_before','data':{'fixture':True}})
+        before=self.store.db.execute('SELECT MAX(sequence) FROM event').fetchone()[0]
+        self.store.event('driver_evidence',{'action_id':'rejected','event':'client_evidence_after','data':{'fixture':True}})
+        after=self.store.db.execute('SELECT MAX(sequence) FROM event').fetchone()[0]
+        proof={'server_source_sha256':'a'*64,'native_client_source_sha256':'b'*64,'server_trace_id':'c'*32,
+            'before_sequence':before,'after_sequence':after,'input_coin_ids':[self.input_id],
+            'disposition':'known pre-cosign policy rejection; no Ark transfer','actual_fee_sat':0,
+            'legitimate_board_registration_preserved':True,'scenario_verdict':'failed','qualified_seconds':0}
+        original={'status':'error','reason':'synthetic pre-cosign rejection fixture'}
+        self.store.db.execute("UPDATE action SET result=?,actual_fee_sat=0 WHERE id='rejected'",(canonical(
+            {'action_id':'rejected','status':'error','original_result':original,'rejection_reconciliation':proof}),))
+        self.store.event('unknown_outcome_rejected',{'action_id':'rejected','original_updated_at':199,
+            'original_result':original,**proof,'monetary_request_retried':False})
+        self.send();self.receipt()
+
+    def test_authenticated_pre_cosign_rejection_does_not_compete_with_real_receipt(self):
+        self.proven_rejected_request()
+        original=[dict(r) for r in self.store.db.execute('SELECT * FROM action ORDER BY id')]
+        self.collect();self.collect(now=500)
+        rows=self.store.db.execute("SELECT payload FROM event WHERE kind='ark_transfer_verified'").fetchall()
+        self.assertEqual(1,len(rows));credit=json.loads(rows[0][0])
+        self.assertEqual('send',credit['action_id']);self.assertEqual(201,credit['verified_at'])
+        self.assertEqual('rejected',credit['proven_rejected_input_claims'][0]['action_id'])
+        self.assertEqual(original,[dict(r) for r in self.store.db.execute('SELECT * FROM action ORDER BY id')])
+        self.store.verify_event_chain()
+
+    def test_generic_failed_request_still_competes_for_frozen_input(self):
+        self.send('rejected',at=199,state='failed');self.send();self.receipt();self.collect()
+        self.assertIsNone(self.store.db.execute("SELECT 1 FROM event WHERE kind='ark_transfer_verified'").fetchone())
+
+    def test_unknown_request_still_competes_even_with_reconciliation_shaped_data(self):
+        self.proven_rejected_request();self.store.db.execute("UPDATE action SET state='outcome_unknown' WHERE id='rejected'")
+        self.collect();self.assertIsNone(self.store.db.execute("SELECT 1 FROM event WHERE kind='ark_transfer_verified'").fetchone())
+
+    def test_missing_or_mismatched_positive_source_bindings_do_not_release_claim(self):
+        self.proven_rejected_request()
+        saved=self.store.db.execute("SELECT result FROM action WHERE id='rejected'").fetchone()[0]
+        for field,value in [('server_source_sha256',None),('native_client_source_sha256','bad'),
+                ('server_trace_id',''),('input_coin_ids',['unrelated:0']),('disposition','no movement seen'),
+                ('legitimate_board_registration_preserved',False),('before_sequence',0),('actual_fee_sat',1)]:
+            with self.subTest(field=field):
+                result=json.loads(saved);result['rejection_reconciliation'][field]=value
+                self.store.db.execute("UPDATE action SET result=? WHERE id='rejected'",(canonical(result),))
+                self.collect();self.assertIsNone(self.store.db.execute("SELECT 1 FROM event WHERE kind='ark_transfer_verified'").fetchone())
+        self.store.db.execute("UPDATE action SET result=? WHERE id='rejected'",(saved,))
+        self.collect();self.assertIsNotNone(self.store.db.execute("SELECT 1 FROM event WHERE kind='ark_transfer_verified'").fetchone())
+
+    def test_result_without_original_authenticated_event_does_not_release_claim(self):
+        self.proven_rejected_request()
+        self.store.db.execute("DELETE FROM event WHERE kind='unknown_outcome_rejected'")
+        self.collect();self.assertIsNone(self.store.db.execute("SELECT 1 FROM event WHERE kind='ark_transfer_verified'").fetchone())
+
+    def test_rejection_boundary_frames_must_belong_to_original_action_and_tag(self):
+        self.proven_rejected_request()
+        proof=json.loads(self.store.db.execute("SELECT result FROM action WHERE id='rejected'").fetchone()[0])['rejection_reconciliation']
+        for field in ('before_sequence','after_sequence'):
+            row=dict(self.store.db.execute('SELECT * FROM event WHERE sequence=?',(proof[field],)).fetchone())
+            for change in ({'action_id':'other-action'},{'event':'unrelated_phase'}):
+                with self.subTest(field=field,change=change):
+                    data={**json.loads(row['payload']),**change}
+                    self.store.db.execute('UPDATE event SET payload=? WHERE sequence=?',(canonical(data),row['sequence']))
+                    self.collect();self.assertIsNone(self.store.db.execute("SELECT 1 FROM event WHERE kind='ark_transfer_verified'").fetchone())
+                    self.store.db.execute('UPDATE event SET payload=? WHERE sequence=?',(row['payload'],row['sequence']))
+            with self.subTest(field=field,change='missing frame'):
+                self.store.db.execute('DELETE FROM event WHERE sequence=?',(row['sequence'],))
+                self.collect();self.assertIsNone(self.store.db.execute("SELECT 1 FROM event WHERE kind='ark_transfer_verified'").fetchone())
+                names=list(row);self.store.db.execute('INSERT INTO event ('+','.join(names)+') VALUES ('+','.join('?' for _ in names)+')',list(row.values()))
+        self.store.verify_event_chain();self.collect()
+        self.assertIsNotNone(self.store.db.execute("SELECT 1 FROM event WHERE kind='ark_transfer_verified'").fetchone())
