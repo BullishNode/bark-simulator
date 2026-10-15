@@ -169,3 +169,60 @@ class ExploratoryTests(unittest.TestCase):
         self.chain.transaction=lambda txid: {'fee_sat':1500 if txid==board else 501}
         with self.assertRaisesRegex(ValueError,'signed carrier'):
             e.checked_source(self.d,self.p,self.chain,now=self.now,client_board_proposals=proposals)
+
+    def closure_snapshot(self):
+        proof=self.checked();self.store.event('exploratory_operating_readiness',proof)
+        return {'height':proof['height'],'tip_hash':proof['tip_hash'],
+            'exploratory_readiness_sequence':self.store.db.execute('SELECT MAX(sequence) FROM event').fetchone()[0]}
+
+    def test_append_only_closure_preserves_board_history_holds_and_final_gate(self):
+        e.declare(self.store,self.d);self.store.db.execute("DELETE FROM meta WHERE key='paused'")
+        self.store.queue('original-board','actor-01','H01','board',{'amount_sat':28000},1000)
+        self.store.db.execute("UPDATE action SET state='completed' WHERE id='original-board'")
+        self.store.db.execute("INSERT INTO meta VALUES ('paused','review closure')")
+        snap=self.closure_snapshot();original=self.store.get_meta(e.KEY)
+        closed=e.close(self.store,snap,'original window complete',now=self.now)
+        self.assertIsNone(e.scope(self.store));self.assertEqual(original,self.store.get_meta(e.KEY))
+        self.assertEqual(1000,closed['retained_fee_holds_sat']);self.assertEqual(500,closed['remaining_fee_budget_sat'])
+        self.assertEqual('true',self.store.get_meta('financial_qualification_required'))
+        self.store.db.execute("INSERT INTO meta VALUES ('final_financial_epoch','{}')")
+        self.assertIsNone(e.scope(self.store))
+        self.assertEqual('completed',self.store.db.execute("SELECT state FROM action WHERE id='original-board'").fetchone()[0])
+        self.assertEqual('0',self.store.get_meta('qualified_campaign_active_seconds'));self.store.verify_event_chain()
+
+    def test_continuation_carries_counts_and_budgets_without_resetting_original(self):
+        e.declare(self.store,self.d);self.store.db.execute("DELETE FROM meta WHERE key='paused'")
+        self.store.queue('original-board','actor-01','H01','board',{'amount_sat':28000},1000)
+        self.store.db.execute("UPDATE action SET state='completed' WHERE id='original-board'")
+        self.store.db.execute("INSERT INTO meta VALUES ('paused','review continuation')")
+        original=self.store.get_meta(e.KEY);e.close(self.store,self.closure_snapshot(),'carry original liabilities',now=self.now)
+        new={**self.d,'id':'fixture-continuation','started_at':self.now,'deadline':self.now+1800}
+        self.assertTrue(e.continue_scope(self.store,new,now=self.now));self.assertEqual(new,e.scope(self.store))
+        self.assertEqual(original,self.store.get_meta(e.KEY))
+        with self.assertRaisesRegex(ValueError,'one original board'):
+            e.admit(self.store,'actor-01','board',{'amount_sat':28000})
+        self.assertEqual(1,self.store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]);self.store.verify_event_chain()
+
+    def test_closure_and_continuation_refuse_unknown_stale_and_raised_capital(self):
+        e.declare(self.store,self.d);self.store.db.execute("DELETE FROM meta WHERE key='paused'")
+        self.store.queue('unknown-board','actor-01','H01','board',{'amount_sat':28000},1000)
+        self.store.db.execute("UPDATE action SET state='outcome_unknown' WHERE id='unknown-board'")
+        self.store.db.execute("INSERT INTO meta VALUES ('paused','unknown preserved')")
+        snap=self.closure_snapshot()
+        with self.assertRaisesRegex(ValueError,'zero queued'):e.close(self.store,snap,'cannot discard unknown',now=self.now)
+        self.assertIsNotNone(e.scope(self.store))
+        self.store.db.execute("UPDATE action SET state='completed' WHERE id='unknown-board'")
+        e.close(self.store,snap,'measured reconciliation fixture',now=self.now)
+        new={**self.d,'id':'fixture-continuation','started_at':self.now,'deadline':self.now+1800}
+        with self.assertRaisesRegex(ValueError,'cannot change'):
+            e.continue_scope(self.store,{**new,'capital_budget_sat':300000},now=self.now)
+        with self.assertRaisesRegex(ValueError,'fresh unchanged'):
+            e.continue_scope(self.store,new,now=self.now+91)
+        self.assertIsNone(e.scope(self.store))
+
+    def test_continuation_never_discards_a_positive_clock_after_closure(self):
+        e.declare(self.store,self.d);e.close(self.store,self.closure_snapshot(),'preserve counter',now=self.now)
+        self.store.db.execute("UPDATE meta SET value='19' WHERE key='qualified_campaign_active_seconds'")
+        with self.assertRaisesRegex(ValueError,'preserve unexpected positive'):
+            e.continue_scope(self.store,{**self.d,'id':'fixture-continuation','started_at':self.now,'deadline':self.now+1800},now=self.now)
+        self.assertEqual('19',self.store.get_meta('qualified_campaign_active_seconds'));self.assertIsNone(e.scope(self.store))
