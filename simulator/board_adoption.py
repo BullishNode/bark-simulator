@@ -154,6 +154,10 @@ def _client_state(store,config,origin,height):
         raise ValueError('original context/override-free Board adoption required')
     if origin['expiry_height']<=height+origin['exit_margin']+6:raise ValueError('Board near expiry; salvage path unavailable')
     results={}
+    key_inventory=None
+    if profile(store)==DIRECT_PER_KEY:
+        from .c_pilot import retained_links
+        key_inventory=retained_links(store)
     for actor in value['actors']:
         path=Path(value['wallet_root'])/actor/'db.sqlite'
         if any(stat.S_ISLNK(part.lstat().st_mode) for part in (path,*path.parents)):raise ValueError('client SQLite symlink')
@@ -171,6 +175,8 @@ def _client_state(store,config,origin,height):
                 count=conn.execute('SELECT count(*) FROM '+table).fetchone()[0];counts[table]=count
                 if (table not in allowed|METADATA_TABLES and count!=0 or table in METADATA_TABLES and count>128
                         or table in allowed and count>4):raise ValueError('unrelated persisted monetary state holds adoption')
+            if key_inventory is not None and counts.get('bark_vtxo_key')!=key_inventory[actor]['count']:
+                raise ValueError('complete C native retained-key inventory differs from actual key rows')
             if actor=='actor-01':
                 rows=conn.execute('SELECT id,amount_sat,expiry_height FROM bark_vtxo').fetchall()
                 if len(rows)!=1 or tuple(rows[0])!=(origin['vtxo_id'],origin['net_liability_sat'],origin['expiry_height']):raise ValueError('native Board coin differs')
@@ -194,7 +200,7 @@ def _client_state(store,config,origin,height):
     return results
 
 
-def _database(database,prior,origin):
+def _database(database,prior,origin,*,store=None):
     if (database.get('kind')!='closed_frontier' or database.get('database_tables_complete') is not True
             or database.get('inventory_consistent') is not True or database.get('read_only') is not True
             or set(database.get('rows',{}))!=set(prior['rows'])):raise ValueError('complete original nineteen-table frontier required')
@@ -204,12 +210,17 @@ def _database(database,prior,origin):
     if origin.get('architecture_profile')==DIRECT_PER_KEY:
         if database.get('architecture_profile')!=DIRECT_PER_KEY or database.get('fallback_protocol')!=4:
             raise ValueError('C native database profile/protocol differs')
-        bound=origin['binding'];raw=bytes.fromhex(bound['key_link_attestation'])
-        expected={'user_pubkey':origin['user_pubkey'],'mailbox_pk':bound['mailbox_pk'],
-            'sig':raw[-64:].hex(),'recovery_index':bound['recovery_index']}
+        from .c_pilot import retained_links
+        if store is None:raise ValueError('C original retained native key inventory required')
+        inventory=retained_links(store)
+        expected_all=[link for frame in inventory.values() for link in frame['links']]
+        if len({link['user_pubkey'] for link in expected_all})!=len(expected_all):
+            raise ValueError('C native key inventory overlaps customer identities')
+        expected=None
     else:expected={'user_pubkey':origin['user_pubkey'],'mailbox_pk':origin['binding']['mailbox_pk'],'child_index':origin['binding']['child_index']}
     for name in ('links','journal_links'):
-        if sorted(rows[name],key=canonical)!=sorted(prior['rows'][name]+([expected] if expected not in prior['rows'][name] else []),key=canonical):raise ValueError('original Board owner admission differs')
+        allowed_links=expected_all if expected is None else prior['rows'][name]+([expected] if expected not in prior['rows'][name] else [])
+        if sorted(rows[name],key=canonical)!=sorted(allowed_links,key=canonical):raise ValueError('original Board owner admission differs')
     coins={coin['vtxo_id']:coin for coin in rows['coins']}
     if len(coins)!=len(rows['coins']) or set(coins) not in ({origin['anchor']},{origin['anchor'],origin['vtxo_id']}):raise ValueError('one original Board frontier only')
     for point,coin in coins.items():
@@ -227,7 +238,8 @@ def _database(database,prior,origin):
 async def collect_board_adoption_sources(store,config,chain,bank_rpc,*,cash_source_sequence,current_startup_path):
     return await _collect_backing_sources(store,config,chain,bank_rpc,
         cash_source_sequence=cash_source_sequence,current_startup_path=current_startup_path,
-        history_validator=_history,client_validator=_client_state,database_validator=_database,
+        history_validator=_history,client_validator=_client_state,
+        database_validator=lambda database,prior,origin:_database(database,prior,origin,store=store),
         source_kind='original_board_adoption_sources_verified')
 
 

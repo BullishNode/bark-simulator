@@ -69,6 +69,20 @@ requires exactly those102 public links and2 immutable records in both consistent
 frontier projections; all monetary tables must be empty. Signed indices remain
 recovery metadata. No address allocation is performed to inventory these keys.
 
+After full native sync, the fresh pilot exports every retained acknowledgement
+over the required contiguous range0..last-issued+50, strictly bounded below128.
+Every lookup must succeed; errors never mean end of inventory. It does not do
+this immediately after Board/address issuance, when refill need not yet have
+happened. Independent signature checks admit legitimate newly linked lookahead
+keys. Source qualification additionally reads every bounded actual SQLite
+`idx/public_key/linked_proof/issued` row under the existing wallet-root Lease and
+read-only transaction, compares the exact public set and then matches the
+server's complete link union. An extra row, missing key, altered proof or changed
+destination holds. Initial source collection also checks exactly51 actual rows
+with only authentication0 issued. Source collectors therefore require that
+existing wallet-root Lease. This is a fresh-pilot seam; generic sparse restoration
+and callback wallet inventory remain separate full-goal gates.
+
 `deploy/track-c/server-observer.py` uses a declared native read-only ops transport.
 It refuses until `/etc/track-c/deployment-public.json` is active, root-owned and
 matches both installed observer files and the ops executable. Public SQL/wallet

@@ -4,6 +4,7 @@ import copy
 import dataclasses
 import hashlib
 import json
+import sqlite3
 import time
 from types import SimpleNamespace
 import unittest
@@ -19,6 +20,7 @@ from simulator.treasury import declare_boundary
 from tests.test_identity_bootstrap import IdentityBootstrapTests
 from tests.test_finite_funding_readiness import Chain,address
 from tests.test_c_pilot import pilot,initial_data
+from simulator.per_key import link_bytes,retained_origins
 
 
 class CChain(Chain):
@@ -49,12 +51,17 @@ class CInitialSourceControls(unittest.TestCase):
             self.store.finish(action['id'],'completed',response,0)
             bootstrap.verify_created(self.store,f.config,self.chain,actor,action['id'])
             (f.wallets/actor).mkdir(mode=0o700)
+            path=f.wallets/actor/'db.sqlite';conn=sqlite3.connect(path)
+            conn.execute('CREATE TABLE bark_vtxo_key(idx INTEGER,public_key TEXT,linked_proof BLOB,issued INTEGER)')
+            conn.executemany('INSERT INTO bark_vtxo_key VALUES(?,?,?,?)',[(row['native_index'],row['origin']['user_pubkey'],
+                bytes.fromhex(row['origin']['key_link_attestation']),int(row['native_index']==0)) for row in data['initial_key_links']])
+            conn.commit();conn.close();path.chmod(0o600)
             for proof in proofs:proof['financial_pins']=f.pins
             record_verified(self.store,actor,action['id'],{'objects':[
                 {'kind':'key','proof':proof,'request_origin':row['origin']} for proof,row in zip(proofs,data['initial_key_links'])], 'movements':[]})
             self.data[actor]=data
         from simulator.finite_funding_readiness import _c_records_links
-        self.records,self.links=_c_records_links(self.store,self.data,f.pins)
+        with Lease(f.wallets):self.records,self.links=_c_records_links(self.store,self.data,f.pins)
         self.store.db.execute("INSERT INTO meta VALUES ('paused','initial C source controls')")
         current={owner+'_inventory':{owner:{'wallet':owner,'network':'signet','complete':True,
             'tip_height':100,'tip_hash':'a'*64,'public_descriptor':owner+'-descriptor','last_revealed_index':0,
@@ -81,7 +88,7 @@ class CInitialSourceControls(unittest.TestCase):
     def bank_collect(self,*args,**kwargs):
         self.store.event('treasury_bank_original_source',self.bank);return self.seq()
     def collect(self):
-        with patch('simulator.finite_funding_readiness.collect_funding_bank_source',side_effect=self.bank_collect),patch(
+        with Lease(self.fixture.wallets),patch('simulator.finite_funding_readiness.collect_funding_bank_source',side_effect=self.bank_collect),patch(
                 'simulator.finite_funding_readiness.json_command',AsyncMock(return_value=self.database)):
             return asyncio.run(collect_initial_funding_sources(self.store,self.config,self.chain,self.bank_rpc,
                 runtime_source_sequence=self.runtime_sequence,current_startup_path=self.current,boundary_id='c-treasury'))
@@ -116,6 +123,41 @@ class CInitialSourceControls(unittest.TestCase):
         for operation in ('board','sync','claim','send_arkoor'):
             with self.subTest(operation=operation),self.assertRaises(ValueError):preflight(self.store,self.config,snapshot,operation=operation)
         with self.assertRaises(ValueError):preflight(self.store,self.config,snapshot,operation='funding',amount_sat=25000,maximum_fee_sat=1001)
+
+    def test_synced_lookahead_growth_requires_real_native_proof_and_every_actual_public_row(self):
+        from simulator.c_pilot import retained_links
+        f=self.fixture
+        with Lease(f.wallets):self.assertEqual(51,retained_links(self.store)['actor-01']['count'])
+        data=copy.deepcopy(self.data['actor-01']);binding=data['binding'];key='03'+format(52,'064x')
+        wire=link_bytes({'user_pubkey':key,'mailbox_pk':binding['mailbox_pk'],'sig':'55'*64,'recovery_index':51})
+        origin={'user_pubkey':key,'binding':binding,'key_link_attestation':wire}
+        rows=copy.deepcopy(data['initial_key_links'])+[{'native_index':51,'origin':origin}]
+        frame={'schema_version':1,'scope':'fresh_synced_native_prefix','last_issued_index':1,
+            'maximum_index':51,'binding':binding,'rows':rows}
+        self.assertEqual(52,len(retained_origins(frame)))
+        for change in ({'rows':rows[:-1]},{'maximum_index':50},{'last_issued_index':True}):
+            with self.subTest(change=next(iter(change))),self.assertRaises(ValueError):retained_origins({**frame,**change})
+        self.store.db.execute("DELETE FROM meta WHERE key='paused'")
+        action=f.action(operation='sync',actor='actor-01')
+        response={'action_id':action['id'],'status':'ok','actual_fee_sat':0,'data':{'c_key_links':frame}}
+        self.store.event('driver_response',{'action_id':action['id'],'response':response})
+        self.store.finish(action['id'],'completed',response,0)
+        path=f.wallets/'actor-01'/'db.sqlite';connection=sqlite3.connect(path)
+        connection.execute('UPDATE bark_vtxo_key SET issued=1 WHERE idx=1')
+        connection.execute('INSERT INTO bark_vtxo_key VALUES(?,?,?,0)',(51,key,bytes.fromhex(wire)))
+        connection.commit();connection.close()
+        with Lease(f.wallets),self.assertRaisesRegex(ValueError,'independent signature'):retained_links(self.store)
+        proof={'user_pubkey':key,'financial_pins':f.pins,'binding':{**binding,'record_version':4,'key_link_version':1,
+            'key_link_attestation':wire,'recovery_index':51,'policy_pubkey_full':key,
+            'record_signature_valid':True,'key_link_signature_valid':True}}
+        record_verified(self.store,'actor-01',action['id'],{'objects':[{'kind':'key','proof':proof,'request_origin':origin}],'movements':[]})
+        with Lease(f.wallets):self.assertEqual(52,retained_links(self.store)['actor-01']['count'])
+        connection=sqlite3.connect(path);connection.execute('INSERT INTO bark_vtxo_key VALUES(?,?,?,0)',(1000,'02'+'99'*32,b'extra'))
+        connection.commit();connection.close()
+        with Lease(f.wallets),self.assertRaisesRegex(ValueError,'actual C public key/proof rows'):retained_links(self.store)
+        connection=sqlite3.connect(path);connection.execute('DELETE FROM bark_vtxo_key WHERE idx=1000')
+        connection.execute('UPDATE bark_vtxo_key SET linked_proof=? WHERE idx=51',(b'changed',));connection.commit();connection.close()
+        with Lease(f.wallets),self.assertRaisesRegex(ValueError,'actual C public key/proof rows'):retained_links(self.store)
 
 
 if __name__=='__main__':unittest.main()

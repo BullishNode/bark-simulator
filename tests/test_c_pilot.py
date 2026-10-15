@@ -104,7 +104,8 @@ class CPilotControls(unittest.TestCase):
             objects=[{'kind':'key','proof':proof,'request_origin':row['origin']}
                 for row,proof in zip(data['initial_key_links'],proofs)]
             record_verified(self.store,actor,'synthetic-create',{'objects':objects,'movements':[]})
-        records,links=_c_records_links(self.store,values,PINS)
+        with patch('simulator.c_pilot.verify_public_key_rows'):
+            records,links=_c_records_links(self.store,values,PINS)
         self.assertEqual(2,len(records));self.assertEqual(102,len(links))
         self.assertEqual(set(range(51)),{row['recovery_index'] for row in links})
         with self.assertRaisesRegex(ValueError,'independently verified'):

@@ -46,7 +46,8 @@ def _c_records_links(store, customer_data, pins):
     for actor,data in sorted(customer_data.items()):
         binding=data['binding'];wire=record_envelope(binding)
         records.append({'mailbox_pk':binding['mailbox_pk'],'spk':binding['spk'],'mailbox_sig':wire[-64:].hex()})
-        for origin in initial_origins(data):
+        origins=initial_origins(data)
+        for origin in origins:
             row=store.db.execute('SELECT * FROM owner_key WHERE pubkey=?',(origin['user_pubkey'],)).fetchone()
             checked=json.loads(row['proof']) if row else {}
             if (not row or row['actor']!=actor or checked.get('financial_pins')!=pins
@@ -55,6 +56,8 @@ def _c_records_links(store, customer_data, pins):
             raw=bytes.fromhex(origin['key_link_attestation'])
             links.append({'user_pubkey':origin['user_pubkey'],'mailbox_pk':binding['mailbox_pk'],
                 'sig':raw[-64:].hex(),'recovery_index':int.from_bytes(raw[35:39],'little')})
+        from .c_pilot import verify_public_key_rows
+        verify_public_key_rows(store,actor,origins,initial=True)
     if len({r['mailbox_pk'] for r in records})!=2 or len({r['spk'] for r in records})!=2 or len({l['user_pubkey'] for l in links})!=102:
         raise ValueError('two distinct C identities and 102 original unique links required')
     return sorted(records,key=lambda r:r['mailbox_pk']),sorted(links,key=lambda r:r['user_pubkey'])

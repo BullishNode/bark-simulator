@@ -225,7 +225,7 @@ def _send(store,origin):
 def _server(database,prior,origin,store):
     send=_send(store,origin)
     if send is None:
-        result=backing._database(database,prior,origin)
+        result=backing._database(database,prior,origin,store=store)
         if result['registered'] is not True:raise ValueError('original Board must be registered before ordinary journey')
         return result
     if (database.get('kind')!='closed_frontier' or database.get('database_tables_complete') is not True
@@ -275,7 +275,11 @@ def _server(database,prior,origin,store):
             'sig':bytes.fromhex(bound['key_link_attestation'])[-64:].hex(),'recovery_index':bound['recovery_index']} for pubkey,bound in keys.items()]
     else:expected_links=[{'user_pubkey':pubkey,'mailbox_pk':bound['mailbox_pk'],'child_index':bound['child_index']} for pubkey,bound in keys.items()]
     for name in ('links','journal_links'):
-        expected=list(prior['rows'][name])+[link for link in expected_links if link not in prior['rows'][name]]
+        if profile(store)==DIRECT_PER_KEY:
+            from .c_pilot import retained_links
+            expected=[link for frame in retained_links(store).values() for link in frame['links']]
+            if any(link not in expected for link in expected_links):raise ValueError('C monetary key missing from original native inventory')
+        else:expected=list(prior['rows'][name])+[link for link in expected_links if link not in prior['rows'][name]]
         if sorted(rows[name],key=canonical)!=sorted(expected,key=canonical):raise ValueError('ordinary native owner links differ')
     if rows['pending_boards'] not in ([],[{'vtxo_id':origin['vtxo_id'],'expiry':origin['expiry_height']}]):raise ValueError('foreign pending Board')
     return {'recipient_coins':list(recipient),'change_coins':list(send['changes']),'liability_sat':origin['net_liability_sat'],'physical_anchor_count':1}
@@ -294,6 +298,10 @@ def _native(store,config,origin,height):
             or any(key.startswith('BARK_') for key in os.environ)):raise ValueError('same private sole-writer native context required')
     if origin['expiry_height']<=height+origin['exit_margin']+6:raise ValueError('ordinary Board near expiry')
     result={}
+    key_inventory=None
+    if profile(store)==DIRECT_PER_KEY:
+        from .c_pilot import retained_links
+        key_inventory=retained_links(store)
     for actor in value['actors']:
         path=Path(value['wallet_root'])/actor/'db.sqlite'
         if any(stat.S_ISLNK(part.lstat().st_mode) for part in (path,*path.parents)):raise ValueError('native SQLite symlink')
@@ -312,6 +320,8 @@ def _native(store,config,origin,height):
                 count=conn.execute('SELECT count(*) FROM '+table).fetchone()[0];counts[table]=count
                 if (table not in allowed|METADATA_TABLES and count!=0 or table in METADATA_TABLES and count>128
                         or table in allowed and count>64):raise ValueError('unrelated native monetary state or checkpoint')
+            if key_inventory is not None and counts.get('bark_vtxo_key')!=key_inventory[actor]['count']:
+                raise ValueError('C complete native retained-key inventory differs from actual key rows')
             if actor=='actor-04':result[actor]={'counts':counts};continue
             coins={row['id']:dict(row) for row in conn.execute('SELECT id,amount_sat,expiry_height FROM bark_vtxo')}
             expected={point:item['amount_sat'] for point,item in send['changes'].items()} if actor=='actor-01' else {}

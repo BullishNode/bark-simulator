@@ -665,8 +665,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             // Advancing existing boards/rounds/sends/offboards is accounted to
             // their original persisted action, never charged a second time here.
             let no_new_receive = receive_count_before == 0 && receive_count_after == 0;
-            Ok(
-                json!({"requested": "sync", "note": "SDK sync can log partial failures; inspect snapshot/status before declaring convergence",
+            let mut result = json!({"requested": "sync", "note": "SDK sync can log partial failures; inspect snapshot/status before declaring convergence",
                     "receive_count_before":receive_count_before,"receive_count_after":receive_count_after,
                     "receive_payment_hashes_before":receive_payment_hashes_before,
                     "receive_payment_hashes_after":receive_payment_hashes_after,
@@ -677,8 +676,12 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                     "all_pending_receive_fee_ceiling_sat":receive_ceiling,
                     "actual_fee_sat":if no_new_receive {json!(0)} else {Value::Null},
                     "fee_scope":"new receive fees require signed claim reconciliation; costs of existing persisted actions remain on those actions",
-                    "before_evidence":before,"evidence":coin_evidence(&wallet).await?}),
-            )
+                    "before_evidence":before,"evidence":coin_evidence(&wallet).await?});
+            #[cfg(feature = "direct-per-key")]
+            if req.operation == "sync" && !bounded_receive_sync {
+                result["c_key_links"] = bark_sim_driver::per_key::fresh_synced_prefix(&wallet).await?;
+            }
+            Ok(result)
         }
         "address" => {
             let address = wallet.new_address().await?;

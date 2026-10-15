@@ -70,6 +70,13 @@ def initial_origins(data):
     rows = data.get('initial_key_links')
     if not isinstance(rows, list) or len(rows) != 51:
         raise ValueError('exact 51 original C key acknowledgements required')
+    return prefix_origins(binding,rows,50)
+
+
+def prefix_origins(binding,rows,maximum):
+    record_envelope(binding)
+    if not isinstance(rows,list) or len(rows)!=maximum+1:
+        raise ValueError('complete original native key prefix required')
     keys = set()
     for index, row in enumerate(rows):
         if (not isinstance(row, dict) or set(row) != {'native_index','origin'}
@@ -87,6 +94,16 @@ def initial_origins(data):
             raise ValueError('initial C key or signed native recovery index differs')
         keys.add(origin['user_pubkey'])
     return [row['origin'] for row in rows]
+
+
+def retained_origins(frame):
+    fields={'schema_version','scope','last_issued_index','maximum_index','binding','rows'}
+    if (not isinstance(frame,dict) or set(frame)!=fields or type(frame['schema_version']) is not int
+            or frame['schema_version']!=1 or frame['scope']!='fresh_synced_native_prefix'
+            or type(frame['last_issued_index']) is not int or not 0<=frame['last_issued_index']<78
+            or type(frame['maximum_index']) is not int or frame['maximum_index']!=frame['last_issued_index']+50):
+        raise ValueError('bounded original fresh synced C prefix required')
+    return prefix_origins(frame['binding'],frame['rows'],frame['maximum_index'])
 
 
 def proof_matches(proof, source):

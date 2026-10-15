@@ -107,9 +107,10 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
     if not isinstance(binding,dict):return None
     verified=[]
     original_context=store.financial_context()
-    if per_key and operation == 'create':
-        from .per_key import initial_origins
-        for request in initial_origins(data):
+    if per_key and (operation == 'create' or 'c_key_links' in data):
+        from .per_key import initial_origins,retained_origins
+        origins=initial_origins(data) if operation=='create' else retained_origins(data['c_key_links'])
+        for request in origins:
             proof = await json_command(list(proof_command),request,timeout=30,
                 **public_command_capture(store,'proof.verify',request,actor=actor))
             proof = {**proof,'financial_pins':original_context}

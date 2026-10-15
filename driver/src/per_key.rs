@@ -93,6 +93,23 @@ pub async fn wallet_origin(wallet: &bark::Wallet, coin: PublicKey) -> Result<Val
     Ok(request)
 }
 
+pub async fn fresh_synced_prefix(wallet: &bark::Wallet) -> Result<Value> {
+    // Fresh pilot only, after full sync. The independent source collector also
+    // compares EVERY actual public SQLite key row, detecting any extra/hole.
+    let (_, next_index) = wallet.peek_next_keypair().await?;
+    let last_issued = next_index.checked_sub(1).context("missing reserved authentication key")?;
+    let maximum = next_index.checked_add(49).context("C pilot key bound overflow")?;
+    ensure!(maximum < 128,"fresh C pilot retained-key prefix exceeds bound");
+    let mut rows = Vec::new();
+    for index in 0..=maximum {
+        let key = wallet.peek_keypair(index).await?.public_key();
+        rows.push(json!({"native_index":index,"origin":wallet_origin(wallet,key).await?}));
+    }
+    Ok(json!({"schema_version":1,"scope":"fresh_synced_native_prefix",
+        "last_issued_index":last_issued,"maximum_index":maximum,
+        "binding":wallet_binding(wallet).await?,"rows":rows}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
