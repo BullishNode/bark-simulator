@@ -17,6 +17,7 @@ from simulator.ownership import record_server_page
 from simulator.padding import collect, collect_backing, decoded_coin, record_sweep, report
 from simulator.bundle_audit import decode_transaction
 from simulator.store import Store
+from integration.fixture_runtime import fixture_profile
 
 
 async def main():
@@ -27,7 +28,8 @@ async def main():
     assert manifest['core_url'].startswith('http://127.0.0.1:')
     helper = Path(manifest['decoder'])
     assert hashlib.sha256(helper.read_bytes()).hexdigest() == manifest['decoder_sha256']
-    store = Store(Path(manifest['state_dir']), 'live', 10000)
+    profile = fixture_profile(manifest)
+    store = Store(Path(manifest['state_dir']), 'live', 10000, architecture_profile=profile)
     initialize(store)
     chain = ChainReader(manifest['core_url'], manifest['core_cookie'], manifest['genesis'],
                         capture=store.trace_sample, consumer='round-padding-fixture')

@@ -12,6 +12,7 @@ controller=importlib.util.module_from_spec(spec);spec.loader.exec_module(control
 class ExitControllerTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
+        (self.root/'driver.json').write_text('{}')
         self.manifest=self.root/'manifest.json'
         self.manifest.write_text(json.dumps({'exit_fixture':True,'network':'regtest','core_url':'http://127.0.0.1:1234',
             'core_cookie':str(self.root/'cookie'),'genesis':'genesis','state_dir':str(self.root/'state'),

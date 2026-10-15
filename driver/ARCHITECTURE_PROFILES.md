@@ -61,3 +61,13 @@ This source guard does not port the historical harness. Its sequence fields,
 two-step payout path, minimum payout and expected recovery behavior still need
 review against the selected profile. An arbitrary new SDK pin, or a successful
 fixture build, cannot qualify A/B/C identity and economic contracts by itself.
+
+For an explicitly profiled fixture, pass `--architecture-profile` with the native
+profile name from the table above. The wrapper clears any inherited profile
+environment value; its argument flows through Rust-created configuration and
+fixture manifests into Python `Config` and every fixture `Store`, including the
+padding audit. The manifest and actual driver configuration must agree before
+state is opened. An unknown, null, missing or mismatched explicit profile is
+refused. Omitting both profile fields preserves the historical Track B fixture.
+This propagation does not change the selected SDK, build the historical Rust
+harness against it, or replace its architecture-specific economic assertions.

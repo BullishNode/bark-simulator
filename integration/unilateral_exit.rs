@@ -110,13 +110,13 @@ async fn exercise(ark: bool) {
     let driver_config = ctx.datadir.join("exit-driver.json");
     let wallet_root = ctx.datadir.join("exit-wallets");
     std::fs::create_dir_all(&wallet_root).unwrap();
-    write(
+    super::write_profiled(
         &driver_config,
         &json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}),
     );
     let info = srv.ark_info().await;
     let manifest = ctx.datadir.join("exit-fixture.json");
-    write(
+    super::write_profiled(
         &manifest,
         &json!({"exit_fixture":true,"network":"regtest","fee_budget_sat":100000,
         "core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),

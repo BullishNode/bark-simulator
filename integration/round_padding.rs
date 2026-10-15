@@ -41,12 +41,13 @@ async fn check(ctx: &TestContext, srv: &Captaind, db: &Db, root: &Path, out: &Pa
         .filter_map(|r|r["onchain_spent_txid"].as_str().map(str::to_owned)).collect::<BTreeSet<_>>();
     let decoder=root.join("target/debug/server-policy-proof");
     let manifest=out.join(format!("round-padding-{phase}-manifest.json"));
-    std::fs::write(&manifest,serde_json::to_vec_pretty(&json!({"network":"regtest",
+    super::write_profiled(&manifest,&json!({"network":"regtest",
+        "driver_config":ctx.datadir.join("sim-driver.json"),
         "core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
         "genesis":core.get_block_hash(0).unwrap().to_string(),"server_pubkey":srv.ark_info().await.server_pubkey.to_string(),
         "decoder":decoder,"decoder_sha256":sha256::Hash::hash(&std::fs::read(&decoder).unwrap()).to_string(),
         "state_dir":out.join("round-padding-journal"),"out_dir":out,"inventory":rows,
-        "fixture_operator_scripts":scripts,"sweep_candidates":candidates})).unwrap()).unwrap();
+        "fixture_operator_scripts":scripts,"sweep_candidates":candidates}));
     let process=std::process::Command::new("python3").arg(root.join("integration/round-padding-client.py")).arg(phase).arg(&manifest).output().unwrap();
     let mut log=std::fs::OpenOptions::new().append(true).create(true).open(out.join("round-padding-operations.log")).unwrap();
     log.write_all(&process.stdout).unwrap();log.write_all(&process.stderr).unwrap();
