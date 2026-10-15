@@ -4,7 +4,7 @@ import unittest
 from decimal import Decimal
 from types import SimpleNamespace
 
-import test_direct_settlements as fixtures
+from tests import test_direct_settlements as fixtures
 from simulator.direct_settlements import commit_checked, record
 from simulator.model import InvariantError, SIGNET_GENESIS, canonical
 from simulator.recovery import RecoveryController
