@@ -162,8 +162,11 @@ class Engine:
                 operations=('progression',) if scope is None else tuple(
                     operation for operation in ('ordinary','claim','progression') if operation in scope)
                 for operation in operations:
-                    if preflight(self.store,self.config,snapshot,operation=operation)['allowed']:
-                        return True
+                    try:
+                        if preflight(self.store,self.config,snapshot,operation=operation)['allowed']:
+                            return True
+                    except ValueError:
+                        continue
                 return False
             except ValueError:
                 return False

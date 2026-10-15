@@ -142,6 +142,12 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
             or proof.get('height')!=snapshot.get('height') or proof.get('complete') is not True
             or not 0<=now-proof.get('observed_at',-1)<=90):
         raise ValueError('actual fresh operating readiness not verified')
+    if 'operation_scope' in proof:
+        allowed=proof['operation_scope']
+        if (not isinstance(allowed,list) or not allowed or len(allowed)>128
+                or any(not isinstance(item,str) or not item or len(item)>64 for item in allowed)
+                or len(set(allowed))!=len(allowed) or operation not in allowed):
+            raise ValueError('operation not admitted by original source operation scope')
     if proof.get('effective_fee_ceilings_sat_kvb')!=declaration['fee_ceilings_sat_kvb']:
         raise ValueError('actual round/pool/sweep/payout/claim/progression ceilings differ')
     if integer(proof['capital_exposure_msat'],'actual exposure')>declaration['capital_exposure_msat']:

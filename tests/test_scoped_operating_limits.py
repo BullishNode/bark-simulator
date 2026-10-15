@@ -110,6 +110,8 @@ class ScopedOperatingTests(TreasuryFixture, unittest.TestCase):
         engine = Engine.__new__(Engine)
         engine.store, engine.config = self.store, self.config
         self.assertTrue(engine.ready_for_actions(self.readiness(estimated_fee_rate_sat_kvb=2500)))
+        self.assertTrue(engine.ready_for_actions(self.readiness(estimated_fee_rate_sat_kvb=2500,
+            operation_scope=['claim'])))
         self.assertFalse(engine.ready_for_actions(self.readiness(estimated_fee_rate_sat_kvb=3001)))
 
     def test_scoped_sync_is_checked_as_sync_without_a_native_call_when_held(self):

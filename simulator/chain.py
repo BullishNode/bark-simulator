@@ -17,7 +17,9 @@ class ChainReader:
         if method=='scantxoutset':
             if (len(args)!=2 or args[0]!='start' or not isinstance(args[1],list) or not 1<=len(args[1])<=12
                     or any(not isinstance(row,dict) or set(row)!={'desc','range'} or not isinstance(row['desc'],str)
-                        or len(row['desc'])>4096 or row['range']!=[0,19] for row in args[1])):
+                        or not row['desc'] or len(row['desc'])>4096 or not isinstance(row['range'],list)
+                        or len(row['range'])!=2 or any(type(index) is not int for index in row['range'])
+                        or row['range'][0]!=0 or not 19<=row['range'][1]<2000 for row in args[1])):
                 raise ValueError('bounded public bootstrap descriptor scan required')
             public_payload(args[1])
         if method=='getrawmempool' and args!=(False,):raise ValueError('bounded transaction-id inventory required')
