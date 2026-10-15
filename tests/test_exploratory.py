@@ -268,7 +268,7 @@ class ExploratoryTests(unittest.TestCase):
 
     def test_only_exact_input_limit_transition_can_use_fresh_after_with_historical_closure(self):
         new,after=self.input_limit_transition();later=self.now+120
-        after['observed_at']=after['completed_at']=datetime.fromtimestamp(later,timezone.utc).isoformat()
+        after['observed_at']=after['completed_at']=datetime.fromtimestamp(later-0.1,timezone.utc).isoformat()
         new={**new,'started_at':later,'deadline':later+1800}
         oldclosure=self.store.get_meta(e.KEY+':closed:'+hashlib.sha256(canonical(self.d).encode()).hexdigest())
         self.assertTrue(e.continue_scope(self.store,new,now=later,arkoor_input_limit_transition=(self.p,after,self.chain)))
