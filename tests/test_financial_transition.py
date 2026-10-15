@@ -69,7 +69,9 @@ class FinancialTransitionTests(unittest.TestCase):
         self.admit();self.assertEqual(actions,[dict(r) for r in self.store.db.execute('SELECT * FROM action')]);self.assertEqual(meta,declaration_hashes(self.store))
         self.assertEqual('10000',self.store.get_meta('fee_budget_sat'));self.assertEqual(500,self.store.remaining_fee_budget());self.assertEqual('0',self.store.get_meta('qualified_campaign_active_seconds'));self.store.verify_event_chain()
     def test_default_historical_guard_remains_without_explicit_opening(self):
-        with self.assertRaisesRegex(ValueError,'before funding or dispatch'):declare_boundary(self.store,self.boundary,self.chain)
+        # Unqualified old dispatches fail the shared verified-bootstrap guard.
+        with self.assertRaisesRegex(ValueError,'only independently verified bootstrap creates'):
+            declare_boundary(self.store,self.boundary,self.chain)
     def test_omitted_or_stale_normal_source_is_never_replaced_by_declaration(self):
         for change in ({'complete':False},{'observed_at':time.time()-91},{'financial_pins':{}},{'boundary_id':'other'}):
             original=copy.deepcopy(self.readiness);self.readiness.update(change);self.source()
