@@ -193,6 +193,30 @@ def _allocate(store, facts, row):
     return row
 
 
+def _public_trace(store, fact, wires):
+    """Publish safe bodies; signed hashes/weights describe the private read."""
+    from .chain import public_transaction
+    fact['public_replay_scope'] = 'stripped bodies prove txids and values, not authorization, original signed hashes or signed weights'
+    try:
+        bodies = {}
+        for txid, original in wires.items():
+            body = public_transaction(original)
+            measured = decode_transaction(original)
+            bodies[txid] = {'encoding': 'bitcoin-stripped-body-v1',
+                'transaction_body': body, 'observed_original_size': measured['size'],
+                'observed_original_weight_wu': measured['weight']}
+    except (ValueError, TypeError, KeyError):
+        # An unsafe parent also makes the public replay incomplete. Keep the
+        # private measurement, but never let a redaction reference count as a
+        # complete replay on this or any subsequent cached observation.
+        fact['public_projection_gap'] = 'required transaction body cannot be safely projected'
+        fact['public_projection_gap_reference'] = store.trace_capture('fee.watch.transaction',
+            {'facts': fact.copy(), 'public_projection_gap': fact['public_projection_gap']})
+        return None
+    return store.trace_capture('fee.watch.transaction',
+        {'facts': fact.copy(), 'transaction_bodies': bodies})
+
+
 async def collect(store, chain, tick_id, *, target_blocks=6, mode='economical', transaction_limit=2, window_id=None):
     """Sample one independent reference each simulator tick, with bounded tx reads."""
     initialize(store)
@@ -229,7 +253,9 @@ async def collect(store, chain, tick_id, *, target_blocks=6, mode='economical', 
             fact, row, wires = await asyncio.to_thread(_measure, chain, txid, json.loads(cached['payload']) if cached else None)
             row=_allocate(store,fact,row)
             if cached is None:
-                fact['trace_reference']=store.trace_capture('fee.watch.transaction',{'facts':fact.copy(),'raw_transactions':wires})
+                fact['trace_reference']=_public_trace(store,fact,wires)
+            if fact.get('public_projection_gap'):
+                unknowns.append({'bucket':'transaction_public_projection','txid':txid,'reason':fact['public_projection_gap']})
             if fact.get('trace_reference') is None:
                 unknowns.append({'bucket':'transaction_raw_capture','txid':txid,'reason':'raw replay trace unavailable'})
             facts.append(fact)
