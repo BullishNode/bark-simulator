@@ -152,3 +152,20 @@ class ExploratoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'board amount'):
             self.store.queue('bad-board','actor-01','H01','board',{'amount_sat':30000},1000)
         self.assertEqual(0,self.store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0])
+
+    def test_explicit_absolute_board_policy_preserves_original_fee_and_server_rate_bounds(self):
+        self.d['client_board_fee_ceiling_sat_kvb']=None
+        e.declare(self.store,self.d)
+        board='b'*64
+        self.chain.transaction=lambda txid: {'fee_sat': 1500 if txid==board else 500}
+        proposals={board:{'planned_mining_fee_sat':1500,'estimated_service_fee_sat':100,'maximum_fee_sat':1700}}
+        self.d['per_action_fee_sat']=1700
+        self.d['fee_budget_sat']=3000
+        result=e.checked_source(self.d,self.p,self.chain,now=self.now,client_board_proposals=proposals)
+        self.assertEqual(1500,result['client_board_miner_fees_sat'])
+        for invalid in [dict(proposals[board],planned_mining_fee_sat=1499),dict(proposals[board],maximum_fee_sat=1599)]:
+            with self.assertRaisesRegex(ValueError,'affordable proposal'):
+                e.checked_source(self.d,self.p,self.chain,now=self.now,client_board_proposals={board:invalid})
+        self.chain.transaction=lambda txid: {'fee_sat':1500 if txid==board else 501}
+        with self.assertRaisesRegex(ValueError,'signed carrier'):
+            e.checked_source(self.d,self.p,self.chain,now=self.now,client_board_proposals=proposals)
