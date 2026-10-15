@@ -94,23 +94,27 @@ class BoardSourceControls(unittest.IsolatedAsyncioTestCase):
         import sys
         with self.f.dependencies():cash=await collect_fresh_cash_sources(self.f.store,self.f.config,self.f.chain,None,current_startup_path='/synthetic-only')
         self.origin['funding_confirmation_sequence']=cash['source']['funding_confirmation_sequence']
+        # Confirming a new Board changes the chainstate; never model new confirmed outputs at the old tip.
+        self.f.height=101;self.f.tip=self.tip='d'*64
+        self.f.bank.update(height=101,tip_hash=self.tip);self.f.bankseq=self.f.event('treasury_bank_original_source',self.f.bank)
         self.origin['transaction']={'txid':'e'*64,'inputs':[{'outpoint':self.f.txid+':2','amount_sat':50000,'script':'actor-01:0'}],
             'outputs':[self.origin['anchor_output'],{'vout':1,'amount_sat':28800,'script':'actor-01:2'}],'fee_sat':1200,'confirmations':1}
         current={field:{owner:{'complete':True,'network':'signet','wallet':owner,'public_descriptor':'desc-'+owner,
-            'last_revealed_index':1,'tip_height':100,'tip_hash':self.tip}} for owner,field in [('rounds','rounds_inventory'),('watchman','watchman_inventory')]}
+            'last_revealed_index':1,'tip_height':101,'tip_hash':self.tip}} for owner,field in [('rounds','rounds_inventory'),('watchman','watchman_inventory')]}
         old_call=self.f.chain.call
         def call(method,*args,**kwargs):
             if method=='scantxoutset' and args[0]=='start':
                 rows=[{'txid':self.f.txid,'vout':row['vout'],'amount':str(__import__('decimal').Decimal(row['amount_sat'])/100000000),'scriptPubKey':row['script']}
                     for row in self.f.transaction['outputs'] if row['vout']!=2]
                 rows.append({'txid':'e'*64,'vout':1,'amount':'0.00028800','scriptPubKey':'actor-01:2'})
-                return {'success':True,'height':100,'bestblock':self.tip,'unspents':rows,'total_amount':'0.00643254'}
+                return self.f.capture_scan({'success':True,'height':101,'bestblock':self.tip,'unspents':rows,'total_amount':'0.00643254'},args[1])
             if method=='gettxout' and args[0]=='e'*64:
                 row=self.origin['transaction']['outputs'][args[1]]
                 return {'confirmations':1,'value':str(__import__('decimal').Decimal(row['amount_sat'])/100000000),'scriptPubKey':{'hex':row['script']}}
             return old_call(method,*args,**kwargs)
         self.f.chain.call=call
         with ExitStack() as stack:
+            stack.enter_context(patch('simulator.confirmed_scan._identity',side_effect=self.f.scan_identity))
             stack.enter_context(patch('simulator.board_adoption._origin',return_value=self.origin))
             stack.enter_context(patch('simulator.board_adoption._history'))
             stack.enter_context(patch('simulator.board_adoption._client_state',return_value={'synthetic':True}))
@@ -137,7 +141,7 @@ class BoardSourceControls(unittest.IsolatedAsyncioTestCase):
             limits={'pins':PINS,'boundary_id':'finite','fee_ceilings_sat_kvb':caps,'fee_budgets_msat':{'ordinary':60000000,'urgent':15000000},
                 'operation_fee_paths':{operation:['sweep','payout'] for operation in ('sync','snapshot')}}
             assets={point:{'member':coin['member_id'],'amount_msat':coin['amount_sat']*1000} for point,coin in result['source']['physical_assets'].items() if point!=self.origin['anchor']}
-            with patch('simulator.treasury.capture_assets',return_value={'height':100,'tip_hash':self.tip,'total_msat':643254000,'assets':assets}),\
+            with patch('simulator.treasury.capture_assets',return_value={'height':101,'tip_hash':self.tip,'total_msat':643254000,'assets':assets}),\
                     patch('simulator.treasury.boundary',return_value={'id':'finite','members':self.f.members}),\
                     patch('simulator.operating_limits.envelope',return_value=limits):
                 ready=record_board_adoption_readiness(self.f.store,self.f.config,self.f.chain,source_sequence=result['source_sequence'],runtime_source_sequence=runtime,current_startup_path='/synthetic-only')

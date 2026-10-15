@@ -237,25 +237,9 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
     from .runtime_startup import _read
     range_runtime,range_runtime_sha256=_read(current_startup_path)
     specs=_current_operator_ranges(initial,range_runtime,tip)
-    scripts={};scans=[]
-    for member in members.values():
-        for index,descriptor in enumerate(member['descriptors']):
-            interval=specs.get(descriptor)
-            if (not isinstance(interval,list) or len(interval)!=2 or interval[0]!=0
-                    or type(interval[1]) is not int or not 19<=interval[1]<2000):
-                raise ValueError('original bounded owning descriptor footprint required')
-            info=chain.call('getdescriptorinfo',descriptor)
-            if info.get('hasprivatekeys') is not False or info.get('descriptor')!=descriptor or info.get('isrange') is not True:
-                raise ValueError('actual canonical public cash descriptor required')
-            addresses=chain.call('deriveaddresses',descriptor,interval)
-            if not isinstance(addresses,list) or len(addresses)!=interval[1]+1 or len(scripts)+len(addresses)>2000:
-                raise ValueError('complete bounded cash script derivation required')
-            for child,address in enumerate(addresses):
-                checked=chain.call('validateaddress',address);script=checked.get('scriptPubKey')
-                if checked.get('isvalid') is not True or not isinstance(script,str) or script in scripts:
-                    raise ValueError('unique actual cash script ownership required')
-                scripts[script]={'member_id':member['id'],'descriptor_index':index,'child_index':child}
-            scans.append({'desc':descriptor,'range':interval})
+    from .confirmed_scan import confirmed_scan
+    scripts,scans,scan,scan_provenance=confirmed_scan(store,config,chain,range_runtime,
+        pins=plan['pins'],boundary_id=plan['boundary_id'],members=list(members.values()),specs=specs,tip=tip)
     opening={}
     for member,sequence in initial['inventory_sequences'].items():
         event,inventory=_source_event(store,sequence)
@@ -282,11 +266,6 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
     if seen!={row['member_id'] for row in plan['recipients']} or sum(c['amount_sat'] for c in expected.values())!=665454-transaction['fee_sat']:
         raise ValueError('exact finite cash conservation differs')
     observed={}
-    if not 1<=len(scans)<=16:raise ValueError('cash descriptor scan count exceeds fixed bound')
-    if chain.call('scantxoutset','status') is not None:raise ValueError('existing Core scan running; cash source held')
-    scan=chain.call('scantxoutset','start',scans,timeout=120)
-    if scan.get('success') is not True or (scan.get('height'),scan.get('bestblock'))!=tip:
-        raise ValueError('actual current complete cash descriptor scan required')
     rows=scan.get('unspents')
     if not isinstance(rows,list) or len(rows)>2000:raise ValueError('cash coin source bound exceeded')
     total=0
@@ -350,6 +329,7 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
             'bank_source_sequence':bank_sequence,'client_economics_sequence':client_sequence,'inventory_sequences':inventories,
             'database_source_sequence':database_sequence,'database_response_sha256':_digest(database),
             'mempool':mempool,'descriptor_ranges':scans,'range_runtime_source_sha256':range_runtime_sha256,
+            'confirmed_scan':scan_provenance,
             'total_sat':665454-transaction['fee_sat'],
             'funding_fee_sat':transaction['fee_sat'],'operation_scope':OPERATIONS,
             'scope':'exact confirmed funding and empty persisted monetary state; customer BDK need not be synchronized'}

@@ -235,19 +235,10 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
     before=chain.identity();tip=(before['blocks'],before['bestblockhash'])
     if before.get('chain')!='signet' or before.get('initialblockdownload') is not False:raise ValueError('synced independent signet required')
     client_validator(store,config,origin,tip[0]);current,current_sha=_read(current_startup_path)
-    specs=_current_operator_ranges(cash,current,tip);scripts={};scans=[]
-    for member in cash['members']:
-        for index,descriptor in enumerate(member['descriptors']):
-            interval=specs[descriptor];info=chain.call('getdescriptorinfo',descriptor)
-            if info.get('descriptor')!=descriptor or info.get('hasprivatekeys') is not False or info.get('isrange') is not True:raise ValueError('canonical original public descriptor required')
-            addresses=chain.call('deriveaddresses',descriptor,interval)
-            if not isinstance(addresses,list) or len(addresses)!=interval[1]+1 or len(scripts)+len(addresses)>2000:raise ValueError('bounded complete public scripts required')
-            for child,address in enumerate(addresses):
-                actual=chain.call('validateaddress',address);script=actual.get('scriptPubKey')
-                if actual.get('isvalid') is not True or not isinstance(script,str) or script in scripts:raise ValueError('unique owning descriptor scripts required')
-                scripts[script]={'member_id':member['id'],'descriptor_index':index,'child_index':child}
-            scans.append({'desc':descriptor,'range':interval})
-    if not 1<=len(scans)<=16:raise ValueError('Board adoption descriptor bound exceeded')
+    from .confirmed_scan import confirmed_scan
+    specs=_current_operator_ranges(cash,current,tip)
+    scripts,scans,scan,scan_provenance=confirmed_scan(store,config,chain,current,
+        pins=origin['financial_pins'],boundary_id=origin['boundary_id'],members=cash['members'],specs=specs,tip=tip)
     expected={}
     for member,sequence in cash['inventory_sequences'].items():
         prior,inventory=_source_event(store,sequence)
@@ -265,9 +256,6 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
         owner=scripts.get(output['script'])
         if owner is None or owner['member_id']!='actor-01':raise ValueError('Board change not in original customer descriptor')
         expected[point]={**owner,'amount_sat':output['amount_sat'],'script':output['script']}
-    if chain.call('scantxoutset','status') is not None:raise ValueError('existing Core scan running; adoption held')
-    scan=chain.call('scantxoutset','start',scans,timeout=120)
-    if scan.get('success') is not True or (scan.get('height'),scan.get('bestblock'))!=tip:raise ValueError('complete current descriptor scan required')
     observed={};total=0
     for coin in scan['unspents']:
         point=coin['txid']+':'+str(coin['vout']);amount=btc_to_sat(coin['amount']);total+=amount
@@ -311,6 +299,7 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
             'height':tip[0],'tip_hash':tip[1],'observed_at':time.time(),'complete':True,'origin':origin,
             'cash_source_sequence':cash_source_sequence,'inventory_sequences':sequences,'descriptor_ranges':scans,
             'range_runtime_source_sha256':current_sha,'bank_source_sequence':bankseq,'database':database,'server':server,
+            'confirmed_scan':scan_provenance,
             'native':native,'mempool':mempool,'physical_assets':physical,'physical_total_sat':physical_total,
             'net_liability_sat':origin['net_liability_sat'],'scope':'six cash wallets plus one signed original Board anchor; liability separate; source observation only'}
         public_payload(source);store._event(source_kind,source)

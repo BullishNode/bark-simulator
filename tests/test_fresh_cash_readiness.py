@@ -86,7 +86,7 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
         import time
         from types import SimpleNamespace
         self.tmp=tempfile.TemporaryDirectory();self.store=Store(Path(self.tmp.name),'synthetic-cash',10000);initialize(self.store)
-        self.actors=['actor-01','actor-02','actor-04'];self.txid='a'*64;self.openpoint='b'*64+':0';self.tip='c'*64
+        self.actors=['actor-01','actor-02','actor-04'];self.height=100;self.txid='a'*64;self.openpoint='b'*64+':0';self.tip='c'*64
         self.members=[{'id':owner,'kind':'wallet','role':'customer' if owner in self.actors else 'operator',
             'identity':'public-'+owner,'descriptors':['desc-'+owner],'verification_sequence':1}
             for owner in ['bank','rounds','watchman',*self.actors]]
@@ -114,10 +114,12 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
             'getbalances':{'mine':{'trusted':'0.00339454','untrusted_pending':0}}}
         self.bankseq=self.event('treasury_bank_original_source',self.bank)
         self.config=SimpleNamespace(network='signet',expected_genesis=__import__('simulator.model',fromlist=['SIGNET_GENESIS']).SIGNET_GENESIS,inventory_command=['synthetic-readonly'])
-        self.store.trace=SimpleNamespace(close=lambda:None);outer=self
+        self.store.attach_trace();outer=self
         class Chain:
-            def identity(self):return {'chain':'signet','initialblockdownload':False,'blocks':100,'bestblockhash':outer.tip}
+            def identity(self):return {'chain':'signet','initialblockdownload':False,'blocks':outer.height,'bestblockhash':outer.tip}
             def call(self,method,*args,**kwargs):
+                if method=='getblockhash':return __import__('simulator.model',fromlist=['SIGNET_GENESIS']).SIGNET_GENESIS
+                if method=='getblockchaininfo':return self.identity()
                 if method=='getdescriptorinfo':return {'hasprivatekeys':False,'descriptor':args[0],'isrange':True}
                 if method=='deriveaddresses':return [args[0][5:]+'-'+str(child) for child in range(args[1][0],args[1][1]+1)]
                 if method=='validateaddress':return {'isvalid':True,'scriptPubKey':args[0].rsplit('-',1)[0]+':'+args[0].rsplit('-',1)[1]}
@@ -125,8 +127,8 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
                 if method=='estimatesmartfee':return {'feerate':'0.00001000'}
                 if method=='scantxoutset':
                     if args[0]=='status':return None
-                    return {'success':True,'height':100,'bestblock':outer.tip,'total_amount':'0.00664454',
-                        'unspents':[{'txid':outer.txid,'vout':row['vout'],'amount':str(__import__('decimal').Decimal(row['amount_sat'])/100000000),'scriptPubKey':row['script']} for row in outer.transaction['outputs']]}
+                    return outer.capture_scan({'success':True,'height':outer.height,'bestblock':outer.tip,'total_amount':'0.00664454',
+                        'unspents':[{'txid':outer.txid,'vout':row['vout'],'amount':str(__import__('decimal').Decimal(row['amount_sat'])/100000000),'scriptPubKey':row['script']} for row in outer.transaction['outputs']]},args[1])
                 if method=='gettxout':
                     row=outer.transaction['outputs'][args[1]]
                     return {'confirmations':1,'value':str(__import__('decimal').Decimal(row['amount_sat'])/100000000),'scriptPubKey':{'hex':row['script']}}
@@ -135,12 +137,20 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):self.store.close();self.tmp.cleanup()
     def event(self,kind,value):
         self.store.event(kind,value);return self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
+    def capture_scan(self,result,coverage):
+        self.chain.last_capture=self.store.trace_sample({'kind':'chain.rpc','payload':{'method':'scantxoutset',
+            'params':['start',coverage],'error':None,'result':result},'raw':canonical({'result':result,'error':None}).encode()})
+        return result
+    def scan_identity(self,*args,**kwargs):
+        return {'synthetic':True,'owners':sorted([{key:member[key] for key in ('id','kind','role','identity','descriptors')}
+            for member in self.members],key=lambda row:row['id'])}
     def dependencies(self,frontier=1):
         from contextlib import ExitStack
         import sys
         from types import SimpleNamespace
         from unittest.mock import patch,AsyncMock
         stack=ExitStack()
+        stack.enter_context(patch('simulator.confirmed_scan._identity',side_effect=self.scan_identity))
         current={field:{owner:{'complete':True,'network':'signet','wallet':owner,
             'public_descriptor':'desc-'+owner,'last_revealed_index':frontier,'tip_height':100,'tip_hash':self.tip}}
             for owner,field in (('rounds','rounds_inventory'),('watchman','watchman_inventory'))}
@@ -176,7 +186,7 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
             descriptor='desc-bank-extra'+str(index);bank['descriptors'].append(descriptor)
             self.initial['descriptor_ranges'].append({'desc':descriptor,'range':[0,19]})
         calls.clear()
-        with self.dependencies(),self.assertRaisesRegex(ValueError,'scan count'):
+        with self.dependencies(),self.assertRaisesRegex(ValueError,'descriptor/script bound'):
             await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
         self.assertEqual([],calls)
 
@@ -198,7 +208,7 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
         self.chain.call=incoming;self.chain.tx=lambda txid:{'txid':txid,'vout':[{'scriptPubKey':{'hex':'rounds:200'}}]}
         with self.dependencies(frontier=200),self.assertRaisesRegex(ValueError,'unconfirmed output'):
             await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
-        with self.dependencies(frontier=1979),self.assertRaisesRegex(ValueError,'bounded cash script'):
+        with self.dependencies(frontier=1979),self.assertRaisesRegex(ValueError,'descriptor/script bound'):
             await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
 
     async def test_changed_database_or_foreign_funding_output_refuses_no_readiness(self):

@@ -11,8 +11,10 @@ class ChainReader:
         if not url.startswith('http://127.0.0.1:'):raise ValueError('independent Core must be loopback')
         self.url,self.credential,self.expected=url,Path(credential),expected_genesis
         self.cache={}
+        self.last_capture=None
         self.capture,self.consumer=capture,consumer
     def call(self,method,*args,timeout=12,max_response_bytes=16*1024*1024):
+        self.last_capture=None
         if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress','scantxoutset','getrawmempool'}:raise ValueError('read-only RPC required')
         if method=='scantxoutset':
             if args==('status',):pass
@@ -63,7 +65,7 @@ class ChainReader:
                  'error':normalized(error),'consumer':self.consumer}
         try:public_payload(payload);public_raw(raw)
         except (ValueError,UnicodeError):payload={'redacted':True,'method':method,'consumer':self.consumer};raw=None
-        self.capture({'kind':'chain.rpc','payload':payload,'raw':raw})
+        self.last_capture=self.capture({'kind':'chain.rpc','payload':payload,'raw':raw})
     def identity(self):
         if self.call('getblockhash',0)!=self.expected:raise ValueError('chain genesis mismatch')
         return self.call('getblockchaininfo')
