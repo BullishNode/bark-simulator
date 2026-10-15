@@ -2,7 +2,8 @@
 
 The source is the owning read-only native bridge, joined against independent
 Core. A missing source is a hold. This path cannot authorize Lightning, exits,
-refresh, hostile clients, final-qualified time, or an automatic fee increase.
+hostile clients, final-qualified time, or an automatic fee increase. A separate
+declared adoption scenario permits one delegated refresh with its own bounds.
 """
 import hashlib
 import json
@@ -38,7 +39,7 @@ def scope(store):
     return value
 
 
-def declare(store, declaration):
+def _validate_declaration(declaration):
     _pins(declaration['pins'])
     fields = {'id','pins','source_key','configuration_sha256','image_digest','container','server_pubkey',
         'actors','started_at','deadline','fee_ceiling_sat_kvb','per_action_fee_sat','fee_budget_sat',
@@ -60,6 +61,10 @@ def declare(store, declaration):
         integer(declaration['client_board_fee_ceiling_sat_kvb'],'client board rate ceiling',1)
     if not declaration['funding_txids'] or len(declaration['funding_txids']) > 8:
         raise ValueError('actual distinct funding sources required')
+
+
+def declare(store, declaration):
+    _validate_declaration(declaration)
     encoded = canonical(declaration)
     with store.transaction():
         old = scope(store)
@@ -79,6 +84,67 @@ def declare(store, declaration):
     return True
 
 
+def _adoption(declaration):
+    return declaration.get('adoption')
+
+
+def _held_fees(store,declaration):
+    adoption=_adoption(declaration)
+    if adoption is None:
+        return store.db.execute("SELECT COALESCE(SUM(fee_reservation_sat),0) FROM action WHERE operation IN ('board','send_arkoor','sync') AND state IN ('queued','dispatched','outcome_unknown','completed')").fetchone()[0]
+    previous=set(adoption['previous_action_ids'])
+    return sum(row['fee_reservation_sat'] for row in store.db.execute("SELECT id,fee_reservation_sat FROM action WHERE state IN ('queued','dispatched','outcome_unknown','completed')") if row['id'] not in previous)
+
+
+def declare_adoption(store,declaration,packet,chain,*,now=None,wallet_root=None):
+    """Append a separately budgeted scenario after a sealed, reconciled closure."""
+    now=time.time() if now is None else now
+    _validate_declaration({k:v for k,v in declaration.items() if k!='adoption'})
+    a=declaration['adoption']
+    fields={'actor','input_coin_ids','input_total_sat','input_expiry_height','maximum_syncs',
+        'operator_fee_budget_sat','client_fee_budget_sat','opening_fee_by_txid',
+        'opening_source_sha256','previous_declaration_sha256','previous_closure_sha256','previous_action_ids'}
+    if 'exitability_policy' in a:fields.add('exitability_policy')
+    if (set(a)!=fields or a['actor'] not in declaration['actors'] or len(a['input_coin_ids'])!=2 or len(set(a['input_coin_ids']))!=2
+            or integer(a['input_total_sat'],'original input total',1)>declaration['maximum_client_principal_sat']
+            or not 0<integer(a['input_expiry_height'],'original signed expiry')<2**32
+            or a['operator_fee_budget_sat']!=5000 or a['client_fee_budget_sat']!=500
+            or declaration['per_action_fee_sat']!=500 or declaration['fee_budget_sat']!=5500
+            or not 1<=integer(a['maximum_syncs'],'bounded sync count',1)<=6):
+        raise ValueError('explicit bounded original-coin adoption scenario required')
+    if not declaration['started_at']<=now<declaration['deadline']:
+        raise ValueError('fresh adoption window required')
+    raw=store.get_meta(KEY+':continuation') or store.get_meta(KEY)
+    if raw is None or scope(store) is not None or store.get_meta('final_financial_epoch') is not None:
+        raise ValueError('close previous scope before separate adoption scenario')
+    previous_hash=hashlib.sha256(raw.encode()).hexdigest()
+    closure_raw=store.get_meta(KEY+':closed:'+previous_hash)
+    actions=[row['id'] for row in store.db.execute('SELECT id FROM action ORDER BY id')]
+    if (previous_hash!=a['previous_declaration_sha256'] or closure_raw is None
+            or hashlib.sha256(closure_raw.encode()).hexdigest()!=a['previous_closure_sha256']
+            or actions!=a['previous_action_ids'] or json.loads(closure_raw)['action_count']!=len(actions)):
+        raise ValueError('adoption must retain the exact previous closure and action history')
+    proof=checked_source(declaration,packet,chain,now=now,
+        client_board_proposals=_client_board_proposals(store,chain,declaration),
+        adoption_context=(store,wallet_root))
+    if (proof['source_sha256']!=a['opening_source_sha256']
+            or proof['miner_fee_by_txid']!=a['opening_fee_by_txid']):
+        raise ValueError('opening source and independent carrier fees differ')
+    with store.transaction():
+        if (not store.get_meta('paused') or store.get_meta('qualified_campaign_active_seconds') not in (None,'0')
+                or store.db.execute("SELECT 1 FROM action WHERE state IN ('queued','dispatched','outcome_unknown') LIMIT 1").fetchone()):
+            raise ValueError('declare adoption while paused with zero queued/in-flight/unknown and qualified time')
+        if store.db.execute("SELECT 1 FROM event WHERE kind='exploratory_operating_scope_declared' AND json_extract(payload,'$.id')=?",(declaration['id'],)).fetchone():
+            raise ValueError('scope id already declared')
+        store.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',(KEY+':continuation',canonical(declaration)))
+        store._event('exploratory_operating_scope_declared',declaration)
+        store._event('exploratory_adoption_scope_opened',{'scope_id':declaration['id'],
+            'previous_declaration_sha256':previous_hash,'previous_closure_sha256':a['previous_closure_sha256'],
+            'retained_action_ids':actions,'opening_source_sha256':proof['source_sha256'],
+            'opening_fee_by_txid':proof['miner_fee_by_txid'],'qualified_seconds':0})
+    return proof
+
+
 def close(store,snapshot,reason,*,now=None):
     """Append closure; pending signed boards and every fee hold remain intact."""
     now=time.time() if now is None else now
@@ -95,8 +161,9 @@ def close(store,snapshot,reason,*,now=None):
                 or (proof['height'],proof['tip_hash'])!=(snapshot['height'],snapshot['tip_hash'])
                 or not 0<=now-proof['observed_at']<=90 or proof['ordinary_path_checked'] is not True
                 or proof['global_complete'] is not False):raise ValueError('fresh checked closure source required')
-        held=store.db.execute("SELECT COALESCE(SUM(fee_reservation_sat),0) FROM action WHERE operation IN ('board','send_arkoor','sync') AND state IN ('queued','dispatched','outcome_unknown','completed')").fetchone()[0]
-        if held+proof['operator_miner_fees_sat']>declaration['fee_budget_sat'] or proof['available_fee_funding_sat']<held:
+        held=_held_fees(store,declaration)
+        operator_cost=proof.get('scoped_operator_miner_fees_sat',proof['operator_miner_fees_sat'])
+        if held+operator_cost>declaration['fee_budget_sat'] or proof['available_fee_funding_sat']<held:
             raise ValueError('preserve unresolved costs; closure cannot renew an exhausted budget')
         if store.get_meta('qualified_campaign_active_seconds') not in (None,'0'):
             raise ValueError('preserve unexpected positive qualified counter')
@@ -104,8 +171,8 @@ def close(store,snapshot,reason,*,now=None):
         closure={'declaration_sha256':declaration_hash,'scope_id':declaration['id'],'reason':reason,
             'source_sequence':row['sequence'],'source_event_hash':row['hash'],'source_height':proof['height'],
             'source_tip_hash':proof['tip_hash'],'source_observed_at':proof['observed_at'],
-            'remaining_fee_budget_sat':declaration['fee_budget_sat']-held-proof['operator_miner_fees_sat'],
-            'retained_fee_holds_sat':held,'operator_miner_fees_sat':proof['operator_miner_fees_sat'],
+            'remaining_fee_budget_sat':declaration['fee_budget_sat']-held-operator_cost,
+            'retained_fee_holds_sat':held,'operator_miner_fees_sat':operator_cost,
             'action_count':store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0],
             'qualified_seconds':0,'closed_at':now,'pending_signed_liabilities_preserved':True}
         store.db.execute('INSERT INTO meta VALUES (?,?)',(KEY+':closed:'+declaration_hash,canonical(closure)))
@@ -181,7 +248,7 @@ def continue_scope(store,declaration,*,now=None,arkoor_input_limit_transition=No
     return True
 
 
-def checked_source(declaration, packet, chain, *, now=None, client_board_proposals=None):
+def checked_source(declaration, packet, chain, *, now=None, client_board_proposals=None,adoption_context=None):
     """Check only the explicitly declared ordinary operating-path proof scope."""
     now = time.time() if now is None else now
     client_board_proposals = {} if client_board_proposals is None else client_board_proposals
@@ -234,12 +301,21 @@ def checked_source(declaration, packet, chain, *, now=None, client_board_proposa
 
     if any(money.get(name) != 0 for name in ('conditional_count','exit_count','payout_count','recovery_hold_sat')):
         raise ValueError('unqualified urgent or retained obligation exposure')
-    earliest = money['earliest_expiry_height']
+    earliest = money['earliest_expiry_height'];exitability=None
+    if _adoption(declaration) is not None and 'exitability_policy' in declaration['adoption']:
+        if adoption_context is None or adoption_context[1] is None:
+            raise ValueError('independent signed-path and native client fee observations required')
+        from .adoption_exitability import check
+        exitability=check(adoption_context[0],chain,declaration,adoption_context[1],height)
     if earliest is None:
         if any(counts.get(name) != 0 for name in ('vtxo','round','pending_board','virtual_transaction')):
             raise ValueError('backing expiry missing')
-    elif integer(earliest,'earliest expiry') <= height+30:
-        raise ValueError('stop before expiry headroom reaches thirty blocks')
+    elif not (exitability is not None and exitability['submitted_original_intent'] is not None):
+        if integer(earliest,'earliest expiry') <= height+(24 if exitability is not None else 30):
+            raise ValueError('stop before expiry headroom reaches thirty blocks' if exitability is None
+                else 'stop before adoption original headroom reaches twenty-four blocks')
+    if _adoption(declaration) is not None and height>=declaration['adoption']['input_expiry_height']:
+        raise ValueError('adoption after original signed expiry does not qualify')
     if integer(money['customer_principal_sat'],'customer principal') > declaration['maximum_client_principal_sat']:
         raise ValueError('customer principal budget exceeded')
     fee_cash = 0; all_points = set(); physical_native_sat = 0
@@ -299,16 +375,28 @@ def checked_source(declaration, packet, chain, *, now=None, client_board_proposa
             mining = integer(proposal['planned_mining_fee_sat'],'planned board miner fee')
             service = integer(proposal['estimated_service_fee_sat'],'planned board service fee')
             maximum = integer(proposal['maximum_fee_sat'],'original board fee hold',1)
-            if tx['fee_sat'] != mining or mining+service > maximum or maximum > declaration['per_action_fee_sat']:
+            original_limit=declaration['per_action_fee_sat']
+            if (_adoption(declaration) is not None
+                    and proposal.get('original_action_id') in declaration['adoption']['previous_action_ids']):
+                original_limit=integer(proposal['original_scope_fee_limit_sat'],'original scoped board cap',1)
+            if tx['fee_sat'] != mining or mining+service > maximum or maximum > original_limit:
                 raise ValueError('actual client board fee differs from native original affordable proposal')
         if ceiling is not None and tx['fee_sat']*1000 > ceiling*integer(raw['vsize'],'actual vsize',1):
             raise ValueError('actual signed carrier fee exceeds declared quiet ceiling')
-    if miner_fees > declaration['fee_budget_sat']:raise ValueError('actual cumulative miner budget exceeded')
+    scoped_operator_fees=None
+    if _adoption(declaration) is not None:
+        baseline=declaration['adoption']['opening_fee_by_txid']
+        if any(txid not in miner_by_txid or miner_by_txid[txid]!=fee for txid,fee in baseline.items()):
+            raise ValueError('historical carrier fees changed or disappeared')
+        scoped_operator_fees=sum(fee for txid,fee in miner_by_txid.items() if txid not in baseline)
+        if scoped_operator_fees>declaration['adoption']['operator_fee_budget_sat']:
+            raise ValueError('new adoption operator miner budget exceeded')
+    elif miner_fees > declaration['fee_budget_sat']:raise ValueError('actual cumulative miner budget exceeded')
     ending = chain.identity()
     if (ending['blocks'],ending['bestblockhash']) != (height,tip):raise ValueError('tip changed during checks')
     estimate = chain.call('estimatesmartfee',1,'CONSERVATIVE')
     rate = btc_to_sat(estimate['feerate'])
-    return {'scope_id':declaration['id'],'financial_pins':declaration['pins'],'height':height,'tip_hash':tip,
+    result={'scope_id':declaration['id'],'financial_pins':declaration['pins'],'height':height,'tip_hash':tip,
         'observed_at':start,'completed_at':time.time(),'ordinary_path_checked':True,'global_complete':False,
         'available_fee_funding_sat':fee_cash,'miner_fees_sat':miner_fees,
         'operator_miner_fees_sat':miner_fees-client_miner_fees,'client_board_miner_fees_sat':client_miner_fees,
@@ -316,6 +404,11 @@ def checked_source(declaration, packet, chain, *, now=None, client_board_proposa
         'raw_estimate_sat_kvb':rate,'quiet_signed_ceiling_sat_kvb':declaration['fee_ceiling_sat_kvb'],
         'estimate_warning':rate>declaration['fee_ceiling_sat_kvb'],'qualified_seconds':0,
         'source_sha256':hashlib.sha256(canonical(packet).encode()).hexdigest()}
+    if scoped_operator_fees is not None:
+        result.update(scoped_operator_miner_fees_sat=scoped_operator_fees,
+            opening_fee_by_txid=declaration['adoption']['opening_fee_by_txid'])
+    if exitability is not None:result['adoption_exitability']=exitability
+    return result
 
 
 def _client_board_proposals(store,chain,declaration):
@@ -337,8 +430,42 @@ def _client_board_proposals(store,chain,declaration):
         original=public_transaction(chain.tx(proposal['funding_txid']))
         if original['hex']!=unsigned['stripped_hex']:
             raise InvariantError('actual client board differs from native unsigned proposal')
-        client_proposals[proposal['funding_txid']]={**proposal,'maximum_fee_sat':action['fee_reservation_sat']}
+        historical={}
+        if _adoption(declaration) is not None and action['id'] in declaration['adoption']['previous_action_ids']:
+            historical=_original_board_scope(store,action)
+        client_proposals[proposal['funding_txid']]={**proposal,'maximum_fee_sat':action['fee_reservation_sat'],**historical}
     return client_proposals
+
+
+def _original_board_scope(store,action):
+    """Bind historical board fees to their real original dispatch scope."""
+    requests=store.db.execute("SELECT * FROM event WHERE kind='driver_request' AND json_extract(payload,'$.action_id')=?",(action['id'],)).fetchall()
+    if len(requests)!=1:raise ValueError('historical board needs its unique original native request')
+    request=json.loads(requests[0]['payload']);native=request['request'];context=request['context']
+    snapshot=store.db.execute('SELECT payload FROM snapshot WHERE id=?',(context['snapshot_id'],)).fetchone()
+    if snapshot is None:raise ValueError('historical board original snapshot missing')
+    snapshot=json.loads(snapshot[0]);sequence=snapshot['exploratory_readiness_sequence']
+    source=store.db.execute('SELECT * FROM event WHERE sequence=?',(sequence,)).fetchone()
+    if source is None or source['kind']!='exploratory_operating_readiness' or source['sequence']>=requests[0]['sequence']:
+        raise ValueError('historical board original checked readiness missing')
+    proof=json.loads(source['payload'])
+    declarations=store.db.execute("SELECT * FROM event WHERE kind='exploratory_operating_scope_declared' AND json_extract(payload,'$.id')=?",(proof['scope_id'],)).fetchall()
+    if len(declarations)!=1:raise ValueError('historical board original scope ambiguous')
+    declared=declarations[0];old=json.loads(declared['payload']);cap=integer(old['per_action_fee_sat'],'original scope fee cap',1)
+    if (declared['sequence']>=source['sequence'] or declared['observed_at']>action['created_at']
+            or not old['started_at']<=action['created_at']<old['deadline']
+            or proof['financial_pins']!=old['pins'] or proof['ordinary_path_checked'] is not True
+            or (proof['height'],proof['tip_hash'])!=(snapshot['height'],snapshot['tip_hash'])
+            or (context['height'],context['tip_hash'])!=(snapshot['height'],snapshot['tip_hash'])
+            or native['operation']!='board' or native['action_id']!=action['id']
+            or native['expected_server_pubkey']!=old['server_pubkey']
+            or native['maximum_fee_sat']!=action['fee_reservation_sat'] or native['maximum_fee_sat']>cap
+            or native['args']['amount_sat']!=old['board_amount_sat'] or action['actor_id'] not in old['actors']):
+        raise ValueError('historical board request/readiness/original fee scope differs')
+    return {'original_action_id':action['id'],'original_scope_fee_limit_sat':cap,'original_scope_event_sequence':declared['sequence'],
+        'original_scope_event_hash':declared['hash'],'original_readiness_sequence':source['sequence'],
+        'original_readiness_event_hash':source['hash'],'original_request_sequence':requests[0]['sequence'],
+        'original_request_event_hash':requests[0]['hash']}
 
 
 async def collect(store,config,chain,snapshot):
@@ -352,8 +479,12 @@ async def collect(store,config,chain,snapshot):
         **public_command_capture(store,'exploratory.public-info',{'operation':'info'}))
     if info.get('status')!='ok':raise ValueError('actual public server info unavailable')
     packet['client_verified_server_info']=info['data']
+    if _adoption(declaration) is not None and 'exitability_policy' in declaration['adoption']:
+        from .adoption_exitability import collect_parameters
+        await collect_parameters(store,config,declaration)
     client_proposals = _client_board_proposals(store,chain,declaration)
-    proof = checked_source(declaration,packet,chain,client_board_proposals=client_proposals)
+    proof = checked_source(declaration,packet,chain,client_board_proposals=client_proposals,
+        adoption_context=(store,getattr(config,'wallet_root',None)))
     store.event('exploratory_operating_readiness',proof)
     snapshot['exploratory_readiness_sequence'] = store.db.execute('SELECT MAX(sequence) FROM event').fetchone()[0]
     return snapshot
@@ -362,8 +493,13 @@ async def collect(store,config,chain,snapshot):
 def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_fee_sat=0,now=None,reserved_action_id=None):
     declaration = scope(store);now=time.time() if now is None else now
     if not declaration['started_at'] <= now < declaration['deadline']:raise ValueError('exploratory thirty-minute window ended')
-    if operation not in ALLOWED:raise ValueError('operation outside exploratory ordinary scope')
+    allowed={'refresh_delegated','sync','snapshot','progression'} if _adoption(declaration) is not None else ALLOWED
+    if operation not in allowed:raise ValueError('operation outside exploratory ordinary scope')
+    if operation=='refresh_delegated' and 'exitability_policy' not in declaration.get('adoption',{}):
+        raise ValueError('independently checked adoption exitability policy required before economic refresh')
     if integer(maximum_fee_sat,'action reserve') > declaration['per_action_fee_sat']:raise ValueError('canary action fee limit exceeded')
+    if _adoption(declaration) is not None and operation in {'sync','snapshot','progression'} and maximum_fee_sat!=0:
+        raise ValueError('adoption observations require zero new fee reservation')
     sequence = snapshot.get('exploratory_readiness_sequence')
     row = store.db.execute("SELECT kind,payload FROM event WHERE sequence=?",(sequence,)).fetchone()
     if row is None or row['kind'] != 'exploratory_operating_readiness':raise ValueError('checked exploratory readiness missing')
@@ -378,8 +514,16 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
         if not action:raise ValueError('original action missing')
         admit(store,action['actor_id'],action['operation'],json.loads(action['args']),reserved_action_id)
         if operation=='progression' and action['operation']!='sync':raise ValueError('progression means existing ordinary sync only')
-    held = store.db.execute("SELECT COALESCE(SUM(fee_reservation_sat),0) FROM action WHERE operation IN ('board','send_arkoor','sync') AND state IN ('queued','dispatched','outcome_unknown','completed')").fetchone()[0]
-    if held+proof['operator_miner_fees_sat'] > declaration['fee_budget_sat']:raise ValueError('actual and unresolved canary fees exceed budget')
+    if operation=='refresh_delegated':
+        if not reserved_action_id:raise ValueError('original reserved refresh action required')
+        facts=proof.get('adoption_exitability',{}).get('clients',{})
+        if set(facts)!=set(declaration['actors']) or any(
+                facts[actor].get('allocation_native_known') is not True for actor in declaration['actors']):
+            raise ValueError('observe and sync confirmed fee allocations before the economic refresh')
+    held=_held_fees(store,declaration)
+    if _adoption(declaration) is not None and held>declaration['adoption']['client_fee_budget_sat']:
+        raise ValueError('adoption client fee budget exhausted')
+    if held+proof.get('scoped_operator_miner_fees_sat',proof['operator_miner_fees_sat']) > declaration['fee_budget_sat']:raise ValueError('actual and unresolved canary fees exceed budget')
     if proof['available_fee_funding_sat'] < held:raise ValueError('canary reservations no longer funded')
     return {'allowed':True,'budget':'explicit_exploratory','qualified_seconds':0,'scope_id':declaration['id'],
             'estimate_warning':proof['estimate_warning'],'financial_pins':declaration['pins']}
@@ -388,6 +532,8 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
 def admit(store,actor,operation,args,action_id=None):
     declaration=scope(store)
     if declaration is None:return
+    if _adoption(declaration) is not None:
+        return _admit_adoption(store,declaration,actor,operation,args,action_id)
     if actor not in declaration['actors'] or operation not in ALLOWED-{'progression'}:
         raise ValueError('actor or operation outside two-client canary')
     if operation=='create' and store.get_meta('unfunded_setup_import') is not None:
@@ -408,6 +554,47 @@ def admit(store,actor,operation,args,action_id=None):
         row=store.db.execute('SELECT details FROM actor WHERE id=?',(recipient,)).fetchone()
         if row is None or json.loads(row[0]).get('ark_address')!=args.get('destination'):
             raise ValueError('recipient address differs from original native enrollment')
+
+
+def _admit_adoption(store,declaration,actor,operation,args,action_id):
+    from .ownership import proof_matches_profile
+    a=declaration['adoption']
+    if ((operation=='refresh_delegated' and actor!=a['actor']) or actor not in declaration['actors']
+            or operation not in {'refresh_delegated','sync','snapshot'}):
+        raise ValueError('only the original actor refresh and bounded observations are allowed')
+    previous=set(a['previous_action_ids'])
+    actions=[row for row in store.db.execute('SELECT * FROM action') if row['id'] not in previous and row['id']!=action_id]
+    if operation=='refresh_delegated':
+        if any(row['operation']=='refresh_delegated' for row in actions):
+            raise ValueError('one original delegated refresh; never retry a failed or unknown submission')
+        if args!={'input_vtxo_ids':a['input_coin_ids']}:
+            raise ValueError('original refresh inputs must be explicit')
+        holdings=[]
+        for row in store.db.execute('SELECT c.*,k.actor FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey WHERE k.actor=?',(actor,)):
+            latest=store.db.execute('SELECT state,observed_at FROM coin_observation WHERE coin_id=? ORDER BY observed_at DESC,action_id DESC LIMIT 1',(row['id'],)).fetchone()
+            if latest is None:raise ValueError('complete original holdings require native signed observations')
+            if latest['state'].casefold()=='spendable':
+                if not 0<=time.time()-latest['observed_at']<=90:raise ValueError('refresh holdings observation stale')
+                proof=json.loads(row['proof'])
+                if (proof.get('id')!=row['id'] or proof.get('amount_sat')!=row['amount_sat']
+                        or proof.get('server_pubkey')!=declaration['server_pubkey']
+                        or not proof_matches_profile(store,proof,{'user_pubkey':row['pubkey']})
+                        or proof.get('expiry_height')!=a['input_expiry_height'] or proof.get('signed_path_valid') is not True
+                        or proof.get('conditional_steps')!=0 or proof.get('anchor_confirmations',0)<1):
+                    raise ValueError('original signed spendable input is unqualified')
+                holdings.append(row)
+            elif latest['state'].casefold() not in {'spent'}:
+                raise ValueError('unexpected pending or conditional holding')
+        if (sorted(row['id'] for row in holdings)!=sorted(a['input_coin_ids'])
+                or sum(row['amount_sat'] for row in holdings)!=a['input_total_sat']):
+            raise ValueError('native complete spendable set differs from the two frozen inputs')
+    else:
+        if args.get('receive_payment_hash') is not None:
+            raise ValueError('Lightning progression is outside adoption scope')
+        if operation=='sync' and sum(row['operation']=='sync' for row in actions)>=a['maximum_syncs']:
+            raise ValueError('bounded original adoption sync count reached')
+        if operation=='snapshot' and sum(row['operation']=='snapshot' for row in actions)>=4:
+            raise ValueError('bounded adoption snapshot count reached')
 
 
 async def import_unfunded_setup(store,config,directory):
