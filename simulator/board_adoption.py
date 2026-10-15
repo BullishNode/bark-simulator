@@ -11,6 +11,7 @@ from .final_campaign import _source_event, _action_pins
 from .model import btc_to_sat, canonical, public_payload
 from .fresh_cash_readiness import (_digest,_fresh,_empty_mempool,_current_operator_ranges,
     _operator_fee_funding,ECONOMIC_TABLES,METADATA_TABLES)
+from .architecture import DIRECT_PER_KEY,profile
 
 OPS=['sync','snapshot']
 
@@ -26,10 +27,12 @@ def _unique(store,kind,action_id,event_name=None):
 def _origin(store,chain):
     from .first_board_readiness import board_plan
     from .finite_funding import _plan
+    from .c_pilot import board_policy as _policy
+    policy=_policy(store);per_key=profile(store)==DIRECT_PER_KEY
     plan=board_plan(store);action_id=plan['board_actions']['actor-01']
     boards=store.db.execute("SELECT * FROM action WHERE operation='board'").fetchall()
     if (len(boards)!=1 or boards[0]['id']!=action_id or boards[0]['actor_id']!='actor-01'
-            or boards[0]['state']!='completed' or boards[0]['fee_reservation_sat']!=4000
+            or boards[0]['state']!='completed' or boards[0]['fee_reservation_sat']!=policy['maximum_fee_sat']
             or json.loads(boards[0]['args'])!={'amount_sat':20000}):raise ValueError('one original completed actor-01 Board required')
     _action_pins(store,action_id,plan['pins'])
     response_event,reply=_unique(store,'driver_response',action_id);response=reply['response']
@@ -76,22 +79,23 @@ def _origin(store,chain):
     if (proof.get('financial_pins')!=plan['pins'] or proof.get('authorization_path_valid') is not True
             or proof.get('signed_path_valid') is not True or proof.get('conditional_steps')!=0
             or proof.get('binding',{}).get('record_signature_valid') is not True
-            or proof.get('binding',{}).get('account_child_verified') is not True
+            or (proof.get('binding',{}).get('key_link_signature_valid') is not True if per_key else proof.get('binding',{}).get('account_child_verified') is not True)
             or proposal['funding_txid']!=txid or data['expiry_height']!=proof['expiry_height']):
         raise ValueError('original ordinary Board signed path/binding differs')
     from .bundle_audit import decode_transaction
     decoded=decode_transaction(proposal['unsigned_funding_tx'],public_body=True)
     tx=chain.transaction(txid)
-    if (tx.get('confirmations',0)<1 or decoded['txid']!=txid or decoded['outputs']!=tx['outputs']
+    if (tx.get('confirmations',0)<(3 if per_key else 1) or decoded['txid']!=txid or decoded['outputs']!=tx['outputs']
             or [row['outpoint'] for row in decoded['inputs']]!=[row['outpoint'] for row in tx['inputs']]
-            or len(tx['inputs'])!=1 or tx['inputs'][0]['amount_sat']!=50000 or len(tx['outputs'])!=2):
+            or len(tx['inputs'])!=1 or tx['inputs'][0]['amount_sat']!=policy['grants']['actor-01'] or len(tx['outputs'])!=2):
         raise ValueError('exact confirmed original50k Board funding required')
     outputs=[row for row in tx['outputs'] if row['vout']==int(index)]
     net=coin['amount_sat'];service=20000-net;miner=tx['fee_sat']
     if (len(outputs)!=1 or outputs[0]['amount_sat']!=20000 or board.get('amount')!=net or not 0<net<=20000
             or service!=data['sdk_service_fee_sat'] or service!=proposal['estimated_service_fee_sat']
             or miner!=data['planned_mining_fee_sat'] or miner!=proposal['planned_mining_fee_sat']
-            or not 0<miner+service<=4000 or boards[0]['actual_fee_sat'] not in (None,miner+service)):
+            or not 0<miner+service<=policy['maximum_fee_sat'] or boards[0]['actual_fee_sat'] not in (None,miner+service)
+            or per_key and (miner>1000 or service<330)):
         raise ValueError('actual Board principal/miner/service amounts differ')
     if resolution_proof is not None:
         prior_tx=resolution_proof.get('chain_transaction',{})
@@ -113,16 +117,20 @@ def _origin(store,chain):
     if (actualfund.get('confirmations',0)<1 or funded['financial_pins']!=plan['pins']
             or any(actualfund.get(key)!=funded['confirmed_transaction'].get(key) for key in ('inputs','outputs','fee_sat','blockhash'))):
         raise ValueError('independent original finite funding differs')
-    return {'financial_pins':plan['pins'],'boundary_id':plan['boundary_id'],'board_action_id':action_id,
+    result={'financial_pins':plan['pins'],'boundary_id':plan['boundary_id'],'board_action_id':action_id,
         'actor':'actor-01','native_response_sequence':response_event['sequence'],'native_response_sha256':_digest(response),
         'vtxo_id':ids[0],'net_liability_sat':net,'anchor':anchor,'anchor_output':outputs[0],
         'transaction':tx,'mining_fee_sat':miner,'service_charge_sat':service,'expiry_height':proof['expiry_height'],
         'exit_margin':runtime['vtxo_exit_margin'],'user_pubkey':coin['pubkey'],'binding':proof['binding'],
         'movement_id':board['movement_id'],'funding_fee_sat':actualfund['fee_sat'],'funding_plan':funding,'actual_rate':actual_rate,
         'funding_confirmation_sequence':rows[0][0]}
+    if per_key:result.update(architecture_profile=DIRECT_PER_KEY,opening_total_sat=policy['opening_sat'])
+    return result
 
 
 def _history(store,origin,reserved=None,*,allow_queued=False):
+    from .c_pilot import board_policy as _policy
+    actors=_policy(store)['actors']
     queued=0
     for row in store.db.execute('SELECT * FROM action'):
         if row['id']==origin['board_action_id']:continue
@@ -132,7 +140,7 @@ def _history(store,origin,reserved=None,*,allow_queued=False):
             queued+=1
             if queued>1:raise ValueError('only one serial adoption intent may wait')
             continue
-        if (row['actor_id'] not in ('actor-01','actor-02','actor-04') or row['state']!='completed' or row['actual_fee_sat']!=0 or row['fee_reservation_sat']!=0
+        if (row['actor_id'] not in actors or row['state']!='completed' or row['actual_fee_sat']!=0 or row['fee_reservation_sat']!=0
                 or row['operation'] not in ('create','address','snapshot','sync') or json.loads(row['args'])!={}):
             raise ValueError('unrelated or unfinished action holds Board adoption')
     if store.db.execute("SELECT 1 FROM funding_batch WHERE state!='confirmed'").fetchone():raise ValueError('unknown funding holds Board adoption')
@@ -193,7 +201,13 @@ def _database(database,prior,origin):
     rows=database['rows'];allowed={'coins','pending_boards','links','journal_links','records','journal_records'}
     if any(items for name,items in rows.items() if name not in allowed):raise ValueError('unrelated server monetary frontier holds adoption')
     if any(rows[name]!=prior['rows'][name] for name in ('records','journal_records')):raise ValueError('immutable customer records changed')
-    expected={'user_pubkey':origin['user_pubkey'],'mailbox_pk':origin['binding']['mailbox_pk'],'child_index':origin['binding']['child_index']}
+    if origin.get('architecture_profile')==DIRECT_PER_KEY:
+        if database.get('architecture_profile')!=DIRECT_PER_KEY or database.get('fallback_protocol')!=4:
+            raise ValueError('C native database profile/protocol differs')
+        bound=origin['binding'];raw=bytes.fromhex(bound['key_link_attestation'])
+        expected={'user_pubkey':origin['user_pubkey'],'mailbox_pk':bound['mailbox_pk'],
+            'sig':raw[-64:].hex(),'recovery_index':bound['recovery_index']}
+    else:expected={'user_pubkey':origin['user_pubkey'],'mailbox_pk':origin['binding']['mailbox_pk'],'child_index':origin['binding']['child_index']}
     for name in ('links','journal_links'):
         if sorted(rows[name],key=canonical)!=sorted(prior['rows'][name]+([expected] if expected not in prior['rows'][name] else []),key=canonical):raise ValueError('original Board owner admission differs')
     coins={coin['vtxo_id']:coin for coin in rows['coins']}
@@ -227,11 +241,13 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
     if (config.network!='signet' or config.expected_genesis!=SIGNET_GENESIS or not config.inventory_command
             or getattr(store,'trace',None) is None):raise ValueError('actual traced signet Board sources required')
     started=time.monotonic();origin=_origin(store,chain);history_validator(store,origin)
+    from .c_pilot import board_policy as _policy
+    policy=_policy(store)
     event,cash=_source_event(store,cash_source_sequence)
     if (event['kind']!='finite_fresh_cash_sources_verified' or cash.get('financial_pins')!=origin['financial_pins']
             or cash.get('boundary_id')!=origin['boundary_id'] or cash.get('complete') is not True
             or cash.get('funding_confirmation_sequence')!=origin['funding_confirmation_sequence']
-            or set(cash['actors'])!={'actor-01','actor-02','actor-04'}):raise ValueError('original pre-Board complete cash source required')
+            or set(cash['actors'])!=set(policy['actors'])):raise ValueError('original pre-Board complete cash source required')
     before=chain.identity();tip=(before['blocks'],before['bestblockhash'])
     if before.get('chain')!='signet' or before.get('initialblockdownload') is not False:raise ValueError('synced independent signet required')
     client_validator(store,config,origin,tip[0]);current,current_sha=_read(current_startup_path)
@@ -247,7 +263,7 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
             if coin['outpoint'] in expected:raise ValueError('duplicate original physical cash')
             expected[coin['outpoint']]={**coin,'member_id':member}
     transaction=origin['transaction'];spent=transaction['inputs'][0]['outpoint'];opening=expected.get(spent)
-    if (opening is None or opening['member_id']!='actor-01' or opening['amount_sat']!=50000
+    if (opening is None or opening['member_id']!='actor-01' or opening['amount_sat']!=policy['grants']['actor-01']
             or transaction['inputs'][0]['script']!=opening['script']):raise ValueError('Board did not consume original declared customer50k')
     del expected[spent]
     for output in transaction['outputs']:
@@ -268,7 +284,7 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
         if (actual is None or actual.get('confirmations',0)<1 or btc_to_sat(actual['value'])!=coin['amount_sat']
                 or actual['scriptPubKey']['hex']!=coin['script']):raise ValueError('confirmed cash/Board backing unavailable or pending-spent')
     physical_total=sum(coin['amount_sat'] for coin in physical.values())
-    if physical_total!=665454-origin['funding_fee_sat']-origin['mining_fee_sat']:raise ValueError('cash plus single physical Board anchor does not conserve capital')
+    if physical_total!=policy['opening_sat']-origin['funding_fee_sat']-origin['mining_fee_sat']:raise ValueError('cash plus single physical Board anchor does not conserve capital')
     mempool=_empty_mempool(chain,set(scripts)|{anchor['script']},started)
     bankseq=collect_funding_bank_source(store,bank_rpc,chain);_,bank=_source_event(store,bankseq)
     expected_bank={point:coin for point,coin in observed.items() if coin['member_id']=='bank'}

@@ -50,6 +50,45 @@ def binding_matches(bound, source):
                 for k in ('mailbox_pk', 'spk', 'fallback_record')))
 
 
+def record_envelope(binding):
+    """Check canonical public shape only, without claiming a valid signature."""
+    script = raw_hex(binding['spk'])
+    record = raw_hex(binding['fallback_record'])
+    mailbox = raw_hex(binding['mailbox_pk'],33)
+    if (not 22 <= len(script) <= 42 or mailbox[0] not in (2,3)
+            or len(record) != 2 + len(script) + 64
+            or record[:2] != b'\x04' + bytes([len(script)])
+            or record[2:2+len(script)] != script):
+        raise ValueError('canonical V4 public record required')
+    return record
+
+
+def initial_origins(data):
+    """The pinned native create exports existing indices, never new addresses."""
+    binding = data.get('binding', {})
+    record_envelope(binding)
+    rows = data.get('initial_key_links')
+    if not isinstance(rows, list) or len(rows) != 51:
+        raise ValueError('exact 51 original C key acknowledgements required')
+    keys = set()
+    for index, row in enumerate(rows):
+        if (not isinstance(row, dict) or set(row) != {'native_index','origin'}
+                or type(row['native_index']) is not int or row['native_index'] != index):
+            raise ValueError('ordered original C indices 0 through 50 required')
+        origin = row['origin']
+        if (not isinstance(origin, dict) or set(origin) != {'user_pubkey','key_link_attestation','binding'}
+                or not binding_matches(binding, origin['binding'])):
+            raise ValueError('initial C acknowledgement binding differs')
+        key = raw_hex(origin['user_pubkey'], 33)
+        wire = raw_hex(origin['key_link_attestation'], 103)
+        if (key[0] not in (2,3) or origin['user_pubkey'] in keys
+                or wire[:35] != b'\x01' + key + b'\x01'
+                or int.from_bytes(wire[35:39], 'little') != index):
+            raise ValueError('initial C key or signed native recovery index differs')
+        keys.add(origin['user_pubkey'])
+    return [row['origin'] for row in rows]
+
+
 def proof_matches(proof, source):
     bound = proof.get('binding', {})
     if (bound.get('record_signature_valid') is not True
@@ -74,11 +113,7 @@ def proof_matches(proof, source):
             return False
         if 'key_link_attestation' in source and source['key_link_attestation'] != encoded.hex():
             return False
-        record = raw_hex(bound.get('fallback_record'))
-        script = raw_hex(bound.get('spk'))
-        if record != b'\x04' + bytes([len(script)]) + script + record[-64:]:
-            return False
-        raw_hex(bound.get('mailbox_pk'), 33)
+        record_envelope(bound)
     except (ValueError, KeyError, TypeError, OverflowError):
         return False
     return True

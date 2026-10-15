@@ -18,21 +18,24 @@ from simulator.store import Store
 
 class IdentityBootstrapTests(unittest.TestCase):
     def setUp(self):
+        selected=getattr(self,'architecture_profile','direct_xpub')
         self.tmp=tempfile.TemporaryDirectory()
         self.root=Path(self.tmp.name)
         self.wallets=self.root/'wallets';self.wallets.mkdir(mode=0o700)
         self.driver=self.root/'driver';self.driver.write_bytes(b'synthetic driver; never executed')
         self.wallet_config=self.root/'wallet.toml';self.wallet_config.write_text('synthetic wallet configuration')
         self.native_config=self.root/'native.json'
-        self.native_config.write_text(json.dumps({'network':'signet','wallet_root':str(self.wallets),
-            'ark_endpoint':'http://127.0.0.1:1','wallet_config':str(self.wallet_config)}))
+        native={'network':'signet','wallet_root':str(self.wallets),
+            'ark_endpoint':'http://127.0.0.1:1','wallet_config':str(self.wallet_config)}
+        if selected=='direct_per_key':native['architecture_profile']=selected
+        self.native_config.write_text(json.dumps(native))
         self.environment=patch.dict(os.environ,{'SIM_DRIVER_CONFIG':str(self.native_config)})
         self.environment.start()
-        self.store=Store(self.root/'state','synthetic',10000,architecture_profile='direct_xpub')
+        self.store=Store(self.root/'state','synthetic',10000,architecture_profile=selected)
         initialize(self.store)
         self.config=Config(self.root/'state',('observer',),(str(self.driver),),self.wallets,
             SIGNET_GENESIS,'abandon-signet-fallback-fresh','sha256:'+'a'*64,'02'+'b'*64,
-            10000,1,10,True,architecture_profile='direct_xpub',expected_sdk_commit='5e5994d3ab6844a443cef1e9d19a9195ed785486',
+            10000,1,10,True,architecture_profile=selected,expected_sdk_commit='5e5994d3ab6844a443cef1e9d19a9195ed785486',
             trace_enabled=False)
         self.identity={'network':'signet','genesis':SIGNET_GENESIS,'container':self.config.expected_container,
             'image_digest':self.config.expected_image,'server_pubkey':self.config.expected_server_pubkey}
@@ -41,7 +44,7 @@ class IdentityBootstrapTests(unittest.TestCase):
         self.value={'id':'synthetic-zero-principal','pins':self.pins,'identity':self.identity,
             'wallet_root':str(self.wallets),'actors':['actor-01','actor-02'],
             'driver_config_sha256':self.digest(self.native_config),'wallet_config_sha256':self.digest(self.wallet_config)}
-        self.snapshot={'identity':self.identity,'financial_pins':self.pins,'architecture_profile':'direct_xpub',
+        self.snapshot={'identity':self.identity,'financial_pins':self.pins,'architecture_profile':selected,
             'observed_at':time.time(),'stable_tip':True,'initial_block_download':False,
             'server_status':{'status':'running'},'height':100,'tip_hash':'a'*64}
         self.store.db.execute("INSERT INTO meta VALUES ('paused','declare')")

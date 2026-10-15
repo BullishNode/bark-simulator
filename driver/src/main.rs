@@ -541,6 +541,18 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 "binding":fallback_binding(&wallet).await?,"onchain_inventory":inventory});
             #[cfg(not(feature = "direct-per-key"))]
             { result["account_xpub"] = json!(fallback.account_xpub.to_string()); }
+            #[cfg(feature = "direct-per-key")]
+            {
+                // Read the creation acknowledgements without issuing an address
+                // or refilling the pool. Retry never allocates a replacement key.
+                let mut links = Vec::new();
+                for index in 0..=50u32 {
+                    let key = wallet.peek_keypair(index).await?.public_key();
+                    let origin = bark_sim_driver::per_key::wallet_origin(&wallet, key).await?;
+                    links.push(json!({"native_index": index, "origin": origin}));
+                }
+                result["initial_key_links"] = json!(links);
+            }
             Ok(result)
         }
         "snapshot" => {

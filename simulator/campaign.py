@@ -13,6 +13,7 @@ from dataclasses import dataclass, asdict
 from .model import canonical, integer
 from .store import Store
 from .ownership import proof_matches_profile
+from .architecture import DIRECT_PER_KEY,profile
 
 TRAFFIC_WINDOW_SECONDS = 600
 LIGHTNING_WINDOW_SECONDS = 3600
@@ -26,9 +27,10 @@ def _signed_coin(store, coin_id, actor):
         return None
     proof = json.loads(row['proof'])
     bound = proof.get('binding', {})
+    origin={'user_pubkey':row['pubkey'],'key_link_attestation':bound.get('key_link_attestation')} if profile(store)==DIRECT_PER_KEY else {
+        'user_pubkey':row['pubkey'],'child_index':bound.get('child_index'),'blinded_mailbox_id':bound.get('blinded_mailbox_id')}
     if (proof.get('signed_path_valid') is not True or proof.get('anchor_confirmations', 0) < 1
-            or not proof_matches_profile(store,proof,{'user_pubkey':row['pubkey'],
-                'child_index':bound.get('child_index'),'blinded_mailbox_id':bound.get('blinded_mailbox_id')})
+            or not proof_matches_profile(store,proof,origin)
             or bound.get('mailbox_pk') != row['mailbox']
             or (proof.get('id'), proof.get('user_pubkey'), proof.get('amount_sat'))
                 != (row['id'], row['pubkey'], row['amount_sat'])):

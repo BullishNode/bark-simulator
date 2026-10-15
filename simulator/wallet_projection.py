@@ -197,7 +197,8 @@ def reduce_wallet_projection(member, facts, chain, financial_pins, *, owner, now
         raise ValueError('explicit owning wallet member required')
     if (facts.get('schema_version'), facts.get('kind'), facts.get('network'), facts.get('genesis')) != (1, 'financial_facts', 'signet', SIGNET_GENESIS):
         raise ValueError('versioned owned signet financial facts required')
-    if facts.get('architecture_profile') not in {'two_step_per_key', 'direct_xpub'} or facts.get('financial_pins') != financial_pins:
+    from .architecture import PROFILES
+    if facts.get('architecture_profile') not in PROFILES or facts.get('financial_pins') != financial_pins:
         raise ValueError('financial fact profile/pin context differs')
     identity = facts['source_identity']
     _require(identity, ('product_commit', 'schema_sha256', 'bridge_sha256', 'daemon_binary_hashes'), 'source identity')

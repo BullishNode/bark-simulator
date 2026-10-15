@@ -75,6 +75,19 @@ def proof_matches_profile(store, proof, source):
 
 def digest(value):return hashlib.sha256(canonical(value).encode()).hexdigest()
 
+
+def has_owner_record(store, actor, bound):
+    """Match already independently verified owner evidence; never create it."""
+    selected = profile(store)
+    if selected == DIRECT_PER_KEY:
+        row = store.db.execute('SELECT script,proof FROM owner_record WHERE actor=? AND mailbox=? AND record_version=4',
+            (actor,bound.get('mailbox_pk'))).fetchone()
+        return bool(row and row['script']==bound.get('spk')
+            and json.loads(row['proof'])['fallback_record']==bound.get('fallback_record'))
+    field = 'seq' if selected == TWO_STEP else 'account_xpub'
+    return bool(store.db.execute(f'SELECT 1 FROM owner_record WHERE actor=? AND mailbox=? AND {field}=? AND script=?',
+        (actor,bound.get('mailbox_pk'),bound.get(field),bound.get('spk'))).fetchone())
+
 async def verify_client_evidence(store, actor, operation, data, proof_command):
     """Independent verifier must run before accepting an ownership claim.
 
@@ -85,12 +98,25 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
     per_key = profile(store) == DIRECT_PER_KEY
     from .target_epochs import active_runtime_manifest
     runtime_transition=active_runtime_manifest(store)
-    if not proof_command:return None
+    if not proof_command:
+        if per_key and operation == 'create':
+            raise ValueError('C create requires independent original key signature verification')
+        return None
     evidence=data.get('evidence',{})
     binding=evidence.get('binding',data.get('binding'))
     if not isinstance(binding,dict):return None
     verified=[]
     original_context=store.financial_context()
+    if per_key and operation == 'create':
+        from .per_key import initial_origins
+        for request in initial_origins(data):
+            proof = await json_command(list(proof_command),request,timeout=30,
+                **public_command_capture(store,'proof.verify',request,actor=actor))
+            proof = {**proof,'financial_pins':original_context}
+            if (not proof_matches_profile(store,proof,request)
+                    or not binding_matches(proof.get('binding',{}),binding,per_key=True)):
+                raise InvariantError('initial C acknowledged key signature mismatch')
+            verified.append({'kind':'key','proof':proof,'request_origin':request})
     if operation=='address':
         fields = ('user_pubkey','key_link_attestation','binding') if legacy or per_key else ('user_pubkey','child_index','blinded_mailbox_id','binding')
         request={k:data[k] for k in fields}

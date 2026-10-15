@@ -15,6 +15,12 @@ from pathlib import Path
 from .final_campaign import _source_event
 from .identity_bootstrap import declaration
 from .model import SIGNET_GENESIS, btc_to_sat, canonical, public_payload
+from .architecture import DIRECT_PER_KEY,profile
+
+
+def _policy(store):
+    from .finite_funding_readiness import _policy as source_policy
+    return source_policy(store)
 
 OPERATIONS = ['sync', 'snapshot', 'address']
 ECONOMIC_TABLES = {
@@ -36,10 +42,11 @@ def validate_client_action_scope(store,proof,*,operation,maximum_fee_sat,reserve
     if 'client_action_scope' not in proof:return
     scope=proof['client_action_scope']
     bootstrap=declaration(store)
+    count=2 if profile(store)==DIRECT_PER_KEY else 3
     if (not isinstance(scope,dict) or set(scope)!={'actors','operations','maximum_fee_sat','args'}
-            or not isinstance(scope['actors'],list) or len(scope['actors'])!=3
+            or not isinstance(scope['actors'],list) or len(scope['actors'])!=count
             or any(not isinstance(actor,str) for actor in scope['actors'])
-            or len(set(scope['actors']))!=3 or bootstrap is None
+            or len(set(scope['actors']))!=count or bootstrap is None
             or set(scope['actors'])!=set(bootstrap['declaration']['actors'])
             or proof.get('financial_pins')!=bootstrap['declaration']['pins']
             or scope['operations']!=OPERATIONS or proof.get('operation_scope')!=OPERATIONS
@@ -223,12 +230,13 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
     from .funding_bank import collect_funding_bank_source
     from .process import json_command,public_command_capture
     started=time.monotonic()
+    policy=_policy(store)
     if (config.network!='signet' or config.expected_genesis!=SIGNET_GENESIS or not config.inventory_command
             or getattr(store,'trace',None) is None):raise ValueError('traced actual signet cash sources required')
     plan,initial,funded,transaction,funding_sequence=_confirmed_funding(store,chain)
     members={member['id']:member for member in initial['members']}
     actors=sorted(member['id'] for member in members.values() if member['role']=='customer')
-    if len(members)!=6 or set(members)!={'bank','rounds','watchman',*actors} or len(actors)!=3:
+    if len(members)!=len(policy['customers'])+3 or set(members)!={'bank','rounds','watchman',*actors} or set(actors)!=policy['customers']:
         raise ValueError('exact six-member cash boundary required')
     _phase_history(store,plan['pins'],actors)
     before=chain.identity();tip=(before['blocks'],before['bestblockhash'])
@@ -263,7 +271,7 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
             change+=1
             if owner['member_id']!='bank' or change>1:raise ValueError('finite funding change ownership differs')
         expected[funded['txid']+':'+str(output['vout'])]={**owner,'amount_sat':output['amount_sat'],'script':output['script']}
-    if seen!={row['member_id'] for row in plan['recipients']} or sum(c['amount_sat'] for c in expected.values())!=665454-transaction['fee_sat']:
+    if seen!={row['member_id'] for row in plan['recipients']} or sum(c['amount_sat'] for c in expected.values())!=policy['opening_sat']-transaction['fee_sat']:
         raise ValueError('exact finite cash conservation differs')
     observed={}
     rows=scan.get('unspents')
@@ -330,7 +338,7 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
             'database_source_sequence':database_sequence,'database_response_sha256':_digest(database),
             'mempool':mempool,'descriptor_ranges':scans,'range_runtime_source_sha256':range_runtime_sha256,
             'confirmed_scan':scan_provenance,
-            'total_sat':665454-transaction['fee_sat'],
+            'total_sat':policy['opening_sat']-transaction['fee_sat'],
             'funding_fee_sat':transaction['fee_sat'],'operation_scope':OPERATIONS,
             'scope':'exact confirmed funding and empty persisted monetary state; customer BDK need not be synchronized'}
         public_payload(source);store._event('finite_fresh_cash_sources_verified',source)
@@ -370,6 +378,24 @@ def _operator_fee_funding(store,source,assets,current):
                 if coin['mature'] is not True or coin['trusted'] is not True:
                     raise ValueError('native fee eligibility contradicts maturity/trust')
                 available+=actual['amount_msat']
+    if profile(store)==DIRECT_PER_KEY:
+        # Initial C reserves remain in the actual bank. They are available for
+        # financial affordability, not represented as spendable daemon funds.
+        _,bank=_source_event(store,source['bank_source_sequence'])
+        bank_assets={point:coin for point,coin in assets['assets'].items() if coin['member']=='bank'}
+        observed={row['txid']+':'+str(row['vout']):row for row in bank['listunspent']}
+        if (set(observed)!=set(bank_assets) or any(bank.get(k)!=[] for k in
+                ('locked_coins','listlockunspent','pending_transactions','pending_parents'))):
+            raise ValueError('C actual unreserved bank reserve source differs')
+        bank_sat=0
+        for point,row in observed.items():
+            amount=btc_to_sat(row['amount'])
+            if (amount*1000!=bank_assets[point]['amount_msat'] or row.get('spendable') is not True
+                    or row.get('safe') is not True or type(row.get('confirmations')) is not int or row['confirmations']<1):
+                raise ValueError('C bank fee reserve not confirmed and controlled')
+            bank_sat+=amount
+        if bank_sat<40000:raise ValueError('C urgent 40000-sat bank ringfence exhausted')
+        available+=bank_sat*1000
     return available
 
 
@@ -378,6 +404,7 @@ def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_sou
     from .runtime_startup import _read
     from .treasury import boundary,capture_assets
     from .operating_limits import envelope,fee_totals
+    policy=_policy(store)
     event,source=_source_event(store,source_sequence)
     if event['kind']!='finite_fresh_cash_sources_verified' or source.get('operation_scope')!=OPERATIONS:
         raise ValueError('original exact fresh-cash source required')
@@ -404,7 +431,7 @@ def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_sou
         raise ValueError('actual cash configuration or predeclared operation paths differ')
     assets=capture_assets(store,source['inventory_sequences'],chain)
     if ((assets['height'],assets['tip_hash'])!=(source['height'],source['tip_hash'])
-            or assets['total_msat']!=(665454-transaction['fee_sat'])*1000
+            or assets['total_msat']!=(policy['opening_sat']-transaction['fee_sat'])*1000
             or fee_totals(store,plan['pins'])!={'ordinary':transaction['fee_sat']*1000,'urgent':0}):
         raise ValueError('cash closing conservation, tip or cumulative fees differ')
     available=_operator_fee_funding(store,source,assets,current)

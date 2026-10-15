@@ -14,10 +14,19 @@ from .funding import WalletRpc, _check_outputs, _funding_table
 from .model import SIGNET_GENESIS, btc_to_sat, canonical, integer, public_payload
 from .operating_limits import envelope, preflight
 from .treasury import boundary
+from .architecture import DIRECT_PER_KEY, profile
 
 KEY = 'finite_initial_funding_plan'
 AMOUNTS = {'rounds': 100000, 'watchman': 75000,
            'actor-01': 50000, 'actor-02': 50000, 'actor-04': 50000}
+
+
+def funding_policy(store):
+    if profile(store) == DIRECT_PER_KEY:
+        from .c_pilot import funding_policy as c_policy
+        return c_policy(store)
+    return {'amounts': AMOUNTS, 'principal_sat': 325000, 'maximum_fee_sat': 10000,
+            'maximum_rate_sat_kvb': 20000}
 
 
 def _digest(value):
@@ -25,6 +34,8 @@ def _digest(value):
 
 
 def _validate(store, value, chain):
+    policy = funding_policy(store)
+    amounts = policy['amounts']; principal = policy['principal_sat']
     fields = {'id','pins','boundary_id','bank_member_id','bank_wallet_name','bank_source_sequence',
               'finite_initial_source_sequence','recipients','maximum_principal_sat','maximum_miner_fee_sat','fee_rate_sat_kvb'}
     if not isinstance(value, dict) or set(value) != fields:
@@ -32,8 +43,8 @@ def _validate(store, value, chain):
     public_payload(value); _pins(value['pins'])
     if not isinstance(value['id'], str) or not 1 <= len(value['id']) <= 100:
         raise ValueError('bounded unique finite funding identifier required')
-    if (value['maximum_principal_sat'] != 325000 or not 0 < integer(value['maximum_miner_fee_sat'], 'funding fee cap') <= 10000
-            or not 0 < integer(value['fee_rate_sat_kvb'], 'funding fee rate') <= 20000 or value['bank_member_id'] != 'bank'):
+    if (value['maximum_principal_sat'] != principal or not 0 < integer(value['maximum_miner_fee_sat'], 'funding fee cap') <= policy['maximum_fee_sat']
+            or not 0 < integer(value['fee_rate_sat_kvb'], 'funding fee rate') <= policy['maximum_rate_sat_kvb'] or value['bank_member_id'] != 'bank'):
         raise ValueError('finite principal/miner/rate/bank scope differs')
     treasury = boundary(store)
     if value['pins'] != treasury['pins'] or value['boundary_id'] != treasury['id']:
@@ -46,7 +57,7 @@ def _validate(store, value, chain):
             or source.get('boundary_id') != value['boundary_id'] or source.get('bank_member_id') != value['bank_member_id']
             or source.get('bank_source_sequence') != value['bank_source_sequence']
             or source.get('bank_wallet_name') != value['bank_wallet_name']
-            or source.get('principal_sat') != 325000
+            or source.get('principal_sat') != principal
             or value['maximum_miner_fee_sat'] > source['maximum_funding_fee_sat']
             or value['fee_rate_sat_kvb'] > source['maximum_fee_rate_sat_kvb']
             or bank_event['kind'] != 'treasury_bank_original_source' or bank['kind'] != 'wallet' or bank['role'] != 'operator'
@@ -56,17 +67,17 @@ def _validate(store, value, chain):
             or sorted(bank_source['source_identity']['descriptors']) != sorted(bank['descriptors'])):
         raise ValueError('original independently verified finite bank source differs')
     recipients = value['recipients']
-    if (not isinstance(recipients, list) or len(recipients) != 5
-            or {r['member_id'] for r in recipients} != set(AMOUNTS)
-            or len({r['address'] for r in recipients}) != 5 or len({r['script'] for r in recipients}) != 5
+    if (not isinstance(recipients, list) or len(recipients) != len(amounts)
+            or {r['member_id'] for r in recipients} != set(amounts)
+            or len({r['address'] for r in recipients}) != len(amounts) or len({r['script'] for r in recipients}) != len(amounts)
             or recipients != source.get('funding_recipients')):
-        raise ValueError('exact five original source recipients required')
+        raise ValueError('exact original source recipients required')
     for row in recipients:
         if set(row) != {'role','member_id','address','script','amount_sat','descriptor_index','child_index'}:
             raise ValueError('complete derived finite recipient required')
         member = members[row['member_id']]
         role = 'customer' if row['member_id'].startswith('actor-') else 'operator'
-        if member['kind'] != 'wallet' or member['role'] != role or row['role'] != role or row['amount_sat'] != AMOUNTS[row['member_id']]:
+        if member['kind'] != 'wallet' or member['role'] != role or row['role'] != role or row['amount_sat'] != amounts[row['member_id']]:
             raise ValueError('finite recipient membership/role/principal differs')
         index = integer(row['descriptor_index'], 'funding descriptor index')
         child = integer(row['child_index'], 'funding child index')
@@ -121,7 +132,7 @@ def _admit(store, config, snapshot, value, chain):
     if (tip.get('initialblockdownload') is not False or tip.get('chain') != 'signet'
             or (tip['blocks'], tip['bestblockhash']) != (snapshot['height'], snapshot['tip_hash'])):
         raise ValueError('actual Core tip differs from funding admission')
-    decision = preflight(store, config, snapshot, operation='funding', amount_sat=325000,
+    decision = preflight(store, config, snapshot, operation='funding', amount_sat=funding_policy(store)['principal_sat'],
                          maximum_fee_sat=value['maximum_miner_fee_sat'])
     if decision.get('allowed') is not True: raise ValueError('funding preflight held')
     if value['fee_rate_sat_kvb'] > _fee_ceiling(store, config):
@@ -227,7 +238,7 @@ def _observe(store, chain, row, value):
                 raise ValueError('original funding confirmation/cost differs')
         if state == 'confirmed' and not prior:
             store._event('fixture_funding_confirmed', {'batch': row['id'], 'txid': row['txid'],
-                'principal_sat': 325000, 'fee_sat': row['fee_sat'], 'financial_pins': value['pins'],
+                'principal_sat': funding_policy(store)['principal_sat'], 'fee_sat': row['fee_sat'], 'financial_pins': value['pins'],
                 'boundary_id': value['boundary_id'], 'bank_source_sequence': value['bank_source_sequence'],
                 'finite_initial_source_sequence': value['finite_initial_source_sequence'],
                 'funding_plan_sha256': _digest(value['recipients']), 'recipients': value['recipients'],
@@ -274,9 +285,9 @@ def fund_finite_cohort(store, rpc, chain, config, snapshot):
                     or owner.get('scriptPubKey') != coin['scriptPubKey']):
                 raise ValueError('original bank input no longer confirmed/owned/available')
             selected[point] = btc_to_sat(coin['amount']); inputs.append({'txid': coin['txid'], 'vout': coin['vout']})
-            if sum(selected.values()) >= 325000+value['maximum_miner_fee_sat']: break
+            if sum(selected.values()) >= value['maximum_principal_sat']+value['maximum_miner_fee_sat']: break
             if len(inputs) >= 32: break
-        if sum(selected.values()) < 325000+value['maximum_miner_fee_sat']:
+        if sum(selected.values()) < value['maximum_principal_sat']+value['maximum_miner_fee_sat']:
             raise ValueError('original confirmed bank inputs do not cover finite principal and fee cap')
         _admit(store, config, snapshot, value, chain)
         # Seal uncertainty BEFORE the first wallet preparation/signing call.
@@ -307,7 +318,7 @@ def fund_finite_cohort(store, rpc, chain, config, snapshot):
                 store.db.execute("UPDATE funding_batch SET state='prepared',txid=?,raw_tx=?,fee_sat=?,updated_at=? WHERE id=?", (parsed['txid'], raw, fee, time.time(), batch))
                 store._event('fixture_funding_prepared', {'batch': batch, 'txid': parsed['txid'],
                     'transaction_sha256': hashlib.sha256(bytes.fromhex(raw)).hexdigest(),
-                    'principal_sat': 325000, 'fee_sat': fee, 'inputs': inputs, 'outputs': parsed['outputs']})
+                    'principal_sat': value['maximum_principal_sat'], 'fee_sat': fee, 'inputs': inputs, 'outputs': parsed['outputs']})
         except Exception as error:
             store.event('fixture_funding_prepare_unknown', {'batch': batch, 'error_type': type(error).__name__, 'retry_allowed': False})
             raise

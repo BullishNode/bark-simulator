@@ -49,6 +49,51 @@ C raw/protocol record probes are held instead of aliased to xpub probes. Public
 exports preserve C proofs and optional native signature replay. Terminal direct
 journal archive replay remains an explicit gap, never a legacy payout success.
 
+The first bounded C phase is separately declared through `c_pilot.declare`.
+Its two customers receive grants of25,000sat and0sat. One original sender Board
+uses20,000sat, then waits for3 confirmations and actual adoption before one
+original2,000-sat Arkoor payment. Initial bank assets must equal the explicitly
+declared and independently scanned opening (the current request is150,000sat,
+never an observed balance). Funding miner fees are capped at1,000sat. The
+conservative native Board total service-plus-miner reserve is1,000sat; these
+costs are reported separately, and a larger quote holds before signing. The
+ordinary60,000sat and urgent40,000sat budgets remain backed, with urgent funds
+ringfenced in the bank. Initial operator wallets remain empty. Later operator
+funding needs a new declared and observed transition. Existing B five-output
+and three-customer phase rules remain unchanged.
+
+Native `create` exports exactly51 existing canonical acknowledgements using
+read-only key lookups (authentication0 and receiving1..50). The common verifier
+checks every signature before recording creation ownership. Initial C admission
+requires exactly those102 public links and2 immutable records in both consistent
+frontier projections; all monetary tables must be empty. Signed indices remain
+recovery metadata. No address allocation is performed to inventory these keys.
+
+`deploy/track-c/server-observer.py` uses a declared native read-only ops transport.
+It refuses until `/etc/track-c/deployment-public.json` is active, root-owned and
+matches both installed observer files and the ops executable. Public SQL/wallet
+validators reuse the precise B producer export recorded in adjacent
+`provenance.json`; no C request selects SQL, host, RPC method or executable.
+The source reports systemd unit/executable identity explicitly. The existing
+identity field names `container`/`image_digest` carry that declared unit and
+executable artifact digest only under `runtime_transport=systemd`.
+
+The common startup gate routes C to `c_runtime.verify`, requiring the same
+PID/boot/start-ticks/systemd invocation and high-resolution start timestamp,
+exact executable/config/schema/product identity, original pre-exec configuration
+capture and fresh current observations. Both lifetimes remain48blocks and Board
+depth3. A manifest or disk hash alone is never loaded-configuration proof.
+Use `remote_observer` with explicit C profile, SSH target, public financial
+context and actual campaign config; its SDK assertion remains the reviewed
+immutable paired-build provenance, never a commit inferred from an ELF.
+
+The pilot queues its declared actions through the ordinary Engine with workload
+`none`; generic continuous scheduling has no C qualification from this phase.
+The native observer currently provides snapshot/financial facts, closed frontier,
+direct journal and coin/pending/link/record/nursery pages. Raw binding probes,
+logs, dedicated pool/Lightning sources and absent-source qualification remain
+explicit holds until implemented and independently tested.
+
 Python consumer controls and Rust public vectors are not funded native/live
 evidence. All 50-key/offline 25+50, eight-key, full suites, scale/soak, Noah/web,
 80 live outcomes, final clock/ramp, operator and comparison gates still apply.
