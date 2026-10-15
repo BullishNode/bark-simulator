@@ -166,6 +166,11 @@ class Engine:
                 return False
             from .operating_limits import envelope,preflight
             try:
+                # A scoped canary carries its own independently checked bounds;
+                # it cannot supply or consume a normal financial envelope.
+                from . import exploratory
+                if exploratory.scope(self.store) is not None:
+                    return preflight(self.store,self.config,snapshot,operation='progression')['allowed']
                 # Sync/claim progression can continue under its own explicit limits
                 # while an ordinary fee spike holds new financial actions.
                 declaration=envelope(self.store,self.config)
@@ -318,10 +323,11 @@ class Engine:
         bootstrap_action=False
         if self._requires_financial_qualification():
             from .operating_limits import envelope
+            from . import exploratory
             try:
                 if identity_bootstrap.pending(self.store):
                     bootstrap_action=identity_bootstrap.eligible(self.store,self.config,snapshot,action)
-                else:
+                elif exploratory.scope(self.store) is None:
                     financial_declaration=envelope(self.store,self.config)
                     scope=financial_declaration.get('operation_fee_paths')
                     if scope is not None and action['operation'] not in scope:
@@ -350,7 +356,7 @@ class Engine:
         if self._requires_financial_qualification() and not bootstrap_action:
             from .operating_limits import preflight
             try:
-                scoped='operation_fee_paths' in financial_declaration
+                scoped=financial_declaration is not None and 'operation_fee_paths' in financial_declaration
                 operation = 'progression' if action['operation']=='sync' and not scoped else action['operation']
                 decision=preflight(self.store,self.config,snapshot,operation=operation,
                     amount_sat=action['args'].get('amount_sat',0),maximum_fee_sat=action['fee_reservation_sat'],
