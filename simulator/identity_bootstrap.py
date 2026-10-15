@@ -160,6 +160,65 @@ def pending(store):
     return verified != set(value['actors'])
 
 
+def require_only_verified_creates(store, pins):
+    """Permit historical bootstrap dispatches before paused money declarations.
+
+    A completed zero-fee action alone is insufficient: the immutable bootstrap
+    intent, original response and independent zero-asset proof must all agree.
+    This checks historical admission only and grants no financial readiness.
+    """
+    if not store.get_meta('paused'):
+        raise ValueError('pause before checking pre-funding bootstrap history')
+    dispatches = store.db.execute("SELECT sequence FROM event WHERE kind='action_dispatched' LIMIT 13").fetchall()
+    if not dispatches:
+        return
+    original = declaration(store)
+    if original is None or len(dispatches) > 12 or original['declaration']['pins'] != pins or pending(store):
+        raise ValueError('only independently verified bootstrap creates may precede financial declarations')
+    value = original['declaration']
+    declared = store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_declared'").fetchone()[0]
+    seen = set()
+    for row in dispatches:
+        dispatch_event, dispatch = _source_event(store, row['sequence'])
+        action_id = dispatch.get('action_id')
+        action = store.db.execute('SELECT * FROM action WHERE id=?', (action_id,)).fetchone()
+        if (action is None or action['actor_id'] not in value['actors'] or action['actor_id'] in seen
+                or action['operation'] != 'create' or action['state'] != 'completed'
+                or json.loads(action['args']) != {} or action['fee_reservation_sat'] != 0
+                or action['actual_fee_sat'] != 0 or dispatch.get('actor') != action['actor_id']):
+            raise ValueError('non-bootstrap, repeated, paid or unfinished dispatch precedes financial declaration')
+        seen.add(action['actor_id'])
+
+        def one(kind):
+            rows = store.db.execute("SELECT sequence FROM event WHERE kind=? AND json_extract(payload,'$.action_id')=?", (kind, action_id)).fetchall()
+            if len(rows) != 1:
+                raise ValueError('unique original verified bootstrap action sources required')
+            return _source_event(store, rows[0][0])
+
+        intent_event, intent = one('action_intent')
+        begin_event, begin = one('identity_bootstrap_create_intent')
+        response_event, native = one('driver_response')
+        verified_event, verified = one('identity_bootstrap_zero_assets_verified')
+        response = native['response']
+        if (intent.get('actor') != action['actor_id'] or intent.get('operation') != 'create'
+                or intent.get('args') != {} or intent.get('fee_reservation_sat') != 0
+                or begin.get('actor') != action['actor_id'] or begin.get('operation') != 'create'
+                or begin.get('bootstrap_id') != value['id'] or begin.get('financial_pins') != pins
+                or begin.get('maximum_fee_sat') != 0 or begin.get('actor_path_absent') is not True
+                or response != json.loads(action['result']) or response.get('action_id') != action_id
+                or verified.get('actor') != action['actor_id']
+                or verified.get('bootstrap_declaration_sha256') != hashlib.sha256(canonical(value).encode()).hexdigest()
+                or verified.get('source_sequence') != response_event['sequence']
+                or verified.get('driver_response_sequence') != response_event['sequence']
+                or verified.get('source_event_hash') != response_event['hash']
+                or verified.get('confirmed_assets_sat') != 0 or verified.get('unconfirmed_assets_sat') != 0
+                or not declared < intent_event['sequence'] < dispatch_event['sequence']
+                    < begin_event['sequence'] < response_event['sequence'] < verified_event['sequence']):
+            raise ValueError('original verified zero-fee bootstrap history differs')
+    if seen != set(value['actors']):
+        raise ValueError('every declared bootstrap identity requires its original verified dispatch')
+
+
 def eligible(store, config, snapshot, action=None):
     proof = declaration(store)
     if proof is None or not pending(store): return False

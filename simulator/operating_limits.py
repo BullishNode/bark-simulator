@@ -82,8 +82,10 @@ def declare_envelope(store,declaration,config,inventory_sequences,chain):
             if previous!=encoded:raise ValueError('financial envelope immutable; use a fresh namespace')
             return False
         if not store.get_meta('paused'):raise ValueError('pause before declaring operating limits')
-        if store.db.execute("SELECT 1 FROM event WHERE kind IN ('fixture_funding_intent','action_dispatched') LIMIT 1").fetchone():
+        if store.db.execute("SELECT 1 FROM event WHERE kind='fixture_funding_intent' LIMIT 1").fetchone():
             raise ValueError('operating limits required before funding or first pilot')
+        from .identity_bootstrap import require_only_verified_creates
+        require_only_verified_creates(store, declaration['pins'])
         store.db.execute('INSERT INTO meta VALUES (?,?)',(KEY,encoded))
         store._event('financial_operating_envelope_declared',{'declaration':declaration,'inventory_sequences':inventory_sequences,
             'tip_hash':assets['tip_hash'],'confirmed_fee_funding_msat':funded})

@@ -120,8 +120,10 @@ def declare_boundary(store,declaration,chain):
         if not store.get_meta('paused'):raise ValueError('declare actual boundary while dispatch is paused')
         if store.db.execute("SELECT 1 FROM action WHERE state IN ('dispatched','outcome_unknown') LIMIT 1").fetchone():
             raise ValueError('reconcile old unknown actions before declaring boundary')
-        if store.db.execute("SELECT 1 FROM event WHERE kind IN ('fixture_funding_intent','fixture_funding_prepared','fixture_funding_broadcast_intent','action_dispatched') LIMIT 1").fetchone():
+        if store.db.execute("SELECT 1 FROM event WHERE kind IN ('fixture_funding_intent','fixture_funding_prepared','fixture_funding_broadcast_intent') LIMIT 1").fetchone():
             raise ValueError('actual boundary must be declared before funding or dispatch')
+        from .identity_bootstrap import require_only_verified_creates
+        require_only_verified_creates(store, declaration['pins'])
         store.db.execute('INSERT INTO meta VALUES (?,?)',(KEY,encoded))
         store._event('treasury_boundary_declared',declaration)
     return True
