@@ -333,6 +333,100 @@ def resolve(store,action_id,chain_transactions=None,payment_status=None):
     return True
 
 
+def resolve_arkoor_limit_rejection(store,action_id,server_raw,server_sha256,client_raw,client_sha256):
+    """Explicit lead-reviewed authenticated source receipts; never an automatic retry.
+
+    This narrow disposition accepts only the pre-cosign input-limit rejection.
+    Hashes must come from the separately authenticated, reviewed read-only
+    receipts. A generic native error or an absent movement is insufficient.
+    """
+    row=store.db.execute('SELECT * FROM action WHERE id=?',(action_id,)).fetchone()
+    if row is None or row['state']!='outcome_unknown':return False
+    if not store.get_meta('paused'):raise EvidenceGap('reconcile rejection while dispatch remains paused')
+    if (hashlib.sha256(server_raw.encode()).hexdigest()!=server_sha256
+            or hashlib.sha256(client_raw.encode()).hexdigest()!=client_sha256):raise InvariantError('reviewed rejection source bytes changed')
+    from .exploratory import scope
+    declaration=scope(store);action=dict(row);_intent(store,action)
+    if declaration is None or profile(store)!=TWO_STEP or action['operation']!='send_arkoor' or action['fee_reservation_sat']!=0:
+        raise EvidenceGap('not the declared zero-fee ordinary Ark rejection')
+    server=json.loads(server_raw);clients=json.loads(client_raw)
+    if server['query_cut']!='REPEATABLE READ READ ONLY' or server['config_sha256']!=declaration['configuration_sha256']:
+        raise EvidenceGap('actual rejection source configuration differs')
+    proposal=_proposal(store,action,'arkoor_request');ids=proposal['input_vtxo_ids'];args=json.loads(action['args'])
+    if len(ids)!=1 or proposal['destination']!=args['destination'] or proposal['amount_sat']!=args['amount_sat']:
+        raise EvidenceGap('one exact original ordinary input and destination required')
+    before,bseq=_frame(store,action,'before');after,aseq=_frame(store,action,'after')
+    replies=store.db.execute("SELECT sequence,payload FROM event WHERE kind='driver_response' AND json_extract(payload,'$.action_id')=?",(action_id,)).fetchall()
+    if len(replies)!=1 or not bseq<aseq<replies[0]['sequence'] or json.loads(replies[0]['payload'])['response'].get('status')!='error':
+        raise EvidenceGap('original native error and complete boundaries required')
+    money=lambda frame:[{k:c[k] for k in ('id','amount_sat','state','expiry_height','user_pubkey','signed_vtxo')} for c in frame['coins']]
+    if money(before)!=money(after) or before['movements']!=after['movements'] or any(c['state']!='Spendable' for c in after['coins']):
+        raise EvidenceGap('native principal, lock or movement changed')
+    input_coin,proof=_coins(store,ids,action['actor_id'])[0]
+    if proof['anchor_confirmations']<3:raise EvidenceGap('confirmed original board proof required')
+    limit=integer(int(server['max_arkoor_amount'].removesuffix(' sat')),'actual input limit',1)
+    if input_coin['amount_sat']<=limit or server['selected_original_input']!=ids[0]:raise EvidenceGap('not an input-limit rejection')
+    logs=[]
+    for line in server['logs_stdout'].splitlines():
+        try:entry=json.loads(line[line.index('{'):])
+        except (ValueError,json.JSONDecodeError):continue
+        spans=[entry.get('span',{}),*entry.get('spans',[])]
+        if any(v.get('rpc.method')=='RequestArkoorCosign' for v in spans):logs.append(entry)
+    traces={v.get('openTelemetry',{}).get('traceId') for v in logs}
+    expected='RPC ERROR: bad user input: arkoor send amount exceeds limit of '+format(limit/100000000,'.8f')+' BTC'
+    errors=[v for v in logs if v.get('message')==expected]
+    if len(traces)!=1 or None in traces or len(errors)!=1 or len(logs)!=3 or not any('status=Client specified an invalid argument' in v.get('message','') for v in logs):
+        raise EvidenceGap('one authenticated terminal pre-validation RPC rejection required')
+    error_time=datetime.datetime.fromisoformat(errors[0]['timestamp'].replace('Z','+00:00')).timestamp()
+    times=[store.db.execute('SELECT observed_at FROM event WHERE sequence=?',(seq,)).fetchone()[0] for seq in (bseq,aseq)]
+    if not times[0]-1<=error_time<=times[1]+1:raise EvidenceGap('server rejection not bound to original native call')
+    rows=server['source_rows'];coins=rows['coin']
+    if len(coins)!=1 or coins[0]['vtxo_id']!=ids[0] or coins[0]['amount']!=input_coin['amount_sat'] or coins[0]['spend_state']!='spendable' or any(coins[0][k] is not None for k in ('spent_in_round','oor_spent_txid','offboarded_in','onchain_spent_txid')):
+        raise EvidenceGap('server original principal is not proven unspent')
+    known=store.db.execute('SELECT id,amount_sat,proof FROM owned_coin').fetchall()
+    virtual=set();known_ids={r['id'] for r in known}
+    for coin in known:
+        p=json.loads(coin['proof']);virtual.add(coin['id'].split(':')[0]);virtual.add(p['chain_anchor'].split(':')[0]);virtual.update(v['txid'] for v in p['path'])
+    counts=rows['spend_publication_counts']
+    if (len(counts)!=1 or counts[0]['arkoor_mailbox']!=len(rows['arkoor_mailbox'])
+            or counts[0]['mailbox']!=len(rows['mailbox'])
+            or counts[0]['nonfunding_virtual_transactions']!=sum(not v['is_funding'] for v in rows['virtual_transactions'])
+            or any(counts[0][k]!=0 for k in ('offboards','nursery','rounds'))
+            or len(rows['virtual_transactions'])>=129 or len(rows['mailbox'])>=129):
+        raise EvidenceGap('complete bounded global publication inventory required')
+    if (set(v['txid'] for v in rows['virtual_transactions'])!=virtual or len(rows['virtual_transactions'])!=len(virtual)
+            or rows['arkoor_mailbox'] or any(v['mailbox_type']!='recovery-vtxo-id' or v['vtxo_id'] not in known_ids for v in rows['mailbox'])):
+        raise EvidenceGap('new virtual package or recipient delivery cannot be excluded')
+    if clients.get('read_only_native_sqlite') is not True or clients.get('mutations') is not False:
+        raise EvidenceGap('actual native read-only checkpoint source required')
+    for actor in (action['actor_id'],args['recipient_actor']):
+        current=clients['actors'][actor]
+        expected={r[0] for r in store.db.execute('SELECT c.id FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey WHERE k.actor=?',(actor,))}
+        if (not expected or {v['id'] for v in current['coins']}!=expected or len(current['coins'])!=len(expected)
+                or {v['vtxo_id'] for v in current['current_states']}!=expected or len(current['current_states'])!=len(expected)):
+            raise EvidenceGap('native holdings and states omit independently signed principal')
+        expected_movements=[json.loads(r[0]) for r in store.db.execute('SELECT payload FROM movement_evidence WHERE actor=?',(actor,))]
+        expected_contract={(str(v['id']),v['status'],v['subsystem'],v['effective_balance_sat'],v['offchain_fee_sat']) for v in expected_movements}
+        current_contract={(str(v['id']),v['status'],v['subsystem_name'],v['effective_balance'],v['offchain_fee']) for v in current['movements']}
+        if not expected_contract or current_contract!=expected_contract or len(current['movements'])!=len(expected_contract):
+            raise EvidenceGap('native movement inventory omits original board history')
+        if current['checkpoints'] or current['pending_boards'] or current['pending_rounds'] or any(v['state_kind']!='Spendable' for v in current['current_states']) or any(v['subsystem_name']!='bark.board' or v['status']!='successful' for v in current['movements']):
+            raise EvidenceGap('native pending action, lock or transfer movement remains')
+        for coin in current['coins']:
+            owned=_coins(store,[coin['id']],actor)[0][0]
+            if (coin['amount_sat'],coin['expiry_height'])!=(owned['amount_sat'],json.loads(owned['proof'])['expiry_height']):raise InvariantError('native principal differs from signed proof')
+    original=json.loads(action['result']);rejection={'server_source_sha256':server_sha256,'native_client_source_sha256':client_sha256,
+        'server_trace_id':next(iter(traces)),'before_sequence':bseq,'after_sequence':aseq,'input_coin_ids':ids,
+        'disposition':'known pre-cosign policy rejection; no Ark transfer','actual_fee_sat':0,
+        'legitimate_board_registration_preserved':True,'scenario_verdict':'failed','qualified_seconds':0}
+    result={'action_id':action_id,'status':'error','original_result':original,'rejection_reconciliation':rejection}
+    with store.transaction():
+        changed=store.db.execute("UPDATE action SET state='failed',result=?,actual_fee_sat=0 WHERE id=? AND state='outcome_unknown'",(canonical(result),action_id)).rowcount
+        if changed!=1:raise EvidenceGap('original unknown state changed before rejection reconciliation')
+        store._event('unknown_outcome_rejected',{'action_id':action_id,'original_updated_at':action['updated_at'],'original_result':original,**rejection,'monetary_request_retried':False})
+    return True
+
+
 async def collect(store,config,chain=None,limit=2):
     if store.get_meta('paused'):return
     after=store.get_meta('unknown_outcome_cursor') or ''
