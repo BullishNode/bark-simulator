@@ -11,7 +11,8 @@ from .model import canonical
 KEY = 'architecture_profile'
 DIRECT = 'direct_xpub'
 TWO_STEP = 'two_step_per_key'
-PROFILES = frozenset({DIRECT, TWO_STEP})
+DIRECT_PER_KEY = 'direct_per_key'
+PROFILES = frozenset({DIRECT, TWO_STEP, DIRECT_PER_KEY})
 
 
 def validate(requested):

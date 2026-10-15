@@ -344,7 +344,8 @@ def _schedule(store,config,snapshot,decisions,rng=None):
             decide('dry_wallet')
             if due('snapshot',180,d.get('snapshot_at',0)):queue('H01','snapshot');return
             continue
-        if name in {'actor-11','actor-12'} and time.time()-max((x['updated_at'] for x in history if x['operation'].startswith('raw_')),default=0)>900:
+        from .architecture import profile, DIRECT_PER_KEY
+        if name in {'actor-11','actor-12'} and profile(store) != DIRECT_PER_KEY and time.time()-max((x['updated_at'] for x in history if x['operation'].startswith('raw_')),default=0)>900:
             decide('negative_probe_cadence')
             count=sum(x['operation'].startswith('raw_') for x in history)
             scenario,operation,args=next_case(store,name,count);queue(scenario,operation,args);return

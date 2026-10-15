@@ -35,9 +35,22 @@ def _identity(store,config,chain,current,*,pins,boundary_id,members):
         raise ValueError('actual scan SDK/driver identity differs')
     if chain.url!=config.proof_command[1] or chain.expected!=config.expected_genesis:raise ValueError('actual independent Core endpoint/genesis differs')
     release=_sha(current.get('product_commit'),40);daemons={}
-    if current.get('kind')!='owned_startup_source' or set(current.get('daemons',{}))!={'captaind','watchmand'}:
+    from .architecture import DIRECT_PER_KEY,profile
+    per_key=profile(store)==DIRECT_PER_KEY
+    if current.get('kind')!=('owned_native_startup_source' if per_key else 'owned_startup_source') or set(current.get('daemons',{}))!={'captaind','watchmand'}:
         raise ValueError('actual daemon identities required for confirmed scan')
     for service,row in sorted(current['daemons'].items()):
+        if per_key:
+            if (current.get('architecture_profile')!=DIRECT_PER_KEY or current.get('runtime_transport')!='systemd'
+                    or release!=pins['product_commit'] or current.get('schema_sha256')!=pins['schema_sha256']
+                    or row.get('running') is not True or type(row.get('pid')) is not int or row['pid']<=0
+                    or row.get('process_exe_sha256')!=row.get('binary_sha256')
+                    or service=='captaind' and (row.get('unit')!=config.expected_container
+                        or 'sha256:'+str(row.get('process_exe_sha256'))!=config.expected_image)):
+                raise ValueError('actual C native scan identity differs')
+            _sha(row.get('binary_sha256'));_sha(row.get('config_sha256'))
+            daemons[service]={key:row[key] for key in ('unit','boot_id','start_ticks','binary_sha256','config_sha256','pid','started_at')}
+            continue
         if (row.get('image_sha256')!=config.expected_image or row.get('running') is not True
                 or type(row.get('pid')) is not int or row['pid']<=0 or not isinstance(row.get('started_at'),str)
                 or row.get('process_exe_sha256')!=row.get('binary_sha256')):raise ValueError('actual running scan image identity differs')

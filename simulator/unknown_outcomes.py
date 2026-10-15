@@ -32,11 +32,14 @@ def _coins(store,ids,actor):
         integer(proof.get('amount_sat'),'signed proof amount',1)
         if (proof.get('id'),proof.get('user_pubkey'),proof.get('amount_sat'))!=(coin['id'],coin['pubkey'],coin['amount_sat']):
             raise InvariantError('unknown outcome signed identity or value changed')
+        from .architecture import profile, DIRECT_PER_KEY
+        from .ownership import proof_matches_profile, has_owner_record
         if (proof.get('signed_path_valid') is not True or type(proof.get('anchor_confirmations')) is not int
                 or proof['anchor_confirmations']<1 or binding.get('record_signature_valid') is not True
-                or binding.get('account_child_verified') is not True):raise EvidenceGap('unknown outcome signed proof is incomplete')
-        if (binding.get('mailbox_pk')!=coin['mailbox'] or not store.db.execute('SELECT 1 FROM owner_record WHERE actor=? AND mailbox=? AND account_xpub=? AND script=?',
-                (actor,coin['mailbox'],binding.get('account_xpub'),binding.get('spk'))).fetchone()):raise EvidenceGap('unknown outcome lacks checked owner record')
+                or not (proof_matches_profile(store,proof,{'user_pubkey':coin['pubkey']}) if profile(store)==DIRECT_PER_KEY
+                        else binding.get('account_child_verified') is True)):raise EvidenceGap('unknown outcome signed proof is incomplete')
+        if binding.get('mailbox_pk')!=coin['mailbox'] or not has_owner_record(store,actor,binding):
+            raise EvidenceGap('unknown outcome lacks checked owner record')
         if hashlib.sha256(bytes.fromhex(coin['signed_vtxo'])).hexdigest()!=coin['signed_hash']:
             raise InvariantError('unknown outcome signed bytes changed')
         coins.append((coin,proof))
@@ -98,8 +101,8 @@ def _frame(store,action,phase):
     if len(rows)!=1:raise EvidenceGap('unknown read lacks unique fresh native evidence boundaries')
     data=json.loads(rows[0]['payload'])['data']
     evidence=boundary_evidence(store,action,phase,data);binding=evidence['binding']
-    if not store.db.execute('SELECT 1 FROM owner_record WHERE actor=? AND mailbox=? AND account_xpub=? AND script=?',
-        (action['actor_id'],binding['mailbox_pk'],binding['account_xpub'],binding['spk'])).fetchone():raise EvidenceGap('unknown native boundary lacks verified actor binding')
+    from .ownership import has_owner_record
+    if not has_owner_record(store,action['actor_id'],binding):raise EvidenceGap('unknown native boundary lacks verified actor binding')
     ids=[c['id'] for c in evidence['coins']]
     if len(ids)!=len(set(ids)):raise InvariantError('native boundary duplicates a coin')
     if ids:

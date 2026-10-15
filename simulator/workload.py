@@ -9,6 +9,7 @@ from .config import Config
 from .model import integer
 from .store import Store
 from .raw_cases import next_case
+from .architecture import profile, DIRECT_PER_KEY
 
 
 def schedule_pilot(store: Store, config: Config):
@@ -61,7 +62,7 @@ def schedule_pilot(store: Store, config: Config):
                     next_action = (actor, "H08" if target == "actor-09" else "H07", "send_arkoor",
                                    {"destination": destination, "amount_sat": 1000}, config.action_fee_reserve_sat)
                     break
-        if actor in {"actor-11", "actor-12"}:
+        if actor in {"actor-11", "actor-12"} and profile(store) != DIRECT_PER_KEY:
             previous = [a["updated_at"] for a in history if a["operation"].startswith("raw_")]
             if not previous or time.time() - max(previous) >= 600:
                 scenario, op, args = next_case(store, actor, len(previous))
@@ -93,6 +94,7 @@ def schedule_pilot(store: Store, config: Config):
 
 
 def record_actor_result(store: Store, actor: str, operation: str, data: dict):
+    per_key = profile(store) == DIRECT_PER_KEY
     with (nullcontext() if store.db.in_transaction else store.transaction()):
         row = store.db.execute("SELECT details FROM actor WHERE id=?", (actor,)).fetchone()
         details = json.loads(row[0])
@@ -100,12 +102,20 @@ def record_actor_result(store: Store, actor: str, operation: str, data: dict):
             for key in ("funding_address", "fallback_script"):
                 if not isinstance(data[key], str) or not data[key]:
                     raise ValueError("missing wallet identity evidence")
-            if not isinstance(data.get("account_xpub"),str) or not data["account_xpub"]:raise ValueError("missing immutable coin account")
+            if per_key:
+                from .per_key import binding_matches, record_envelope
+                binding = data.get('binding',{})
+                if (not binding_matches(binding,binding) or 'account_xpub' in data
+                        or not record_envelope(binding)
+                        or binding['spk'] != data['fallback_script']):
+                    raise ValueError('missing immutable C native identity evidence')
+            elif not isinstance(data.get("account_xpub"),str) or not data["account_xpub"]:raise ValueError("missing immutable coin account")
             details.update(created=True, needs_sync=True, **{k: data[k] for k in ("funding_address", "fallback_script", "account_xpub", "binding") if k in data})
         elif operation == "address":
             details["ark_address"] = data["address"]
             if "binding" in data:
-                details["advertised_key_proof"]={k:data[k] for k in ("user_pubkey","child_index","blinded_mailbox_id","binding")}
+                fields = ('user_pubkey','key_link_attestation','binding') if per_key else ('user_pubkey','child_index','blinded_mailbox_id','binding')
+                details["advertised_key_proof"]={k:data[k] for k in fields}
         elif operation == "snapshot":
             details["snapshot_at"] = time.time()
             details["registered_spendable_sat"] = integer(data["balance"]["spendable_sat"], "client spendable balance")

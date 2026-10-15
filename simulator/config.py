@@ -3,6 +3,7 @@ from __future__ import annotations
 import tomllib
 import hashlib
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -145,7 +146,11 @@ class Config:
         if target.get("network") != "signet" or target.get("genesis") != SIGNET_GENESIS:
             raise ValueError("live configuration must use the official signet")
         container, image = target["container"], target["image_digest"]
-        if not container.startswith("abandon-signet-fallback-") or not image.startswith("sha256:") or len(image) != 71:
+        from .architecture import DIRECT_PER_KEY
+        native_c=target.get('architecture_profile')==DIRECT_PER_KEY
+        valid_target=(target.get('runtime_transport')=='systemd'
+            and isinstance(container,str) and re.fullmatch(r'[a-zA-Z0-9_-]+\.service',container) is not None) if native_c else container.startswith('abandon-signet-fallback-')
+        if not valid_target or not image.startswith("sha256:") or len(image) != 71:
             raise ValueError("pin the exact fallback container and image digest")
         pubkey = target["server_pubkey"]
         if len(pubkey) != 66 or any(c not in "0123456789abcdef" for c in pubkey):
@@ -232,3 +237,6 @@ class Config:
                 raise ValueError('observed architecture profile differs from configuration')
             if not isinstance(pins,dict) or pins.get('sdk_commit')!=self.expected_sdk_commit:
                 raise ValueError('observed native SDK differs from explicit configuration pin')
+            from .architecture import DIRECT_PER_KEY
+            if self.architecture_profile==DIRECT_PER_KEY and snapshot.get('runtime_transport')!='systemd':
+                raise ValueError('C requires actual declared native systemd observation transport')
