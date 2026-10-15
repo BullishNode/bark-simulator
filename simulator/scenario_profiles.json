@@ -152,7 +152,7 @@
         },
         "direct_xpub": {
           "behavior": "Receive new value after a prior economically terminal direct entitlement was forfeited, then expire its actual new closure.",
-          "expected": "Preserve terminal old IDs with no resurrected retained balance. Group only actual eligible rights within the physical closure: net=gross-1000; pay only when net is positive and at least actual script dust, including equality. Otherwise explicitly forfeit the full group with zero customer output fee. Freeze alone is not terminal; require consumed backing and confirmed winning history. Unknown outcomes or fee shortfalls never become forfeit.",
+          "expected": "Preserve terminal old IDs with no resurrected retained balance. Group only actual eligible rights within the physical closure: candidate charge=min(gross,1000), candidate net=gross-candidate charge. Pay only when net is positive and at least actual script dust, including equality; a payable output then charges1000. Otherwise explicitly forfeit the full group with zero customer output fee. Freeze alone is not terminal; require consumed backing and confirmed winning history. Unknown outcomes or fee shortfalls never become forfeit.",
           "source_commit": "69ca8cce9501560629169c2894ce9d74df9cb1cd",
           "sources": [
             "server/src/watchman/settlement.rs:10",
@@ -163,7 +163,7 @@
         },
         "direct_per_key": {
           "behavior": "Receive new value after a prior economically terminal direct entitlement was forfeited, then expire the new actual physical closure.",
-          "expected": "Old forfeited IDs stay terminal with payout zero/full recorded forfeit. Aggregate only new eligible leaves by script within their physical frozen closure. Positive net=gross-1000 pays when at least actual script dust, including equality; otherwise full new gross is explicit forfeit with zero customer output fee. Reconcile gross=fee+payout+forfeit once; actual mining subsidy and operator forfeit reuse remain separate from rightful customer principal.",
+          "expected": "Old forfeited IDs stay terminal with payout zero/full recorded forfeit. Aggregate only new eligible leaves by script within their physical frozen closure. Candidate charge=min(gross,1000), candidate net=gross-candidate charge. Positive net pays when at least actual script dust, including equality; a payable output then charges1000. Otherwise full new gross is explicit forfeit with zero customer output fee. Reconcile gross=fee+payout+forfeit once; actual mining subsidy and operator forfeit reuse remain separate from rightful customer principal.",
           "source_commit": "8c4478cfbfac8a193d0a6549387229dfedee06de",
           "sources": [
             "server/src/watchman/settlement.rs:40",

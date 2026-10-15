@@ -40,7 +40,7 @@ Rust 1.90.0, builds every driver binary, and runs the library/binary pure tests.
 `GIT_HASH` must identify that actual SDK checkout: the Noah private helper embeds
 it as `SDK_COMMIT`. The simulator commit is recorded separately.
 
-The workflow currently pins compatibility candidates A `c73bb909`, B `69ca8cce`,
+The workflow currently pins compatibility candidates A `e2291996`, B `69ca8cce`,
 and C `8c4478cf`; those pins are not production promotion. Update them explicitly
 when an owning candidate changes. The jobs retain exact commits/trees, profile,
 feature, lock/catalogue hashes, compiler versions and original failed/passing
