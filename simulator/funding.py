@@ -13,15 +13,19 @@ class WalletRpc:
     def __init__(self,token_file,wallet,*,capture=None):
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',wallet):raise ValueError('invalid fixture funding wallet name')
         self.token_file=token_file;self.wallet=wallet;self.capture=capture
-    def call(self,method,*params,root=False):
-        if method not in {'getblockhash','getblockchaininfo','getwalletinfo','getbalances','getaddressinfo','gettxout','walletcreatefundedpsbt','walletprocesspsbt','finalizepsbt','decoderawtransaction','sendrawtransaction','getrawtransaction','listunspent','decodepsbt'}:raise ValueError('unsupported funding RPC')
+    def call(self,method,*params,root=False,timeout=30,max_response_bytes=16*1024*1024):
+        if method not in {'getblockhash','getblockchaininfo','getwalletinfo','getbalances','getaddressinfo','gettxout','walletcreatefundedpsbt','walletprocesspsbt','finalizepsbt','decoderawtransaction','sendrawtransaction','getrawtransaction','listunspent','decodepsbt','listdescriptors','listlockunspent','listsinceblock'}:raise ValueError('unsupported funding RPC')
+        if method=='listdescriptors' and (len(params)!=1 or params[0] is not False):raise ValueError('only explicitly public descriptors may be requested')
         token=base64.b64encode(Path(self.token_file).read_text().strip().encode()).decode()
         url='http://127.0.0.1:38332'+('' if root else '/wallet/'+self.wallet)
         req=urllib.request.Request(url,json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode(),{'Authorization':'Basic '+token,'Content-Type':'application/json'})
+        if not 0<timeout<=30 or not 0<max_response_bytes<=16*1024*1024:raise ValueError('invalid funding RPC bounds')
+        self.last_response_bytes=0
         raw=None
         try:
-            with urllib.request.urlopen(req,timeout=30) as f:raw=f.read(16*1024*1024+1)
-            if len(raw)>16*1024*1024:raw=None;raise ValueError('funding RPC response exceeds bound')
+            with urllib.request.urlopen(req,timeout=timeout) as f:raw=f.read(max_response_bytes+1)
+            self.last_response_bytes=len(raw)
+            if len(raw)>max_response_bytes:raw=None;raise ValueError('funding RPC response exceeds bound')
             r=json.loads(raw,parse_float=Decimal)
         except Exception as error:
             if self.capture:self.capture({'kind':'chain.rpc','payload':{'method':method,'params':list(params),'error':type(error).__name__,'consumer':'funding-wallet'},'raw':raw})

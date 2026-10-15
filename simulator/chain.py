@@ -12,7 +12,7 @@ class ChainReader:
         self.url,self.credential,self.expected=url,Path(credential),expected_genesis
         self.cache={}
         self.capture,self.consumer=capture,consumer
-    def call(self,method,*args):
+    def call(self,method,*args,timeout=12,max_response_bytes=16*1024*1024):
         if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress','scantxoutset','getrawmempool'}:raise ValueError('read-only RPC required')
         if method=='scantxoutset':
             if (len(args)!=2 or args[0]!='start' or not isinstance(args[1],list) or not 1<=len(args[1])<=12
@@ -23,10 +23,13 @@ class ChainReader:
         if method=='getrawmempool' and args!=(False,):raise ValueError('bounded transaction-id inventory required')
         token=base64.b64encode(self.credential.read_text().strip().encode()).decode()
         req=urllib.request.Request(self.url,json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':args}).encode(),{'Authorization':'Basic '+token,'Content-Type':'application/json'})
+        if not 0<timeout<=12 or not 0<max_response_bytes<=16*1024*1024:raise ValueError('invalid Core response bounds')
+        self.last_response_bytes=0
         raw=None
         try:
-            with urllib.request.urlopen(req,timeout=12) as f:raw=f.read(16*1024*1024+1)
-            if len(raw)>16*1024*1024:raw=None;raise ValueError('Core response exceeds capture bound')
+            with urllib.request.urlopen(req,timeout=timeout) as f:raw=f.read(max_response_bytes+1)
+            self.last_response_bytes=len(raw)
+            if len(raw)>max_response_bytes:raw=None;raise ValueError('Core response exceeds capture bound')
             r=json.loads(raw,parse_float=Decimal)
         except Exception as error:
             self._capture(method,args,None,type(error).__name__,raw)
