@@ -124,11 +124,21 @@ class Store:
         return snapshot.get('financial_pins')
 
     def _event(self, kind: str, payload: dict):
-        if self.get_meta('final_financial_epoch') is not None and kind in {
+        final_epoch=self.get_meta('final_financial_epoch')
+        exploratory_admission=(self.get_meta('financial_qualification_required') is not None
+            and kind in {'action_intent','action_dispatched'})
+        if (final_epoch is not None or exploratory_admission) and kind in {
                 'action_intent','action_dispatched','driver_evidence','public_ownership_verified',
                 'ark_transfer_verified','client_fee_reconciled','controlled_peer_payment_verified',
                 'lightning_payment_outcome'}:
-            payload={**payload,'financial_pins':payload.get('financial_pins',self.financial_context())}
+            pins=self.financial_context()
+            if final_epoch is None:
+                from .final_campaign import _pins
+                try:_pins(pins)
+                except ValueError:raise CampaignPaused('fresh exploratory financial pins missing or invalid; no financial event') from None
+                if 'financial_pins' in payload and payload['financial_pins']!=pins:
+                    raise CampaignPaused('exploratory event pins differ from actual fresh financial context')
+            payload={**payload,'financial_pins':payload.get('financial_pins',pins)}
         public_payload(payload)
         last = self.db.execute("SELECT sequence,hash FROM event ORDER BY sequence DESC LIMIT 1").fetchone()
         seq, previous = (last[0] + 1, last[1]) if last else (1, "0" * 64)
