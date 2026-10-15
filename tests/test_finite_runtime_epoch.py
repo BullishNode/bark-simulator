@@ -11,6 +11,7 @@ from tests import test_runtime_startup as runtime_fixture
 
 class FiniteRuntimeEpochTests(unittest.TestCase):
     def setUp(self):
+        driver_sha256=getattr(self,'driver_sha256','5'*64)
         self.target=target_fixture.TargetEpochTests();self.target.setUp();self.store=self.target.store
         self.store.db.execute("INSERT INTO meta VALUES('financial_qualification_required','true')")
         self.runtime=runtime_fixture.RuntimeStartupTests();self.runtime.setUp();self.runtime.store=self.store
@@ -26,11 +27,14 @@ class FiniteRuntimeEpochTests(unittest.TestCase):
         self.runtime.original=copy.deepcopy(self.runtime.current)
         self.prior=self.runtime.verify()
         self.prior_sequence=self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
-        self.pins={'product_commit':ORIGIN_COMMIT,'sdk_commit':ORIGIN_COMMIT,'driver_sha256':'5'*64,
+        self.pins={'product_commit':ORIGIN_COMMIT,'sdk_commit':ORIGIN_COMMIT,'driver_sha256':driver_sha256,
             'configuration_sha256':hashlib.sha256(canonical(self.runtime.expected['config_sha256']).encode()).hexdigest(),'schema_sha256':'b'*64}
         bootstrap={'pins':self.pins,'identity':self.target.old,'wallet_root':self.store.get_meta('wallet_root')}
         self.store.db.execute("INSERT INTO meta VALUES('zero_principal_identity_bootstrap',?)",(canonical(bootstrap),))
-        self.store.event('identity_bootstrap_declared',{'declaration':bootstrap})
+        bootstrap_source=getattr(self,'bootstrap_source',None)
+        source=bootstrap_source(bootstrap) if bootstrap_source else {'declaration':bootstrap}
+        self.store.db.execute("UPDATE meta SET value=? WHERE key='zero_principal_identity_bootstrap'",(canonical(bootstrap),))
+        self.store.event('identity_bootstrap_declared',source)
         for key in ('conserved_treasury_boundary','financial_operating_envelope','finite_initial_funding_plan','finite_first_board_plan'):
             self.store.db.execute('INSERT INTO meta VALUES(?,?)',(key,'original-'+key))
         self.expected=copy.deepcopy(self.runtime.expected)
@@ -43,9 +47,10 @@ class FiniteRuntimeEpochTests(unittest.TestCase):
         self.startup=self.root/'new-startup';self.current=self.root/'new-current'
         self.startup.write_text(json.dumps(self.new));self.current.write_text(json.dumps(self.new))
         self.value=self.target.declaration();self.value.update(sdk_commit=ORIGIN_COMMIT)
+        self.value['native_hashes']['bark-sim-driver']=driver_sha256
         self.value['identity']['image_digest']=SERVER_IMAGE
         self.release={'product_commit':SERVER_COMMIT,'deploy_commit':DEPLOY_COMMIT,'image_sha256':SERVER_IMAGE,
-            'sdk_commit':ORIGIN_COMMIT,'driver_sha256':'5'*64,'configuration_sha256':self.pins['configuration_sha256'],'schema_sha256':'e'*64}
+            'sdk_commit':ORIGIN_COMMIT,'driver_sha256':driver_sha256,'configuration_sha256':self.pins['configuration_sha256'],'schema_sha256':'e'*64}
         self.store.add_snapshot({'observed_at':time.time(),'financial_pins':self.pins})
         self.unpause();self.store.queue('original-send','actor-01','H01','send_arkoor',{'amount_sat':2000},0)
         self.store.claim({'send_arkoor'});self.store.finish('original-send','completed',{'status':'ok'},0)

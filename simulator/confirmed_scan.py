@@ -30,7 +30,7 @@ def _identity(store,config,chain,current,*,pins,boundary_id,members):
     _pins(pins)
     bootstrap=declaration(store)
     if bootstrap is None:raise ValueError('original native identity required for confirmed scan')
-    native=_context(config,bootstrap['declaration'])
+    native=_context(config,bootstrap['declaration'],store=store)
     if native.get('driver_sha256')!=pins['driver_sha256'] or config.expected_sdk_commit!=pins['sdk_commit']:
         raise ValueError('actual scan SDK/driver identity differs')
     if chain.url!=config.proof_command[1] or chain.expected!=config.expected_genesis:raise ValueError('actual independent Core endpoint/genesis differs')

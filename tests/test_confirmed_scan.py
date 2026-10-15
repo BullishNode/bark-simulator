@@ -133,8 +133,8 @@ class ScanIdentityControls(unittest.TestCase):
         self.fixture.driver.write_bytes(b'changed-native-source')
         with self.assertRaisesRegex(ValueError,'driver differs'):self.context()
     def test_optional_qualified_epoch_is_bound_even_with_unchanged_origin_pins(self):
-        manifest={'deployment_epoch_id':'qualified-epoch-1','execution_release':{'product_commit':self.current['product_commit']}}
-        with patch('simulator.target_epochs.active_runtime_manifest',return_value=manifest,create=True):
+        manifest={'deployment_epoch_id':'qualified-epoch-1','previous_identity':self.fixture.identity,'execution_release':{'product_commit':self.current['product_commit']}}
+        with patch('simulator.target_epochs.active_runtime_manifest',return_value=manifest,create=True), patch('simulator.target_epochs.active_identity',return_value=self.fixture.identity):
             first=self.context();manifest['deployment_epoch_id']='qualified-epoch-2';second=self.context()
             self.assertNotEqual(first,second);self.assertEqual(first['financial_pins'],second['financial_pins'])
             manifest['execution_release']['product_commit']='f'*40
@@ -144,6 +144,61 @@ class ScanIdentityControls(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'image identity differs'):self.context()
         self.current['daemons']['captaind']['image_sha256']=self.fixture.config.expected_image;self.chain.url='http://127.0.0.1:1'
         with self.assertRaisesRegex(ValueError,'endpoint/genesis'):self.context()
+
+
+class FiniteEpochScanIdentityControls(unittest.TestCase):
+    def setUp(self):
+        import hashlib,os
+        from simulator.identity_bootstrap import _root
+        from simulator.config import Config
+        from tests.test_finite_runtime_epoch import FiniteRuntimeEpochTests
+        class NativeEpochFixture(FiniteRuntimeEpochTests):
+            driver_sha256=hashlib.sha256(b'synthetic epoch driver; never executed').hexdigest()
+            def bootstrap_source(inner,bootstrap):
+                root=Path(bootstrap['wallet_root']);root.mkdir(mode=0o700)
+                inner.driver=root.parent/'driver';inner.driver.write_bytes(b'synthetic epoch driver; never executed')
+                inner.wallet_config=root.parent/'wallet.toml';inner.wallet_config.write_text('synthetic unchanged configuration')
+                inner.native_config=root.parent/'native.json';inner.native_config.write_text(json.dumps({
+                    'network':'signet','wallet_root':str(root),'ark_endpoint':'http://127.0.0.1:1','wallet_config':str(inner.wallet_config)}))
+                bootstrap.update(id='original-bootstrap',actors=['actor-01','actor-02'],
+                    driver_config_sha256=hashlib.sha256(inner.native_config.read_bytes()).hexdigest(),
+                    wallet_config_sha256=hashlib.sha256(inner.wallet_config.read_bytes()).hexdigest())
+                return {'declaration':bootstrap,'filesystem':_root(str(root))}
+        self.fixture=NativeEpochFixture();self.fixture.setUp();f=self.fixture
+        self.environment=patch.dict(os.environ,{'SIM_DRIVER_CONFIG':str(f.native_config)});self.environment.start()
+        self.config=Config(Path(f.store.root),('observer',),(str(f.driver),),Path(f.store.get_meta('wallet_root')),
+            SIGNET_GENESIS,f.target.old['container'],f.target.old['image_digest'],f.target.old['server_pubkey'],
+            10000,1,10,True,architecture_profile='direct_xpub',expected_sdk_commit=f.pins['sdk_commit'],
+            proof_command=('proof','http://127.0.0.1:38332','credential'),trace_enabled=False)
+        self.chain=SimpleNamespace(url=self.config.proof_command[1],expected=SIGNET_GENESIS)
+        self.members=[{'id':'bank','identity':'bank-owned','kind':'wallet','role':'operator','descriptors':['public-bank']}]
+    def tearDown(self):self.environment.stop();self.fixture.tearDown()
+    def context(self):
+        return scans._identity(self.fixture.store,self.config,self.chain,self.fixture.new,
+            pins=self.fixture.pins,boundary_id='finite',members=self.members)
+    def current_config(self):
+        from dataclasses import replace
+        self.config=replace(self.config,expected_image=self.fixture.value['identity']['image_digest'])
+    def test_declared_real_epoch_preserves_original_native_context_and_binds_actual_image(self):
+        f=self.fixture;self.current_config()
+        before=[tuple(row) for row in f.store.db.execute('SELECT * FROM event ORDER BY sequence')]
+        original=f.store.get_meta('zero_principal_identity_bootstrap')
+        with self.assertRaisesRegex(ValueError,'target identity differs'):self.context()
+        f.install();accepted=self.context()
+        self.assertEqual(f.value['id'],accepted['active_epoch']['id'])
+        self.assertEqual(f.release,accepted['active_epoch']['execution_release'])
+        self.assertEqual(self.config.expected_image,accepted['daemons']['captaind']['image_sha256'])
+        self.assertEqual(f.pins,accepted['financial_pins'])
+        self.assertEqual(original,f.store.get_meta('zero_principal_identity_bootstrap'))
+        self.assertEqual(before,[tuple(row) for row in f.store.db.execute('SELECT * FROM event ORDER BY sequence')][:len(before)])
+        f.store.verify_event_chain()
+    def test_declared_epoch_mismatched_actual_image_or_original_native_config_refuses(self):
+        from dataclasses import replace
+        f=self.fixture;f.install();self.current_config();self.context()
+        self.config=replace(self.config,expected_image='sha256:'+'a'*64)
+        with self.assertRaisesRegex(ValueError,'declared deployment'):self.context()
+        self.current_config();f.native_config.write_text(f.native_config.read_text()+' ')
+        with self.assertRaisesRegex(ValueError,'configuration differs'):self.context()
 
 
 class CachedCashSourceControls(unittest.IsolatedAsyncioTestCase):
