@@ -6,7 +6,8 @@ publish = false
 
 [features]
 default = []
-# Build only in a declared immutable layout with the C SDK at source/.
+# Build the same driver against the declared track SDK at source/.
+two-step = []
 direct-per-key = []
 
 [[bin]]

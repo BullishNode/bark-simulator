@@ -129,6 +129,10 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
     """Reject stale, underfunded or unaffordable dispatch; return a declared hold."""
     from .identity_bootstrap import pending
     if pending(store):raise ValueError('bootstrap independent zero-asset proofs missing')
+    from . import exploratory
+    if exploratory.scope(store) is not None:
+        return exploratory.preflight(store,config,snapshot,operation=operation,amount_sat=amount_sat,
+            maximum_fee_sat=maximum_fee_sat,now=now,reserved_action_id=reserved_action_id)
     declaration=envelope(store,config);now=time.time() if now is None else now
     scope=declaration.get('operation_fee_paths')
     if scope is not None and operation not in scope:

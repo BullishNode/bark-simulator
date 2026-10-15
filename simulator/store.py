@@ -284,6 +284,8 @@ class Store:
 
     def queue(self, action_id: str, actor: str, scenario: str, operation: str, args: dict,
               fee_reservation_sat: int, due_at: float | None = None, *, namespace: str = 'ordinary'):
+        from .exploratory import admit
+        admit(self,actor,operation,args,action_id)
         public_payload(args)
         if not isinstance(args, dict) or len(canonical(args).encode()) > 192 * 1024:
             raise ValueError("action arguments must be an object of at most 192 KiB")

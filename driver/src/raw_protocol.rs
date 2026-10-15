@@ -291,7 +291,12 @@ pub async fn execute(
     let mailbox = wallet.mailbox_keypair().public_key();
     let baseline = protos::SetFallbackRequest {
         mailbox_pk: mailbox.serialize().to_vec(),
+        #[cfg(not(feature = "two-step"))]
         record: vec![],
+        #[cfg(feature = "two-step")]
+        record: None,
+        #[cfg(feature = "two-step")]
+        key_links: vec![],
     };
     let baseline = observe(
         &observations,
@@ -656,6 +661,7 @@ pub async fn execute(
                 user_pubkey: key.serialize().to_vec(),
                 htlc_recv_expiry: expiry,
                 lightning_receive_anti_dos: Some(anti),
+                #[cfg(not(feature = "two-step"))]
                 origin: if scenario == "D15" { None } else { Some(wallet.fallback_child_hint(key).await?.into()) },
             };
             request_hash = stage(

@@ -2,9 +2,11 @@ mod exit;
 mod onchain_inventory;
 mod board_quote;
 mod native_intent;
-#[cfg(not(feature = "direct-per-key"))]
+#[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
 mod immutable_record;
-#[cfg(not(feature = "direct-per-key"))]
+#[cfg(feature = "two-step")]
+mod fallback_rotation;
+#[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
 mod account_probes;
 mod scheduled_refresh;
 mod raw_guard;
@@ -31,6 +33,10 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
+#[cfg(feature = "two-step")]
+use ark::attestations::{FallbackRecordAttestation, KeyLinkAttestation};
+#[cfg(feature = "two-step")]
+use bitcoin::constants::ChainHash;
 use ark::lightning::Bolt11InvoiceExt;
 use ark::{ProtocolEncoding, SECP};
 use bark::actions::{
@@ -77,13 +83,7 @@ fn signet() -> String {
     "signet".into()
 }
 
-fn validate_architecture(requested: Option<&str>) -> Result<()> {
-    #[cfg(feature = "direct-per-key")]
-    ensure!(requested==Some("direct_per_key"),"C driver requires explicit direct_per_key configuration");
-    #[cfg(not(feature = "direct-per-key"))]
-    ensure!(requested!=Some("direct_per_key"),"C profile requires actual C native adapter");
-    Ok(())
-}
+use bark_sim_driver::validate_architecture;
 
 fn allowed_network(name: &str, endpoint: &str) -> Result<Network> {
     let network = Network::from_str(name)?;
@@ -100,6 +100,7 @@ fn allowed_network(name: &str, endpoint: &str) -> Result<Network> {
     Ok(network)
 }
 
+#[cfg(not(feature = "two-step"))]
 async fn fallback_binding(wallet: &Wallet) -> Result<Value> {
     #[cfg(feature = "direct-per-key")]
     { return bark_sim_driver::per_key::wallet_binding(wallet).await; }
@@ -114,6 +115,23 @@ async fn fallback_binding(wallet: &Wallet) -> Result<Value> {
     Ok(json!({"mailbox_pk":mailbox.to_string(),"spk":hex(record.spk.as_bytes()),
         "account_xpub":record.account_xpub.to_string(),"fallback_record":hex(&record.serialize())}))
     }
+}
+
+#[cfg(feature = "two-step")]
+async fn fallback_binding(wallet: &Wallet) -> Result<Value> {
+    let record = wallet.fallback_destination().await?;
+    let mailbox = wallet.mailbox_keypair();
+    let chain = ChainHash::using_genesis_block_const(wallet.network().await?);
+    let onchain = wallet.onchain().context("missing onchain wallet")?;
+    ensure!(
+        onchain.read().await.is_mine(&record.spk).await?,
+        "fallback script is not owned by this client"
+    );
+    Ok(
+        json!({"mailbox_pk":mailbox.public_key().to_string(),"spk":hex(record.spk.as_bytes()),
+        "seq":record.seq,"record_attestation":hex(&FallbackRecordAttestation::new(chain,&record.spk,record.seq,&mailbox).serialize()),
+        "onchain_ownership_checked":true}),
+    )
 }
 
 async fn coin_evidence(wallet: &Wallet) -> Result<Value> {
@@ -135,7 +153,14 @@ async fn coin_evidence(wallet: &Wallet) -> Result<Value> {
             let origin = bark_sim_driver::per_key::wallet_origin(wallet,full.user_pubkey()).await?;
             value["key_link_attestation"] = origin["key_link_attestation"].clone();
         }
-        #[cfg(not(feature = "direct-per-key"))]
+        #[cfg(feature = "two-step")]
+        {
+            let (_, key) = wallet.pubkey_keypair(&full.user_pubkey()).await?
+                .context("owned coin key absent")?;
+            value["key_link_attestation"] = json!(hex(&KeyLinkAttestation::new(
+                wallet.mailbox_keypair().public_key(), &key).serialize()));
+        }
+        #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
         {
             let hint = wallet.fallback_child_hint(full.user_pubkey()).await?;
             value["child_index"] = json!(hint.child_index());
@@ -348,7 +373,12 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         let response = rpc
             .set_fallback(protos::SetFallbackRequest {
                 mailbox_pk: mailbox.serialize().to_vec(),
+                #[cfg(not(feature = "two-step"))]
                 record: vec![],
+                #[cfg(feature = "two-step")]
+                record: None,
+                #[cfg(feature = "two-step")]
+                key_links: vec![],
             })
             .await
             .map_err(|status| {
@@ -525,8 +555,12 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         operation if operation.starts_with("raw_protocol_")=>raw_protocol::execute(&wallet,&db,&mut rpc,req,path,actor).await,
 
         "exit" => exit::execute(&wallet,&mut rpc,path,req,network).await,
-        #[cfg(not(feature = "direct-per-key"))]
+        #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
         "fallback_record_check" => immutable_record::execute(&wallet,&mut rpc,path,req,network).await,
+        #[cfg(feature = "two-step")]
+        "fallback_rotate" => fallback_rotation::execute(&wallet,&mut rpc,path,req,network).await,
+        #[cfg(feature = "two-step")]
+        "fallback_record_check" => bail!("immutable/xpub record checks are unsupported by the two-step SDK; use declared fallback rotation"),
         "refresh_scheduled" => scheduled_refresh::execute(&wallet,path,req).await,
         "create" => {
             let fallback = wallet.fallback_destination().await?;
@@ -539,7 +573,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             drop(guard);
             let mut result = json!({"funding_address": receive.to_string(), "fallback_script": hex(fallback.spk.as_bytes()),
                 "binding":fallback_binding(&wallet).await?,"onchain_inventory":inventory});
-            #[cfg(not(feature = "direct-per-key"))]
+            #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
             { result["account_xpub"] = json!(fallback.account_xpub.to_string()); }
             #[cfg(feature = "direct-per-key")]
             {
@@ -574,7 +608,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             drop(guard);
             let mut result = json!({"balance": balance, "onchain": onchain_balance, "vtxos": vtxos,
                 "fallback_script": hex(fallback.spk.as_bytes()), "evidence":coin_evidence(&wallet).await?,"onchain_inventory":inventory});
-            #[cfg(not(feature = "direct-per-key"))]
+            #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
             { result["account_xpub"] = json!(fallback.account_xpub.to_string()); }
             Ok(result)
         }
@@ -692,7 +726,16 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 result["address"] = json!(address.to_string());
                 Ok(result)
             }
-            #[cfg(not(feature = "direct-per-key"))]
+            #[cfg(feature = "two-step")]
+            {
+                let (_, key) = wallet.pubkey_keypair(&pk).await?
+                    .context("advertised key is not owned")?;
+                Ok(json!({"address":address.to_string(),"user_pubkey":pk.to_string(),
+                    "key_link_attestation":hex(&KeyLinkAttestation::new(
+                        wallet.mailbox_keypair().public_key(), &key).serialize()),
+                    "binding":fallback_binding(&wallet).await?}))
+            }
+            #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
             {
             let hint = address.account_child()?.context("advertised address lacks account child origin")?;
             ark::fallback::AccountChild::new(wallet.mailbox_identifier().as_pubkey(),hint.child_index())?
@@ -1045,7 +1088,10 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         }
         #[cfg(not(feature = "direct-per-key"))]
         operation if operation.starts_with("raw_") => {
-            account_probes::execute(&wallet,&mut rpc,req,path,network,operation).await
+            #[cfg(not(feature = "two-step"))]
+            { account_probes::execute(&wallet,&mut rpc,req,path,network,operation).await }
+            #[cfg(feature = "two-step")]
+            { bail!("xpub-specific raw operation {operation} is unsupported by the two-step SDK") }
         }
         _ => bail!("unsupported operation"),
     }
@@ -1284,19 +1330,14 @@ mod tests {
     }
 
     #[test]
-    fn actual_native_feature_must_match_declared_c_profile() {
-        #[cfg(feature = "direct-per-key")]
-        {
-            assert!(validate_architecture(Some("direct_per_key")).is_ok());
-            for profile in [None,Some("direct_xpub"),Some("two_step_per_key")] {
-                assert!(validate_architecture(profile).is_err());
-            }
+    fn native_adapter_rejects_every_other_architecture_before_rpc() {
+        let expected = if cfg!(feature = "two-step") { "two_step_per_key" }
+            else if cfg!(feature = "direct-per-key") { "direct_per_key" }
+            else { "direct_xpub" };
+        for profile in ["direct_xpub", "two_step_per_key", "direct_per_key", "unknown"] {
+            assert_eq!(validate_architecture(Some(profile)).is_ok(), profile == expected);
         }
-        #[cfg(not(feature = "direct-per-key"))]
-        {
-            assert!(validate_architecture(Some("direct_per_key")).is_err());
-            assert!(validate_architecture(None).is_ok());
-        }
+        assert_eq!(validate_architecture(None).is_ok(), expected == "direct_xpub");
     }
 
     #[test]
