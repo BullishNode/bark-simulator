@@ -113,13 +113,28 @@ def close(store,snapshot,reason,*,now=None):
     return closure
 
 
-def continue_scope(store,declaration,*,now=None):
+def continue_scope(store,declaration,*,now=None,arkoor_input_limit_transition=None):
     """An explicit reviewed continuation; original cumulative budgets/counts apply."""
     now=time.time() if now is None else now
     raw=store.get_meta(KEY+':continuation') or store.get_meta(KEY)
     if raw is None or scope(store) is not None:raise ValueError('close original scope before continuation')
     if store.get_meta('final_financial_epoch') is not None:raise ValueError('cannot continue after final financial epoch')
     previous=json.loads(raw);allowed={'id','started_at','deadline'}
+    transition_proof=None
+    if arkoor_input_limit_transition is not None:
+        before,after,chain=arkoor_input_limit_transition
+        if (before['config_sha256']!=previous['configuration_sha256']
+                or before['public_policy']['max_arkoor_amount']!='10000 sat'
+                or after['public_policy']!={**before['public_policy'],'max_arkoor_amount':'30000 sat'}
+                or after['config_sha256']==before['config_sha256']
+                or declaration['configuration_sha256']!=after['config_sha256']
+                or declaration['pins']!={**previous['pins'],'configuration_sha256':after['config_sha256']}):
+            raise ValueError('only the explicit total-input 10000-to-30000 configuration correction is permitted')
+        if any(declaration[k]!=v for k,v in previous.items() if k not in allowed|{'configuration_sha256','pins'}):
+            raise ValueError('configuration correction cannot repin source, SDK, server, margins or budgets')
+        transition_proof=checked_source(declaration,after,chain,
+            client_board_proposals=_client_board_proposals(store,chain,declaration))
+        allowed|={'configuration_sha256','pins'}
     if set(declaration)!=set(previous) or any(declaration[k]!=v for k,v in previous.items() if k not in allowed):
         raise ValueError('continuation cannot change pins, actors, fees, capital or operation bounds')
     if (not isinstance(declaration['id'],str) or declaration['id']==previous['id']
@@ -128,6 +143,14 @@ def continue_scope(store,declaration,*,now=None):
         raise ValueError('fresh distinct at-most-thirty-minute continuation required')
     encoded=canonical(declaration);oldhash=hashlib.sha256(raw.encode()).hexdigest()
     closed=json.loads(store.get_meta(KEY+':closed:'+oldhash))
+    if transition_proof is not None:
+        source=store.db.execute('SELECT * FROM event WHERE sequence=?',(closed['source_sequence'],)).fetchone()
+        if source is None or source['kind']!='exploratory_operating_readiness' or source['hash']!=closed['source_event_hash']:
+            raise ValueError('configuration correction requires the original closure source event')
+        original_proof=json.loads(source['payload'])
+        if (original_proof['scope_id']!=previous['id'] or original_proof['financial_pins']!=previous['pins']
+                or original_proof['source_sha256']!=hashlib.sha256(canonical(before).encode()).hexdigest()):
+            raise ValueError('configuration correction before packet differs from original closure source')
     with store.transaction():
         if store.get_meta('qualified_campaign_active_seconds') not in (None,'0'):
             raise ValueError('preserve unexpected positive qualified counter')
@@ -139,6 +162,16 @@ def continue_scope(store,declaration,*,now=None):
             raise ValueError('scope id already declared')
         store.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',(KEY+':continuation',encoded))
         store._event('exploratory_operating_scope_declared',declaration)
+        if transition_proof is not None:
+            store._event('exploratory_arkoor_input_limit_configuration_corrected',{
+                'before_configuration_sha256':previous['configuration_sha256'],
+                'after_configuration_sha256':declaration['configuration_sha256'],
+                'before_public_policy_sha256':hashlib.sha256(canonical(before['public_policy']).encode()).hexdigest(),
+                'after_source_sha256':transition_proof['source_sha256'],
+                'total_input_limit_before_sat':10000,'total_input_limit_after_sat':30000,
+                'payment_amount_unchanged_sat':declaration['ark_send_amount_sat'],
+                'financial_pins':declaration['pins'],'cumulative_fee_budget_unchanged_sat':declaration['fee_budget_sat'],
+                'qualified_seconds':0})
         store._event('exploratory_operating_scope_continued',{'previous_declaration_sha256':oldhash,
             'previous_closure_sha256':hashlib.sha256(canonical(closed).encode()).hexdigest(),
             'new_declaration_sha256':hashlib.sha256(encoded.encode()).hexdigest(),
@@ -284,17 +317,7 @@ def checked_source(declaration, packet, chain, *, now=None, client_board_proposa
         'source_sha256':hashlib.sha256(canonical(packet).encode()).hexdigest()}
 
 
-async def collect(store,config,chain,snapshot):
-    declaration = scope(store)
-    if declaration is None:return snapshot
-    packet = await json_command(list(config.inventory_command),{'kind':'exploratory_readiness'},timeout=25,
-        **public_command_capture(store,'exploratory.source',{'kind':'exploratory_readiness'}))
-    command = list(config.driver_command)
-    info = await json_command(command,{'operation':'info','action_id':'exploratory-info',
-        'expected_server_pubkey':declaration['server_pubkey']},timeout=15,
-        **public_command_capture(store,'exploratory.public-info',{'operation':'info'}))
-    if info.get('status')!='ok':raise ValueError('actual public server info unavailable')
-    packet['client_verified_server_info']=info['data']
+def _client_board_proposals(store,chain,declaration):
     proposals=store.db.execute("SELECT payload FROM event WHERE kind='driver_evidence' AND json_extract(payload,'$.event')='board_proposal'").fetchall()
     client_proposals={}
     from .bundle_audit import decode_transaction
@@ -314,6 +337,21 @@ async def collect(store,config,chain,snapshot):
         if original['hex']!=unsigned['stripped_hex']:
             raise InvariantError('actual client board differs from native unsigned proposal')
         client_proposals[proposal['funding_txid']]={**proposal,'maximum_fee_sat':action['fee_reservation_sat']}
+    return client_proposals
+
+
+async def collect(store,config,chain,snapshot):
+    declaration = scope(store)
+    if declaration is None:return snapshot
+    packet = await json_command(list(config.inventory_command),{'kind':'exploratory_readiness'},timeout=25,
+        **public_command_capture(store,'exploratory.source',{'kind':'exploratory_readiness'}))
+    command = list(config.driver_command)
+    info = await json_command(command,{'operation':'info','action_id':'exploratory-info',
+        'expected_server_pubkey':declaration['server_pubkey']},timeout=15,
+        **public_command_capture(store,'exploratory.public-info',{'operation':'info'}))
+    if info.get('status')!='ok':raise ValueError('actual public server info unavailable')
+    packet['client_verified_server_info']=info['data']
+    client_proposals = _client_board_proposals(store,chain,declaration)
     proof = checked_source(declaration,packet,chain,client_board_proposals=client_proposals)
     store.event('exploratory_operating_readiness',proof)
     snapshot['exploratory_readiness_sequence'] = store.db.execute('SELECT MAX(sequence) FROM event').fetchone()[0]
