@@ -30,3 +30,20 @@ explicit remaining coverage gap, and supplies no credit for required hostile or
 protocol scenarios. Required native adapter work and the complete original gates
 must pass before release. No profile selection authorizes campaign dispatch,
 alters existing funds/budgets, or starts the final qualified simulation clock.
+
+## Continuous compatibility checks
+
+`.github/workflows/shared-simulator.yml` runs the common Python suite and three
+independent native jobs on pull requests and pushes to `master`. Each native job
+checks out an exact SDK commit at `source/`, uses the shared lockfile and native
+Rust 1.90.0, builds every driver binary, and runs the library/binary pure tests.
+`GIT_HASH` must identify that actual SDK checkout: the Noah private helper embeds
+it as `SDK_COMMIT`. The simulator commit is recorded separately.
+
+The workflow currently pins compatibility candidates A `c73bb909`, B `69ca8cce`,
+and C `8c4478cf`; those pins are not production promotion. Update them explicitly
+when an owning candidate changes. The jobs retain exact commits/trees, profile,
+feature, lock/catalogue hashes, compiler versions and original failed/passing
+logs. Hosted build environments differ from the dedicated qualification VMs;
+their elapsed time is not an architecture benchmark. These checks do not run
+financial RPCs, server migration, mobile journeys or qualified simulations.
