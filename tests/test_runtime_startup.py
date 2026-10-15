@@ -49,3 +49,11 @@ class RuntimeStartupTests(unittest.TestCase):
     def test_unsupported_paths_and_nonfinite_policy_refuse(self):
         self.current['daemons']['captaind']['public_loaded_config_provenance']['lightning_configured']=True
         with self.assertRaisesRegex(ValueError,'finite'):self.verify()
+    def test_schema_artifacts_remain_distinct_and_unstable_canonical_refuses(self):
+        self.current['schema_sha256']='e'*64
+        self.current['canonical_schema']={'protocol':'pg-dump-restrict-lines-v1','sha256':'f'*64,
+            'repeat_sha256':'f'*64,'removed_line_kinds':['restrict','unrestrict']}
+        result=self.verify();self.assertEqual('b'*64,result['schema_sha256'])
+        self.assertEqual('e'*64,result['current_schema_artifact_sha256'])
+        self.current['canonical_schema']['repeat_sha256']='a'*64
+        with self.assertRaisesRegex(ValueError,'unstable'):self.verify()

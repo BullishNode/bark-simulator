@@ -75,9 +75,18 @@ def verify_owned_startup_sources(store, startup_path, current_path, *, expected)
     startup,startup_sha=_read(startup_path);current,current_sha=_read(current_path)
     for observation in (startup,current):
         if (observation.get('kind')!='owned_startup_source' or observation.get('product_commit')!=PRODUCT_COMMIT
-                or observation.get('schema_sha256')!=expected['schema_sha256']
                 or not isinstance(observation.get('daemons'),dict) or set(observation['daemons'])!=SERVICES):
             raise ValueError('actual startup source release/schema/daemon scope differs')
+        _sha(observation.get('schema_sha256'))
+    if startup['schema_sha256']!=expected['schema_sha256']:
+        raise ValueError('original pinned schema artifact differs')
+    canonical_schema=current.get('canonical_schema')
+    if canonical_schema is not None:
+        if (not isinstance(canonical_schema,dict) or canonical_schema.get('protocol')!='pg-dump-restrict-lines-v1'
+                or canonical_schema.get('removed_line_kinds')!=['restrict','unrestrict']
+                or canonical_schema.get('sha256')!=canonical_schema.get('repeat_sha256')):
+            raise ValueError('current canonical schema observation differs or is unstable')
+        _sha(canonical_schema.get('sha256'))
     observed=_time_ns(current['observed_at']);original_at=_time_ns(startup['observed_at'])
     if not 0<=time.time_ns()-observed<=90*10**9 or original_at>observed:
         raise ValueError('fresh current startup observation required')
@@ -143,6 +152,8 @@ def verify_owned_startup_sources(store, startup_path, current_path, *, expected)
             'environment_names':names,'config_overrides':overrides,'public_loaded_config_provenance':config}
     receipt={'kind':'owned_runtime_configuration_verified','product_commit':PRODUCT_COMMIT,
         'schema_sha256':expected['schema_sha256'],'startup_source_sha256':startup_sha,'current_source_sha256':current_sha,
+        'current_schema_artifact_sha256':current['schema_sha256'],'current_canonical_schema':canonical_schema,
+        'schema_identity_scope':'original pin identifies its immutable raw artifact; current canonical observation does not prove equality to an unavailable original canonical dump',
         'observed_at':observed/10**9,'daemons':verified,'loaded_configuration_identity_verified':True,
         'effective_fee_ceilings_sat_kvb':{'round':None,'pool':None,'sweep':20000,'payout':20000,'claim':None,'progression':None},
         'direct_carrier_max_miner_fee_sat':10000,'complete':False,'qualified':False,
