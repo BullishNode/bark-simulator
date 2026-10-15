@@ -22,7 +22,7 @@ IMMUTABLE_META = ('mode', 'fee_budget_sat', 'wallet_root', 'target_identity',
 RUNTIME_META = ('zero_principal_identity_bootstrap', 'conserved_treasury_boundary',
                 'financial_operating_envelope', 'finite_initial_funding_plan', 'finite_first_board_plan')
 SERVER_COMMIT = '4d041f7f2f13ba0a5a95e540c70d6aba60f9bb50'
-DEPLOY_COMMIT = 'c59a9907373c1dcae8bed96d4cfabcd31148e88b'
+DEPLOY_COMMIT = '6f1bc0523fb758ff3fcac04227d6275765743309'
 SERVER_IMAGE = 'sha256:da797d16bd5441e04cc3564540c166a2885c0b63588ec0b5c3773f17f3eae014'
 ORIGIN_COMMIT = '5e5994d3ab6844a443cef1e9d19a9195ed785486'
 IMMUTABLE_FAMILIES = ('owner_renewal_declaration:', 'owner_renewal_funding_source:')

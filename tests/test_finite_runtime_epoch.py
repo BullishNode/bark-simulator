@@ -90,7 +90,8 @@ class FiniteRuntimeEpochTests(unittest.TestCase):
             current_source_sha256=runtime['current_source_sha256'])['execution_release'])
         self.assertIsNone(self.store.get_meta('final_financial_epoch'));self.store.verify_event_chain()
     def test_unqualified_release_sdk_driver_config_database_or_account_change_refuses(self):
-        mutations=[('execution_release','product_commit','a'*40),('execution_release','sdk_commit','a'*40),
+        mutations=[('execution_release','deploy_commit','c59a9907373c1dcae8bed96d4cfabcd31148e88b'),
+            ('execution_release','product_commit','a'*40),('execution_release','sdk_commit','a'*40),
             ('execution_release','driver_sha256','a'*64),('expected','database','another-database'),
             ('expected','config_sha256',{'captaind':'a'*64,'watchmand':'d'*64})]
         for section,key,value in mutations:
