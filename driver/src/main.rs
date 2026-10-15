@@ -1,4 +1,5 @@
 mod exit;
+mod onchain_inventory;
 mod board_quote;
 mod native_intent;
 mod immutable_record;
@@ -494,8 +495,13 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             let fallback = wallet.fallback_destination().await?;
             let onchain = wallet.onchain().context("missing onchain wallet")?;
             let receive = onchain.write().await.address().await?;
+            let guard = onchain.read().await;
+            let bdk = (&*guard as &dyn std::any::Any)
+                .downcast_ref::<OnchainWallet>().context("not a BDK wallet")?;
+            let inventory = onchain_inventory::collect(bdk)?;
+            drop(guard);
             Ok(
-                json!({"funding_address": receive.to_string(), "fallback_script": hex(fallback.spk.as_bytes()), "account_xpub":fallback.account_xpub.to_string(),"binding":fallback_binding(&wallet).await?}),
+                json!({"funding_address": receive.to_string(), "fallback_script": hex(fallback.spk.as_bytes()), "account_xpub":fallback.account_xpub.to_string(),"binding":fallback_binding(&wallet).await?,"onchain_inventory":inventory}),
             )
         }
         "snapshot" => {
@@ -513,9 +519,10 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 .downcast_ref::<OnchainWallet>()
                 .context("not a BDK wallet")?;
             let onchain_balance = bark_json::cli::onchain::OnchainBalance::from(bdk.balance());
+            let inventory = onchain_inventory::collect(bdk)?;
             drop(guard);
             Ok(
-                json!({"balance": balance, "onchain": onchain_balance, "vtxos": vtxos, "fallback_script": hex(fallback.spk.as_bytes()), "account_xpub":fallback.account_xpub.to_string(), "evidence":coin_evidence(&wallet).await?}),
+                json!({"balance": balance, "onchain": onchain_balance, "vtxos": vtxos, "fallback_script": hex(fallback.spk.as_bytes()), "account_xpub":fallback.account_xpub.to_string(), "evidence":coin_evidence(&wallet).await?,"onchain_inventory":inventory}),
             )
         }
         "sync" | "claim_lightning" => {

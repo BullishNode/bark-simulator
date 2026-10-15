@@ -36,6 +36,7 @@ bdk_wallet = "=3.1.0"
 bdk_bitcoind_rpc = "=0.22.0"
 
 [dev-dependencies]
+bdk_wallet = { version = "=3.1.0", features = ["test-utils"] }
 bark-bitcoin-ext = { path = "../source/bitcoin-ext" }
 
 [profile.dev]
