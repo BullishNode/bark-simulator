@@ -148,6 +148,14 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
                 or any(not isinstance(item,str) or not item or len(item)>64 for item in allowed)
                 or len(set(allowed))!=len(allowed) or operation not in allowed):
             raise ValueError('operation not admitted by original source operation scope')
+    if 'client_action_scope' in proof:
+        from .fresh_cash_readiness import validate_client_action_scope
+        validate_client_action_scope(store,proof,operation=operation,
+            maximum_fee_sat=maximum_fee_sat,reserved_action_id=reserved_action_id)
+    if 'board_action_scope' in proof:
+        from .first_board_readiness import validate_board_action_scope
+        validate_board_action_scope(store,proof,operation=operation,
+            maximum_fee_sat=maximum_fee_sat,reserved_action_id=reserved_action_id)
     if proof.get('effective_fee_ceilings_sat_kvb')!=declaration['fee_ceilings_sat_kvb']:
         raise ValueError('actual round/pool/sweep/payout/claim/progression ceilings differ')
     if integer(proof['capital_exposure_msat'],'actual exposure')>declaration['capital_exposure_msat']:

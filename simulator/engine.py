@@ -160,7 +160,8 @@ class Engine:
                 declaration=envelope(self.store,self.config)
                 scope=declaration.get('operation_fee_paths')
                 operations=('progression',) if scope is None else tuple(
-                    operation for operation in ('ordinary','claim','progression') if operation in scope)
+                    operation for operation in dict.fromkeys(('ordinary','claim','progression',*scope))
+                    if operation in scope and operation in OPERATIONS|{'ordinary','claim','progression'})
                 for operation in operations:
                     try:
                         if preflight(self.store,self.config,snapshot,operation=operation)['allowed']:
