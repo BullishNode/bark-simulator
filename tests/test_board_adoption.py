@@ -146,6 +146,17 @@ class BoardSourceControls(unittest.IsolatedAsyncioTestCase):
                 # Re-observation cannot duplicate an independently observed Board charge.
                 record_board_adoption_readiness(self.f.store,self.f.config,self.f.chain,source_sequence=result['source_sequence'],runtime_source_sequence=runtime,current_startup_path='/synthetic-only')
                 self.assertEqual(2,self.f.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_cost_verified'").fetchone()[0])
+                from simulator.operating_limits import fee_totals
+                costs=[json.loads(row[0]) for row in self.f.store.db.execute("SELECT payload FROM event WHERE kind='financial_cost_verified'")]
+                board_cost=next(cost for cost in costs if cost.get('action_id')==self.origin['board_action_id'])
+                self.assertEqual('bitcoin-miner:'+'e'*64,board_cost['monetary_id'])
+                self.assertEqual(1200000,board_cost['amount_msat'])
+                self.assertEqual(500,board_cost['service_charge_sat'])
+                self.assertEqual(1700,board_cost['customer_total_fee_sat'])
+                self.assertFalse(board_cost['service_charge_is_boundary_cost'])
+                self.assertEqual({'ordinary':2200000,'urgent':0},fee_totals(self.f.store,PINS))
+                self.assertEqual(665454-2200,result['source']['physical_total_sat'])
+                self.assertEqual(2200000,sum(cost['amount_msat'] for cost in costs))
                 for operation in ('board','address','send_arkoor','pay_invoice','exit'):
                     with self.subTest(operation=operation),self.assertRaisesRegex(ValueError,'adoption scope'):
                         validate_adoption_scope(self.f.store,self.f.config,ready,operation=operation,maximum_fee_sat=0,reserved_action_id=None)

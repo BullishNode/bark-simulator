@@ -355,12 +355,15 @@ def record_board_adoption_readiness(store,config,chain,*,source_sequence,runtime
             or (cash['height'],cash['tip_hash'])!=(source['height'],source['tip_hash'])):raise ValueError('current cash plus original signed anchor differs')
     available=_operator_fee_funding(store,source,cash,current)
     native=_client_state(store,config,origin,source['height'])
-    # Public, independently reconstructed customer charge, including separate
-    # miner and service components. This is not a second funding transaction.
-    cost={'monetary_id':'client-board-fees:'+origin['board_action_id'],'action_id':origin['board_action_id'],
-        'financial_pins':origin['financial_pins'],'budget':'ordinary','amount_msat':(origin['mining_fee_sat']+origin['service_charge_sat'])*1000,
-        'mining_fee_sat':origin['mining_fee_sat'],'service_charge_sat':origin['service_charge_sat'],'source_sequence':source_sequence,
-        'scope':'one original Board customer charge; miner loss and internal service transfer separately stated'}
+    # Only the miner fee leaves this operator+customer treasury. The existing
+    # client fee reconciler retains the total customer charge; the service
+    # component stays inside the physical Board anchor.
+    cost={'monetary_id':'bitcoin-miner:'+origin['transaction']['txid'],'action_id':origin['board_action_id'],
+        'financial_pins':origin['financial_pins'],'budget':'ordinary','amount_msat':origin['mining_fee_sat']*1000,
+        'mining_fee_sat':origin['mining_fee_sat'],'service_charge_sat':origin['service_charge_sat'],
+        'customer_total_fee_sat':origin['mining_fee_sat']+origin['service_charge_sat'],
+        'service_charge_is_boundary_cost':False,'source_sequence':source_sequence,
+        'scope':'one original Board miner cost; internal service transfer and total customer charge are separate metadata'}
     existing=store.db.execute("SELECT sequence FROM event WHERE kind='financial_cost_verified' AND json_extract(payload,'$.monetary_id')=?",(cost['monetary_id'],)).fetchall()
     if existing:
         if len(existing)!=1:raise ValueError('duplicate original Board financial cost')
@@ -368,7 +371,7 @@ def record_board_adoption_readiness(store,config,chain,*,source_sequence,runtime
         if any(old.get(key)!=value for key,value in cost.items() if key!='source_sequence'):raise ValueError('original Board financial cost changed')
     else:store.event('financial_cost_verified',cost)
     used=fee_totals(store,origin['financial_pins'])
-    if used!={'ordinary':(origin['funding_fee_sat']+origin['mining_fee_sat']+origin['service_charge_sat'])*1000,'urgent':0}:
+    if used!={'ordinary':(origin['funding_fee_sat']+origin['mining_fee_sat'])*1000,'urgent':0}:
         raise ValueError('exact original funding and Board fee budget required')
     remaining={key:limits['fee_budgets_msat'][key]-used[key] for key in ('ordinary','urgent')}
     if min(remaining.values())<0 or available<sum(remaining.values()):raise ValueError('eligible operator cash cannot back remaining budgets')
