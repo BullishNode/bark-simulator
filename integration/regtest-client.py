@@ -17,7 +17,7 @@ from simulator.engine import Engine,initialize
 from simulator.store import Store
 from simulator.report import generate
 from simulator.raw_cases import RAW_CASES
-from fixture_runtime import fixture_profile
+from integration.fixture_runtime import fixture_profile
 
 mode=sys.argv[1];manifest=Path(sys.argv[2]);m=json.loads(manifest.read_text())
 profile=fixture_profile(m)

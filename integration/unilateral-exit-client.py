@@ -15,7 +15,7 @@ from simulator.model import canonical,public_payload
 from simulator.ownership import record_candidates,record_verified,verify_client_evidence
 from simulator.process import json_command
 from simulator.store import Store
-from fixture_runtime import fixture_profile
+from integration.fixture_runtime import fixture_profile
 from simulator.unknown_outcomes import resolve
 
 

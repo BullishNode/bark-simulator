@@ -17,7 +17,7 @@ from simulator.ownership import record_server_page
 from simulator.padding import collect, collect_backing, decoded_coin, record_sweep, report
 from simulator.bundle_audit import decode_transaction
 from simulator.store import Store
-from fixture_runtime import fixture_profile
+from integration.fixture_runtime import fixture_profile
 
 
 async def main():

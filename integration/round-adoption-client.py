@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from simulator.config import Config
-from fixture_runtime import fixture_profile
+from integration.fixture_runtime import fixture_profile
 from simulator.engine import Engine,initialize
 from simulator.store import Store
 from simulator.ownership import record_server_page
