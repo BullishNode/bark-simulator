@@ -19,7 +19,7 @@ from .model import InvariantError,canonical
 from .chain import ChainReader
 from .direct_settlements import collect as collect_direct_settlements
 from .settlements import collect_settlements as collect_two_step_settlements
-from .architecture import profile as campaign_profile, TWO_STEP, DIRECT
+from .architecture import profile as campaign_profile, validate as validate_profile, TWO_STEP, DIRECT
 from .campaign import CampaignClock,RampPlan,traffic_ready,collect_ark_receipts
 from .continuous import schedule as schedule_continuous
 from .funding import fund,WalletRpc
@@ -45,12 +45,26 @@ OPERATIONS = {"create", "snapshot", "sync", "address", "board", "send_arkoor", "
               "refresh_delegated", "refresh_scheduled", "fallback_record_check", "exit", "offboard_all", "invoice", "pay_invoice"} | set(RAW_CASES) | {"phase_execute_d17","phase_register_saved"}
 
 
-def catalog():
-    return json.loads(Path(__file__).with_name("scenarios.json").read_text())
+def catalog(profile=None):
+    validate_profile(profile)
+    cases = json.loads(Path(__file__).with_name("scenarios.json").read_text())
+    if profile is not None:
+        contracts = json.loads(Path(__file__).with_name("scenario_profiles.json").read_text())
+        for case in cases:
+            if case['id'] in contracts['cases']:
+                contract = contracts['cases'][case['id']]
+                selected = contract['profiles'][profile]
+                case.update(behavior=selected['behavior'], expected=selected['expected'])
+                case['profile_contract'] = {**selected, 'profile':profile,
+                    'risk':contract['risk'], 'version':contracts['version'],
+                    'scope':contracts['scope']}
+    return cases
 
 
 def initialize(store: Store):
-    store.register_catalog(catalog(), set(RAW_CASES.values()))
+    selected = campaign_profile(store)
+    store.register_catalog(catalog(selected if store.get_meta('architecture_profile') else None),
+                           set(RAW_CASES.values()))
     roles = ["daily wallet", "spender", "merchant", "saver", "Lightning sender", "Lightning recipient",
              "intermittent phone", "delegated wallet", "absent wallet A", "absent wallet B",
              "adversarial A", "adversarial B"]

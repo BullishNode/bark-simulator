@@ -32,6 +32,7 @@ jobs:
           mkdir ci-results
           git rev-parse HEAD > ci-results/simulator-commit.txt
           sha256sum simulator/scenarios.json > ci-results/catalogue.sha256
+          sha256sum simulator/scenario_profiles.json > ci-results/profile-contracts.sha256
           python -m unittest discover -s tests -v 2>&1 | tee ci-results/python.log
       - name: Retain the original result, including failures
         if: always()
@@ -110,6 +111,7 @@ jobs:
               'GIT_HASH': os.environ['GIT_HASH'],
               'driver_lock_sha256': hashlib.sha256(Path('driver/Cargo.lock').read_bytes()).hexdigest(),
               'catalogue_sha256': hashlib.sha256(Path('simulator/scenarios.json').read_bytes()).hexdigest(),
+              'profile_contracts_sha256': hashlib.sha256(Path('simulator/scenario_profiles.json').read_bytes()).hexdigest(),
               'scope': 'Driver build and pure tests only; no SDK financial, migration, mobile or simulation qualification',
           }
           Path('ci-results/inputs.json').write_text(json.dumps(inputs, indent=2) + '\n')

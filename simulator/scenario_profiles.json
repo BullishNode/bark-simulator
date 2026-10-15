@@ -1,0 +1,180 @@
+{
+  "version": 1,
+  "scope": "Source-backed scenario contracts, not execution evidence. Same IDs and risk classes; explicit product-policy differences. All original native, signet, recovery, financial and full-scenario gates remain required.",
+  "cases": {
+    "H25": {
+      "risk": "Return after confirmed payout, reconcile old entitlement exactly once, then receive and settle later value.",
+      "profiles": {
+        "two_step_per_key": {
+          "behavior": "Return after a confirmed two-step expiry payout, then use a valid owned destination in a later expiry epoch.",
+          "expected": "Bind original coin keys through immutable mailbox links and the selected signed sequence record to actual confirmed recipient outputs. Exactly one Ark debit/onchain receipt; higher-sequence owned rotation may affect future payouts but never changes already committed signed bytes, recipients or fees. Repeated sync cannot double-credit.",
+          "source_commit": "c73bb9093329c32a6716b5a783bb06b90db1d3b0",
+          "sources": [
+            "server/src/database/fallback.rs:98",
+            "server/src/expiry_payout.rs:234",
+            "bark/src/expiry_payout.rs:49"
+          ],
+          "limits": [
+            "A spent flag or unrelated external funding is not proof of a particular payout; old rotated scripts must remain discoverable."
+          ]
+        },
+        "direct_xpub": {
+          "behavior": "Return after a confirmed direct payout and reuse the identical immutable native account and BIP84 external index 0 in a later expiry epoch.",
+          "expected": "Independently confirmed actual recipient payout retires the old Ark entitlement exactly once; pending, frozen or mempool-only state is not paid. Later value uses the original authenticated account, xpub and index-0 script and is accounted separately.",
+          "source_commit": "69ca8cce9501560629169c2894ce9d74df9cb1cd",
+          "sources": [
+            "bark/src/fallback.rs:29",
+            "bark/src/fallback.rs:137",
+            "server/src/database/fallback.rs:27"
+          ],
+          "limits": []
+        },
+        "direct_per_key": {
+          "behavior": "Return after a confirmed direct payout and reuse the identical immutable mailbox and BIP84 external index 0 in a later expiry epoch.",
+          "expected": "Old paid Ark value is no longer spendable or refreshable and correct confirmed onchain value is visible. Preserve original canonical destination/mailbox; authenticate genuine individual V1 key links and seed indices for later rights. Each original entitlement pays at most once under the exact flat-fee/script-dust policy.",
+          "source_commit": "8c4478cfbfac8a193d0a6549387229dfedee06de",
+          "sources": [
+            "bark/src/fallback.rs:22",
+            "server/src/database/fallback.rs:39",
+            "server/src/watchman/settlement.rs:40"
+          ],
+          "limits": [
+            "C has no attribution xpub; no xpub equality or derivation assertion."
+          ]
+        }
+      }
+    },
+    "H27": {
+      "risk": "Concurrent same-seed devices and an older genuine backup must preserve authority, durable binding and economic identity.",
+      "profiles": {
+        "two_step_per_key": {
+          "behavior": "Initialize concurrent same-seed devices, reconcile signed sequence records and restore an older backup under the two-step profile.",
+          "expected": "A valid owned higher-sequence registration may rotate. Stale/equal valid records may succeed with unchanged canonical bytes; forged, tampered or wrong-chain signatures fail before writes. A foreign mailbox cannot rebind an existing coin key. Adopt a reply only after signature and owned-script checks; no duplicated economic principal or payout.",
+          "source_commit": "c73bb9093329c32a6716b5a783bb06b90db1d3b0",
+          "sources": [
+            "bark/src/fallback.rs:119",
+            "server/src/database/fallback.rs:23",
+            "server/src/database/fallback.rs:73",
+            "server/src/database/fallback.rs:79"
+          ],
+          "limits": [
+            "SDK ownership checks are not server ownership checks. A compromised victim mailbox key can sign a higher sequence to a foreign standard script accepted by the server; record the actual threat outcome separately, never count an invalid-signature refusal as that defense."
+          ]
+        },
+        "direct_xpub": {
+          "behavior": "Initialize concurrent same-seed devices and restore an older backup with the original immutable account/xpub/index-0 binding.",
+          "expected": "Authenticate network, signatures, seed account and exact BIP84 external-0 script before local persistence. Identical fields adopt canonical signatures; different script/xpub refuses without overwrite. Reconcile paid, reserved and live rights before refresh/spend; no duplicate economic principal or payout.",
+          "source_commit": "69ca8cce9501560629169c2894ce9d74df9cb1cd",
+          "sources": [
+            "bark/src/fallback.rs:29",
+            "bark/src/fallback.rs:48",
+            "bark/src/fallback.rs:87",
+            "server/src/database/fallback.rs:34"
+          ],
+          "limits": []
+        },
+        "direct_per_key": {
+          "behavior": "Initialize concurrent same-seed devices and restore an older backup with the original immutable mailbox/index-0 binding and individual key links.",
+          "expected": "Authenticate exact seed/network/mailbox/script. Identical retries retain canonical record and link bytes; conflicting destination or key-owner/index binding refuses atomically. Reconcile paid, reserved and live rights before refresh/spend; no duplicated economic principal, entitlement or payout.",
+          "source_commit": "8c4478cfbfac8a193d0a6549387229dfedee06de",
+          "sources": [
+            "bark/src/fallback.rs:22",
+            "bark/src/fallback.rs:74",
+            "server/src/database/fallback.rs:39"
+          ],
+          "limits": [
+            "Device key/address reuse is not proof of globally unique key issuance. No xpub equality or authorized rotation."
+          ]
+        }
+      }
+    },
+    "H29": {
+      "risk": "Recover every positive rightful output across required expiry epochs and destination-update attempts using the original bounded seed-only recovery contract.",
+      "profiles": {
+        "two_step_per_key": {
+          "behavior": "Execute the required 25 genuine authorized destination rotations and actual expiry payouts; separately restore a genuine pre-rotation backup and perform independent mnemonic-only BIP84 gap-20 recovery of all positive outputs.",
+          "expected": "Preserve actual destination indices, transaction use and unused gaps across all 25 distinct rotations. Exercise the genuine pre-rotation-backup restoration path separately from independent mnemonic-only recovery. Seed plus Bitcoin discovery must precede server/auditor hints and find and spend every positive rightful output. No original database, changesets, manual reveal, current server index or wider scan substitutes for gap 20. Preserve any genuine missed output and its amount/index as a failed run.",
+          "source_commit": "c73bb9093329c32a6716b5a783bb06b90db1d3b0",
+          "sources": [
+            "bark/src/onchain/bdk.rs:29",
+            "bark/src/onchain/bdk.rs:209",
+            "bark/src/onchain/bdk.rs:639",
+            "testing/tests/bark_sdk/fallback.rs:1264"
+          ],
+          "limits": [
+            "Native STOP_GAP50 and a one-payout lookahead-20 test do not qualify the full 25-rotation/all-output scenario. Source inspection does not establish that a failed gap-20 run occurred."
+          ]
+        },
+        "direct_xpub": {
+          "behavior": "Execute two actual expiry payout epochs to the original immutable BIP84 index-0 script, attempt a different destination, then recover and spend all positive outputs from the mnemonic alone.",
+          "expected": "Both epochs retain the same native account, authenticated record and destination. A different script is refused; identical binding is idempotent. Independent no-hint seed recovery must discover every rightful output and complete the required confirmed spend.",
+          "source_commit": "69ca8cce9501560629169c2894ce9d74df9cb1cd",
+          "sources": [
+            "bark/src/fallback.rs:29",
+            "bark/src/fallback.rs:143",
+            "server/src/database/fallback.rs:34"
+          ],
+          "limits": [
+            "No authorized rotation exists in B. Immutable refusal is the profile-specific destination-update predicate, not an executed A rotation."
+          ]
+        },
+        "direct_per_key": {
+          "behavior": "Execute two actual expiry payout epochs to the original immutable BIP84 index-0 script, reject a genuinely different destination, then perform no-hint mnemonic recovery and confirmed spend.",
+          "expected": "Independently bind funded entitlement IDs, canonical record, individual key links and original script in both epochs. Reconcile recipient net, flat fee, forfeit and mining fee. Different destination refuses without changing original durable bytes/proofs or unrelated bindings; same-binding replay is canonical. Seed-only restore gets no database, txid, index or discovery hints and finds and spends all positive rightful outputs.",
+          "source_commit": "8c4478cfbfac8a193d0a6549387229dfedee06de",
+          "sources": [
+            "bark/src/fallback.rs:22",
+            "bark/src/fallback.rs:128",
+            "server/src/database/fallback.rs:45",
+            "server/src/watchman/settlement.rs:40"
+          ],
+          "limits": [
+            "C has no authorized rotation or attribution xpub. Pure builders cannot qualify either actual epoch or recovery."
+          ]
+        }
+      }
+    },
+    "H32": {
+      "risk": "Receive new value after the small-entitlement boundary; preserve the exact prior disposition and account for old and new rights once.",
+      "profiles": {
+        "two_step_per_key": {
+          "behavior": "Receive later value while a prior below-minimum two-step entitlement remains retained and backed, then exercise its actual expiry batching policy.",
+          "expected": "A below-minimum group remains a backed liability with no terminal paid, forfeit or recovered label and no settlement/nursery transaction. Later eligible same-destination rights may aggregate. Gross must be strictly greater than the configured minimum to enter batching; post-fee net must be at least that minimum and actual script dust. Confirmed payout settles exact old/new IDs once with actual fee allocations.",
+          "source_commit": "c73bb9093329c32a6716b5a783bb06b90db1d3b0",
+          "sources": [
+            "server/src/expiry_payout.rs:73",
+            "server/src/expiry_payout.rs:225",
+            "server/src/expiry_payout.rs:537"
+          ],
+          "limits": [
+            "Gross equal to the minimum waits. Do not import B/C terminal forfeiture or aggregate across prior committed payouts/arbitrary rotations."
+          ]
+        },
+        "direct_xpub": {
+          "behavior": "Receive new value after a prior economically terminal direct entitlement was forfeited, then expire its actual new closure.",
+          "expected": "Preserve terminal old IDs with no resurrected retained balance. Group only actual eligible rights within the physical closure: net=gross-1000; pay only when net is positive and at least actual script dust, including equality. Otherwise explicitly forfeit the full group with zero customer output fee. Freeze alone is not terminal; require consumed backing and confirmed winning history. Unknown outcomes or fee shortfalls never become forfeit.",
+          "source_commit": "69ca8cce9501560629169c2894ce9d74df9cb1cd",
+          "sources": [
+            "server/src/watchman/settlement.rs:10",
+            "server/src/watchman/settlement.rs:41",
+            "server/src/database/expiry_freeze.rs:135"
+          ],
+          "limits": []
+        },
+        "direct_per_key": {
+          "behavior": "Receive new value after a prior economically terminal direct entitlement was forfeited, then expire the new actual physical closure.",
+          "expected": "Old forfeited IDs stay terminal with payout zero/full recorded forfeit. Aggregate only new eligible leaves by script within their physical frozen closure. Positive net=gross-1000 pays when at least actual script dust, including equality; otherwise full new gross is explicit forfeit with zero customer output fee. Reconcile gross=fee+payout+forfeit once; actual mining subsidy and operator forfeit reuse remain separate from rightful customer principal.",
+          "source_commit": "8c4478cfbfac8a193d0a6549387229dfedee06de",
+          "sources": [
+            "server/src/watchman/settlement.rs:40",
+            "server/src/watchman/settlement.rs:104",
+            "server/src/expiry_dispatch.rs:98"
+          ],
+          "limits": [
+            "No retained-minimum or rotation semantics imported from A; no aggregation across distinct anchor closures."
+          ]
+        }
+      }
+    }
+  }
+}

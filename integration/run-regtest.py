@@ -81,6 +81,7 @@ def main():
                     'simulator_pending_board_absence_restore': ['actual Python journal and driver', 'confirmed real board funding with fewer than required registration confirmations', 'no registered coin or original calls after absence', 'pending-board payout to independently verified owner', 'fresh BIP84 seed-only recovery with no txid/index/birthday hints', 'confirmed spend'],
                 }[args.test],
                 'simulator_sources':{str(p.relative_to(ROOT)):digest(p) for p in [*ROOT.glob('simulator/*.py'), ROOT/'simulator/bip39-english.txt', ROOT/'integration/fixture_runtime.py', ROOT/'integration/sdk_source.py', ROOT/'integration/regtest-client.py',*ROOT.glob('driver/src/**/*.rs'), *ROOT.glob('integration/*.rs'), ROOT/'integration/round-adoption-client.py', ROOT/'integration/round-padding-client.py', ROOT/'integration/unilateral-exit-client.py']},
+                'catalogue_sources':{str(p.relative_to(ROOT)):digest(p) for p in ROOT.glob('simulator/*.json')},
                 'driver_sha256':digest(ROOT/'target/debug/bark-sim-driver'), 'restore_sha256':digest(ROOT/'target/debug/seed-restore'),
                 'proof_sha256':digest(ROOT/'target/debug/vtxo-proof'),'server_policy_sha256':digest(ROOT/'target/debug/server-policy-proof')}
         (run / 'predeclared.json').write_text(json.dumps(decl, indent=2) + '\n')
@@ -119,6 +120,8 @@ def main():
         result = json.loads(result_path.read_text()) if result_path.exists() else None
         changed_sources = [name for name, expected in decl['simulator_sources'].items()
                            if not (ROOT/name).is_file() or digest(ROOT/name) != expected]
+        changed_sources += [name for name, expected in decl['catalogue_sources'].items()
+                            if not (ROOT/name).is_file() or digest(ROOT/name) != expected]
         try:
             invalidated_sdk_source = fixture_source_receipt(CLONE,args.sdk_commit,ROOT/'integration/simulator_vertical.rs',expected_tree=args.sdk_tree) != sdk_source
         except (ValueError,OSError):
