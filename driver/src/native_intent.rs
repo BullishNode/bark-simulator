@@ -26,7 +26,7 @@ pub(super) fn persist(root:&Path,req:&Request,intent:&Intent)->Result<()> {
  writer.write_all(&serde_json::to_vec(intent)?)?;writer.sync_all()?;fs::rename(tmp,file)?;fs::File::open(root)?.sync_all()?;Ok(())
 }
 fn holds_wallet(intent:&Intent)->bool {
- matches!(intent.operation.as_str(),"fallback_record_check"|"refresh_scheduled") && intent.state!="completed"
+ matches!(intent.operation.as_str(),"fallback_record_check"|"fallback_rotate"|"refresh_scheduled") && intent.state!="completed"
 }
 fn conflicts(intent:&Intent,req:&Request)->bool {
  if !holds_wallet(intent) || req.operation=="snapshot" {return false;}
@@ -53,6 +53,28 @@ pub(super) fn conflicting_wallet_intent(root:&Path,req:&Request)->Result<Option<
 }
 #[cfg(test)] mod tests{
  use super::*;use serde_json::json;
+ #[test] fn unresolved_two_step_rotation_fences_wallet_after_reload_until_exact_inspection_completes(){
+  let root=std::env::temp_dir().join(format!("sim-native-a-rotation-hold-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+  fs::create_dir(&root).unwrap();fs::set_permissions(&root,fs::Permissions::from_mode(0o700)).unwrap();
+  let original=Request{operation:"fallback_rotate".into(),action_id:"lost-rotation-reply".into(),actor_dir:None,expected_server_pubkey:"server".into(),
+   args:json!({"phase":"start","previous_fallback_script":"00140000000000000000000000000000000000000000","previous_fallback_seq":7,"destination":"owned-destination"}),maximum_fee_sat:0};
+  let mut intent=freeze(&original,json!({"destination_script":"00141111111111111111111111111111111111111111"}));
+  persist(&root,&original,&intent).unwrap(); // durable uncertainty survives losing the process/reply
+  let mut request=Request{operation:"sync".into(),action_id:"new-sync".into(),actor_dir:None,expected_server_pubkey:"server".into(),args:json!({}),maximum_fee_sat:0};
+  assert_eq!(conflicting_wallet_intent(&root,&request).unwrap().as_deref(),Some("lost-rotation-reply"));
+  request.operation="snapshot".into();assert!(conflicting_wallet_intent(&root,&request).unwrap().is_none());
+  request.operation=original.operation.clone();request.action_id=original.action_id.clone();request.args=original.args.clone();
+  assert!(conflicting_wallet_intent(&root,&request).unwrap().is_some(),"start cannot replay the rotation");
+  request.args["phase"]=json!("inspect");assert!(conflicting_wallet_intent(&root,&request).unwrap().is_none());
+  request.args["destination"]=json!("other-destination");assert!(conflicting_wallet_intent(&root,&request).unwrap().is_some());
+  request.args=original.args.clone();request.args["phase"]=json!("inspect");request.expected_server_pubkey="other-server".into();
+  assert!(conflicting_wallet_intent(&root,&request).unwrap().is_some());
+  request.expected_server_pubkey=original.expected_server_pubkey.clone();request.maximum_fee_sat=1;
+  assert!(conflicting_wallet_intent(&root,&request).unwrap().is_some());
+  intent.state="completed".into();persist(&root,&original,&intent).unwrap();
+  assert!(conflicting_wallet_intent(&root,&request).unwrap().is_none());
+  fs::remove_dir_all(root).unwrap();
+ }
  #[test] fn submitted_scheduled_refresh_keeps_a_restart_safe_wallet_hold(){
   let root=std::env::temp_dir().join(format!("sim-native-scheduled-hold-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
   fs::create_dir(&root).unwrap();fs::set_permissions(&root,fs::Permissions::from_mode(0o700)).unwrap();
