@@ -73,6 +73,8 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
     establish current registration, absence of a competing spend, or settlement.
     """
     legacy = profile(store) == TWO_STEP
+    from .target_epochs import active_runtime_manifest
+    runtime_transition=active_runtime_manifest(store)
     if not proof_command:return None
     evidence=data.get('evidence',{})
     binding=evidence.get('binding',data.get('binding'))
@@ -95,7 +97,7 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
             if old['pubkey']!=coin['user_pubkey'] or old['amount_sat']!=coin['amount_sat']:
                 raise InvariantError('immutable signed coin changed')
             cached=json.loads(old['proof'])
-            if (old['signed_hash']==signed_hash and binding_matches(cached.get('binding',{}),binding,legacy=legacy)
+            if (runtime_transition is None and old['signed_hash']==signed_hash and binding_matches(cached.get('binding',{}),binding,legacy=legacy)
                     and proof_matches_profile(store,cached,coin) and cached.get('financial_pins')==original_context):
                 proof=cached
             else:proof=await json_command(list(proof_command),request,timeout=30,**public_command_capture(store,'proof.verify',request,actor=actor))
@@ -112,6 +114,8 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
 
 def record_verified(store, actor, action_id, verified):
     legacy = profile(store) == TWO_STEP
+    from .target_epochs import active_runtime_manifest
+    runtime_transition=active_runtime_manifest(store)
     if verified is None:return
     with (nullcontext() if store.db.in_transaction else store.transaction()):
         for item in verified['objects']:
@@ -135,8 +139,17 @@ def record_verified(store, actor, action_id, verified):
             store.db.execute('INSERT OR IGNORE INTO owner_record VALUES (?,?,?,?,?)',(actor,bound['mailbox_pk'],bound['seq'] if legacy else bound['account_xpub'],bound['spk'],canonical(bound)))
             if item['kind']=='coin':
                 coin=item['coin']
-                store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET signed_hash=excluded.signed_hash,signed_vtxo=excluded.signed_vtxo,proof=excluded.proof',
-                    (coin['id'],pub,coin['amount_sat'],item['signed_hash'],coin['signed_vtxo'],canonical(proof)))
+                original=store.db.execute('SELECT * FROM owned_coin WHERE id=?',(coin['id'],)).fetchone()
+                if runtime_transition is not None and original is not None:
+                    if (original['pubkey']!=pub or original['amount_sat']!=coin['amount_sat']
+                            or original['signed_hash']!=item['signed_hash'] or original['signed_vtxo']!=coin['signed_vtxo']):
+                        raise InvariantError('runtime transition cannot replace original signed object')
+                    store._event('public_ownership_reverified',{'actor':actor,'action_id':action_id,'coin_id':coin['id'],
+                        'signed_hash':item['signed_hash'],'original_proof_sha256':hashlib.sha256(original['proof'].encode()).hexdigest(),
+                        'current_proof':proof,'scope':'current verification of unchanged signed object; original proof retained'})
+                else:
+                    store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET signed_hash=excluded.signed_hash,signed_vtxo=excluded.signed_vtxo,proof=excluded.proof',
+                        (coin['id'],pub,coin['amount_sat'],item['signed_hash'],coin['signed_vtxo'],canonical(proof)))
                 store.db.execute('UPDATE client_coin_candidate SET verified=1 WHERE id=? AND actor=? AND digest=?',(coin['id'],actor,digest({**coin,'binding':item['request_binding']})))
                 store.db.execute('INSERT OR IGNORE INTO coin_observation VALUES (?,?,?,?)',(coin['id'],action_id,coin['state'],time.time()))
         for movement in verified['movements']:

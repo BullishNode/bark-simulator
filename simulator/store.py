@@ -142,7 +142,7 @@ class Store:
         from .target_epochs import active_runtime_manifest, verified_execution_context
         manifest=active_runtime_manifest(self)
         if manifest is not None and kind in {'action_intent','action_dispatched','driver_request','driver_response',
-                'driver_evidence','driver_stderr','public_ownership_verified','ark_transfer_verified','client_fee_reconciled'}:
+                'driver_evidence','driver_stderr','public_ownership_verified','public_ownership_reverified','ark_transfer_verified','client_fee_reconciled'}:
             from .final_campaign import _source_event
             if kind=='action_intent':
                 context=verified_execution_context(self)
