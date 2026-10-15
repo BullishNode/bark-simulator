@@ -119,8 +119,12 @@ class Store:
     def financial_context(self):
         row=self.db.execute('SELECT payload FROM snapshot ORDER BY id DESC LIMIT 1').fetchone()
         if row is None:return None
-        snapshot=json.loads(row[0])
-        if not 0 <= time.time()-snapshot['observed_at'] <= 90:return None
+        try:
+            snapshot=json.loads(row[0])
+            observed=timestamp(snapshot.get('observed_at'),'financial snapshot time')
+        except (ValueError,TypeError,AttributeError):
+            return None
+        if not 0 <= time.time()-observed <= 90:return None
         return snapshot.get('financial_pins')
 
     def _event(self, kind: str, payload: dict):

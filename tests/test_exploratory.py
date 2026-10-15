@@ -59,6 +59,9 @@ class ExploratoryTests(unittest.TestCase):
                 'earliest_expiry_height':None,'customer_principal_sat':0,'total_capital_exposure_sat':10000,'funding_txids':[]},
             'rounds_inventory':{'exit':0,'data':{'rounds':wallet}},
             'watchman_inventory':{'exit':0,'data':{'watchman':{**wallet,'utxos':[]}}}}
+        # The common queue requires a fresh pinned observation even for a
+        # bounded exploratory action. These are synthetic controller inputs.
+        self.store.add_snapshot({'observed_at':self.now,'financial_pins':self.d['pins']})
     def tearDown(self):self.store.close();self.tmp.cleanup()
     def checked(self):return e.checked_source(self.d,self.p,self.chain,now=self.now)
     def test_real_scope_is_immutable_and_never_clears_financial_requirement(self):

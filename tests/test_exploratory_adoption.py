@@ -118,7 +118,8 @@ class AdoptionScopeTests(unittest.TestCase):
 
     def historical_board(self):
         proof=self.s.db.execute("SELECT sequence,payload FROM event WHERE kind='exploratory_operating_readiness'").fetchone()
-        source=json.loads(proof['payload']);snapshot={'height':source['height'],'tip_hash':source['tip_hash'],
+        source=json.loads(proof['payload']);snapshot={'observed_at':self.f.now,'financial_pins':self.old['pins'],
+            'height':source['height'],'tip_hash':source['tip_hash'],
             'exploratory_readiness_sequence':proof['sequence']}
         cursor=self.s.db.execute('INSERT INTO snapshot(observed_at,payload) VALUES (?,?)',(self.f.now,canonical(snapshot)))
         context={'height':snapshot['height'],'tip_hash':snapshot['tip_hash'],'snapshot_id':cursor.lastrowid}
