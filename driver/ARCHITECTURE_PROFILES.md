@@ -47,3 +47,17 @@ feature, lock/catalogue hashes, compiler versions and original failed/passing
 logs. Hosted build environments differ from the dedicated qualification VMs;
 their elapsed time is not an architecture benchmark. These checks do not run
 financial RPCs, server migration, mobile journeys or qualified simulations.
+
+## Native regtest fixture source
+
+`integration/run-regtest.py --sdk-commit <full-commit> --sdk-tree <full-tree>`
+accepts an explicit owning SDK pin instead of pretending it is the historical
+`d47c6a4d` fixture baseline. The historical default remains available. The runner
+requires exactly its original two fixture overlay paths, checks the shared Rust
+harness bytes, records both overlay hashes and the committed SDK tree, and
+invalidates the result if SDK source or overlays change during execution.
+
+This source guard does not port the historical harness. Its sequence fields,
+two-step payout path, minimum payout and expected recovery behavior still need
+review against the selected profile. An arbitrary new SDK pin, or a successful
+fixture build, cannot qualify A/B/C identity and economic contracts by itself.
