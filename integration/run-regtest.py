@@ -17,6 +17,7 @@ def digest(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('name')
+    parser.add_argument('--architecture-profile',choices=['two_step_per_key','direct_xpub','direct_per_key'],help='explicit native fixture profile; omitted only for historical unprofiled Track B')
     parser.add_argument('--sdk-source',type=Path,default=ROOT/'fixture-source',help='isolated compatible SDK fixture checkout')
     parser.add_argument('--sdk-commit',default=HEAD,help='exact 40-character SDK commit; default is the historical fixture baseline')
     parser.add_argument('--sdk-tree',help='optional exact committed SDK tree to verify in addition to the commit')
@@ -36,6 +37,9 @@ def main():
         sdk_source = fixture_source_receipt(CLONE,args.sdk_commit,ROOT/'integration/simulator_vertical.rs',expected_tree=args.sdk_tree)
         harness = CLONE / 'testing/tests/bark_sdk/simulator_vertical.rs'
         env=os.environ.copy()
+        env.pop('SIMULATOR_ARCHITECTURE_PROFILE',None)
+        if args.architecture_profile is not None:
+            env['SIMULATOR_ARCHITECTURE_PROFILE']=args.architecture_profile
         for name in ('TEST_POSTGRES_HOST','LIGHTNINGD_EXEC'):env.pop(name,None)
         env.setdefault('CARGO_BUILD_JOBS','4')
         env.setdefault('POSTGRES_BINS','/usr/lib/postgresql/16/bin')
@@ -53,7 +57,7 @@ def main():
         module='round_adoption::' if args.test=='simulator_confirmed_round_scheduler_cycle' else ''
         name = 'simulator_vertical::'+module+args.test
         decl = {'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'head': sdk_source['head'],
-                'sdk_source':sdk_source,'fixture_git_hash':env['GIT_HASH'],
+                'sdk_source':sdk_source,'architecture_profile':args.architecture_profile,'fixture_git_hash':env['GIT_HASH'],
                 'qualification_scope':'isolated REGTEST harness only; caller-selected SDK pin does not port architecture-specific economic/identity contracts',
                 'test': name, 'harness_sha256': digest(harness), 'runner_sha256': digest(__file__),
                 'binaries': {p.name: digest(p) for p in PRODUCTION.iterdir()},

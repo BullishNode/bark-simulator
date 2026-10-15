@@ -101,3 +101,24 @@ class Sampler(threading.Thread):
                     self.violation = f'free disk {free} B below {self.bounds["min_free_disk_gib"]} GiB'
             if self.violation:
                 return
+
+
+def fixture_profile(manifest):
+    """Bind fixture metadata to the actual driver config before opening state."""
+    with Path(manifest['driver_config']).open('rb') as source:
+        raw = source.read(64 * 1024 + 1)
+    if len(raw) > 64 * 1024:
+        raise ValueError('fixture driver config exceeds bound')
+    driver = json.loads(raw)
+    if not isinstance(driver, dict):
+        raise ValueError('fixture driver config must be an object')
+    if 'architecture_profile' not in manifest:
+        if 'architecture_profile' in driver:
+            raise ValueError('legacy fixture cannot select a profiled driver')
+        return None  # Historical unprofiled Track B only.
+    profile = manifest['architecture_profile']
+    if (not isinstance(profile, str)
+            or profile not in {'two_step_per_key', 'direct_xpub', 'direct_per_key'}
+            or driver.get('architecture_profile') != profile):
+        raise ValueError('fixture and driver architecture profiles differ')
+    return profile

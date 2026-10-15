@@ -1,5 +1,5 @@
 // Confirmed public nursery evidence drives one real scheduler cycle.
-use super::{command,write};
+use super::{command,write,write_profiled};
 use std::{path::Path,time::Duration};
 use ark_testing::{TestContext,sat};
 use bitcoin::{Address,address::NetworkUnchecked};
@@ -39,9 +39,9 @@ async fn simulator_confirmed_round_scheduler_cycle() {
     let wallet_config=ctx.datadir.join("round-wallet.toml");std::fs::write(&wallet_config,toml::to_string(&cfg).unwrap()).unwrap();
     let wallet_root=ctx.datadir.join("round-wallets");std::fs::create_dir(&wallet_root).unwrap();
     let driver_config=ctx.datadir.join("round-driver.json");
-    write(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
+    write_profiled(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
     let manifest=ctx.datadir.join("round-fixture.json");
-    write(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
+    write_profiled(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
         "genesis":core.get_block_hash(0).unwrap().to_string(),"driver_config":driver_config,
         "driver":root.join("target/debug/bark-sim-driver"),"proof":root.join("target/debug/vtxo-proof"),"server_policy":root.join("target/debug/server-policy-proof"),
         "wallet_root":wallet_root,"state_dir":ctx.datadir.join("round-journal"),"out_dir":out,"server_pubkey":srv.ark_info().await.server_pubkey.to_string(),

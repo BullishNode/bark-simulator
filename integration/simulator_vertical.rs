@@ -9,6 +9,23 @@ use ark::{ProtocolEncoding, Vtxo, VtxoId};
 use serde_json::{json, Value};
 
 fn write(path: &Path, value: &Value) { std::fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap(); }
+// Only configuration and fixture manifests use this writer. Public evidence is
+// written unchanged by `write`.
+fn write_profiled(path: &Path, value: &Value) {
+    let mut value = value.clone();
+    match std::env::var("SIMULATOR_ARCHITECTURE_PROFILE") {
+        Ok(profile) => {
+            assert!(matches!(profile.as_str(), "two_step_per_key" | "direct_xpub" | "direct_per_key"),
+                "unsupported fixture architecture profile");
+            value.as_object_mut().expect("fixture config must be an object")
+                .insert("architecture_profile".to_owned(), json!(profile));
+        },
+        Err(std::env::VarError::NotPresent) => {}, // Historical Track B fixture.
+        Err(error) => panic!("invalid fixture architecture profile: {error}"),
+    }
+    write(path, &value);
+}
+
 fn client(root: &Path, mode: &str, manifest: &Path, out: &Path) -> Value {
     let result=std::process::Command::new("python3").arg(root.join("integration/regtest-client.py"))
         .arg(mode).arg(manifest).output().unwrap();
@@ -68,11 +85,11 @@ async fn board_absence_restore(pending: bool,rail: Option<&'static str>,automate
     std::fs::write(&wallet_config,toml::to_string(&cfg).unwrap()).unwrap();
     let driver_config=ctx.datadir.join("sim-driver.json");
     let wallet_root=ctx.datadir.join("sim-wallets");std::fs::create_dir(&wallet_root).unwrap();
-    write(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,
+    write_profiled(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,
         "wallet_root":wallet_root,"network":"regtest"}));
     let info=srv.ark_info().await;
     let manifest=ctx.datadir.join("sim-fixture.json");
-    write(&manifest,&json!({"network":"regtest","fee_budget_sat":if rail.is_some() {100_000} else {10_000},"core_url":ctx.bitcoind().rpc_url(),
+    write_profiled(&manifest,&json!({"network":"regtest","fee_budget_sat":if rail.is_some() {100_000} else {10_000},"core_url":ctx.bitcoind().rpc_url(),
         "core_cookie":ctx.bitcoind().rpc_cookie(),"genesis":core.get_block_hash(0).unwrap().to_string(),
         "driver_config":driver_config,"driver":root.join("target/debug/bark-sim-driver"),
         "restore":root.join("target/debug/seed-restore"),"proof":root.join("target/debug/vtxo-proof"),"wallet_root":wallet_root,
@@ -279,9 +296,9 @@ async fn simulator_concurrent_clients() {
     std::fs::write(&wallet_config,toml::to_string(&ctx.bark_default_cfg(&endpoint,Some(ctx.bitcoind()))).unwrap()).unwrap();
     let driver_config=ctx.datadir.join("sim-driver.json");
     let wallet_root=ctx.datadir.join("sim-wallets");std::fs::create_dir(&wallet_root).unwrap();
-    write(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
+    write_profiled(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
     let manifest=ctx.datadir.join("sim-fixture.json");
-    write(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
+    write_profiled(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
         "genesis":core.get_block_hash(0).unwrap().to_string(),"driver_config":driver_config,"driver":root.join("target/debug/bark-sim-driver"),
         "proof":root.join("target/debug/vtxo-proof"),"wallet_root":wallet_root,"state_dir":ctx.datadir.join("sim-journal"),"out_dir":out,
         "server_pubkey":srv.ark_info().await.server_pubkey.to_string(),"server_binary":std::env::var("CAPTAIND_EXEC").unwrap(),
@@ -330,9 +347,9 @@ async fn simulator_zero_spendable_scheduled_refresh() {
     std::fs::write(&wallet_config,toml::to_string(&ctx.bark_default_cfg(&endpoint,Some(ctx.bitcoind()))).unwrap()).unwrap();
     let driver_config=ctx.datadir.join("sim-driver.json");
     let wallet_root=ctx.datadir.join("sim-wallets");std::fs::create_dir(&wallet_root).unwrap();
-    write(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
+    write_profiled(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
     let manifest=ctx.datadir.join("sim-fixture.json");
-    write(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
+    write_profiled(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
         "genesis":core.get_block_hash(0).unwrap().to_string(),"driver_config":driver_config,"driver":root.join("target/debug/bark-sim-driver"),
         "proof":root.join("target/debug/vtxo-proof"),"wallet_root":wallet_root,"state_dir":ctx.datadir.join("sim-journal"),"out_dir":out,
         "server_pubkey":srv.ark_info().await.server_pubkey.to_string(),"server_binary":std::env::var("CAPTAIND_EXEC").unwrap(),
@@ -399,9 +416,9 @@ async fn simulator_payments_refresh_exits() {
     std::fs::write(&wallet_config,toml::to_string(&cfg).unwrap()).unwrap();
     let driver_config=ctx.datadir.join("sim-driver.json");
     let wallet_root=ctx.datadir.join("sim-wallets");std::fs::create_dir(&wallet_root).unwrap();
-    write(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
+    write_profiled(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
     let manifest=ctx.datadir.join("sim-fixture.json");
-    write(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
+    write_profiled(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
         "genesis":core.get_block_hash(0).unwrap().to_string(),"driver_config":driver_config,
         "driver":root.join("target/debug/bark-sim-driver"),"proof":root.join("target/debug/vtxo-proof"),"wallet_root":wallet_root,"state_dir":ctx.datadir.join("sim-journal"),
         "out_dir":out,"server_pubkey":srv.ark_info().await.server_pubkey.to_string(),
@@ -536,9 +553,9 @@ async fn simulator_fallback_negative_requests() {
     std::fs::write(&wallet_config,toml::to_string(&cfg).unwrap()).unwrap();
     let driver_config=ctx.datadir.join("sim-driver.json");
     let wallet_root=ctx.datadir.join("sim-wallets");std::fs::create_dir(&wallet_root).unwrap();
-    write(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
+    write_profiled(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,"wallet_root":wallet_root,"network":"regtest"}));
     let manifest=ctx.datadir.join("sim-fixture.json");
-    write(&manifest,&json!({"network":"regtest","core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
+    write_profiled(&manifest,&json!({"network":"regtest","core_url":ctx.bitcoind().rpc_url(),"core_cookie":ctx.bitcoind().rpc_cookie(),
         "genesis":core.get_block_hash(0).unwrap().to_string(),"driver_config":driver_config,
         "driver":root.join("target/debug/bark-sim-driver"),"proof":root.join("target/debug/vtxo-proof"),"wallet_root":wallet_root,"state_dir":ctx.datadir.join("sim-journal"),
         "out_dir":out,"server_pubkey":srv.ark_info().await.server_pubkey.to_string(),
@@ -617,11 +634,11 @@ async fn confirmed_receipt_recycling(thin:bool) {
     std::fs::write(&wallet_config,toml::to_string(&cfg).unwrap()).unwrap();
     let driver_config=ctx.datadir.join("sim-driver.json");
     let wallet_root=ctx.datadir.join("sim-wallets");std::fs::create_dir(&wallet_root).unwrap();
-    write(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,
+    write_profiled(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,
         "wallet_root":wallet_root,"network":"regtest"}));
     let info=srv.ark_info().await;
     let manifest=ctx.datadir.join("sim-fixture.json");
-    write(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),
+    write_profiled(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),
         "core_cookie":ctx.bitcoind().rpc_cookie(),"genesis":core.get_block_hash(0).unwrap().to_string(),
         "driver_config":driver_config,"driver":root.join("target/debug/bark-sim-driver"),
         "restore":root.join("target/debug/seed-restore"),"proof":root.join("target/debug/vtxo-proof"),"wallet_root":wallet_root,
@@ -688,11 +705,11 @@ async fn simulator_owner_funded_renewal() {
     std::fs::write(&wallet_config,toml::to_string(&cfg).unwrap()).unwrap();
     let driver_config=ctx.datadir.join("sim-driver.json");
     let wallet_root=ctx.datadir.join("sim-wallets");std::fs::create_dir(&wallet_root).unwrap();
-    write(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,
+    write_profiled(&driver_config,&json!({"ark_endpoint":endpoint,"wallet_config":wallet_config,
         "wallet_root":wallet_root,"network":"regtest"}));
     let info=srv.ark_info().await;
     let manifest=ctx.datadir.join("sim-fixture.json");
-    write(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),
+    write_profiled(&manifest,&json!({"network":"regtest","fee_budget_sat":100_000,"core_url":ctx.bitcoind().rpc_url(),
         "core_cookie":ctx.bitcoind().rpc_cookie(),"genesis":core.get_block_hash(0).unwrap().to_string(),
         "driver_config":driver_config,"driver":root.join("target/debug/bark-sim-driver"),
         "restore":root.join("target/debug/seed-restore"),"proof":root.join("target/debug/vtxo-proof"),"wallet_root":wallet_root,

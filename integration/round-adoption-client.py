@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from simulator.config import Config
+from fixture_runtime import fixture_profile
 from simulator.engine import Engine,initialize
 from simulator.store import Store
 from simulator.ownership import record_server_page
@@ -19,8 +20,9 @@ from simulator.continuous import schedule
 
 m=json.loads(Path(sys.argv[1]).read_text());phase=sys.argv[2]
 assert m['network']=='regtest' and m['core_url'].startswith('http://127.0.0.1:')
+profile=fixture_profile(m)
 os.environ['SIM_DRIVER_CONFIG']=m['driver_config']
-cfg=Config(state_dir=Path(m['state_dir']),wallet_root=Path(m['wallet_root']),
+cfg=Config(architecture_profile=profile,state_dir=Path(m['state_dir']),wallet_root=Path(m['wallet_root']),
     observer_command=(sys.executable,str(ROOT/'integration/regtest-client.py'),'observer',sys.argv[1]),
     driver_command=(m['driver'],),expected_genesis=m['genesis'],expected_container='regtest-local-captaind',
     expected_image='sha256:'+m['server_binary_sha256'],expected_server_pubkey=m['server_pubkey'],
@@ -28,7 +30,7 @@ cfg=Config(state_dir=Path(m['state_dir']),wallet_root=Path(m['wallet_root']),
     proof_command=(m['proof'],m['core_url'],m['core_cookie'],m['server_pubkey']),
     campaign_seed='confirmed-round-fixture-v1',absence_hazard_per_day=0,absent_payment_probability=0,dispatch_per_tick=2,
     server_policy_command=(m['server_policy'],))
-store=Store(cfg.state_dir,'live',cfg.fee_budget_sat);initialize(store)
+store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile);initialize(store)
 actors=('actor-02','actor-08')
 try:
     refreshes=list(store.db.execute("SELECT * FROM action WHERE operation IN ('refresh','refresh_delegated')"))

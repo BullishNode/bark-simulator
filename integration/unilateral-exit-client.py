@@ -15,6 +15,7 @@ from simulator.model import canonical,public_payload
 from simulator.ownership import record_candidates,record_verified,verify_client_evidence
 from simulator.process import json_command
 from simulator.store import Store
+from fixture_runtime import fixture_profile
 from simulator.unknown_outcomes import resolve
 
 
@@ -23,8 +24,9 @@ async def run(phase,manifest,command):
     assert m.get('exit_fixture') is True and m['network']=='regtest'
     assert m['core_url'].startswith('http://127.0.0.1:')
     assert phase in {'start','advance','automatic','inspect','probe_cap','audit'}
+    profile=fixture_profile(m)
     os.environ['SIM_DRIVER_CONFIG']=m['driver_config']
-    store=Store(Path(m['state_dir']),'live',m.get('fee_budget_sat',100000))
+    store=Store(Path(m['state_dir']),'live',m.get('fee_budget_sat',100000),architecture_profile=profile)
     try:
         store.verify_event_chain()
         assert not store.get_meta('paused')

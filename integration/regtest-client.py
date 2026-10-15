@@ -17,8 +17,10 @@ from simulator.engine import Engine,initialize
 from simulator.store import Store
 from simulator.report import generate
 from simulator.raw_cases import RAW_CASES
+from fixture_runtime import fixture_profile
 
 mode=sys.argv[1];manifest=Path(sys.argv[2]);m=json.loads(manifest.read_text())
+profile=fixture_profile(m)
 command=json.loads(sys.argv[3]) if len(sys.argv)>3 else {}
 actor=command.get('actor','actor-01')
 assert actor in {f'actor-{i:02}' for i in range(1,13)}
@@ -33,7 +35,7 @@ def rpc(method,*args):
     return response['result']
 
 def config():
-    return Config(state_dir=Path(m['state_dir']),wallet_root=Path(m['wallet_root']),
+    return Config(architecture_profile=profile,state_dir=Path(m['state_dir']),wallet_root=Path(m['wallet_root']),
         observer_command=(sys.executable,str(Path(__file__).resolve()),'observer',str(manifest)),
         driver_command=(m['driver'],),expected_genesis=m['genesis'],expected_container='regtest-local-captaind',
         expected_image='sha256:'+m['server_binary_sha256'],expected_server_pubkey=m['server_pubkey'],
@@ -56,7 +58,7 @@ if mode=='observer':
         'complete':False,'rounds_confirmed_sat':None,'validation_scope':'isolated fixture; full capital is separately audited'}))
 elif mode=='fixture_backup':
     # The explicit fixture saves its private recovery backup while online.
-    store=Store(Path(m['state_dir']),'live',m.get('fee_budget_sat',10000))
+    store=Store(Path(m['state_dir']),'live',m.get('fee_budget_sat',10000),architecture_profile=profile)
     try: assert store.online(actor)
     finally: store.close()
     backup=Path(m['wallet_root']).parent/'fixture-recovery-backup.seed'
@@ -78,7 +80,7 @@ elif mode in {'verified_recovery','verified_recovery_confirm'}:
         recovery_command=(m['restore'],m['core_url'],m['core_cookie']),recovery_destination=m['recovery_destination'],
         recovery_seeds=((actor,Path(m['wallet_root']).parent/'fixture-recovery-backup.seed'),),
         recovery_maximum_fee_sat=2000,recovery_timeout_seconds=240,funding_wallet=rpc('listwallets')[0])
-    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile)
     initialize(store)
     controller=RecoveryController(store,cfg)
     chain=ChainReader(m['core_url'],m['core_cookie'],m['genesis'],capture=store.trace_sample,consumer='payout-fixture')
@@ -142,7 +144,7 @@ elif mode=='recover':
     payout=json.loads(Path(m['payout_proof']).read_text())
     tx=rpc('getrawtransaction',payout['txid'],True)
     assert tx.get('confirmations',0)>0 and tx['vout'][payout['vout']]['scriptPubKey']['hex']==payout['spk']
-    store=Store(Path(m['state_dir']),'live',m.get('fee_budget_sat',10000))
+    store=Store(Path(m['state_dir']),'live',m.get('fee_budget_sat',10000),architecture_profile=profile)
     try: assert not store.online('actor-01')
     finally: store.close()
     with (Path(m['wallet_root'])/'actor-01/mnemonic').open() as seed:
@@ -156,7 +158,7 @@ elif mode=='recover':
 elif mode=='delegated_audit':
     from simulator.entitlements import collect
     from simulator.ownership import record_server_page
-    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile)
     try:
         page=json.loads(Path(m['out_dir'],'public-delegated-inventory.json').read_text())
         record_server_page(store,{'kind':'coins','rows':page,'next':None,'inventory_consistent':False})
@@ -179,7 +181,7 @@ elif mode=='dispatch_overlap':
     assert slots in {2,3} and len(set(actors))==slots
     assert set(actors).issubset({'actor-01','actor-02','actor-05','actor-07','actor-08'})
     cfg=replace(config(),dispatch_per_tick=slots,campaign_seed='regtest-public-overlap-v1')
-    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile)
     try:
         engine=Engine(cfg,store)
         start=store.db.execute('SELECT COALESCE(MAX(sequence),0) FROM event').fetchone()[0]
@@ -216,7 +218,7 @@ elif mode=='fee_audit':
     from simulator.chain import ChainReader
     from simulator.fees import collect
     cfg=config()
-    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile)
     try:
         before=store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]
         chain=ChainReader(m['core_url'],m['core_cookie'],m['genesis'])
@@ -228,7 +230,7 @@ elif mode=='fee_audit':
 elif mode=='receive_fee_audit':
     from simulator.chain import ChainReader
     from simulator.fees import collect
-    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile)
     try:
         asyncio.run(collect(store,ChainReader(m['core_url'],m['core_cookie'],m['genesis']),limit=64))
         rows=store.db.execute("SELECT payload FROM event WHERE kind='client_fee_reconciled' AND json_type(payload,'$.receive_movement_ids')='array' AND json_extract(payload,'$.actor')='actor-02'").fetchall()
@@ -241,7 +243,7 @@ elif mode=='receive_fee_audit':
 elif mode=='payment_audit':
     from simulator.payments import collect
     cfg=config()
-    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile)
     try:
         before=store.db.execute('SELECT COUNT(*) FROM action').fetchone()[0]
         asyncio.run(collect(store,cfg.driver_command,cfg.expected_server_pubkey))
@@ -253,7 +255,7 @@ elif mode=='payment_audit':
     finally:store.close()
 elif mode=='clock_audit':
     from simulator.campaign import collect_ark_receipts,traffic_ready
-    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile)
     try:
         collect_ark_receipts(store)
         before=store.db.execute("SELECT COUNT(*) FROM event WHERE kind='ark_transfer_verified'").fetchone()[0]
@@ -268,7 +270,7 @@ elif mode=='clock_audit':
     finally:store.close()
 elif mode=='scheduled_refresh':
     from simulator.continuous import schedule
-    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile)
     try:
         details=json.loads(store.db.execute('SELECT details FROM actor WHERE id=?',(actor,)).fetchone()[0])
         assert details['registered_spendable_sat']==0 and details['needs_refresh_sat']>0
@@ -308,7 +310,7 @@ elif mode in {'renewal_funder_create','renewal_fund','renewal_board'}:
         print(json.dumps({'address':address}))
     else:
         cfg=replace(config(),board_amount_sat=5000)
-        store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+        store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile)
         try:
             if mode=='renewal_fund':
                 funding.call('loadwallet','sim-renewal-funder',root=True)
@@ -334,7 +336,7 @@ elif mode in {'renewal_funder_create','renewal_fund','renewal_board'}:
 elif mode in {'recycle_once','recycle_audit'}:
     from simulator.chain import ChainReader
     from simulator.recycling import collect,plan,report
-    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    cfg=config();store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile)
     try:
         asyncio.run(collect(store,ChainReader(m['core_url'],m['core_cookie'],m['genesis']),limit=16))
         if mode=='recycle_once':
@@ -357,7 +359,7 @@ elif mode in {'recycle_once','recycle_audit'}:
     finally:store.close()
 else:
     cfg=config();cfg.wallet_root.mkdir(mode=0o700,parents=True,exist_ok=True)
-    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat)
+    store=Store(cfg.state_dir,'live',cfg.fee_budget_sat,architecture_profile=profile)
     try:
         initialize(store)
         engine=Engine(cfg,store)
