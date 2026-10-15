@@ -193,7 +193,26 @@ def _empty_mempool(chain,scripts,started):
     raise ValueError('complete cash mempool fixed point unavailable')
 
 
-async def collect_fresh_cash_sources(store,config,chain,bank_rpc):
+def _current_operator_ranges(initial,current,tip):
+    """Extend only the exact owning descriptors from the actual public frontier."""
+    specs={row['desc']:list(row['range']) for row in initial['descriptor_ranges']}
+    for owner,field in (('rounds','rounds_inventory'),('watchman','watchman_inventory')):
+        member=next(member for member in initial['members'] if member['id']==owner)
+        frame=current.get(field,{}).get(owner)
+        if (not isinstance(frame,dict) or frame.get('complete') is not True
+                or frame.get('network')!='signet' or frame.get('wallet')!=owner
+                or member['descriptors']!=[frame.get('public_descriptor')]
+                or (frame.get('tip_height'),frame.get('tip_hash'))!=tip
+                or type(frame.get('last_revealed_index')) is not int
+                or not 0<=frame['last_revealed_index']<1980):
+            raise ValueError('actual current bounded owning operator descriptor frontier required')
+        descriptor=member['descriptors'][0]
+        if descriptor not in specs:raise ValueError('owning operator descriptor differs from original boundary')
+        specs[descriptor]=[0,max(specs[descriptor][1],frame['last_revealed_index']+20)]
+    return specs
+
+
+async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_startup_path):
     """Actual six-wallet closing assets after funding; no wallet synchronization."""
     from .funding_bank import collect_funding_bank_source
     from .process import json_command,public_command_capture
@@ -209,7 +228,9 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc):
     before=chain.identity();tip=(before['blocks'],before['bestblockhash'])
     if before.get('chain')!='signet' or before.get('initialblockdownload') is not False:
         raise ValueError('independent synchronized signet cash source required')
-    specs={row['desc']:row['range'] for row in initial['descriptor_ranges']}
+    from .runtime_startup import _read
+    range_runtime,range_runtime_sha256=_read(current_startup_path)
+    specs=_current_operator_ranges(initial,range_runtime,tip)
     scripts={};scans=[]
     for member in members.values():
         for index,descriptor in enumerate(member['descriptors']):
@@ -322,7 +343,8 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc):
             'funding_confirmation_sequence':funding_sequence,'finite_initial_source_sequence':plan['finite_initial_source_sequence'],
             'bank_source_sequence':bank_sequence,'client_economics_sequence':client_sequence,'inventory_sequences':inventories,
             'database_source_sequence':database_sequence,'database_response_sha256':_digest(database),
-            'mempool':mempool,'total_sat':665454-transaction['fee_sat'],
+            'mempool':mempool,'descriptor_ranges':scans,'range_runtime_source_sha256':range_runtime_sha256,
+            'total_sat':665454-transaction['fee_sat'],
             'funding_fee_sat':transaction['fee_sat'],'operation_scope':OPERATIONS,
             'scope':'exact confirmed funding and empty persisted monetary state; customer BDK need not be synchronized'}
         public_payload(source);store._event('finite_fresh_cash_sources_verified',source)
@@ -367,12 +389,15 @@ def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_sou
     available=0
     for owner,field in (('rounds','rounds_inventory'),('watchman','watchman_inventory')):
         frame=current.get(field,{}).get(owner)
+        scanned={row['desc']:row['range'][1] for row in source.get('descriptor_ranges',[])}
         expected={point:coin for point,coin in assets['assets'].items() if coin['member']==owner}
         member=next(member for member in source['members'] if member['id']==owner)
         _,inventory=_source_event(store,source['inventory_sequences'][owner])
         owned_scripts={coin['outpoint']:coin['script'] for coin in inventory['utxos']}
         if (not isinstance(frame,dict) or frame.get('complete') is not True or frame.get('network')!='signet'
                 or frame.get('wallet')!=owner or member['descriptors']!=[frame.get('public_descriptor')]
+                or type(frame.get('last_revealed_index')) is not int
+                or not 0<=frame['last_revealed_index']<=scanned.get(frame.get('public_descriptor'),-1)
                 or (frame.get('tip_height'),frame.get('tip_hash'))!=(source['height'],source['tip_hash'])
                 or any(frame.get(key)!=[] for key in ('reserved_outpoints','pending_transactions','pending_parents','unavailable_parent_txids'))
                 or not isinstance(frame.get('utxos'),list) or len(frame['utxos'])!=len(expected)

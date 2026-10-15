@@ -135,10 +135,16 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):self.store.close();self.tmp.cleanup()
     def event(self,kind,value):
         self.store.event(kind,value);return self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
-    def dependencies(self):
+    def dependencies(self,frontier=1):
         from contextlib import ExitStack
+        import sys
+        from types import SimpleNamespace
         from unittest.mock import patch,AsyncMock
         stack=ExitStack()
+        current={field:{owner:{'complete':True,'network':'signet','wallet':owner,
+            'public_descriptor':'desc-'+owner,'last_revealed_index':frontier,'tip_height':100,'tip_hash':self.tip}}
+            for owner,field in (('rounds','rounds_inventory'),('watchman','watchman_inventory'))}
+        stack.enter_context(patch.dict(sys.modules,{'simulator.runtime_startup':SimpleNamespace(_read=lambda p:(current,'synthetic-sha'))}))
         stack.enter_context(patch('simulator.fresh_cash_readiness._confirmed_funding',return_value=(
             self.plan,self.initial,{'txid':self.txid},self.transaction,self.funding_sequence)))
         stack.enter_context(patch('simulator.fresh_cash_readiness._phase_history'))
@@ -149,7 +155,7 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
         return stack
     async def test_full_cash_closure_reconstructs_exact_five_recipients_and_bank_change(self):
         from simulator.fresh_cash_readiness import collect_fresh_cash_sources
-        with self.dependencies():result=await collect_fresh_cash_sources(self.store,self.config,self.chain,None)
+        with self.dependencies():result=await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
         source=result['source'];self.assertEqual(664454,source['total_sat']);self.assertEqual(OPERATIONS,source['operation_scope'])
         self.assertEqual(6,len(source['inventory_sequences']));self.assertEqual(self.actors,source['actors'])
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
@@ -164,29 +170,50 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
             if method=='scantxoutset' and args[0]=='start':calls.append(args[1])
             return original(method,*args,**kwargs)
         self.chain.call=capture
-        with self.dependencies():await collect_fresh_cash_sources(self.store,self.config,self.chain,None)
+        with self.dependencies():await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
         self.assertEqual([13],[len(rows) for rows in calls])
         for index in range(7,11):
             descriptor='desc-bank-extra'+str(index);bank['descriptors'].append(descriptor)
             self.initial['descriptor_ranges'].append({'desc':descriptor,'range':[0,19]})
         calls.clear()
         with self.dependencies(),self.assertRaisesRegex(ValueError,'scan count'):
-            await collect_fresh_cash_sources(self.store,self.config,self.chain,None)
+            await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
         self.assertEqual([],calls)
+
+    async def test_actual_grown_operator_frontier_covers_new_scripts_and_keeps_bounds(self):
+        from simulator.fresh_cash_readiness import collect_fresh_cash_sources
+        original=self.chain.call;scans=[]
+        def capture(method,*args,**kwargs):
+            if method=='scantxoutset' and args[0]=='start':scans.extend(args[1])
+            return original(method,*args,**kwargs)
+        self.chain.call=capture
+        with self.dependencies(frontier=200):
+            result=await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
+        self.assertEqual([0,220],next(row['range'] for row in scans if row['desc']=='desc-rounds'))
+        self.assertEqual('synthetic-sha',result['source']['range_runtime_source_sha256'])
+        pending='d'*64
+        def incoming(method,*args,**kwargs):
+            if method=='getrawmempool':return [pending]
+            return original(method,*args,**kwargs)
+        self.chain.call=incoming;self.chain.tx=lambda txid:{'txid':txid,'vout':[{'scriptPubKey':{'hex':'rounds:200'}}]}
+        with self.dependencies(frontier=200),self.assertRaisesRegex(ValueError,'unconfirmed output'):
+            await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
+        with self.dependencies(frontier=1979),self.assertRaisesRegex(ValueError,'bounded cash script'):
+            await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
 
     async def test_changed_database_or_foreign_funding_output_refuses_no_readiness(self):
         from simulator.fresh_cash_readiness import collect_fresh_cash_sources
         original=copy.deepcopy(self.db);self.db['rows']['coins']=1
-        with self.dependencies(),self.assertRaisesRegex(ValueError,'frontier'):await collect_fresh_cash_sources(self.store,self.config,self.chain,None)
+        with self.dependencies(),self.assertRaisesRegex(ValueError,'frontier'):await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
         self.db=original;self.transaction['outputs'][-1]['script']='foreign:0'
-        with self.dependencies(),self.assertRaisesRegex(ValueError,'foreign output'):await collect_fresh_cash_sources(self.store,self.config,self.chain,None)
+        with self.dependencies(),self.assertRaisesRegex(ValueError,'foreign output'):await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
     async def test_rounds_ineligible_cash_is_conserved_but_only_watchman_backs_fees(self):
         import sys,time
         from types import SimpleNamespace
         from unittest.mock import patch
         from simulator.fresh_cash_readiness import collect_fresh_cash_sources,record_fresh_cash_readiness
-        with self.dependencies():result=await collect_fresh_cash_sources(self.store,self.config,self.chain,None)
+        with self.dependencies():result=await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
         source=result['source'];assets={}
         for row in self.transaction['outputs']:
             owner=row['script'].split(':')[0]
@@ -195,7 +222,7 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
         for owner,field in [('rounds','rounds_inventory'),('watchman','watchman_inventory')]:
             index=0 if owner=='rounds' else 1;output=self.transaction['outputs'][index]
             current[field]={owner:{'complete':True,'network':'signet','wallet':owner,'public_descriptor':'desc-'+owner,
-                'tip_height':100,'tip_hash':self.tip,'reserved_outpoints':[],'pending_transactions':[],'pending_parents':[],
+                'last_revealed_index':1,'tip_height':100,'tip_hash':self.tip,'reserved_outpoints':[],'pending_transactions':[],'pending_parents':[],
                 'unavailable_parent_txids':[],'utxos':[{'outpoint':self.txid+':'+str(index),'value_sat':output['amount_sat'],
                     'script_pubkey':output['script'],'confirmed_fee_eligible':owner=='watchman','trusted':owner=='watchman',
                     'reserved':False,'mature':True}]}}

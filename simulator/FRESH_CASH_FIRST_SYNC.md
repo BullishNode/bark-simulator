@@ -60,7 +60,9 @@ proof. Synthetic controls do not qualify any native source, payment or live run.
 Source-only API (the caller holds the existing Engine wallet-root Lease):
 
 ```python
-source = await collect_fresh_cash_sources(store, config, chain, bank_rpc)
+source = await collect_fresh_cash_sources(
+    store, config, chain, bank_rpc, current_startup_path=actual_current_public_startup_path,
+)
 # The owner separately refreshes its public loaded-runtime observation after
 # the long Core scan, then verifies it through runtime_startup. No admin call
 # or configuration mutation is made by either source function.
@@ -79,3 +81,9 @@ actual native snapshots and compare their cash/Ark state against independent
 Core; this proof never substitutes imported balance math for those snapshots.
 An optional first-Board scope is validated by its separate producer and bound
 to one original queued action, rather than inheriting this cash permission.
+
+Operator scan intervals extend from the same canonical descriptors in the actual
+current public owning inventory through last_revealed_index+20. The recorded
+scan still has at most16 descriptors and2000 derived scripts. Readiness checks
+that a later current owning frontier remains inside the completed scan. A new
+owned mempool output beyond the original initial interval is therefore covered.
