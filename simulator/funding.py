@@ -86,6 +86,26 @@ def plan(store):
     return declaration
 
 
+def _funding_table(store):
+    store.db.execute('''CREATE TABLE IF NOT EXISTS funding_batch(id TEXT PRIMARY KEY, state TEXT NOT NULL, recipients TEXT NOT NULL, txid TEXT, raw_tx TEXT, fee_sat INTEGER, updated_at REAL NOT NULL)''')
+
+
+def _check_outputs(decoded,recipients,rpc):
+    """Existing exact recipient and at-most-one owned-change check."""
+    expected={r['address']:r['amount_sat'] for r in recipients};seen={};change=[]
+    if len(expected)!=len(recipients):raise ValueError('repeated funding address')
+    for output in decoded['vout']:
+        address=output['scriptPubKey'].get('address');value=btc_to_sat(output['value'])
+        if address in expected:
+            if address in seen or value!=expected[address]:raise ValueError('funding output mismatch')
+            seen[address]=value
+        else:
+            if not address or not rpc.call('getaddressinfo',address).get('ismine'):raise ValueError('funding change not owned')
+            change.append(output)
+    if seen!=expected or len(change)>1:raise ValueError('funding recipient set mismatch')
+    return change
+
+
 def fund(store,rpc,batch,amount_sat=None,maximum_fee_sat=None):
     if store.get_meta('paused'):raise ValueError('campaign paused; no new funding')
     declaration=plan(store)
@@ -97,7 +117,7 @@ def fund(store,rpc,batch,amount_sat=None,maximum_fee_sat=None):
     if rpc.call('getblockhash',0,root=True)!=SIGNET_GENESIS:raise ValueError('funding chain mismatch')
     chain=rpc.call('getblockchaininfo',root=True)
     if chain['initialblockdownload']:raise ValueError('funding held until independent Core sync')
-    store.db.execute('''CREATE TABLE IF NOT EXISTS funding_batch(id TEXT PRIMARY KEY, state TEXT NOT NULL, recipients TEXT NOT NULL, txid TEXT, raw_tx TEXT, fee_sat INTEGER, updated_at REAL NOT NULL)''')
+    _funding_table(store)
     first,last=(1,12) if batch=='initial' else (13,24)
     if batch=='ramp' and store.get_meta('ramp_applied')!='true':raise ValueError('ramp has not occurred')
     recipients=[]
@@ -145,19 +165,10 @@ def fund(store,rpc,batch,amount_sat=None,maximum_fee_sat=None):
         signed=rpc.call('walletprocesspsbt',prepared['psbt']);final=rpc.call('finalizepsbt',signed['psbt'])
         if final.get('complete') is not True:raise ValueError('funding signing incomplete; no broadcast')
         raw=final['hex'];decoded=rpc.call('decoderawtransaction',raw,root=True)
-        expected={r['address']:r['amount_sat'] for r in recipients};seen={};change=0
-        for o in decoded['vout']:
-            addr=o['scriptPubKey'].get('address');value=btc_to_sat(o['value'])
-            if addr in expected:
-                if addr in seen or value!=expected[addr]:raise ValueError('funding output mismatch')
-                seen[addr]=value
-            else:
-                if not addr or not rpc.call('getaddressinfo',addr).get('ismine'):raise ValueError('funding change not owned')
-                change+=1
-        if seen!=expected or change>1:raise ValueError('funding recipient set mismatch')
+        _check_outputs(decoded,recipients,rpc)
         with store.transaction():
             store.db.execute("UPDATE funding_batch SET state='prepared',txid=?,raw_tx=?,fee_sat=?,updated_at=? WHERE id=?",(decoded['txid'],raw,fee,time.time(),batch))
-            store._event('fixture_funding_prepared',{'batch':batch,'txid':decoded['txid'],'raw_tx':raw,'principal_sat':sum(expected.values()),'fee_sat':fee})
+            store._event('fixture_funding_prepared',{'batch':batch,'txid':decoded['txid'],'raw_tx':raw,'principal_sat':sum(r['amount_sat'] for r in recipients),'fee_sat':fee})
         old=store.db.execute('SELECT * FROM funding_batch WHERE id=?',(batch,)).fetchone()
     available()
     with store.transaction():
