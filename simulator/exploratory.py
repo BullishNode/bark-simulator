@@ -49,8 +49,10 @@ def declare(store, declaration):
     if declaration['raw_estimate_above_cap_policy'] != 'nonurgent_capped_broadcast_pending_allowed':
         raise ValueError('explicit nonurgent capped broadcast policy required')
     for field in ('fee_ceiling_sat_kvb','per_action_fee_sat','fee_budget_sat','capital_budget_sat',
-                  'maximum_client_principal_sat','minimum_fee_cash_sat','client_board_fee_ceiling_sat_kvb','board_amount_sat','ark_send_amount_sat','maximum_ark_transfers'):
+                  'maximum_client_principal_sat','minimum_fee_cash_sat','board_amount_sat','ark_send_amount_sat','maximum_ark_transfers'):
         integer(declaration[field],field,1)
+    if declaration['client_board_fee_ceiling_sat_kvb'] is not None:
+        integer(declaration['client_board_fee_ceiling_sat_kvb'],'client board rate ceiling',1)
     if not declaration['funding_txids'] or len(declaration['funding_txids']) > 8:
         raise ValueError('actual distinct funding sources required')
     encoded = canonical(declaration)
@@ -72,9 +74,11 @@ def declare(store, declaration):
     return True
 
 
-def checked_source(declaration, packet, chain, *, now=None, client_board_txids=()):
+def checked_source(declaration, packet, chain, *, now=None, client_board_proposals=None):
     """Check only the explicitly declared ordinary operating-path proof scope."""
     now = time.time() if now is None else now
+    client_board_proposals = {} if client_board_proposals is None else client_board_proposals
+    client_board_txids = set(client_board_proposals)
     start = datetime.fromisoformat(packet['observed_at']).timestamp()
     end = datetime.fromisoformat(packet['completed_at']).timestamp()
     if not start <= end <= now or now-start > 90:raise ValueError('stale owning source')
@@ -183,7 +187,14 @@ def checked_source(declaration, packet, chain, *, now=None, client_board_txids=(
         if txid in client_board_txids:client_miner_fees += tx['fee_sat']
         raw = chain.tx(txid)
         ceiling = declaration['client_board_fee_ceiling_sat_kvb'] if txid in client_board_txids else declaration['fee_ceiling_sat_kvb']
-        if tx['fee_sat']*1000 > ceiling*integer(raw['vsize'],'actual vsize',1):
+        if txid in client_board_proposals:
+            proposal = client_board_proposals[txid]
+            mining = integer(proposal['planned_mining_fee_sat'],'planned board miner fee')
+            service = integer(proposal['estimated_service_fee_sat'],'planned board service fee')
+            maximum = integer(proposal['maximum_fee_sat'],'original board fee hold',1)
+            if tx['fee_sat'] != mining or mining+service > maximum or maximum > declaration['per_action_fee_sat']:
+                raise ValueError('actual client board fee differs from native original affordable proposal')
+        if ceiling is not None and tx['fee_sat']*1000 > ceiling*integer(raw['vsize'],'actual vsize',1):
             raise ValueError('actual signed carrier fee exceeds declared quiet ceiling')
     if miner_fees > declaration['fee_budget_sat']:raise ValueError('actual cumulative miner budget exceeded')
     ending = chain.identity()
@@ -212,7 +223,7 @@ async def collect(store,config,chain,snapshot):
     if info.get('status')!='ok':raise ValueError('actual public server info unavailable')
     packet['client_verified_server_info']=info['data']
     proposals=store.db.execute("SELECT payload FROM event WHERE kind='driver_evidence' AND json_extract(payload,'$.event')='board_proposal'").fetchall()
-    client_txids=set()
+    client_proposals={}
     from .bundle_audit import decode_transaction
     from .chain import public_transaction
     for row in proposals:
@@ -229,8 +240,8 @@ async def collect(store,config,chain,snapshot):
         original=public_transaction(chain.tx(proposal['funding_txid']))
         if original['hex']!=unsigned['stripped_hex']:
             raise InvariantError('actual client board differs from native unsigned proposal')
-        client_txids.add(proposal['funding_txid'])
-    proof = checked_source(declaration,packet,chain,client_board_txids=client_txids)
+        client_proposals[proposal['funding_txid']]={**proposal,'maximum_fee_sat':action['fee_reservation_sat']}
+    proof = checked_source(declaration,packet,chain,client_board_proposals=client_proposals)
     store.event('exploratory_operating_readiness',proof)
     snapshot['exploratory_readiness_sequence'] = store.db.execute('SELECT MAX(sequence) FROM event').fetchone()[0]
     return snapshot
