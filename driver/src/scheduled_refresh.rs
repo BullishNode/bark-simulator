@@ -1,7 +1,7 @@
 //! An explicitly scheduled delegated refresh; no retry on uncertain submission.
 use super::{Request,evidence,hex,native_intent};
 use anyhow::{Context,Result,ensure};
-use ark::{ProtocolEncoding,VtxoId};
+use ark::VtxoId;
 use bark::{Wallet,subsystem::RoundMovement};
 use serde_json::{Value,json};
 use std::{collections::HashSet,path::Path,str::FromStr};
@@ -29,13 +29,13 @@ pub(super) async fn execute(wallet:&Wallet,path:&Path,req:&Request)->Result<Valu
   ensure!(coin.state.kind()==bark::vtxo::VtxoStateKind::Spendable,"scheduled input is locked or unavailable");
   let full=wallet.get_full_vtxo(id).await?;full.check_standard()?;wallet.validate_vtxo(&full).await?;
   ensure!(wallet.pubkey_keypair(&full.user_pubkey()).await?.is_some(),"scheduled input is not owned");
-  expiries.push(full.expiry_height().to_u32());signed.push(hex(&full.serialize()));inputs.push(coin);
+  expiries.push(full.expiry_height().to_u32());signed.push(hex(&bark_sim_driver::public_coin::encode(&full)?));inputs.push(coin);
  }
  let tip=wallet.chain().tip().await?.to_u32();safe_height(tip,height,&expiries,wallet.config().round_tx_required_confirmations.to_u32(),wallet.config().vtxo_exit_margin.to_u32())?;
  let participation=wallet.build_scheduled_refresh_participation(inputs,height.into()).await?.context("no scheduled inputs")?;
  let fee=participation.total_in().context("scheduled input overflow")?.checked_sub(participation.total_out().context("scheduled output overflow")?).context("scheduled refresh creates value")?.to_sat();
  if fee>req.maximum_fee_sat{return Ok(json!({"blocked":true,"reason":"scheduled refresh fee exceeds immutable reserve","actual_fee_sat":0}));}
- let proposal=json!({"participation":participation,"committed_fee_sat":fee,"scheduled_height":height,"input_vtxo_ids":rows,
+ let proposal=json!({"participation":bark_sim_driver::public_coin::round_participation(&participation)?,"committed_fee_sat":fee,"scheduled_height":height,"input_vtxo_ids":rows,
   "signed_input_vtxos":signed,"tip":tip,"round_tx_required_confirmations":wallet.config().round_tx_required_confirmations.to_u32(),
   "vtxo_exit_margin":wallet.config().vtxo_exit_margin.to_u32()});
  evidence(req,"refresh_proposal",proposal.clone())?;

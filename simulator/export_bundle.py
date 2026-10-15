@@ -251,6 +251,9 @@ def export_bundle(store, out, *, actor=None, payout=None, after=None, before=Non
                        'trace_partitions': trace_tips, 'selected_chain_links': True},
             'counts': counts, 'files': files, 'gaps': gaps,
             'native_protocol_reverified': False,'raw_chain_reverified':False}
+        from .architecture import profile, DIRECT_PER_KEY
+        if profile(store) == DIRECT_PER_KEY:
+            manifest['source']['architecture_profile'] = DIRECT_PER_KEY
         _json(staging / 'manifest.json', manifest)
         staging.rename(out)
         return manifest
@@ -300,9 +303,19 @@ def audit_bundle(root, *, proof_binary=None):
     from .bundle_audit import archived_transactions,replay_chain_payout,verify_native_proofs
     transactions=archived_transactions(root/'raw-rpc')
     proofs=[json.loads(path.read_text()) for path in sorted((root/'proofs').glob('*.json'))]
-    protocol=verify_native_proofs(proofs,transactions,proof_binary) if proof_binary else {
+    architecture=manifest['source'].get('architecture_profile')
+    protocol=verify_native_proofs(proofs,transactions,proof_binary,architecture=architecture) if proof_binary else {
         'native_protocol_reverified':False,'gaps':[{'kind':'native_verifier_not_run'}]}
     gaps=[*manifest['gaps'],*protocol['gaps']]
+    from .architecture import DIRECT_PER_KEY
+    if architecture == DIRECT_PER_KEY:
+        # Public signatures replay independently above. The historical amount
+        # replay below is a separate two-step oracle, never C payout evidence.
+        gaps.append({'kind':'direct_per_key_terminal_journal_replay_not_exported'})
+        return {'schema_version':1,'files_verified':len(manifest['files']),
+            'payouts':[{'txid':r['payload']['txid'],'state':'pending',
+                'reason':'C direct journal/winning carrier must be independently replayed'} for r in evidence['chain_payouts']],
+            'native_protocol_reverified':protocol['native_protocol_reverified'],'gaps':gaps}
     db = sqlite3.connect(':memory:'); db.row_factory = sqlite3.Row
     from .ownership import SCHEMA as OWNERSHIP_SCHEMA
     from .settlements import SCHEMA as SETTLEMENT_SCHEMA

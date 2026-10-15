@@ -98,7 +98,7 @@ def _members(declaration):
     return members
 
 
-def declare_boundary(store,declaration,chain):
+def declare_boundary(store,declaration,chain,*,opening=None,inventory_sequences=None):
     """Record actual independently observed membership before allocating capital."""
     members=_members(declaration)
     chain.identity()
@@ -120,10 +120,20 @@ def declare_boundary(store,declaration,chain):
         if not store.get_meta('paused'):raise ValueError('declare actual boundary while dispatch is paused')
         if store.db.execute("SELECT 1 FROM action WHERE state IN ('dispatched','outcome_unknown') LIMIT 1").fetchone():
             raise ValueError('reconcile old unknown actions before declaring boundary')
-        if store.db.execute("SELECT 1 FROM event WHERE kind IN ('fixture_funding_intent','fixture_funding_prepared','fixture_funding_broadcast_intent') LIMIT 1").fetchone():
-            raise ValueError('actual boundary must be declared before funding or dispatch')
-        from .identity_bootstrap import require_only_verified_creates
-        require_only_verified_creates(store, declaration['pins'])
+        historical=store.db.execute("SELECT 1 FROM event WHERE kind IN ('fixture_funding_intent','fixture_funding_prepared','fixture_funding_broadcast_intent','action_dispatched') LIMIT 1").fetchone()
+        if opening is not None:
+            if not historical:
+                raise ValueError('preserved opening requires actual historical dispatch')
+            from .financial_transition import KEY as opening_key,validate
+            proof=validate(store,opening,declaration,inventory_sequences,chain)
+            if store.get_meta(opening_key) is not None:raise ValueError('first normal financial opening is immutable')
+            store.db.execute('INSERT INTO meta VALUES (?,?)',(opening_key,canonical(proof)))
+            store._event('preserved_financial_opening_declared',proof)
+        else:
+            if store.db.execute("SELECT 1 FROM event WHERE kind IN ('fixture_funding_intent','fixture_funding_prepared','fixture_funding_broadcast_intent') LIMIT 1").fetchone():
+                raise ValueError('actual boundary must be declared before funding or dispatch')
+            from .identity_bootstrap import require_only_verified_creates
+            require_only_verified_creates(store, declaration['pins'])
         store.db.execute('INSERT INTO meta VALUES (?,?)',(KEY,encoded))
         store._event('treasury_boundary_declared',declaration)
     return True
@@ -147,7 +157,11 @@ def capture_assets(store,inventory_sequences,chain):
     Core ignores mempool spends here: unconfirmed carriers are separate pending
     obligations/projections, never added alongside their confirmed backing.
     """
-    declaration=boundary(store);members=_members(declaration)
+    return _capture_assets(store,boundary(store),inventory_sequences,chain)
+
+
+def _capture_assets(store,declaration,inventory_sequences,chain):
+    members=_members(declaration)
     start=chain.identity();tip=start['bestblockhash'];height=start['blocks']
     if start.get('initialblockdownload') is not False:raise ValueError('independent chain not synchronized')
     if set(inventory_sequences)!=set(members):raise ValueError('inventory missing an actual boundary member')

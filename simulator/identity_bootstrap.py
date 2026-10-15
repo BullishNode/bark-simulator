@@ -59,7 +59,8 @@ def _sole_writer(root):
 
 
 def _context(config, value, *, store=None):
-    if (getattr(config, 'architecture_profile', None) != 'direct_xpub'
+    selected = getattr(config, 'architecture_profile', None)
+    if (selected not in {'direct_xpub','direct_per_key'}
             or config.expected_sdk_commit != value['pins']['sdk_commit']
             or str(config.wallet_root) != value['wallet_root']
             or len(config.driver_command) != 1):
@@ -88,6 +89,8 @@ def _context(config, value, *, store=None):
     if len(raw) > 65536 or hashlib.sha256(raw).hexdigest() != value['driver_config_sha256']:
         raise ValueError('bootstrap driver configuration changed')
     native = json.loads(raw)
+    if selected == 'direct_per_key' and native.get('architecture_profile') != selected:
+        raise ValueError('C bootstrap requires the actual explicitly profiled C native adapter')
     if (native.get('wallet_root') != value['wallet_root'] or native.get('network') != config.network
             or not isinstance(native.get('ark_endpoint'), str) or not native['ark_endpoint']):
         raise ValueError('bootstrap native configuration scope differs')

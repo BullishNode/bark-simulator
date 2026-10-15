@@ -63,6 +63,11 @@ def verify_owned_startup_sources(store, startup_path, current_path, *, expected)
     process. Current ctime/mtime before process start proves the file has not
     changed since Config::load, under the trusted-host/sole-writer model.
     """
+    if getattr(store,'db',None) is not None:
+        from .architecture import DIRECT_PER_KEY,profile
+        if profile(store)==DIRECT_PER_KEY:
+            from .c_runtime import verify
+            return verify(store,startup_path,current_path,expected=expected)
     from .target_epochs import active_runtime_manifest
     manifest=active_runtime_manifest(store) if getattr(store,'db',None) is not None else None
     product=manifest['expected']['product_commit'] if manifest else PRODUCT_COMMIT

@@ -17,6 +17,7 @@ from .model import SIGNET_GENESIS, btc_to_sat, canonical, integer, public_payloa
 from .process import json_command, public_command_capture
 from .runtime_startup import _read
 from .trace import normalized
+from .architecture import DIRECT_PER_KEY, profile
 
 CUSTOMERS={'actor-01','actor-02','actor-04'}
 TABLES={'coins','pending_boards','links','records','pool','lightning_nodes','htlcs','receives','payments',
@@ -26,6 +27,40 @@ OPENING_SAT=665454
 PRINCIPAL_SAT=325000
 FUNDING_FEE_SAT=10000
 MAX_RATE_SAT_KVB=20000
+
+
+def _policy(store):
+    if profile(store)==DIRECT_PER_KEY:
+        from .c_pilot import funding_policy
+        return funding_policy(store)
+    return {'customers':CUSTOMERS,'opening_sat':OPENING_SAT,'principal_sat':PRINCIPAL_SAT,
+        'maximum_fee_sat':FUNDING_FEE_SAT,'maximum_rate_sat_kvb':MAX_RATE_SAT_KVB,
+        'amounts':{'rounds':100000,'watchman':75000,**{actor:50000 for actor in CUSTOMERS}},
+        'ordinary_budget_sat':60000,'urgent_budget_sat':15000,'grant_sat':50000,
+        'board_sat':20000,'board_fee_reserve_sat':4000}
+
+
+def _c_records_links(store, customer_data, pins):
+    from .per_key import initial_origins, record_envelope, proof_matches, binding_matches
+    records=[];links=[]
+    for actor,data in sorted(customer_data.items()):
+        binding=data['binding'];wire=record_envelope(binding)
+        records.append({'mailbox_pk':binding['mailbox_pk'],'spk':binding['spk'],'mailbox_sig':wire[-64:].hex()})
+        origins=initial_origins(data)
+        for origin in origins:
+            row=store.db.execute('SELECT * FROM owner_key WHERE pubkey=?',(origin['user_pubkey'],)).fetchone()
+            checked=json.loads(row['proof']) if row else {}
+            if (not row or row['actor']!=actor or checked.get('financial_pins')!=pins
+                    or not proof_matches(checked,origin) or not binding_matches(checked.get('binding',{}),binding)):
+                raise ValueError('original independently verified C creation link required')
+            raw=bytes.fromhex(origin['key_link_attestation'])
+            links.append({'user_pubkey':origin['user_pubkey'],'mailbox_pk':binding['mailbox_pk'],
+                'sig':raw[-64:].hex(),'recovery_index':int.from_bytes(raw[35:39],'little')})
+        from .c_pilot import verify_public_key_rows
+        verify_public_key_rows(store,actor,origins,initial=True)
+    if len({r['mailbox_pk'] for r in records})!=2 or len({r['spk'] for r in records})!=2 or len({l['user_pubkey'] for l in links})!=102:
+        raise ValueError('two distinct C identities and 102 original unique links required')
+    return sorted(records,key=lambda r:r['mailbox_pk']),sorted(links,key=lambda r:r['user_pubkey'])
 
 
 def _digest(value):return hashlib.sha256(canonical(value).encode()).hexdigest()
@@ -73,21 +108,24 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
     or manually assembled monetary frames are accepted as source substitutes.
     """
     started=time.monotonic()
+    policy=_policy(store);customers=policy['customers'];per_key=profile(store)==DIRECT_PER_KEY
     def remaining(limit):
         value=min(limit,180-(time.monotonic()-started))
         if value<=0:raise ValueError('initial funding source deadline exceeded')
         return value
     proof=declaration(store)
-    if proof is None or set(proof['declaration']['actors'])!=CUSTOMERS:
+    if proof is None or set(proof['declaration']['actors'])!=customers:
         raise ValueError('exact fresh three-customer bootstrap required')
     pins=proof['declaration']['pins'];_initial(store,pins)
+    if per_key and (policy['pins']!=pins or policy['boundary_id']!=boundary_id):
+        raise ValueError('C pilot identity/treasury context differs')
     wallet_root=Path(proof['declaration']['wallet_root'])
     if str(config.wallet_root)!=str(wallet_root) or _root(str(wallet_root))!=proof['filesystem']:
         raise ValueError('original private cohort root identity changed')
     children={child.name:child for child in wallet_root.iterdir()}
-    if set(children)-({'supervisor.lock'}|CUSTOMERS) or not CUSTOMERS<=set(children):
+    if set(children)-({'supervisor.lock'}|customers) or not customers<=set(children):
         raise ValueError('cohort root contains missing or unenumerated wallets')
-    for actor in CUSTOMERS:
+    for actor in customers:
         info=children[actor].lstat()
         if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode) or stat.S_IMODE(info.st_mode)!=0o700 or info.st_uid!=proof['filesystem']['uid']:
             raise ValueError('actual private customer directory required')
@@ -112,11 +150,11 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             or bank.get('listlockunspent')!=[] or bank.get('listsinceblock',{}).get('transactions')!=[]):
         raise ValueError('initial named bank must have no pending transactions or locks')
     bank_coins=bank['listunspent']
-    if not bank_coins or sum(btc_to_sat(coin['amount']) for coin in bank_coins)!=OPENING_SAT:
+    if not bank_coins or sum(btc_to_sat(coin['amount']) for coin in bank_coins)!=policy['opening_sat']:
         raise ValueError('exact included bank opening balance required')
     if any(type(coin.get('confirmations')) is not int or coin['confirmations']<1 or coin.get('spendable') is not True or coin.get('solvable') is not True or coin.get('safe') is not True for coin in bank_coins):
         raise ValueError('all bank coins must be confirmed, safe and controlled')
-    if btc_to_sat(bank['getbalances']['mine']['trusted'])!=OPENING_SAT or btc_to_sat(bank['getbalances']['mine']['untrusted_pending'])!=0:
+    if btc_to_sat(bank['getbalances']['mine']['trusted'])!=policy['opening_sat'] or btc_to_sat(bank['getbalances']['mine']['untrusted_pending'])!=0:
         raise ValueError('complete bank balance differs from initial assets')
     wallet_specs={};bank_descriptors=[];bank_ranges=[]
     for row in bank['listdescriptors']['descriptors']:
@@ -130,7 +168,7 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
     for owner,field in (('rounds','rounds_inventory'),('watchman','watchman_inventory')):
         wallet_specs[owner]=_empty_owner(current.get(field,{}).get(owner),owner,tip)
     customer_data={};customer_sequences={}
-    for actor in sorted(CUSTOMERS):
+    for actor in sorted(customers):
         rows=store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_zero_assets_verified' AND json_extract(payload,'$.actor')=?",(actor,)).fetchall()
         if len(rows)!=1:raise ValueError('unique original customer bootstrap proof required')
         _,zero=_source_event(store,rows[0][0]);_,native=_source_event(store,zero['driver_response_sequence'])
@@ -186,7 +224,7 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             'descriptor_index':position['descriptor_index'],'child_index':position['child_index']})
     def mempool_ids():
         value=chain.call('getrawmempool',False)
-        if (not isinstance(value,list) or len(value)>2500 or len(set(value))!=len(value)
+        if (not isinstance(value,list) or len(value)>4096 or len(set(value))!=len(value)
                 or any(not isinstance(txid,str) or len(txid)!=64 or any(c not in '0123456789abcdef' for c in txid) for txid in value)):
             raise ValueError('complete mempool exceeds declared transaction bound or has invalid IDs')
         return set(value)
@@ -195,7 +233,7 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
     # Bound the union, not each convenient page. Every currently present ID
     # must have its actual outputs checked; removal of unrelated IDs is safe.
     for mempool_pass in range(1,9):
-        if len(checked_ids|mempool)>2500:raise ValueError('complete mempool union exceeds declared transaction bound')
+        if len(checked_ids|mempool)>4096:raise ValueError('complete mempool union exceeds declared transaction bound')
         for txid in sorted(mempool-checked_ids):
             if time.monotonic()-started>180:raise ValueError('initial funding source deadline exceeded')
             transaction=chain.tx(txid);mempool_bytes+=len(canonical(normalized(transaction)).encode())
@@ -224,36 +262,42 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
         'response_sha256':_digest(database),'financial_pins':pins,'observed_at':time.time()})
     database_sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
     rows=database.get('rows')
-    if (database.get('kind')!='closed_frontier' or database.get('schema_version')!=1 or database.get('fallback_protocol')!=3
+    if (database.get('kind')!='closed_frontier' or database.get('schema_version')!=1 or database.get('fallback_protocol')!=(4 if per_key else 3)
+            or per_key and database.get('architecture_profile')!=DIRECT_PER_KEY
             or database.get('complete') is not False or database.get('qualified') is not False
             or database.get('database_tables_complete') is not True
             or database.get('inventory_consistent') is not True or database.get('read_only') is not True
             or not isinstance(rows,dict) or set(rows)!=TABLES or any(not isinstance(value,list) for value in rows.values())):
         raise ValueError('complete original nineteen-table frontier required')
-    expected_records=sorted((_record(customer_data[actor]['binding']) for actor in CUSTOMERS),key=lambda row:row['mailbox_pk'])
-    if len({row['mailbox_pk'] for row in expected_records})!=3:raise ValueError('three distinct customer bindings required')
+    expected_records=sorted((_record(customer_data[actor]['binding']) for actor in customers),key=lambda row:row['mailbox_pk']) if not per_key else []
+    expected_links=[]
+    if per_key:expected_records,expected_links=_c_records_links(store,customer_data,pins)
+    if len({row['mailbox_pk'] for row in expected_records})!=len(customers):raise ValueError('distinct original customer bindings required')
     for table,records in rows.items():
         if table in {'records','journal_records'}:
             if sorted(records,key=lambda row:row['mailbox_pk'])!=expected_records:raise ValueError('exact original three customer database bindings required')
+        elif per_key and table in {'links','journal_links'}:
+            if sorted(records,key=lambda row:row['user_pubkey'])!=expected_links:raise ValueError('exact original 51 C links per customer required')
         elif records:raise ValueError('initial funding refuses existing monetary or unsupported database frontier')
     estimate=chain.call('estimatesmartfee',6)
     rate=btc_to_sat(estimate['feerate'])
-    if not 1<=rate<=MAX_RATE_SAT_KVB:raise ValueError('actual funding fee estimate exceeds finite ceiling or unavailable')
+    if not 1<=rate<=policy['maximum_rate_sat_kvb']:raise ValueError('actual funding fee estimate exceeds finite ceiling or unavailable')
     ending=chain.identity()
     if ending.get('initialblockdownload') is not False or (ending['blocks'],ending['bestblockhash'])!=tip:
         raise ValueError('chain changed during initial funding observation')
     if time.monotonic()-started>180:raise ValueError('initial funding source deadline exceeded')
     _initial(store,pins)
     recipients=[]
-    for member_id,amount in [('rounds',100000),('watchman',75000),*[(actor,50000) for actor in sorted(CUSTOMERS)]]:
+    recipient_amounts = sorted(policy['amounts'].items()) if per_key else [('rounds',100000),('watchman',75000),*[(actor,50000) for actor in sorted(CUSTOMERS)]]
+    for member_id,amount in recipient_amounts:
         spec=wallet_specs[member_id]
-        if member_id in CUSTOMERS:
+        if member_id in customers:
             found=[(key,value) for key,value in addresses.items() if key[0]==member_id and value[0]==spec['funding_address']]
             if len(found)!=1:raise ValueError('original customer funding address not in owning descriptor')
             (_,descriptor_index,child),(address,script)=found[0]
         else:
             descriptor_index=0;child=spec['recipient_index'];address,script=addresses[(member_id,0,child)]
-        recipients.append({'member_id':member_id,'role':'customer' if member_id in CUSTOMERS else 'operator',
+        recipients.append({'member_id':member_id,'role':'customer' if member_id in customers else 'operator',
             'address':address,'script':script,'amount_sat':amount,'descriptor_index':descriptor_index,'child_index':child})
     members=[];inventory_sequences={}
     with store.transaction():
@@ -268,7 +312,7 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
         mempool_sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
         for member_id,spec in wallet_specs.items():
             identity=('core-wallet:'+bank['source_identity']['wallet_name']) if member_id=='bank' else 'bdk-wallet:'+_digest(spec['descriptors'])
-            member={'id':member_id,'kind':'wallet','role':'customer' if member_id in CUSTOMERS else 'operator',
+            member={'id':member_id,'kind':'wallet','role':'customer' if member_id in customers else 'operator',
                 'identity':identity,'descriptors':spec['descriptors']}
             store._event('treasury_member_verified',{'member':member,'financial_pins':pins,'genesis':SIGNET_GENESIS,
                 'source_scope':'actual initial named bank or pinned native owning wallet plus independent descriptor/mempool scan',
@@ -286,15 +330,23 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             'runtime_source_sequence':runtime_source_sequence,'customer_source_sequences':customer_sequences,
             'mempool_projection_source_sequence':mempool_sequence,
             'core_inventory_source_sequence':core_inventory_sequence,
-            'opening_total_sat':OPENING_SAT,'opening_liabilities_sat':0,'funding_recipients':recipients,
-            'funding_plan_sha256':_digest(recipients),'principal_sat':PRINCIPAL_SAT,
-            'maximum_funding_fee_sat':FUNDING_FEE_SAT,'maximum_fee_rate_sat_kvb':MAX_RATE_SAT_KVB,
+            'opening_total_sat':policy['opening_sat'],'opening_liabilities_sat':0,'funding_recipients':recipients,
+            'funding_plan_sha256':_digest(recipients),'principal_sat':policy['principal_sat'],
+            'maximum_funding_fee_sat':policy['maximum_fee_sat'],'maximum_fee_rate_sat_kvb':policy['maximum_rate_sat_kvb'],
             'estimated_fee_rate_sat_kvb':rate,'inventory_sequences':inventory_sequences,'members':members,
             'descriptor_ranges':scans,'mempool_transactions_checked':len(checked_ids),'mempool_current_transactions':len(mempool),
             'mempool_observation_passes':mempool_pass,'mempool_bytes_checked':mempool_bytes,
             'mempool_outputs_checked':outputs,'ordinary_fee_holds_sat':{'funding':10000,'three_boards':12000,'three_normal_expiry_carriers':30000},
-            'urgent_fee_reserve_sat':15000,'operation_scope':['funding'],
+            'urgent_fee_reserve_sat':policy['urgent_budget_sat'],'operation_scope':['funding'],
             'scope':'only initial funding of six fully enumerated owned wallets; all monetary database rows absent; no subsequent wallet operation admission'}
+        if per_key:
+            source.update(architecture_profile=DIRECT_PER_KEY,c_pilot_id=policy['pilot_id'],
+                client_principal_sat=policy['client_principal_sat'],
+                operator_fee_grants_sat=policy['operator_fee_grants_sat'],
+                fee_signer_member=policy['fee_signer_member'],
+                actual_daemon_fee_liquidity_msat=0,urgent_isolation_qualified=False,
+                ordinary_fee_holds_sat={'funding':1000,'one_board':1000},
+                scope='C initial Core-bank funding only: exact 25000-sat sender and 100000-sat watchman outputs; recipient/rounds zero; actual signer liquidity must be independently observed after confirmation; urgent separation/C11 and full qualification open')
         public_payload(source);store._event('finite_initial_funding_sources_verified',source)
         sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
     return {'source_sequence':sequence,'source':source,
@@ -306,32 +358,46 @@ def record_initial_funding_readiness(store,config,chain,source_sequence):
     """After the ordinary boundary/envelope declarations, admit funding alone."""
     from .operating_limits import envelope,fee_totals
     from .treasury import boundary,capture_assets
+    policy=_policy(store);per_key=profile(store)==DIRECT_PER_KEY
     event,source=_source_event(store,source_sequence)
     if event['kind']!='finite_initial_funding_sources_verified' or source.get('operation_scope')!=['funding']:
         raise ValueError('original initial-only funding source required')
+    if per_key and (source.get('architecture_profile')!=DIRECT_PER_KEY
+            or source.get('c_pilot_id')!=policy['pilot_id'] or source.get('opening_total_sat')!=policy['opening_sat']):
+        raise ValueError('original C bounded pilot source required')
     _fresh(source['observed_at'],'initial funding');_initial(store,source['financial_pins'])
     limits=envelope(store,config);treasury=boundary(store)
     if (limits['pins']!=source['financial_pins'] or limits['boundary_id']!=source['boundary_id']
             or treasury['members']!=source['members'] or treasury['id']!=source['boundary_id']
             or limits.get('operation_fee_paths',{}).get('funding')!=['sweep','payout']
             or limits['fee_ceilings_sat_kvb']!={'round':None,'pool':None,'sweep':20000,'payout':20000,'claim':None,'progression':None}
-            or limits['fee_budgets_msat']!={'ordinary':60000000,'urgent':15000000}
-            or limits['capital_exposure_msat']<OPENING_SAT*1000 or limits['per_action_fee_sat']!=FUNDING_FEE_SAT
-            or limits['grant_sat']!=50000 or limits['board_sat']!=20000 or limits['board_fee_reserve_sat']!=4000):
+            or limits['fee_budgets_msat']!={'ordinary':policy['ordinary_budget_sat']*1000,'urgent':policy['urgent_budget_sat']*1000}
+            or limits['capital_exposure_msat']<policy['opening_sat']*1000 or limits['per_action_fee_sat']!=policy['maximum_fee_sat']
+            or limits['grant_sat']!=policy['grant_sat'] or limits['board_sat']!=policy['board_sat'] or limits['board_fee_reserve_sat']!=policy['board_fee_reserve_sat']):
         raise ValueError('exact prospectively affordable initial funding envelope required')
     assets=capture_assets(store,source['inventory_sequences'],chain)
-    if (assets['total_msat']!=OPENING_SAT*1000 or (assets['height'],assets['tip_hash'])!=(source['height'],source['tip_hash'])
+    if (assets['total_msat']!=policy['opening_sat']*1000 or (assets['height'],assets['tip_hash'])!=(source['height'],source['tip_hash'])
             or fee_totals(store,source['financial_pins'])!={'ordinary':0,'urgent':0}):
         raise ValueError('actual opening assets, tip or prior financial costs differ')
     receipt={'financial_pins':source['financial_pins'],'boundary_id':source['boundary_id'],
         'height':source['height'],'tip_hash':source['tip_hash'],'observed_at':time.time(),'complete':True,
         'operation_scope':['funding'],'finite_initial_source_sequence':source_sequence,
         'bank_source_sequence':source['bank_source_sequence'],'funding_plan_sha256':source['funding_plan_sha256'],
-        'effective_fee_ceilings_sat_kvb':limits['fee_ceilings_sat_kvb'],'capital_exposure_msat':OPENING_SAT*1000,
-        'available_fee_funding_msat':(OPENING_SAT-PRINCIPAL_SAT-FUNDING_FEE_SAT)*1000,
+        'effective_fee_ceilings_sat_kvb':limits['fee_ceilings_sat_kvb'],'capital_exposure_msat':policy['opening_sat']*1000,
+        'available_fee_funding_msat':(policy['opening_sat']-policy['principal_sat']-policy['maximum_fee_sat'])*1000,
         'estimated_fee_rate_sat_kvb':source['estimated_fee_rate_sat_kvb'],
-        'ordinary_fee_holds_sat':source['ordinary_fee_holds_sat'],'urgent_fee_reserve_sat':15000,
+        'ordinary_fee_holds_sat':source['ordinary_fee_holds_sat'],'urgent_fee_reserve_sat':policy['urgent_budget_sat'],
         'pool_ready':False,'channel_route_ready':False,
         'scope':'complete only for the initial once-only five-output funding prerequisite; subsequent monetary state requires new source qualification'}
+    if per_key:receipt.update(architecture_profile=DIRECT_PER_KEY,c_pilot_id=policy['pilot_id'],
+        # Core bank is the real signer for THIS funding operation only. The
+        # internal watchman allocation remains operator capital, not principal
+        # leaving the treasury or already-observed daemon spending authority.
+        available_fee_funding_msat=(policy['opening_sat']-policy['client_principal_sat']-policy['maximum_fee_sat'])*1000,
+        funding_total_transfer_sat=policy['principal_sat'],client_principal_sat=policy['client_principal_sat'],
+        operator_fee_grants_sat=policy['operator_fee_grants_sat'],
+        fee_signer_member='bank',actual_daemon_fee_liquidity_msat=0,
+        urgent_isolation_qualified=False,
+        scope='C once-only Core-bank batch: sender25000/watchman100000; postfunding Board requires true confirmed/trusted watchman liquidity; urgent separation/C11 and full qualification open')
     store.event('financial_operating_readiness',receipt)
     return {'operating_readiness_sequence':store.db.execute('SELECT max(sequence) FROM event').fetchone()[0],**receipt}

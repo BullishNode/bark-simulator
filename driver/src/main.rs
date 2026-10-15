@@ -2,12 +2,17 @@ mod exit;
 mod onchain_inventory;
 mod board_quote;
 mod native_intent;
+#[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
 mod immutable_record;
+#[cfg(feature = "two-step")]
+mod fallback_rotation;
+#[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
 mod account_probes;
 mod scheduled_refresh;
 mod raw_guard;
 #[cfg(test)]
 mod raw_guard_tests;
+#[cfg(not(feature = "direct-per-key"))]
 mod raw_protocol;
 mod phase_protocol;
 mod phase_transport;
@@ -28,6 +33,10 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
+#[cfg(feature = "two-step")]
+use ark::attestations::{FallbackRecordAttestation, KeyLinkAttestation};
+#[cfg(feature = "two-step")]
+use bitcoin::constants::ChainHash;
 use ark::lightning::Bolt11InvoiceExt;
 use ark::{ProtocolEncoding, SECP};
 use bark::actions::{
@@ -66,11 +75,15 @@ struct DriverConfig {
     wallet_root: PathBuf,
     #[serde(default = "signet")]
     network: String,
+    #[serde(default)]
+    architecture_profile: Option<String>,
 }
 
 fn signet() -> String {
     "signet".into()
 }
+
+use bark_sim_driver::validate_architecture;
 
 fn allowed_network(name: &str, endpoint: &str) -> Result<Network> {
     let network = Network::from_str(name)?;
@@ -87,7 +100,12 @@ fn allowed_network(name: &str, endpoint: &str) -> Result<Network> {
     Ok(network)
 }
 
+#[cfg(not(feature = "two-step"))]
 async fn fallback_binding(wallet: &Wallet) -> Result<Value> {
+    #[cfg(feature = "direct-per-key")]
+    { return bark_sim_driver::per_key::wallet_binding(wallet).await; }
+    #[cfg(not(feature = "direct-per-key"))]
+    {
     let record = wallet.fallback_destination().await?;
     let mailbox = wallet.mailbox_identifier().as_pubkey();
     record.verify(wallet.network().await?, mailbox)?;
@@ -96,6 +114,24 @@ async fn fallback_binding(wallet: &Wallet) -> Result<Value> {
     // about a funding carrier, a Lightning outcome or server arbitration.
     Ok(json!({"mailbox_pk":mailbox.to_string(),"spk":hex(record.spk.as_bytes()),
         "account_xpub":record.account_xpub.to_string(),"fallback_record":hex(&record.serialize())}))
+    }
+}
+
+#[cfg(feature = "two-step")]
+async fn fallback_binding(wallet: &Wallet) -> Result<Value> {
+    let record = wallet.fallback_destination().await?;
+    let mailbox = wallet.mailbox_keypair();
+    let chain = ChainHash::using_genesis_block_const(wallet.network().await?);
+    let onchain = wallet.onchain().context("missing onchain wallet")?;
+    ensure!(
+        onchain.read().await.is_mine(&record.spk).await?,
+        "fallback script is not owned by this client"
+    );
+    Ok(
+        json!({"mailbox_pk":mailbox.public_key().to_string(),"spk":hex(record.spk.as_bytes()),
+        "seq":record.seq,"record_attestation":hex(&FallbackRecordAttestation::new(chain,&record.spk,record.seq,&mailbox).serialize()),
+        "onchain_ownership_checked":true}),
+    )
 }
 
 async fn coin_evidence(wallet: &Wallet) -> Result<Value> {
@@ -108,12 +144,29 @@ async fn coin_evidence(wallet: &Wallet) -> Result<Value> {
     let mut public = Vec::new();
     for coin in &coins {
         let full = wallet.get_full_vtxo(coin.id()).await?;
-        let hint = wallet.fallback_child_hint(full.user_pubkey()).await?;
-        public.push(json!({"id":full.id().to_string(), "amount_sat":full.amount().to_sat(),
+        let mut value = json!({"id":full.id().to_string(), "amount_sat":full.amount().to_sat(),
             "user_pubkey":full.user_pubkey().to_string(), "expiry_height":full.expiry_height().to_u32(),
             "state":coin.state.kind().to_string(), "signed_vtxo":hex(&bark_sim_driver::public_coin::encode(&full)?),
-            "proof_encoding":"ark-public-authorization-v1",
-            "child_index":hint.child_index(), "blinded_mailbox_id":hex(hint.blinded_mailbox_id().as_ref())}));
+            "proof_encoding":"ark-public-authorization-v1"});
+        #[cfg(feature = "direct-per-key")]
+        {
+            let origin = bark_sim_driver::per_key::wallet_origin(wallet,full.user_pubkey()).await?;
+            value["key_link_attestation"] = origin["key_link_attestation"].clone();
+        }
+        #[cfg(feature = "two-step")]
+        {
+            let (_, key) = wallet.pubkey_keypair(&full.user_pubkey()).await?
+                .context("owned coin key absent")?;
+            value["key_link_attestation"] = json!(hex(&KeyLinkAttestation::new(
+                wallet.mailbox_keypair().public_key(), &key).serialize()));
+        }
+        #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+        {
+            let hint = wallet.fallback_child_hint(full.user_pubkey()).await?;
+            value["child_index"] = json!(hint.child_index());
+            value["blinded_mailbox_id"] = json!(hex(hint.blinded_mailbox_id().as_ref()));
+        }
+        public.push(value);
     }
     let movements = wallet.history().await?;
     ensure!(
@@ -280,6 +333,12 @@ where F:std::future::Future<Output=Result<Value>>,
 }
 
 async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
+    validate_architecture(cfg.architecture_profile.as_deref())?;
+    #[cfg(feature = "direct-per-key")]
+    {
+        ensure!(!req.operation.starts_with("raw_") && req.operation!="fallback_record_check"
+            && req.operation!="fallback_record_query", "C raw/probe adapter not yet qualified; no legacy alias");
+    }
     let network = allowed_network(&cfg.network, &cfg.ark_endpoint)?;
     let channel = Endpoint::from_shared(cfg.ark_endpoint.clone())?
         .connect_timeout(std::time::Duration::from_secs(10))
@@ -304,6 +363,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                          "required_board_confirmations": info.required_board_confirmations}),
         );
     }
+    #[cfg(not(feature = "direct-per-key"))]
     if req.operation == "fallback_record_query" {
         let mailbox = PublicKey::from_str(
             req.args["mailbox_pk"]
@@ -313,7 +373,12 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         let response = rpc
             .set_fallback(protos::SetFallbackRequest {
                 mailbox_pk: mailbox.serialize().to_vec(),
+                #[cfg(not(feature = "two-step"))]
                 record: vec![],
+                #[cfg(feature = "two-step")]
+                record: None,
+                #[cfg(feature = "two-step")]
+                key_links: vec![],
             })
             .await
             .map_err(|status| {
@@ -486,10 +551,16 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
     match req.operation.as_str() {
         "phase_execute_d17"=>phase_protocol::race_arkoor(&wallet,&mut rpc,req,&path.join("private-phases"),actor).await,
         "phase_execute_d18"|"phase_execute_d19"=>phase_round::execute(&wallet,&mut rpc,req,phase_round_invocation.as_ref().context("missing one-process round transport")?,actor).await,
+        #[cfg(not(feature = "direct-per-key"))]
         operation if operation.starts_with("raw_protocol_")=>raw_protocol::execute(&wallet,&db,&mut rpc,req,path,actor).await,
 
         "exit" => exit::execute(&wallet,&mut rpc,path,req,network).await,
+        #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
         "fallback_record_check" => immutable_record::execute(&wallet,&mut rpc,path,req,network).await,
+        #[cfg(feature = "two-step")]
+        "fallback_rotate" => fallback_rotation::execute(&wallet,&mut rpc,path,req,network).await,
+        #[cfg(feature = "two-step")]
+        "fallback_record_check" => bail!("immutable/xpub record checks are unsupported by the two-step SDK; use declared fallback rotation"),
         "refresh_scheduled" => scheduled_refresh::execute(&wallet,path,req).await,
         "create" => {
             let fallback = wallet.fallback_destination().await?;
@@ -500,9 +571,23 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 .downcast_ref::<OnchainWallet>().context("not a BDK wallet")?;
             let inventory = onchain_inventory::collect(bdk)?;
             drop(guard);
-            Ok(
-                json!({"funding_address": receive.to_string(), "fallback_script": hex(fallback.spk.as_bytes()), "account_xpub":fallback.account_xpub.to_string(),"binding":fallback_binding(&wallet).await?,"onchain_inventory":inventory}),
-            )
+            let mut result = json!({"funding_address": receive.to_string(), "fallback_script": hex(fallback.spk.as_bytes()),
+                "binding":fallback_binding(&wallet).await?,"onchain_inventory":inventory});
+            #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+            { result["account_xpub"] = json!(fallback.account_xpub.to_string()); }
+            #[cfg(feature = "direct-per-key")]
+            {
+                // Read the creation acknowledgements without issuing an address
+                // or refilling the pool. Retry never allocates a replacement key.
+                let mut links = Vec::new();
+                for index in 0..=50u32 {
+                    let key = wallet.peek_keypair(index).await?.public_key();
+                    let origin = bark_sim_driver::per_key::wallet_origin(&wallet, key).await?;
+                    links.push(json!({"native_index": index, "origin": origin}));
+                }
+                result["initial_key_links"] = json!(links);
+            }
+            Ok(result)
         }
         "snapshot" => {
             let balance = bark_json::cli::Balance::from(wallet.balance().await?);
@@ -521,9 +606,11 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             let onchain_balance = bark_json::cli::onchain::OnchainBalance::from(bdk.balance());
             let inventory = onchain_inventory::collect(bdk)?;
             drop(guard);
-            Ok(
-                json!({"balance": balance, "onchain": onchain_balance, "vtxos": vtxos, "fallback_script": hex(fallback.spk.as_bytes()), "account_xpub":fallback.account_xpub.to_string(), "evidence":coin_evidence(&wallet).await?,"onchain_inventory":inventory}),
-            )
+            let mut result = json!({"balance": balance, "onchain": onchain_balance, "vtxos": vtxos,
+                "fallback_script": hex(fallback.spk.as_bytes()), "evidence":coin_evidence(&wallet).await?,"onchain_inventory":inventory});
+            #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+            { result["account_xpub"] = json!(fallback.account_xpub.to_string()); }
+            Ok(result)
         }
         "sync" | "claim_lightning" => {
             if req.operation=="claim_lightning" {ensure!(req.args.get("receive_payment_hash").is_some(),"original claim hash required");}
@@ -612,8 +699,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             // Advancing existing boards/rounds/sends/offboards is accounted to
             // their original persisted action, never charged a second time here.
             let no_new_receive = receive_count_before == 0 && receive_count_after == 0;
-            Ok(
-                json!({"requested": "sync", "note": "SDK sync can log partial failures; inspect snapshot/status before declaring convergence",
+            let mut result = json!({"requested": "sync", "note": "SDK sync can log partial failures; inspect snapshot/status before declaring convergence",
                     "receive_count_before":receive_count_before,"receive_count_after":receive_count_after,
                     "receive_payment_hashes_before":receive_payment_hashes_before,
                     "receive_payment_hashes_after":receive_payment_hashes_after,
@@ -624,12 +710,33 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                     "all_pending_receive_fee_ceiling_sat":receive_ceiling,
                     "actual_fee_sat":if no_new_receive {json!(0)} else {Value::Null},
                     "fee_scope":"new receive fees require signed claim reconciliation; costs of existing persisted actions remain on those actions",
-                    "before_evidence":before,"evidence":coin_evidence(&wallet).await?}),
-            )
+                    "before_evidence":before,"evidence":coin_evidence(&wallet).await?});
+            #[cfg(feature = "direct-per-key")]
+            if req.operation == "sync" && !bounded_receive_sync {
+                result["c_key_links"] = bark_sim_driver::per_key::fresh_synced_prefix(&wallet).await?;
+            }
+            Ok(result)
         }
         "address" => {
             let address = wallet.new_address().await?;
             let pk = address.policy().user_pubkey();
+            #[cfg(feature = "direct-per-key")]
+            {
+                let mut result = bark_sim_driver::per_key::wallet_origin(&wallet,pk).await?;
+                result["address"] = json!(address.to_string());
+                Ok(result)
+            }
+            #[cfg(feature = "two-step")]
+            {
+                let (_, key) = wallet.pubkey_keypair(&pk).await?
+                    .context("advertised key is not owned")?;
+                Ok(json!({"address":address.to_string(),"user_pubkey":pk.to_string(),
+                    "key_link_attestation":hex(&KeyLinkAttestation::new(
+                        wallet.mailbox_keypair().public_key(), &key).serialize()),
+                    "binding":fallback_binding(&wallet).await?}))
+            }
+            #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+            {
             let hint = address.account_child()?.context("advertised address lacks account child origin")?;
             ark::fallback::AccountChild::new(wallet.mailbox_identifier().as_pubkey(),hint.child_index())?
                 .verify_pubkey(&wallet.fallback_destination().await?.account_xpub,pk)?;
@@ -637,6 +744,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 json!({"address":address.to_string(),"user_pubkey":pk.to_string(),
                 "child_index":hint.child_index(),"blinded_mailbox_id":hex(hint.blinded_mailbox_id().as_ref()),"binding":fallback_binding(&wallet).await?}),
             )
+            }
         }
         "send_arkoor" => {
             let destination = ark::Address::from_str(
@@ -808,7 +916,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             evidence(
                 req,
                 "refresh_proposal",
-                json!({"participation":participation,"committed_fee_sat":fee}),
+                json!({"participation":bark_sim_driver::public_coin::round_participation(&participation)?,"committed_fee_sat":fee}),
             )?;
             let id = if req.operation == "refresh_delegated" {
                 wallet
@@ -978,8 +1086,12 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 "note":"await chain confirmation; pending checkpoints are not automatically retried by supervisor"}),
             )
         }
+        #[cfg(not(feature = "direct-per-key"))]
         operation if operation.starts_with("raw_") => {
-            account_probes::execute(&wallet,&mut rpc,req,path,network,operation).await
+            #[cfg(not(feature = "two-step"))]
+            { account_probes::execute(&wallet,&mut rpc,req,path,network,operation).await }
+            #[cfg(feature = "two-step")]
+            { bail!("xpub-specific raw operation {operation} is unsupported by the two-step SDK") }
         }
         _ => bail!("unsupported operation"),
     }
@@ -1215,6 +1327,17 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn native_adapter_rejects_every_other_architecture_before_rpc() {
+        let expected = if cfg!(feature = "two-step") { "two_step_per_key" }
+            else if cfg!(feature = "direct-per-key") { "direct_per_key" }
+            else { "direct_xpub" };
+        for profile in ["direct_xpub", "two_step_per_key", "direct_per_key", "unknown"] {
+            assert_eq!(validate_architecture(Some(profile)).is_ok(), profile == expected);
+        }
+        assert_eq!(validate_architecture(None).is_ok(), expected == "direct_xpub");
     }
 
     #[test]

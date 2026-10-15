@@ -74,3 +74,5 @@ and the [query cookbook](docs/cookbook.md) to inspect traffic and accounting evi
 
 [Fee observations](docs/fee-watch.md) explain independent current-rate comparisons,
 raw mining-fee verification and the limits of anonymous payout tick summaries.
+
+[Direct settlement with per-key attribution](docs/direct-per-key.md) documents the separately built C adapter and its remaining qualification gaps.

@@ -3,6 +3,7 @@
 from pathlib import Path
 import argparse, datetime, fcntl, hashlib, json, os, shutil, subprocess, time, sys
 import fixture_runtime as runtime
+from sdk_source import fixture_source_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -17,6 +18,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('name')
     parser.add_argument('--sdk-source',type=Path,default=ROOT/'fixture-source',help='isolated compatible SDK fixture checkout')
+    parser.add_argument('--sdk-commit',default=HEAD,help='exact 40-character SDK commit; default is the historical fixture baseline')
+    parser.add_argument('--sdk-tree',help='optional exact committed SDK tree to verify in addition to the commit')
     parser.add_argument('--product-bin-dir',type=Path,default=ROOT/'source/target/debug',help='compatible product executable directory')
     parser.add_argument('--independent-target',action='store_true',help='use this simulator own target and lease; never share a suite slot')
     parser.add_argument('--test',choices=['unilateral_exit::simulator_explicit_board_exit','unilateral_exit::simulator_explicit_ark_exit_with_cpfp','simulator_confirmed_round_scheduler_cycle','simulator_concurrent_clients','simulator_public_payout_seed_recovery','simulator_owner_funded_renewal','simulator_confirmed_receipt_recycling','simulator_thin_receipt_recycling','simulator_zero_spendable_scheduled_refresh','simulator_board_absence_restore','simulator_pending_board_absence_restore','simulator_ark_receive_then_disappear','simulator_lightning_receive_then_disappear','simulator_payments_refresh_exits','simulator_fallback_negative_requests'],default='simulator_board_absence_restore')
@@ -30,11 +33,8 @@ def main():
     lock=ROOT/'runs/integration/native-fixture.lock'
     with open(lock, 'a') as lease:
         fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=CLONE, text=True).strip() == HEAD
-        changes = subprocess.check_output(['git', 'status', '--porcelain'], cwd=CLONE, text=True).splitlines()
-        assert sorted(x[3:] for x in changes) == ['testing/tests/bark_sdk/mod.rs', 'testing/tests/bark_sdk/simulator_vertical.rs']
+        sdk_source = fixture_source_receipt(CLONE,args.sdk_commit,ROOT/'integration/simulator_vertical.rs',expected_tree=args.sdk_tree)
         harness = CLONE / 'testing/tests/bark_sdk/simulator_vertical.rs'
-        assert harness.read_bytes() == (ROOT / 'integration/simulator_vertical.rs').read_bytes()
         env=os.environ.copy()
         for name in ('TEST_POSTGRES_HOST','LIGHTNINGD_EXEC'):env.pop(name,None)
         env.setdefault('CARGO_BUILD_JOBS','4')
@@ -45,14 +45,16 @@ def main():
         env.update(KEEP_ALL_TEST_DATA='1',CHAIN_SOURCE='bitcoind',TEST_LOG='info,bitcoincore_rpc=warn',
             DAEMON_INIT_TIMEOUT_MILLIS='30000',TEST_DIRECTORY=str(run/'test-data'),
             BITCOIND_SNAPSHOT_DIR=str(run/'bitcoind-snapshot'),STAGE4_OUT=str(run/'out'))
-        env.update(CARGO_TARGET_DIR=str(target), GIT_HASH=HEAD + '-harkfixture',
+        env.update(CARGO_TARGET_DIR=str(target), GIT_HASH=sdk_source['head'] + '-harkfixture',
                    CAPTAIND_EXEC=str(PRODUCTION / 'captaind'), WATCHMAND_EXEC=str(PRODUCTION / 'watchmand'),
                    BARK_EXEC=str(PRODUCTION / 'bark'), BARKD_EXEC=str(PRODUCTION / 'barkd'),
                    STAGE4_RECOVERY_DEADLINE='180', STAGE4_CONCURRENCY='1')
         env.update(SIMULATOR_WORKSPACE=str(ROOT), SIMULATOR_OUT=str(run / 'out'), SIMULATOR_SERVER_SHA256=digest(PRODUCTION / 'captaind'))
         module='round_adoption::' if args.test=='simulator_confirmed_round_scheduler_cycle' else ''
         name = 'simulator_vertical::'+module+args.test
-        decl = {'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'head': HEAD,
+        decl = {'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'head': sdk_source['head'],
+                'sdk_source':sdk_source,'fixture_git_hash':env['GIT_HASH'],
+                'qualification_scope':'isolated REGTEST harness only; caller-selected SDK pin does not port architecture-specific economic/identity contracts',
                 'test': name, 'harness_sha256': digest(harness), 'runner_sha256': digest(__file__),
                 'binaries': {p.name: digest(p) for p in PRODUCTION.iterdir()},
                 'wall_seconds': 1800 if args.independent_target else 1200, 'target_dir':str(target),'lease':str(lock),'source': 'actual simulator supervisor/native driver; '+args.test,
@@ -74,7 +76,7 @@ def main():
                     'simulator_board_absence_restore': ['actual Python journal and driver', 'no original calls after absence', 'confirmed rightful payout', 'fresh BIP84 seed-only recovery with no txid/index/birthday hints', 'confirmed spend'],
                     'simulator_pending_board_absence_restore': ['actual Python journal and driver', 'confirmed real board funding with fewer than required registration confirmations', 'no registered coin or original calls after absence', 'pending-board payout to independently verified owner', 'fresh BIP84 seed-only recovery with no txid/index/birthday hints', 'confirmed spend'],
                 }[args.test],
-                'simulator_sources':{str(p.relative_to(ROOT)):digest(p) for p in [*ROOT.glob('simulator/*.py'), ROOT/'simulator/bip39-english.txt', ROOT/'integration/fixture_runtime.py', ROOT/'integration/regtest-client.py',*ROOT.glob('driver/src/**/*.rs'), *ROOT.glob('integration/*.rs'), ROOT/'integration/round-adoption-client.py', ROOT/'integration/round-padding-client.py', ROOT/'integration/unilateral-exit-client.py']},
+                'simulator_sources':{str(p.relative_to(ROOT)):digest(p) for p in [*ROOT.glob('simulator/*.py'), ROOT/'simulator/bip39-english.txt', ROOT/'integration/fixture_runtime.py', ROOT/'integration/sdk_source.py', ROOT/'integration/regtest-client.py',*ROOT.glob('driver/src/**/*.rs'), *ROOT.glob('integration/*.rs'), ROOT/'integration/round-adoption-client.py', ROOT/'integration/round-padding-client.py', ROOT/'integration/unilateral-exit-client.py']},
                 'driver_sha256':digest(ROOT/'target/debug/bark-sim-driver'), 'restore_sha256':digest(ROOT/'target/debug/seed-restore'),
                 'proof_sha256':digest(ROOT/'target/debug/vtxo-proof'),'server_policy_sha256':digest(ROOT/'target/debug/server-policy-proof')}
         (run / 'predeclared.json').write_text(json.dumps(decl, indent=2) + '\n')
@@ -113,12 +115,17 @@ def main():
         result = json.loads(result_path.read_text()) if result_path.exists() else None
         changed_sources = [name for name, expected in decl['simulator_sources'].items()
                            if not (ROOT/name).is_file() or digest(ROOT/name) != expected]
+        try:
+            invalidated_sdk_source = fixture_source_receipt(CLONE,args.sdk_commit,ROOT/'integration/simulator_vertical.rs',expected_tree=args.sdk_tree) != sdk_source
+        except (ValueError,OSError):
+            invalidated_sdk_source = True
         passed = (proc.returncode == 0 and not timed_out and not sampler.violation
-                  and result and result['result'] == 'PASS' and not changed_sources)
+                  and result and result['result'] == 'PASS' and not changed_sources and not invalidated_sdk_source)
         daemon_logs=collect_daemon_logs(run)
         summary = {'daemon_logs':daemon_logs,'overall': 'PASS' if passed else 'FAIL', 'exit': proc.returncode, 'timeout': timed_out,
                    'wall_seconds': time.monotonic() - started, 'result': result,
-                   'resource_violation': sampler.violation, 'invalidated_sources':changed_sources, 'cleanup': cleanup}
+                   'resource_violation': sampler.violation, 'invalidated_sources':changed_sources,
+                   'invalidated_sdk_source':invalidated_sdk_source,'cleanup': cleanup}
         (run / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
         print(json.dumps({k:v for k,v in summary.items() if k!="result"}, indent=2))
         raise SystemExit(0 if passed else 1)

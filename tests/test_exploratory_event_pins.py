@@ -42,6 +42,20 @@ class ExploratoryEventPinsTests(unittest.TestCase):
                 with self.assertRaises(CampaignPaused):self.queue()
                 self.assertEqual(0,self.store.db.execute('SELECT count(*) FROM action').fetchone()[0])
 
+    def test_latest_malformed_timestamp_cannot_reuse_a_previous_fresh_context(self):
+        self.qualify();self.context()
+        for observed in (None,True,'recent',{},-1):
+            with self.subTest(observed=observed):
+                payload={'financial_pins':PINS}
+                if observed is not None:payload['observed_at']=observed
+                # An old or malformed persisted row bypassed today's writer.
+                self.store.db.execute('INSERT INTO snapshot(observed_at,payload) VALUES (?,?)',
+                    (time.time(),json.dumps(payload)))
+                with self.assertRaises(CampaignPaused):self.queue()
+                self.assertEqual(0,self.store.db.execute('SELECT count(*) FROM action').fetchone()[0])
+                self.assertEqual(0,self.store.db.execute(
+                    "SELECT count(*) FROM event WHERE kind='action_intent'").fetchone()[0])
+
     def test_stale_context_at_claim_rolls_back_without_dispatch(self):
         self.qualify();self.context();self.queue();self.context(observed_at=time.time()-91)
         with self.assertRaises(CampaignPaused):self.store.claim({'sync'})

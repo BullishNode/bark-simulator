@@ -3,9 +3,14 @@
 use anyhow::{Context, Result, ensure};
 use ark::{
     ProtocolEncoding, Vtxo,
-    fallback::{AccountChild, FallbackRecord},
     vtxo::Full,
 };
+#[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+use ark::fallback::{AccountChild, FallbackRecord};
+#[cfg(feature = "two-step")]
+use ark::attestations::{FallbackRecordAttestation, KeyLinkAttestation};
+#[cfg(feature = "two-step")]
+use bitcoin::constants::ChainHash;
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client, RpcApi};
 use bitcoin::{Network, ScriptBuf, constants::genesis_block, secp256k1::PublicKey};
 use serde_json::{Value, json};
@@ -20,6 +25,11 @@ fn hex(raw: &str) -> Result<Vec<u8>> {
         .map(|i| u8::from_str_radix(&raw[i..i + 2], 16))
         .collect::<Result<Vec<_>, _>>()?)
 }
+#[cfg(feature = "direct-per-key")]
+fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Value> {
+    bark_sim_driver::per_key::verify_binding(request,coin_pk,network)
+}
+#[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
 fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Value> {
     let b = &request["binding"];
     ensure!(
@@ -91,6 +101,35 @@ fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Valu
         "validation_scope":if stored_admission {"record signatures and exact full account child; supplied trusted DB mailbox/index must be checked against the consistent bridge separately; no original B or funded coin asserted"}else{"both immutable record signatures and exact full compressed account child verified; original B retained but not publicly unblinded; trusted server admission MB/index, seed/index0 ownership, arbitration and settlement remain separate"}}),
     )
 }
+#[cfg(feature = "two-step")]
+fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Value> {
+    let b = &request["binding"];
+    ensure!(b.get("account_xpub").is_none() && request.get("child_index").is_none(),
+        "account-child evidence is not a two-step per-key proof");
+    let mailbox = PublicKey::from_str(b["mailbox_pk"].as_str().context("missing mailbox")?)?;
+    let script = ScriptBuf::from_bytes(hex(b["spk"].as_str().context("missing script")?)?);
+    ensure!(script.is_p2wpkh(), "simulator expects BIP84 fallback");
+    let seq = b["seq"].as_u64().context("invalid sequence")?;
+    ensure!(seq <= i64::MAX as u64, "sequence out of range");
+    let record =
+        FallbackRecordAttestation::deserialize(&hex(b["record_attestation"]
+            .as_str()
+            .context("missing record signature")?)?)?;
+    record.verify(
+        ChainHash::using_genesis_block_const(network),
+        &script,
+        seq,
+        mailbox,
+    )?;
+    let link = KeyLinkAttestation::deserialize(&hex(request["key_link_attestation"]
+        .as_str()
+        .context("missing link signature")?)?)?;
+    link.verify(mailbox, coin_pk)?;
+    Ok(
+        json!({"mailbox_pk":mailbox.to_string(),"spk":script.to_hex_string(),"seq":seq,"record_signature_valid":true,"key_link_signature_valid":true,
+      "validation_scope":"coin key signs wallet link and wallet signs record; BIP84 ownership needs client derivation/seed recovery evidence"}),
+    )
+}
 fn verify() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     ensure!(args.len() == 4, "invalid verifier arguments");
@@ -120,7 +159,11 @@ fn verify() -> Result<()> {
             println!(
                 "{}",
                 json!({"user_pubkey":key.to_string(),"genesis":genesis.to_string(),"binding":bound,
-                "validation_scope":"public account-child and immutable full-field record verification; no funded coin, server admission or backing asserted"})
+                "validation_scope":if cfg!(feature="direct-per-key") {
+                    "independent immutable record and exact per-key signature verification; no funded coin, current server admission or backing asserted"
+                } else if cfg!(feature="two-step") {
+                    "public per-key link and fallback record signature verification; no funded coin, server admission or backing asserted"
+                } else {"public account-child and immutable full-field record verification; no funded coin, server admission or backing asserted"}})
             );
             return Ok(());
         }
@@ -163,7 +206,9 @@ fn verify() -> Result<()> {
       "hashlock_satisfaction_disclosed":conditional_steps==0,"conditional_steps":conditional_steps,
       "proof_encoding":if public_projection {"ark-public-authorization-v1"} else {"historical-full-vtxo"},"genesis":genesis.to_string(),"binding":bound,
       "ancestor_ids":ancestor_ids,"path":path,
-      "validation_scope":"exact public path signature authority, committed hashlock script if present, account-child/immutable record and confirmed anchor; omitted hashlock satisfaction, current spend arbitration and seed recovery are separate"}),
+      "validation_scope":if cfg!(feature="direct-per-key") {
+          "exact public path signature authority, committed hashlock script if present, independently verified per-key/immutable record and confirmed anchor; omitted hashlock satisfaction, current economic ownership, spend arbitration and seed recovery remain separate"
+      } else {"exact public path signature authority, committed hashlock script if present, account-child/immutable record and confirmed anchor; omitted hashlock satisfaction, current spend arbitration and seed recovery are separate"}}),
     )?;
     ensure!(output.len() <= 2_097_152, "proof output too large");
     println!("{}", output);
@@ -176,7 +221,7 @@ fn main() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(any(feature = "two-step", feature = "direct-per-key"))))]
 mod tests {
     use super::*;
     use bitcoin::bip32::{ChildNumber, Xpriv};
@@ -345,5 +390,65 @@ mod tests {
         );
         r["binding"]["spk"] = json!("00141111111111111111111111111111111111111111");
         assert!(binding(&r, coin, Network::Regtest).is_err());
+    }
+}
+
+#[cfg(all(test, feature = "two-step"))]
+mod two_step_tests {
+    use super::*;
+    use bitcoin::secp256k1::Keypair;
+    fn fixture() -> (Value, PublicKey) {
+        let coin = Keypair::from_seckey_slice(&ark::SECP, &[1u8; 32]).unwrap();
+        let mailbox = Keypair::from_seckey_slice(&ark::SECP, &[2u8; 32]).unwrap();
+        let script =
+            ScriptBuf::from_bytes(hex("00141111111111111111111111111111111111111111").unwrap());
+        let encode = |v: Vec<u8>| v.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let record = FallbackRecordAttestation::new(
+            ChainHash::using_genesis_block_const(Network::Regtest),
+            &script,
+            7,
+            &mailbox,
+        );
+        let link = KeyLinkAttestation::new(mailbox.public_key(), &coin);
+        (
+            json!({"binding":{"mailbox_pk":mailbox.public_key().to_string(),"spk":script.to_hex_string(),"seq":7,"record_attestation":encode(record.serialize())},"key_link_attestation":encode(link.serialize())}),
+            coin.public_key(),
+        )
+    }
+    #[test]
+    fn validates_existing_protocol_domains() {
+        let (r, c) = fixture();
+        let valid = binding(&r, c, Network::Regtest).unwrap();
+        assert_eq!(valid["key_link_signature_valid"], true);
+        assert_eq!(valid["record_signature_valid"], true);
+    }
+    #[test]
+    fn rejects_wrong_coin_mailbox_and_network() {
+        let (r, c) = fixture();
+        let wrong = Keypair::from_seckey_slice(&ark::SECP, &[3u8; 32])
+            .unwrap()
+            .public_key();
+        assert!(binding(&r, wrong, Network::Regtest).is_err());
+        assert!(binding(&r, c, Network::Signet).is_err());
+        let mut r = r;
+        r["binding"]["mailbox_pk"] = json!(wrong.to_string());
+        assert!(binding(&r, c, Network::Regtest).is_err());
+    }
+    #[test]
+    fn rejects_tampered_record_and_missing_or_bad_link() {
+        let (r, c) = fixture();
+        for field in ["seq", "spk", "record_attestation"] {
+            let mut bad = r.clone();
+            bad["binding"][field] = match field {
+                "seq" => json!(8),
+                "spk" => json!("00142222222222222222222222222222222222222222"),
+                _ => json!("00".repeat(64)),
+            };
+            assert!(binding(&bad, c, Network::Regtest).is_err());
+        }
+        let mut bad = r.clone();
+        bad["key_link_attestation"] = json!("00".repeat(64));
+        assert!(binding(&bad, c, Network::Regtest).is_err());
+        assert!(binding(&json!({}), c, Network::Regtest).is_err());
     }
 }

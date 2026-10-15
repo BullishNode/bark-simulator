@@ -1,0 +1,117 @@
+{
+  "upstream_live_status": "Root supplied current B producer export; no independent remote deployment claim by C worker",
+  "functions_and_constants": [
+    {
+      "name": "run",
+      "start": 20,
+      "end": 39
+    },
+    {
+      "name": "request",
+      "start": 43,
+      "end": 73
+    },
+    {
+      "name": "page",
+      "start": 120,
+      "end": 145
+    },
+    {
+      "name": "claimant_sql",
+      "start": 147,
+      "end": 180
+    },
+    {
+      "name": "closed_frontier",
+      "start": 182,
+      "end": 222
+    },
+    {
+      "name": "claimant_inventory",
+      "start": 224,
+      "end": 237
+    },
+    {
+      "name": "DIRECT_JOURNAL_COLUMNS",
+      "start": 241,
+      "end": 251
+    },
+    {
+      "name": "DIRECT_JOURNAL_FIELDS",
+      "start": 252,
+      "end": 258
+    },
+    {
+      "name": "direct_journal_sql",
+      "start": 260,
+      "end": 275
+    },
+    {
+      "name": "direct_journal",
+      "start": 277,
+      "end": 305
+    },
+    {
+      "name": "fee_rate_sat_kvb",
+      "start": 307,
+      "end": 314
+    },
+    {
+      "name": "WALLET_FIELDS",
+      "start": 403,
+      "end": 405
+    },
+    {
+      "name": "UTXO_FIELDS",
+      "start": 406,
+      "end": 409
+    },
+    {
+      "name": "bounded_integer",
+      "start": 412,
+      "end": 414
+    },
+    {
+      "name": "public_hash",
+      "start": 417,
+      "end": 419
+    },
+    {
+      "name": "public_outpoint",
+      "start": 422,
+      "end": 425
+    },
+    {
+      "name": "wallet_transaction",
+      "start": 428,
+      "end": 452
+    },
+    {
+      "name": "validate_wallet_frame",
+      "start": 455,
+      "end": 527
+    }
+  ],
+  "changes": [
+    "native fixed ops injection",
+    "V4 mailbox/script records",
+    "V1 signed key links with optional recovery metadata",
+    "C explicit profile and protocol4"
+  ],
+  "scope": "public producer only; no financial readiness qualification",
+  "prior_checkpoint_path": "deploy/fallback/server-observer.py (retained public-source checkpoint)",
+  "prior_checkpoint_sha256": "a6e926957ff4c5d6899128193a1015deb1d60708f1e1a3ec0701ef4dc10f6633",
+  "upstream_path": "deploy/fallback/server-observer.py",
+  "upstream_sha256": "8d321b18a86ea4115c7b4b84a06d269ea8f36e3506a9cd7c795aa3a99fd66265",
+  "upstream_commit": "b04406f58d723b92901b029f8a30923e6ff7afc2",
+  "consumed_delta": [
+    "B mounted-config source follows actual runtime target, not repository disk path",
+    "C uses declared native config path bound to actual process and read-only public-config ops",
+    "C installed-file validation uses descriptor-relative O_NOFOLLOW and before/after device/inode/size/mtime/ctime checks"
+  ],
+  "C_specific_privilege_hardening": [
+    "Never grant raw unlock_preimage/signed_forfeit_tx columns to observer",
+    "Owner-defined security-barrier views expose only unlock_available/forfeit_signed booleans",
+    "SQL producer references these declared public views; role grants explicit public columns only"
+  ]
+}

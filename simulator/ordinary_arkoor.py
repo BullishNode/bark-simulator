@@ -18,6 +18,7 @@ from .fresh_cash_readiness import _fresh, ECONOMIC_TABLES, METADATA_TABLES
 from . import board_adoption as backing
 from .campaign import _signed_coin, _receipt_origin, collect_ark_receipts
 from .ownership import proof_matches_profile, binding_matches
+from .architecture import DIRECT_PER_KEY,profile
 
 KEY='finite_ordinary_arkoor_plan'
 KIND='ordinary_arkoor_sources_verified'
@@ -44,11 +45,23 @@ def plan(store):
     if encoded is None:raise ValueError('ordinary Arkoor plan missing')
     value=_shape(json.loads(encoded));rows=store.db.execute("SELECT sequence FROM event WHERE kind='finite_ordinary_arkoor_plan_declared'").fetchall()
     if len(rows)!=1 or _source_event(store,rows[0][0])[1]!=value:raise ValueError('ordinary plan differs from original')
+    if profile(store)==DIRECT_PER_KEY:
+        from .c_pilot import declaration
+        pilot=declaration(store)
+        if (value['pins']!=pilot['pins'] or value['boundary_id']!=pilot['boundary_id']
+                or value['board_action_id']!=pilot['board_action_id'] or value['actions']['send']!=pilot['arkoor_action_id']):
+            raise ValueError('C pilot original ordinary monetary IDs/context differ')
     return value
 
 
 def declare_ordinary_arkoor(store,value):
     _shape(value)
+    if profile(store)==DIRECT_PER_KEY:
+        from .c_pilot import declaration
+        pilot=declaration(store)
+        if (value['pins']!=pilot['pins'] or value['boundary_id']!=pilot['boundary_id']
+                or value['board_action_id']!=pilot['board_action_id'] or value['actions']['send']!=pilot['arkoor_action_id']):
+            raise ValueError('C pilot original ordinary monetary IDs/context differ')
     with store.transaction():
         if store.get_meta(KEY) is not None:
             if plan(store)!=value:raise ValueError('ordinary plan immutable')
@@ -91,7 +104,7 @@ def _destination(store,value):
     if key is None or key['actor']!='actor-02':raise ValueError('recipient native ownership proof missing')
     proof=json.loads(key['proof'])
     if (proof.get('financial_pins')!=value['pins'] or not proof_matches_profile(store,proof,data)
-            or not binding_matches(proof.get('binding',{}),data.get('binding',{}))
+            or not binding_matches(proof.get('binding',{}),data.get('binding',{}),per_key=profile(store)==DIRECT_PER_KEY)
             or proof['binding']['mailbox_pk']!=key['mailbox']
             or not isinstance(data.get('address'),str) or not 1<=len(data['address'])<=4096):
         raise ValueError('recipient account-child proof differs')
@@ -160,9 +173,11 @@ def _history(store,origin,reserved=None,allow_queued=False):
         else:_response(store,row)
     if len(pending)>1:raise ValueError('only one ordinary action may be active')
     declared=set(value['actions'].values())|{origin['board_action_id']}
+    from .c_pilot import board_policy as _policy
+    actors=_policy(store)['actors']
     for row in store.db.execute('SELECT * FROM action'):
         if row['id'] in declared:continue
-        if (row['actor_id'] not in ('actor-01','actor-02','actor-04') or row['state']!='completed'
+        if (row['actor_id'] not in actors or row['state']!='completed'
                 or row['operation'] not in ('create','address','sync','snapshot') or row['fee_reservation_sat']!=0
                 or row['actual_fee_sat']!=0 or json.loads(row['args'])!={}):raise ValueError('unrelated or second monetary action holds ordinary journey')
         board=store.db.execute('SELECT * FROM action WHERE id=?',(origin['board_action_id'],)).fetchone()
@@ -210,7 +225,7 @@ def _send(store,origin):
 def _server(database,prior,origin,store):
     send=_send(store,origin)
     if send is None:
-        result=backing._database(database,prior,origin)
+        result=backing._database(database,prior,origin,store=store)
         if result['registered'] is not True:raise ValueError('original Board must be registered before ordinary journey')
         return result
     if (database.get('kind')!='closed_frontier' or database.get('database_tables_complete') is not True
@@ -253,9 +268,18 @@ def _server(database,prior,origin,store):
         if coin['amount']!=expected['amount_sat'] or coin.get('policy')!='00'+expected['user_pubkey']:raise ValueError('actual leaf owner/policy differs')
     keys={origin['user_pubkey']:origin['binding'],key:send['destination']['binding']}
     keys.update({item['user_pubkey']:item['proof']['binding'] for item in send['changes'].values()})
-    expected_links=[{'user_pubkey':pubkey,'mailbox_pk':bound['mailbox_pk'],'child_index':bound['child_index']} for pubkey,bound in keys.items()]
+    if profile(store)==DIRECT_PER_KEY:
+        if database.get('architecture_profile')!=DIRECT_PER_KEY or database.get('fallback_protocol')!=4:
+            raise ValueError('C ordinary database profile/protocol differs')
+        expected_links=[{'user_pubkey':pubkey,'mailbox_pk':bound['mailbox_pk'],
+            'sig':bytes.fromhex(bound['key_link_attestation'])[-64:].hex(),'recovery_index':bound['recovery_index']} for pubkey,bound in keys.items()]
+    else:expected_links=[{'user_pubkey':pubkey,'mailbox_pk':bound['mailbox_pk'],'child_index':bound['child_index']} for pubkey,bound in keys.items()]
     for name in ('links','journal_links'):
-        expected=list(prior['rows'][name])+[link for link in expected_links if link not in prior['rows'][name]]
+        if profile(store)==DIRECT_PER_KEY:
+            from .c_pilot import retained_links
+            expected=[link for frame in retained_links(store).values() for link in frame['links']]
+            if any(link not in expected for link in expected_links):raise ValueError('C monetary key missing from original native inventory')
+        else:expected=list(prior['rows'][name])+[link for link in expected_links if link not in prior['rows'][name]]
         if sorted(rows[name],key=canonical)!=sorted(expected,key=canonical):raise ValueError('ordinary native owner links differ')
     if rows['pending_boards'] not in ([],[{'vtxo_id':origin['vtxo_id'],'expiry':origin['expiry_height']}]):raise ValueError('foreign pending Board')
     return {'recipient_coins':list(recipient),'change_coins':list(send['changes']),'liability_sat':origin['net_liability_sat'],'physical_anchor_count':1}
@@ -274,6 +298,10 @@ def _native(store,config,origin,height):
             or any(key.startswith('BARK_') for key in os.environ)):raise ValueError('same private sole-writer native context required')
     if origin['expiry_height']<=height+origin['exit_margin']+6:raise ValueError('ordinary Board near expiry')
     result={}
+    key_inventory=None
+    if profile(store)==DIRECT_PER_KEY:
+        from .c_pilot import retained_links
+        key_inventory=retained_links(store)
     for actor in value['actors']:
         path=Path(value['wallet_root'])/actor/'db.sqlite'
         if any(stat.S_ISLNK(part.lstat().st_mode) for part in (path,*path.parents)):raise ValueError('native SQLite symlink')
@@ -292,6 +320,8 @@ def _native(store,config,origin,height):
                 count=conn.execute('SELECT count(*) FROM '+table).fetchone()[0];counts[table]=count
                 if (table not in allowed|METADATA_TABLES and count!=0 or table in METADATA_TABLES and count>128
                         or table in allowed and count>64):raise ValueError('unrelated native monetary state or checkpoint')
+            if key_inventory is not None and counts.get('bark_vtxo_key')!=key_inventory[actor]['count']:
+                raise ValueError('C complete native retained-key inventory differs from actual key rows')
             if actor=='actor-04':result[actor]={'counts':counts};continue
             coins={row['id']:dict(row) for row in conn.execute('SELECT id,amount_sat,expiry_height FROM bark_vtxo')}
             expected={point:item['amount_sat'] for point,item in send['changes'].items()} if actor=='actor-01' else {}
@@ -399,7 +429,8 @@ def record_ordinary_journey(store,config,chain,*,source_sequence):
             or native['actor-02']['spendable_sat']!=2000 or native['actor-02']['recipient_adopted'] is not True
             or source['server'].get('physical_anchor_count')!=1 or source['server'].get('liability_sat')!=origin['net_liability_sat']):raise ValueError('actual adopted ordinary conservation required')
     physical=source['physical_assets']
-    if (source['physical_total_sat']!=665454-origin['funding_fee_sat']-origin['mining_fee_sat']
+    from .c_pilot import board_policy as _policy
+    if (source['physical_total_sat']!=_policy(store)['opening_sat']-origin['funding_fee_sat']-origin['mining_fee_sat']
             or sum(item['amount_sat'] for item in physical.values())!=source['physical_total_sat']
             or physical.get(origin['anchor'],{}).get('amount_sat')!=20000):raise ValueError('complete physical capital and single anchor conservation required')
     txid,index=origin['anchor'].rsplit(':',1);actual=chain.call('gettxout',txid,int(index),True)

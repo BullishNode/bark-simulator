@@ -82,10 +82,18 @@ def declare_envelope(store,declaration,config,inventory_sequences,chain):
             if previous!=encoded:raise ValueError('financial envelope immutable; use a fresh namespace')
             return False
         if not store.get_meta('paused'):raise ValueError('pause before declaring operating limits')
-        if store.db.execute("SELECT 1 FROM event WHERE kind='fixture_funding_intent' LIMIT 1").fetchone():
-            raise ValueError('operating limits required before funding or first pilot')
-        from .identity_bootstrap import require_only_verified_creates
-        require_only_verified_creates(store, declaration['pins'])
+        from .financial_transition import recorded,_digest
+        opening=recorded(store)
+        if opening is not None:
+            if (opening['declaration']['envelope_sha256']!=_digest(declaration)
+                    or opening['declaration']['pins']!=declaration['pins']
+                    or opening['declaration']['new_client_fee_budget_sat']*1000>declaration['fee_budgets_msat']['ordinary']):
+                raise ValueError('operating limits required before funding or first pilot')
+        else:
+            if store.db.execute("SELECT 1 FROM event WHERE kind='fixture_funding_intent' LIMIT 1").fetchone():
+                raise ValueError('operating limits required before funding or first pilot')
+            from .identity_bootstrap import require_only_verified_creates
+            require_only_verified_creates(store, declaration['pins'])
         store.db.execute('INSERT INTO meta VALUES (?,?)',(KEY,encoded))
         store._event('financial_operating_envelope_declared',{'declaration':declaration,'inventory_sequences':inventory_sequences,
             'tip_hash':assets['tip_hash'],'confirmed_fee_funding_msat':funded})
@@ -104,9 +112,19 @@ def envelope(store,config):
 
 def fee_totals(store,pins,*,reserved_action_id=None):
     """Deduplicate original miner/router costs and hold each unfinished action once."""
+    from .financial_transition import recorded
+    opening=recorded(store)
+    old=set(opening['declaration']['history']['action_ids']) if opening else set()
+    old_costs=set()
+    if opening:
+        _,source=_source_event(store,opening['declaration']['readiness_sequence'])
+        old_costs=set(source['preserved_history_opening']['historical_cost_sequences'])
     totals={'ordinary':0,'urgent':0};seen=set();covered_actions=set()
     for row in store.db.execute("SELECT sequence FROM event WHERE kind='financial_cost_verified'"):
         _,proof=_source_event(store,row[0])
+        if row['sequence'] in old_costs:
+            if proof['monetary_id'] in seen:raise InvariantError('same actual miner/router cost counted twice')
+            seen.add(proof['monetary_id']);continue
         if proof.get('financial_pins')!=pins or proof.get('budget') not in BUDGETS:
             raise ValueError('cost source original financial context missing or wrong')
         identifier=proof['monetary_id']
@@ -116,7 +134,7 @@ def fee_totals(store,pins,*,reserved_action_id=None):
             if proof['action_id'] in covered_actions:raise InvariantError('same native client cost counted twice')
             covered_actions.add(proof['action_id'])
     for row in store.db.execute("SELECT id FROM action WHERE state='completed' AND actual_fee_sat>0"):
-        if row['id'] not in covered_actions:
+        if row['id'] not in covered_actions and row['id'] not in old:
             raise ValueError('completed paid action lacks independently checked original cost')
     held=store.db.execute("SELECT COALESCE(SUM(fee_reservation_sat),0) FROM action WHERE state IN ('queued','dispatched','outcome_unknown') AND (? IS NULL OR id!=?)",(reserved_action_id,reserved_action_id)).fetchone()[0]*1000
     # Existing native client queue is ordinary. Urgent server claims/progression
@@ -129,6 +147,10 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
     """Reject stale, underfunded or unaffordable dispatch; return a declared hold."""
     from .identity_bootstrap import pending
     if pending(store):raise ValueError('bootstrap independent zero-asset proofs missing')
+    from . import exploratory
+    if exploratory.scope(store) is not None:
+        return exploratory.preflight(store,config,snapshot,operation=operation,amount_sat=amount_sat,
+            maximum_fee_sat=maximum_fee_sat,now=now,reserved_action_id=reserved_action_id)
     declaration=envelope(store,config);now=time.time() if now is None else now
     scope=declaration.get('operation_fee_paths')
     if scope is not None and operation not in scope:

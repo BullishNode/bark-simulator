@@ -1,0 +1,142 @@
+name: Shared simulator
+
+'on':
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shared-simulator-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Common Python suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Test the shared scenarios and oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir ci-results
+          git rev-parse HEAD > ci-results/simulator-commit.txt
+          sha256sum simulator/scenarios.json > ci-results/catalogue.sha256
+          python -m unittest discover -s tests -v 2>&1 | tee ci-results/python.log
+      - name: Retain the original result, including failures
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: common-python
+          path: ci-results/
+          retention-days: 14
+
+  native:
+    name: Track ${{ matrix.track }} native driver
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - track: A
+            sdk: c73bb9093329c32a6716b5a783bb06b90db1d3b0
+            feature: two-step
+            profile: two_step_per_key
+          - track: B
+            sdk: 69ca8cce9501560629169c2894ce9d74df9cb1cd
+            feature: ''
+            profile: direct_xpub
+          - track: C
+            sdk: 8c4478cfbfac8a193d0a6549387229dfedee06de
+            feature: direct-per-key
+            profile: direct_per_key
+    env:
+      RUSTUP_TOOLCHAIN: 1.90.0
+      CARGO_BUILD_JOBS: '2'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+      GIT_HASH: ${{ matrix.sdk }}
+      SDK_COMMIT: ${{ matrix.sdk }}
+      DRIVER_FEATURE: ${{ matrix.feature }}
+      DRIVER_PROFILE: ${{ matrix.profile }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Check out the exact owning SDK
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: BullishNode/abandon-ship-bark
+          ref: ${{ matrix.sdk }}
+          path: source
+          persist-credentials: false
+      - name: Install native build prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential clang libclang-dev cmake pkg-config libssl-dev libsqlite3-dev protobuf-compiler libboost-dev libboost-system-dev
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+      - name: Record and verify exact inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir ci-results
+          test "$(git -C source rev-parse HEAD)" = "$SDK_COMMIT"
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          inputs = {
+              'simulator_commit': git('rev-parse', 'HEAD'),
+              'simulator_tree': git('rev-parse', 'HEAD^{tree}'),
+              'sdk_commit': git('-C', 'source', 'rev-parse', 'HEAD'),
+              'sdk_tree': git('-C', 'source', 'rev-parse', 'HEAD^{tree}'),
+              'feature': os.environ['DRIVER_FEATURE'],
+              'architecture_profile': os.environ['DRIVER_PROFILE'],
+              'GIT_HASH': os.environ['GIT_HASH'],
+              'driver_lock_sha256': hashlib.sha256(Path('driver/Cargo.lock').read_bytes()).hexdigest(),
+              'catalogue_sha256': hashlib.sha256(Path('simulator/scenarios.json').read_bytes()).hexdigest(),
+              'scope': 'Driver build and pure tests only; no SDK financial, migration, mobile or simulation qualification',
+          }
+          Path('ci-results/inputs.json').write_text(json.dumps(inputs, indent=2) + '\n')
+          PY
+          rustc -Vv > ci-results/rustc.txt
+          cargo -V > ci-results/cargo.txt
+          clang --version > ci-results/clang.txt
+          c++ --version > ci-results/cxx.txt
+          protoc --version > ci-results/protoc.txt
+          cmake --version > ci-results/cmake.txt
+          df -B1 . > ci-results/disk-before.txt
+      - name: Build every driver binary and run pure tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          feature_args=()
+          if [[ -n "$DRIVER_FEATURE" ]]; then
+            feature_args=(--features "$DRIVER_FEATURE")
+          fi
+          /usr/bin/time -v cargo build --manifest-path driver/Cargo.toml --locked --bins "${feature_args[@]}" 2>&1 | tee ci-results/build.log
+          /usr/bin/time -v cargo test --manifest-path driver/Cargo.toml --locked --lib --bins "${feature_args[@]}" 2>&1 | tee ci-results/pure-tests.log
+          git diff --exit-code -- driver/Cargo.lock
+          df -B1 . > ci-results/disk-after.txt
+      - name: Retain each actual SDK result, including failures
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: native-track-${{ matrix.track }}
+          path: ci-results/
+          retention-days: 14

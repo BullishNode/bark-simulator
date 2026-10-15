@@ -43,6 +43,13 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         return Err("only public coin, raw anchor and pinned server key permitted".into());
     }
     let encoded = decode_hex(value["signed_vtxo"].as_str().ok_or("coin absent")?)?;
+    if encoded.first()==Some(&b'{') {
+        if fields.len()!=2 {
+            return Err("public projection parameters are decode-only; use the client verifier for chain validation".into());
+        }
+        return Ok(bark_sim_driver::public_coin::parameters(&encoded,
+            value["server_pubkey"].as_str().ok_or("server absent")?)?);
+    }
     let coin = Vtxo::<Full, ServerVtxoPolicy>::deserialize(&encoded)?;
     if coin.server_pubkey().to_string() != value["server_pubkey"].as_str().ok_or("server absent")? {
         return Err("server key differs".into());
@@ -53,6 +60,7 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
             "amount_sat":coin.amount().to_sat(),"expiry_height":coin.expiry_height().to_u32(),"policy":coin.policy_type().to_string(),"server_pubkey":coin.server_pubkey().to_string(),
             "candidate_user_pubkey":coin.policy().user_pubkey().map(|key|key.to_string()),
             "exit_delta":coin.exit_delta().to_u32(),
+            "exit_depth":coin.exit_depth(),
             "unlock_hash":coin.unlock_hash().map(|hash|hash.to_string()),
             "arkoor_transition_count":coin.past_arkoor_pubkeys().len(),
             "tree_padding":padding_marker(&coin),
@@ -91,6 +99,7 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         "output_script":coin.output_script_pubkey().to_hex_string(),
         "candidate_user_pubkey":coin.policy().user_pubkey().map(|key|key.to_string()),
             "exit_delta":coin.exit_delta().to_u32(),
+            "exit_depth":coin.exit_depth(),
             "unlock_hash":coin.unlock_hash().map(|hash|hash.to_string()),
             "arkoor_transition_count":coin.past_arkoor_pubkeys().len(),
             "tree_padding":padding_marker(&coin),
@@ -198,6 +207,72 @@ mod tests {
         let mut transaction=transaction;transaction.output[0].value=Amount::from_sat(1);
         wrong["anchor_raw"]=json!(encode(bitcoin::consensus::serialize(&transaction)));
         assert!(verify_contract(&wrong).is_err());
+    }
+
+    #[test]
+    fn native_padding_full_exposes_sdk_depth_without_qualifying_its_signatures() {
+        let request: Value = serde_json::from_str(include_str!("../../tests/fixtures/public-round-padding-anchor.json")).unwrap();
+        let coin = Vtxo::<Full, ServerVtxoPolicy>::deserialize(&decode_hex(request["signed_vtxo"].as_str().unwrap()).unwrap()).unwrap();
+        let depth = coin.exit_depth();
+        assert!(usize::from(depth) > coin.past_arkoor_pubkeys().len(), "SDK exit depth includes more than OOR transitions");
+        let mut decoded = request.clone();
+        decoded.as_object_mut().unwrap().remove("anchor_raw");
+        let decoded = verify_contract(&decoded).unwrap();
+        assert_eq!(decoded["exit_depth"], depth);
+        assert_eq!(decoded["chain_contract_verified"], false);
+        assert_eq!(decoded["client_owner_verified"], false);
+        let validated_structure = verify_contract(&request).unwrap();
+        assert_eq!(validated_structure["exit_depth"], depth);
+        assert_eq!(validated_structure["chain_contract_verified"], false);
+        assert_eq!(validated_structure["signed_path_valid"], false);
+        assert_eq!(validated_structure["padding_backing_structure_verified"], true);
+    }
+
+    /// Run explicitly against the preserved genuine native ordinary Full + raw
+    /// anchor request. Missing/private fixture is a failed prerequisite, never
+    /// a successful or silently skipped qualification. Raw bytes stay external.
+    #[test]
+    #[ignore = "requires BARK_SIM_ACTUAL_FULL_POLICY_REQUEST and preserved native provenance"]
+    fn archived_native_ordinary_full_depth_and_tamper_controls() {
+        let path = std::env::var_os("BARK_SIM_ACTUAL_FULL_POLICY_REQUEST")
+            .expect("genuine private native fixture is required for this selector");
+        let metadata = std::fs::symlink_metadata(&path).unwrap();
+        assert!(metadata.is_file() && !metadata.file_type().is_symlink() && metadata.len() <= 2 * 1024 * 1024);
+        let request: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let encoded = decode_hex(request["signed_vtxo"].as_str().unwrap()).unwrap();
+        let coin = Vtxo::<Full, ServerVtxoPolicy>::deserialize(&encoded).unwrap();
+        assert_eq!(coin.policy_type().to_string(), "pubkey");
+        assert!(!padding_marker(&coin), "actual ordinary native fixture required");
+        let original: Transaction = bitcoin::consensus::deserialize(&decode_hex(request["anchor_raw"].as_str().unwrap()).unwrap()).unwrap();
+        coin.validate(&original).expect("actual native ordinary signed path must validate first");
+        let depth = coin.exit_depth();
+        assert!(usize::from(depth) > coin.past_arkoor_pubkeys().len(), "the genuine path must distinguish SDK depth from OOR count");
+        let proof = verify_contract(&request).unwrap();
+        assert_eq!(proof["exit_depth"], depth);
+        assert_eq!(proof["id"], coin.id().to_string());
+        assert_eq!(proof["chain_contract_verified"], true);
+        assert_eq!(proof["signed_path_valid"], true);
+        assert_eq!(proof["client_owner_verified"], false);
+        let mut decoded = request.clone();
+        decoded.as_object_mut().unwrap().remove("anchor_raw");
+        let decoded = verify_contract(&decoded).unwrap();
+        assert_eq!(decoded["exit_depth"], depth);
+        assert_eq!(decoded["chain_contract_verified"], false);
+        assert_eq!(decoded["client_owner_verified"], false);
+        let mut bad = request.clone();
+        bad["exit_depth"] = json!(0);
+        assert!(verify_contract(&bad).is_err(), "caller cannot inject a depth assertion");
+        let mut bad = request.clone();
+        bad["server_pubkey"] = json!("wrong-server");
+        assert!(verify_contract(&bad).is_err());
+        let mut changed_anchor = original;
+        changed_anchor.lock_time = bitcoin::absolute::LockTime::from_consensus(changed_anchor.lock_time.to_consensus_u32() ^ 1);
+        let mut bad = request.clone();
+        bad["anchor_raw"] = json!(encode(bitcoin::consensus::serialize(&changed_anchor)));
+        assert!(verify_contract(&bad).is_err(), "different raw anchor must not qualify a depth proof");
+        let mut bad = request.clone();
+        bad["signed_vtxo"] = json!(encode(encoded[..encoded.len() - 1].to_vec()));
+        assert!(verify_contract(&bad).is_err(), "truncated genuine Full is not a proof");
     }
 
     #[test]
