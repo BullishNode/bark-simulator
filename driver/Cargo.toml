@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[features]
+default = []
+# Build only in a declared immutable layout with the C SDK at source/.
+direct-per-key = []
+
 [[bin]]
 name = "noah-public-proof"
 path = "../integration/noah-public-proof/src/main.rs"

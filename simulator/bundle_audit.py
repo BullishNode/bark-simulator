@@ -174,13 +174,16 @@ class ReplayCore:
     def __exit__(self,*args):self.server.shutdown();self.server.server_close();self.thread.join(timeout=5)
 
 
-def verify_native_proofs(proofs,transactions,binary):
+def verify_native_proofs(proofs,transactions,binary,*,architecture=None):
     """Re-run the public native verifier on exact exported signature requests."""
     gaps=[];verified=0
     for coin in proofs:
+        from .architecture import DIRECT_PER_KEY
+        per_key = architecture == DIRECT_PER_KEY
         requests=[request for request in coin.get('requests',[]) if isinstance(request,dict)
             and request.get('signed_vtxo')==coin.get('signed_vtxo')
-            and type(request.get('child_index')) is int and request.get('blinded_mailbox_id')
+            and ((isinstance(request.get('key_link_attestation'),str) and request['key_link_attestation']) if per_key
+                 else (type(request.get('child_index')) is int and request.get('blinded_mailbox_id')))
             and isinstance(request.get('binding'),dict) and request['binding'].get('fallback_record')]
         if not requests:
             gaps.append({'kind':'missing_raw_signature_request','coin_id':coin['id']});continue
@@ -204,6 +207,13 @@ def verify_native_proofs(proofs,transactions,binary):
         if (proof.get('authorization_path_valid') is not True and proof.get('signed_path_valid') is not True) or proof.get('anchor_confirmations',0)<1:
             raise InvariantError('fresh native proof lacks confirmed signed backing')
         bound=proof.get('binding',{})
+        if per_key:
+            from .per_key import proof_matches, binding_matches
+            if (not proof_matches(proof,request) or not binding_matches(bound,cached.get('binding',{}))
+                    or bound.get('key_link_attestation')!=cached.get('binding',{}).get('key_link_attestation')):
+                raise InvariantError('fresh native per-key binding differs from exported immutable owner')
+            verified+=1
+            continue
         if any(bound.get(key)!=cached.get('binding',{}).get(key) for key in ('mailbox_pk','account_xpub','spk','fallback_record','child_index','policy_pubkey_full','blinded_mailbox_id')) or any(
                 bound.get(key) is not True for key in ('record_signature_valid','account_child_verified')):
             raise InvariantError('fresh native binding differs from exported owner')

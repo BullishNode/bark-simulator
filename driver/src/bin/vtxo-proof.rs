@@ -3,9 +3,10 @@
 use anyhow::{Context, Result, ensure};
 use ark::{
     ProtocolEncoding, Vtxo,
-    fallback::{AccountChild, FallbackRecord},
     vtxo::Full,
 };
+#[cfg(not(feature = "direct-per-key"))]
+use ark::fallback::{AccountChild, FallbackRecord};
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client, RpcApi};
 use bitcoin::{Network, ScriptBuf, constants::genesis_block, secp256k1::PublicKey};
 use serde_json::{Value, json};
@@ -20,6 +21,11 @@ fn hex(raw: &str) -> Result<Vec<u8>> {
         .map(|i| u8::from_str_radix(&raw[i..i + 2], 16))
         .collect::<Result<Vec<_>, _>>()?)
 }
+#[cfg(feature = "direct-per-key")]
+fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Value> {
+    bark_sim_driver::per_key::verify_binding(request,coin_pk,network)
+}
+#[cfg(not(feature = "direct-per-key"))]
 fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Value> {
     let b = &request["binding"];
     ensure!(
@@ -120,7 +126,9 @@ fn verify() -> Result<()> {
             println!(
                 "{}",
                 json!({"user_pubkey":key.to_string(),"genesis":genesis.to_string(),"binding":bound,
-                "validation_scope":"public account-child and immutable full-field record verification; no funded coin, server admission or backing asserted"})
+                "validation_scope":if cfg!(feature="direct-per-key") {
+                    "independent immutable record and exact per-key signature verification; no funded coin, current server admission or backing asserted"
+                } else {"public account-child and immutable full-field record verification; no funded coin, server admission or backing asserted"}})
             );
             return Ok(());
         }
@@ -163,7 +171,9 @@ fn verify() -> Result<()> {
       "hashlock_satisfaction_disclosed":conditional_steps==0,"conditional_steps":conditional_steps,
       "proof_encoding":if public_projection {"ark-public-authorization-v1"} else {"historical-full-vtxo"},"genesis":genesis.to_string(),"binding":bound,
       "ancestor_ids":ancestor_ids,"path":path,
-      "validation_scope":"exact public path signature authority, committed hashlock script if present, account-child/immutable record and confirmed anchor; omitted hashlock satisfaction, current spend arbitration and seed recovery are separate"}),
+      "validation_scope":if cfg!(feature="direct-per-key") {
+          "exact public path signature authority, committed hashlock script if present, independently verified per-key/immutable record and confirmed anchor; omitted hashlock satisfaction, current economic ownership, spend arbitration and seed recovery remain separate"
+      } else {"exact public path signature authority, committed hashlock script if present, account-child/immutable record and confirmed anchor; omitted hashlock satisfaction, current spend arbitration and seed recovery are separate"}}),
     )?;
     ensure!(output.len() <= 2_097_152, "proof output too large");
     println!("{}", output);
@@ -176,7 +186,7 @@ fn main() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test,not(feature = "direct-per-key")))]
 mod tests {
     use super::*;
     use bitcoin::bip32::{ChildNumber, Xpriv};

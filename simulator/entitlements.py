@@ -86,13 +86,15 @@ def _coin(store, coin_id, actor):
     if ((proof.get('authorization_path_valid') is not True and proof.get('signed_path_valid') is not True) or proof.get('anchor_confirmations',0)<1
             or binding.get('record_signature_valid') is not True):
         raise EvidenceGap('delegated coin signature or backing proof is incomplete')
-    legacy = profile(store) == TWO_STEP
-    if legacy:
+    from .architecture import DIRECT_PER_KEY
+    selected = profile(store)
+    legacy = selected == TWO_STEP
+    if legacy or selected == DIRECT_PER_KEY:
         if not proof_matches_profile(store,proof,{'user_pubkey':coin['pubkey']}):
             raise EvidenceGap('delegated coin ownership origin differs from campaign profile')
     elif binding.get('account_child_verified') is not True:
         raise EvidenceGap('delegated coin signature or backing proof is incomplete')
-    record_key = 'seq' if legacy else 'account_xpub'
+    record_key = 'seq' if legacy else 'record_version' if selected == DIRECT_PER_KEY else 'account_xpub'
     if (binding.get('mailbox_pk') != coin['mailbox'] or not store.db.execute(f"""SELECT 1 FROM owner_record
             WHERE actor=? AND mailbox=? AND {record_key}=? AND script=?""",
             (actor,coin['mailbox'],binding.get(record_key),binding.get('spk'))).fetchone()):

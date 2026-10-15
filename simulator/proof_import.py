@@ -23,6 +23,7 @@ from pathlib import Path
 from .model import InvariantError, canonical, integer, public_payload
 from .ownership import EvidenceGap, record_candidates, record_verified
 from .process import json_command, public_command_capture
+from .architecture import profile, DIRECT_PER_KEY
 
 MAX_BYTES = 2_097_152
 MAX_COINS = 16
@@ -119,9 +120,12 @@ def _bundle(store, config, value):
     if not isinstance(coins, list) or not 1 <= len(coins) <= MAX_COINS:
         raise EvidenceGap('public proof bundle needs bounded complete coins')
     ids = []
+    per_key = profile(store) == DIRECT_PER_KEY
     for coin in coins:
         fields = {'id', 'user_pubkey', 'amount_sat', 'expiry_height', 'signed_vtxo',
                   'child_index','blinded_mailbox_id', 'binding'}
+        if per_key:
+            fields = {'id','user_pubkey','amount_sat','expiry_height','signed_vtxo','key_link_attestation','binding'}
         if (not isinstance(coin, dict) or set(coin) not in (fields, fields | {'proof_encoding'})
                 or ('proof_encoding' in coin and coin['proof_encoding'] != 'ark-public-authorization-v1')):
             raise EvidenceGap('raw coin signatures and binding are required')
@@ -130,32 +134,48 @@ def _bundle(store, config, value):
         ids.append(coin['id'])
         integer(coin['amount_sat'], 'public principal', 1)
         integer(coin['expiry_height'], 'public expiry', 1)
-        _hex(coin['signed_vtxo']); _hex(coin['blinded_mailbox_id'],66)
-        integer(coin['child_index'],'ordinary account child')
-        if coin['child_index']>=2**31:raise EvidenceGap('hardened account child is invalid')
+        _hex(coin['signed_vtxo'])
+        if per_key:
+            _hex(coin['key_link_attestation'])
+            if len(coin['key_link_attestation']) not in (198,206):raise EvidenceGap('bounded canonical per-key link required')
+        else:
+            _hex(coin['blinded_mailbox_id'],66)
+            integer(coin['child_index'],'ordinary account child')
+            if coin['child_index']>=2**31:raise EvidenceGap('hardened account child is invalid')
         _hex(coin['user_pubkey'], 66)
         if coin['user_pubkey'][:2] not in {'02', '03'}:
             raise EvidenceGap('public coin key is malformed')
         binding = coin['binding']
-        if not isinstance(binding, dict) or set(binding) != {'mailbox_pk','account_xpub','spk','fallback_record'}:
+        binding_fields = {'mailbox_pk','spk','fallback_record'} if per_key else {'mailbox_pk','account_xpub','spk','fallback_record'}
+        if not isinstance(binding, dict) or set(binding) != binding_fields:
             raise EvidenceGap('raw signed owner record is required')
         if binding['mailbox_pk'] not in mailboxes:
             raise EvidenceGap('public coin mailbox does not belong to declared actor')
         _hex(binding['mailbox_pk'], 66); _hex(binding['spk'], 44)
         if not binding['spk'].startswith('0014'):
             raise EvidenceGap('public record is not the supported BIP84 destination')
-        if not isinstance(binding['account_xpub'],str):raise EvidenceGap('public account is required')
+        if not per_key and not isinstance(binding['account_xpub'],str):raise EvidenceGap('public account is required')
         _hex(binding['fallback_record'])
     if len(ids) != len(set(ids)):
         raise EvidenceGap('duplicate coin in public proof bundle')
     return actor, coins
 
 
-def _checked(config, coin, proof):
+def _checked(config, coin, proof, *, architecture=None):
     _public(proof)
     bound = proof.get('binding', {})
     integer(proof.get('amount_sat'), 'native public principal', 1)
     integer(proof.get('expiry_height'), 'native public expiry', 1)
+    if architecture == DIRECT_PER_KEY:
+        from .per_key import proof_matches, binding_matches
+        if (any(proof.get(k)!=coin[k] for k in ('id','user_pubkey','amount_sat','expiry_height'))
+                or proof.get('genesis')!=config.expected_genesis or proof.get('server_pubkey')!=config.expected_server_pubkey
+                or not (proof.get('authorization_path_valid') is True or proof.get('signed_path_valid') is True)
+                or type(proof.get('anchor_confirmations')) is not int or proof['anchor_confirmations']<1
+                or not binding_matches(bound,coin['binding']) or not proof_matches(proof,coin)):
+            raise EvidenceGap('native per-key proof does not validate the exact declared coin and immutable owner')
+        return {'kind':'coin','coin':{**coin,'state':'PublicProof'},'proof':proof,
+            'signed_hash':hashlib.sha256(bytes.fromhex(coin['signed_vtxo'])).hexdigest(),'request_binding':coin['binding']}
     if (any(proof.get(k) != coin[k] for k in ('id', 'user_pubkey', 'amount_sat', 'expiry_height'))
             or proof.get('genesis') != config.expected_genesis
             or proof.get('server_pubkey') != config.expected_server_pubkey
@@ -212,7 +232,7 @@ async def collect(store, config, *, paths=None, limit=2):
             original_context=store.financial_context()
             for coin in coins:
                 proof = await json_command(list(config.proof_command), coin, timeout=30, **public_command_capture(store,'proof.import',coin,actor=actor,action_id=identity))
-                objects.append(_checked(config, coin, {**proof,'financial_pins':original_context}))
+                objects.append(_checked(config, coin, {**proof,'financial_pins':original_context},architecture=profile(store)))
             if store.financial_context()!=original_context:raise EvidenceGap('financial build changed during original proof import')
             with store.transaction():
                 at = time.time()

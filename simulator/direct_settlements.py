@@ -14,6 +14,7 @@ from .ownership import EvidenceGap,expiry_owner
 from .direct_accounting import claim_accounts,FLAT_FEE_SAT
 from .negative_checks import record_bytes
 from .process import json_command,public_command_capture
+from .architecture import profile, DIRECT_PER_KEY
 
 TABLES={'allocations':'id','carriers':'txid','mappings':None,'records':'mailbox_pk','links':'user_pubkey'}
 FIELDS={
@@ -33,19 +34,24 @@ CREATE TABLE IF NOT EXISTS direct_retirement(id TEXT PRIMARY KEY,freeze_set TEXT
 
 def initialize(store):store.db.executescript(SCHEMA)
 
-def frame(value):
+def frame(value, *, architecture=None):
     public_payload(value)
+    per_key = architecture == DIRECT_PER_KEY
+    fields = {**FIELDS, **({'records':{'mailbox_pk','spk','mailbox_sig'},
+        'links':{'user_pubkey','mailbox_pk','sig','recovery_index'}} if per_key else {})}
     if (not isinstance(value,dict) or value.get('kind')!='direct_journal' or value.get('schema_version')!=1
-            or value.get('fallback_protocol')!=3 or value.get('binding_scope')!='owners_referenced_by_allocations'
+            or type(value.get('fallback_protocol')) is not int or value.get('fallback_protocol')!=(4 if per_key else 3)
+            or per_key and value.get('architecture_profile') != DIRECT_PER_KEY
+            or value.get('binding_scope')!='owners_referenced_by_allocations'
             or value.get('journal_complete') is not True
             or value.get('inventory_consistent') is not True or value.get('complete') is not False
             or value.get('qualified') is not False or set(value.get('rows',{}))!=set(TABLES)):
-        raise EvidenceGap('complete bounded V3 direct journal candidate snapshot required')
+        raise EvidenceGap('complete bounded profile-matched direct journal candidate snapshot required')
     if len(canonical(value).encode())>2_097_152:raise EvidenceGap('direct journal exceeds whole-frame bound')
     for table,key in TABLES.items():
         rows=value['rows'][table]
         if not isinstance(rows,list) or len(rows)>2000:raise EvidenceGap('direct journal table exceeds whole-frame bound')
-        if any(not isinstance(r,dict) or set(r)!=FIELDS[table] for r in rows):raise EvidenceGap('unknown or private direct journal row field refused')
+        if any(not isinstance(r,dict) or set(r)!=fields[table] for r in rows):raise EvidenceGap('unknown or private direct journal row field refused')
         identities=[r[key] if key else (r['txid'],r['allocation_id']) for r in rows]
         if len(set(identities))!=len(identities):raise InvariantError('duplicated direct journal identity')
     allocations={r['id']:r for r in value['rows']['allocations']}
@@ -65,7 +71,7 @@ def frame(value):
     return value
 
 def record(store,value):
-    initialize(store);frame(value);payload=canonical(value);digest=hashlib.sha256(payload.encode()).hexdigest()
+    initialize(store);frame(value,architecture=profile(store));payload=canonical(value);digest=hashlib.sha256(payload.encode()).hexdigest()
     with store.transaction():
         for kind,key in TABLES.items():
             for row in value['rows'][kind]:
@@ -100,7 +106,8 @@ def _proof(store,ident):
     return proof
 
 def check_group(store,value,freeze,transactions):
-    frame(value);rows=value['rows'];allocs=[r for r in rows['allocations'] if r['freeze_set']==freeze]
+    frame(value,architecture=profile(store));rows=value['rows'];allocs=[r for r in rows['allocations'] if r['freeze_set']==freeze]
+    per_key = profile(store) == DIRECT_PER_KEY
     if not allocs:raise EvidenceGap('frozen group absent')
     versions=[r for r in rows['carriers'] if any(m['txid']==r['txid'] and m['allocation_id'] in {a['id'] for a in allocs} for m in rows['mappings'])]
     confirmed=[c for c in versions if transactions.get(c['txid'],{}).get('confirmations',0)>0]
@@ -128,7 +135,19 @@ def check_group(store,value,freeze,transactions):
         if own is None:raise EvidenceGap('immutable owned record missing')
         record_row=next((r for r in rows['records'] if r['mailbox_pk']==owner['mailbox']),None)
         link=next((r for r in rows['links'] if r['user_pubkey']==row['owner_pubkey']),None)
-        if (record_row is None or link is None or own['script']!=row['spk']
+        if per_key:
+            from .per_key import record_bytes as c_record_bytes, link_bytes, proof_matches
+            try:
+                matched = (record_row is not None and link is not None and own['script']==row['spk']
+                    and c_record_bytes(record_row)==json.loads(own['proof'])['fallback_record']
+                    and link['mailbox_pk']==owner['mailbox']
+                    and link_bytes(link)==proof['binding']['key_link_attestation']
+                    and proof_matches(proof,{'user_pubkey':row['owner_pubkey'],
+                        'key_link_attestation':link_bytes(link)}))
+            except (ValueError,KeyError,TypeError):
+                matched = False
+            if not matched:raise EvidenceGap('exact retained immutable record/per-key signature not matched')
+        elif (record_row is None or link is None or own['script']!=row['spk']
                 or record_bytes(record_row)!=json.loads(own['proof'])['fallback_record']
                 or (link['mailbox_pk'],link['child_index'])!=(owner['mailbox'],proof['binding']['child_index'])):
             raise EvidenceGap('exact immutable record/account-child admission not matched')
