@@ -66,6 +66,37 @@ class DirectControls(unittest.TestCase):
                     sequence=provenance['original_scan_sequence'], pins=frame['financial_pins'],
                     boundary_id=frame['boundary_id'], members=self.f.members, specs=specs,
                     tip=(self.f.height, self.f.tip))
+    def test_b_capture_hook_keeps_paid_original_leaf_rows_out_of_liabilities(self):
+        import json, hashlib
+        from simulator.model import SIGNET_GENESIS
+        self.f.confirmed()
+        # Existing old synthetic fixture omits native verifier server identity.
+        # Supply that public field explicitly; this remains a synthetic control.
+        for row in self.store.db.execute('SELECT id,proof FROM owned_coin').fetchall():
+            value = json.loads(row['proof']); value['server_pubkey'] = '02'+'a'*64
+            self.store.db.execute('UPDATE owned_coin SET proof=? WHERE id=?',(json.dumps(value),row['id']))
+        proof = json.loads(self.store.db.execute('SELECT proof FROM owned_coin LIMIT 1').fetchone()['proof'])
+        member = {'id':'original-board-backing','kind':'ark_backing','role':'operator',
+                  'identity':proof['server_pubkey'],'descriptors':[]}
+        self.store.event('treasury_member_verified',{'member':member,'genesis':SIGNET_GENESIS,'financial_pins':fixtures.PINS})
+        sequence = self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
+        boundary = {'id':'finite','pins':fixtures.PINS,'genesis':SIGNET_GENESIS,
+                    'members':[{**member,'verification_sequence':sequence}],'excluded':[]}
+        raw = json.dumps(self.f.database).encode(); sha = hashlib.sha256(raw).hexdigest()
+        before = self.store.db.total_changes
+        with self.f.dependencies():
+            result = native.captured_direct_source(self.store,self.f.chain,raw,sha,
+                journey_sequence=self.f.journey,scripts=self.scripts,tip=(self.f.height,self.f.tip),
+                minimum_confirmations=1,boundary=boundary)
+        self.assertEqual(before,self.store.db.total_changes)
+        self.assertEqual([],result['pending_liabilities'])
+        self.assertEqual(3,len(result['direct']['liabilities']))
+        self.assertEqual(19670,sum(v['amount_sat'] for v in result['direct']['liabilities']))
+        with self.assertRaisesRegex(EvidenceGap,'original frontier hash'):
+            native.captured_direct_source(self.store,self.f.chain,raw,'0'*64,
+                journey_sequence=self.f.journey,scripts=self.scripts,tip=(self.f.height,self.f.tip),
+                minimum_confirmations=1,boundary=boundary)
+
     def test_other_architecture_is_not_implicitly_admitted(self):
         with patch.object(native, 'profile', return_value='direct_per_key'):
             with self.assertRaisesRegex(EvidenceGap, 'requires direct_xpub'): self.run_snapshot()
@@ -136,6 +167,36 @@ class MonetaryControls(unittest.TestCase):
             with self.assertRaisesRegex(EvidenceGap, 'independent miner fee differs'):
                 native.original_costs(SimpleNamespace(db=db), chain)
         db.close()
+    def test_physical_fee_payers_ignore_action_labels_and_internal_outputs(self):
+        txid = 'a'*64
+        tx = {'txid':txid,'confirmations':2,'fee_sat':3,
+              'inputs':[{'outpoint':'old:0','amount_sat':100,'script':'bank'}],
+              'outputs':[{'amount_sat':80,'script':'rounds'},{'amount_sat':17,'script':'bank'}]}
+        cost = {'sequence':4447,'txid':txid,'amount_msat':3000,
+                'action_id':'misleading-actor-label','direct_payment_sequence':None}
+        chain = SimpleNamespace(transaction=lambda value:copy.deepcopy(tx))
+        scripts = {'bank':{'member_id':'bank'},'rounds':{'member_id':'rounds'}}
+        self.assertEqual({4447:'bank'},native.physical_cost_payers([cost],chain,scripts,[]))
+        tx['inputs'].append({'outpoint':'other:0','amount_sat':1,'script':'rounds'})
+        with self.assertRaisesRegex(EvidenceGap,'mixed or absent'):
+            native.physical_cost_payers([cost],chain,scripts,[])
+    def test_direct_cost_uses_exact_supplemental_prevout_not_backing_owner(self):
+        txid = 'b'*64
+        tx = {'txid':txid,'confirmations':2,'fee_sat':5,
+              'inputs':[{'outpoint':'anchor:0','amount_sat':20,'script':'ark'},
+                        {'outpoint':'watch:0','amount_sat':50,'script':'watch'}], 'outputs':[]}
+        cost = {'sequence':2947,'txid':txid,'amount_msat':5000,'direct_payment_sequence':2946}
+        chain = SimpleNamespace(transaction=lambda value:copy.deepcopy(tx))
+        scripts = {'ark':{'member_id':'backing'},'watch':{'member_id':'watchman'}}
+        group = {'transaction':copy.deepcopy(tx),'fee_inputs':[
+            {'outpoint':'watch:0','value_sat':50,'script_pubkey':'watch'}]}
+        self.assertEqual({2947:'watchman'},native.physical_cost_payers([cost],chain,scripts,[group]))
+        with self.assertRaisesRegex(EvidenceGap,'no validated current winner'):
+            native.physical_cost_payers([cost],chain,scripts,[])
+        group['fee_inputs'][0]['value_sat'] = 49
+        with self.assertRaisesRegex(EvidenceGap,'actual prevout differs'):
+            native.physical_cost_payers([cost],chain,scripts,[group])
+
     def budget(self):
         import hashlib, os
         from simulator.model import SIGNET_GENESIS
@@ -168,6 +229,22 @@ class MonetaryControls(unittest.TestCase):
         self.assertEqual(34136,result['native_remaining_allowance_sat'])
         self.assertEqual(17622,result['external_future_partition_remaining_sat'])
         self.assertEqual(60000,result['ordinary_budget_sat'])
+    def test_current_adoption_opening_carries_import4447_without_partition_refill(self):
+        runtime,costs,groups = self.budget(); costs[-1]['sequence'] = 4447
+        disk = runtime['native_budget']['disk_budget']
+        disk['opening_external_spent_sat'] = 3257
+        disk['external_future_reserved_sat'] = 17622
+        args = dict(server_pubkey='02'+'1'*64,costs=costs,groups=groups,
+                    accounting_receipt_sha256='e'*64,opening_cost_sequences=(234,600,2947,4447))
+        result = native.require_native_budget_join(runtime,**args)
+        self.assertEqual(4985,result['native_opening_spent_sat'])
+        self.assertEqual(3257,result['external_opening_spent_sat'])
+        self.assertEqual(17622,result['external_future_partition_remaining_sat'])
+        self.assertEqual(34136,result['native_remaining_allowance_sat'])
+        disk['external_future_reserved_sat'] = 20000
+        with self.assertRaisesRegex(EvidenceGap,'lifetime arithmetic'):
+            native.require_native_budget_join(runtime,**args)
+
     def test_wrong_lock_missing_version_or_undercharged_opening_hold(self):
         runtime,costs,groups = self.budget(); runtime['native_budget']['lock']['pid']=322
         with self.assertRaisesRegex(EvidenceGap,'FLOCK'):native.require_native_budget_join(runtime,

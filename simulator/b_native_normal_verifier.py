@@ -61,6 +61,50 @@ def captured_scan(store, config, chain, current, *, sequence, pins, boundary_id,
     return scripts, receipt['result']
 
 
+
+def captured_direct_source(store, chain, raw, expected_sha256, *, journey_sequence,
+                           scripts, tip, minimum_confirmations, boundary):
+    """Fixed B capture hook for the original preserved ordinary terminal cohort.
+
+    raw is the SAME whole closed_frontier JSON stdout admitted by the target
+    manifest, not A's differently shaped SQL projection. Original signed native
+    leaves and baseline are loaded from authenticated history here. This emits
+    no records; the common capture may journal the returned exact liabilities.
+    """
+    import hashlib
+    from .two_step_normal import strict_json
+    from .treasury import _members
+    if (not isinstance(raw, bytes) or len(raw) > 2*1024*1024
+            or hashlib.sha256(raw).hexdigest() != expected_sha256):
+        raise EvidenceGap('B native source: exact whole original frontier hash/byte bound differs')
+    database = strict_json(raw)
+    _, journey, original, origin, leaves, absent_sequence = absence._baseline(store, chain, journey_sequence)
+    result = direct_snapshot(store, chain, database, original['database'], leaves, scripts, tip,
+                             minimum_confirmations=minimum_confirmations)
+    import json
+    server_keys = {json.loads(store.db.execute('SELECT proof FROM owned_coin WHERE id=?', (point,)).fetchone()['proof']).get('server_pubkey') for point in leaves}
+    import re
+    if len(server_keys) != 1 or any(not isinstance(key, str) or re.fullmatch('[0-9a-f]{66}', key) is None for key in server_keys):
+        raise EvidenceGap('B native liabilities: original signed leaves have mixed server identity')
+    members = _members(boundary)
+    borrowers = [name for name, member in members.items()
+                 if member['kind'] == 'ark_backing' and member['identity'] in server_keys]
+    if len(borrowers) != 1:
+        raise EvidenceGap('B native liabilities: one declared original server backing member required')
+    member = members[borrowers[0]]
+    event, verified = _source_event(store, member['verification_sequence'])
+    if (event['kind'] != 'treasury_member_verified'
+            or verified.get('member') != {k:v for k,v in member.items() if k != 'verification_sequence'}
+            or verified.get('genesis') != SIGNET_GENESIS or verified.get('financial_pins') != boundary['pins']):
+        raise EvidenceGap('B native liabilities: original backing member source differs')
+    liabilities = [{'id':'coin:'+point, 'borrower':borrowers[0], 'amount_msat':leaf['amount_sat']*1000}
+                   for point, leaf in leaves.items()
+                   if next(row for row in result['liabilities'] if row['coin_id'] == point)['state'] == 'unsettled']
+    return {'database':database, 'direct':result, 'pending_liabilities':liabilities,
+            'journey_sequence':journey_sequence, 'absence_sequence':absent_sequence,
+            'original_source_sequence':journey['source_sequence']}
+
+
 def direct_snapshot(store, chain, database, baseline, leaves, scripts, tip,
                     *, minimum_confirmations):
     """Pure counterpart of the existing public-absence terminal joins.
@@ -125,9 +169,10 @@ def direct_snapshot(store, chain, database, baseline, leaves, scripts, tip,
         body = bodies[tx['txid']]
         groups.append({'result': result, 'transaction': tx, 'height': height,
                        'versions': {txid: transactions[txid] for txid in result['carrier_versions']},
+                       'fee_inputs': winner['fee_inputs'],
                        'signed_weight_wu': body['weight']})
     absence._current_graph(database, baseline, groups)
-    dispositions = {point: {**leaf, 'state': 'unsettled', 'payout_sat': 0,
+    dispositions = {point: {**leaf, 'coin_id': point, 'state': 'unsettled', 'payout_sat': 0,
                            'flat_fee_sat': 0, 'forfeited_sat': 0}
                     for point, leaf in leaves.items()}
     for group in groups:
@@ -135,7 +180,7 @@ def direct_snapshot(store, chain, database, baseline, leaves, scripts, tip,
             leaf = leaves[allocation['id']]
             if (owner['actor'], allocation['gross_sat']) != (leaf['actor'], leaf['amount_sat']):
                 raise InvariantError('journal.disposition: original signed owner/principal differs')
-            dispositions[allocation['id']] = {**leaf,
+            dispositions[allocation['id']] = {**leaf, 'coin_id': allocation['id'],
                 'state': 'confirmed_pay' if allocation['disposition'] == 'pay' else 'confirmed_forfeit',
                 'payout_sat': allocation['payout_sat'], 'flat_fee_sat': allocation['fee_sat'],
                 'forfeited_sat': allocation['forfeited_sat'], 'txid': group['transaction']['txid']}
@@ -176,6 +221,58 @@ def original_costs(store, chain):
                       'action_id': value.get('action_id'),
                       'direct_payment_sequence': value.get('direct_payment_sequence')})
     return costs
+
+
+
+def physical_cost_payers(costs, chain, scripts, groups):
+    """Attribute each original cost from actual prevout owners, never actor labels.
+
+    Ordinary single-wallet transactions must have one independently derived
+    input owner. Mixed-backing direct carriers use only their exact validated
+    supplemental fee inputs; customer backing is not the fee-wallet identity.
+    The separate complete physical-frontier join proves capital conservation.
+    """
+    winners = {group['transaction']['txid']: group for group in groups}
+    if len(winners) != len(groups):
+        raise InvariantError('cost_payers: repeated direct winning transaction')
+    result = {}
+    for cost in costs:
+        sequence = cost['sequence']; txid = cost['txid']; tx = chain.transaction(txid)
+        if (sequence in result or tx.get('confirmations', 0) < 1
+                or tx.get('txid') != txid or tx.get('fee_sat', -1)*1000 != cost['amount_msat']):
+            raise EvidenceGap('cost_payers: original confirmed physical cost differs')
+        inputs = tx['inputs']
+        if txid in winners:
+            group = winners[txid]
+            if tx != group['transaction'] or cost['direct_payment_sequence'] is None:
+                raise EvidenceGap('cost_payers: original direct winner/cost source differs')
+            fees = group['fee_inputs']; points = {coin['outpoint'] for coin in fees}
+            if not points or len(points) != len(fees):
+                raise EvidenceGap('cost_payers: exact supplemental fee source unavailable')
+            selected = [coin for coin in inputs if coin['outpoint'] in points]
+            if len(selected) != len(fees):
+                raise EvidenceGap('cost_payers: supplemental source missing from actual inputs')
+            by_point = {coin['outpoint']: coin for coin in fees}
+            if any((coin['amount_sat'], coin['script']) !=
+                   (by_point[coin['outpoint']]['value_sat'], by_point[coin['outpoint']]['script_pubkey'])
+                   for coin in selected):
+                raise EvidenceGap('cost_payers: supplemental actual prevout differs')
+            inputs = selected
+        elif cost['direct_payment_sequence'] is not None:
+            raise EvidenceGap('cost_payers: original direct cost has no validated current winner')
+        owners = set()
+        for coin in inputs:
+            owner = scripts.get(coin['script'])
+            if owner is None:
+                raise EvidenceGap('cost_payers: actual input lacks independently derived member')
+            owners.add(owner['member_id'])
+        if len(owners) != 1:
+            raise EvidenceGap('cost_payers: mixed or absent actual fee-paying owner')
+        owner = next(iter(owners))
+        if txid in winners and owner not in {'rounds', 'watchman'}:
+            raise EvidenceGap('cost_payers: direct supplemental fee owner is not an operator')
+        result[sequence] = owner
+    return result
 
 
 def add_original_injection(opening, transaction, *, outpoint, amount_sat, scripts):
