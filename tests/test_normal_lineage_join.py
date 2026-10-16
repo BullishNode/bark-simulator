@@ -127,6 +127,27 @@ class LineageAdmissionTests(unittest.TestCase):
     def event(self):
         self.store.event('normal_financial_collector_qualified',self.value)
         self.capture.admission_sequence=self.store.db.execute('SELECT max(sequence)FROM event').fetchone()[0]
+    def test_pinned_binding_credential_is_checked_on_each_source_admission(self):
+        from pathlib import Path
+        from simulator.two_step_normal import digest, module_hash
+        from simulator.normal_lineage import bind_coin
+        from tests.test_final_campaign import PINS
+        credential = Path(self.tmp.name)/'synthetic-proof-credential'
+        credential.write_text('synthetic-initial-value'); credential.chmod(0o600)
+        self.tools['binding']['command'] = ['/exact/binding','http://127.0.0.1:38332',str(credential),'synthetic-server']
+        self.member.configuration['proof_credential_sha256'] = digest(credential.read_bytes())
+        self.value['proof_commands_sha256'] = {name:digest(canonical(tool['command']).encode()) for name,tool in self.tools.items()}
+        self.value['reader_configuration_sha256'] = digest(canonical({
+            'target':{'command':list(self.target.command),'evidence_directory':str(self.target.evidence_directory),'timeout':45},
+            'member':self.member.configuration}).encode())
+        self.value['capture_dependencies_sha256'].update(ordinary_lineage=module_hash(join.authenticate_frontier),typed_lineage=module_hash(bind_coin))
+        self.event()
+        self.capture.admission(self.store,{'financial_pins':PINS})
+        credential.write_text('synthetic-updated-value')
+        with self.assertRaisesRegex(ValueError,'current binding credential'):
+            self.capture.admission(self.store,{'financial_pins':PINS})
+        self.store.verify_event_chain()
+
     def test_both_actual_lineage_sources_and_exact_tools_must_be_admitted(self):
         from simulator.two_step_normal import module_hash
         from simulator.normal_lineage import bind_coin

@@ -83,7 +83,7 @@ class DirectPerKeyProfile:
     public_context_filename = 'c-public-metadata-context.json'
     backing_source_kind = 'c_native_current_backing'
 
-    def __init__(self, target, *, runtime=None, owning=None, cln=None, members=None):
+    def __init__(self, target, *, runtime=None, owning=None, cln=None, members=None, current=None):
         if type(target) is not CheckedTargetReader:
             raise EvidenceGap('fixed C checked-target reader required')
         from .c_normal_runtime_source import RuntimeSource
@@ -106,6 +106,11 @@ class DirectPerKeyProfile:
             if type(members) is not MemberBinding:raise EvidenceGap('fixed C complete member binding required')
             members.check()
         self.members = members
+        from .c_normal_current_join import CurrentBinding
+        if current is not None:
+            if type(current)is not CurrentBinding:raise EvidenceGap('fixed C native current binding required')
+            current.check()
+        self.current=current
 
     def source_configuration(self):
         """Exact C constructor data for existing shared source admission.
@@ -119,7 +124,7 @@ class DirectPerKeyProfile:
         from .c_normal_cln_join import ClnBinding
         from .c_normal_member_join import MemberBinding
         if (type(self) is not DirectPerKeyProfile
-                or set(self.__dict__) != {'target','runtime','owning','cln','members'}
+                or set(self.__dict__) != {'target','runtime','owning','cln','members','current'}
                 or type(self.target) is not CheckedTargetReader
                 or set(self.target.__dict__) != {'reader','adapter','configuration','qualification_sequence'}
                 or type(self.runtime) is not RuntimeSource
@@ -130,10 +135,16 @@ class DirectPerKeyProfile:
                 or set(self.cln.__dict__) != {'reader','member_ids','context_sha256','qualification_sequence'}
                 or set(self.members.__dict__) != {'wallet_root','actor_member_ids','bank','qualification_sequence'}):
             raise EvidenceGap('all fixed actual C source constructors required before capture')
-        return {'kind':'fixed_c_normal_sources',
+        value={'kind':'fixed_c_normal_sources',
             'runtime':{'configuration':copy.deepcopy(self.runtime.configuration),
                 'qualification_sequence':self.runtime.qualification_sequence},
             'owning':self.owning.check(),'cln':self.cln.check(),'members':self.members.check()}
+        if self.current is not None:
+            from .c_normal_current_join import CurrentBinding
+            if type(self.current)is not CurrentBinding or set(self.current.__dict__)!={'tool','tool_identity','qualification_sequence'}:
+                raise EvidenceGap('fixed C current tool instance required')
+            value['current']={**self.current.check(),'qualification_sequence':self.current.qualification_sequence}
+        return value
 
     def component_hashes(self):
         result = {'c_profile':digest(Path(__file__).read_bytes()),
@@ -164,7 +175,17 @@ class DirectPerKeyProfile:
             from .c_normal_member_join import collect
             result['c_member_join']=module_hash(collect)
             result['c_member_constructor_sha256']=digest(canonical(self.members.check()).encode())
+        if self.current is not None:
+            from .c_normal_current_join import collect
+            result['c_current_join']=module_hash(collect)
+            result['c_current_constructor_sha256']=digest(canonical({**self.current.check(),
+                'qualification_sequence':self.current.qualification_sequence}).encode())
         return result
+
+    def collect_current(self,store,config,chain,observation,boundary,checked,members):
+        if self.current is None:raise EvidenceGap('actual fixed C native current source is not installed')
+        from .c_normal_current_join import collect
+        return collect(store,config,chain,observation,boundary=boundary,checked=checked,members=members,binding=self.current)
 
     async def collect_members(self,store,config,chain,observation,boundary,checked,runtime,cln):
         if self.members is None:raise EvidenceGap('actual fixed complete C member source is not installed')

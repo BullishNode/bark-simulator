@@ -145,15 +145,20 @@ class Controls(unittest.TestCase):
         forfeit=wire(ident(1),9900);ff=d.decode_transaction(forfeit)['txid']
         tables={'virtual_transaction':[{'txid':ident(900).split(':')[0],'is_funding':True,'signed_transaction_hex':wire(ident(88),10000)}],'vtxo':[{'vtxo_id':ident(1),'signed_vtxo_hex':'01','server_pubkey':KEY,'spent_in_round':7,'oor_spent_txid':ff,'spend_state':'spent','offboarded_in':None,'onchain_spent_txid':None},
             {'vtxo_id':ident(2),'signed_vtxo_hex':'02'}],
-            'round':[{'id':7,'funding_txid':ftx,'funding_tx_hex':funding,'signed_tree_bytes':1}],
+            'round':[{'id':7,'funding_txid':ftx,'funding_tx_hex':funding,'signed_tree_bytes':2,'signed_tree_hex':'aabb'}],
             'round_participation':[{'id':10,'round_id':ftx,'unlock_hash':'66'*32,'forfeited_at':'captured-native-timestamp','unlock_preimage_present':True}],
             'round_part_input':[{'participation_id':10,'vtxo_id':ident(1),'signed_forfeit_tx_hex':forfeit}],
             'round_part_output':[{'participation_id':10,'policy_hex':'00'+KEY,'amount':9800,'unblinded_mailbox_id':None}]}
+        for row in tables['vtxo']:
+            row['server_pubkey']=KEY
+            cs[row['vtxo_id']].update(native_full_sha256=m.sha(bytes.fromhex(row['signed_vtxo_hex'])),
+                completed_full_sha256=m.sha(bytes.fromhex(row['signed_vtxo_hex'])),completed_vtxo_hex=row['signed_vtxo_hex'],native_completion_relation='exact_full_equality')
         return cs,tables
 
-    def refresh(self,cs,tables,executor=None):
+    def refresh(self,cs,tables,executor=None,tree_executor=None,pins=None):
         return m.refresh_edge('r',[ident(1)],[ident(2)],cs,tables,actor='alice',committed_fee_sat=200,
-            evidence_sha256=SOURCE,decode_transaction=d.decode_transaction,round_proof_executor=executor)
+            evidence_sha256=SOURCE,decode_transaction=d.decode_transaction,round_proof_executor=executor,
+            tree_proof_executor=tree_executor,tree_proof_pins=pins)
 
     def test_round_metadata_and_detached_forfeited_timestamp_cannot_retire_right(self):
         cs,t=self.round_fixture()
@@ -171,19 +176,11 @@ class Controls(unittest.TestCase):
             else:cs[ident(2)]['actor']='bob'
             with self.subTest(mutation=mutation),self.assertRaises(ValueError):self.refresh(cs,t)
 
-    def test_round_executor_original_buffers_are_bound_but_stub_is_not_crypto_qualification(self):
+    def test_round_missing_pinned_tree_cannot_be_replaced_by_legacy_forfeit_stub(self):
         cs,t=self.round_fixture()
-        def stub(request):
-            proof={'signed_path_valid':True,'chain_contract_verified':True,'forfeit_signature_valid':True,
-                'id':ident(1),'forfeit_input_coin_id':ident(1),'forfeit_unlock_hash':request['forfeit_unlock_hash'],
-                'forfeit_txid':d.decode_transaction(request['forfeit_raw'])['txid'],
-                'forfeit_raw_sha256':m.sha(bytes.fromhex(request['forfeit_raw']))}
-            return json.dumps(request,sort_keys=True).encode(),json.dumps(proof,sort_keys=True).encode()
-        e=self.refresh(cs,t,stub);self.assertEqual(e['service_fee_sat'],200)
-        def altered(request):
-            a,b=stub(request);v=json.loads(b);v['forfeit_input_coin_id']=ident(99);return a,json.dumps(v).encode()
-        with self.assertRaisesRegex(ValueError,'native original forfeit'):self.refresh(cs,t,altered)
-
+        def legacy_stub(request):return json.dumps(request).encode(),b'{}'
+        with self.assertRaisesRegex(ValueError,'pinned native tree/forfeit'):
+            self.refresh(cs,t,legacy_stub)
 
 
 if __name__=='__main__':

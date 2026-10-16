@@ -93,6 +93,7 @@ def requirement(binding,pins):
     from .confirmed_scan import confirmed_scan
     from .owned_mempool import collect
     from .treasury import _capture_assets
+    from .two_step_normal import source_members,verify_cln_members
     from .two_step_capture import _public_wallet_rows
     constructor = binding.check()
     constructor.pop('qualification_sequence') # the qualifying event cannot name its own future sequence
@@ -103,7 +104,8 @@ def requirement(binding,pins):
             'confirmed_scan':module_hash(confirmed_scan), 'owned_activity':module_hash(collect),
             'treasury':module_hash(_capture_assets), 'wallet_rows':module_hash(_public_wallet_rows),
             'cohort_history':module_hash(c_cohort.historical_initial_identity_sources),
-            'previous_join':module_hash(cln_join.collect)}}
+            'previous_join':module_hash(cln_join.collect), 'shared_member_join':module_hash(source_members),
+            'shared_cln_join':module_hash(verify_cln_members)}}
 
 
 def _bank(store,binding,chain,observation):
@@ -267,11 +269,13 @@ async def collect(store,config,chain,observation,*,boundary,checked,runtime,cln,
             height=observation['height'],tip_hash=observation['tip_hash'])
         ctx = {'member_id':name,'identity':member['identity'],'financial_pins':boundary['pins'],
             'height':observation['height'],'tip_hash':observation['tip_hash'],'observed_at':time.time()}
-        store.event('treasury_native_inventory_source',{**ctx,**frame,'source_scope':'actual public metadata and complete Core source; named bank originals separate'})
+        store.event('treasury_native_inventory_source',{**ctx,**frame,'reported_utxos':projected,'reported_channels':[],
+            'source_scope':'actual public metadata and complete Core source; named bank originals separate'})
         sources[name] = store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
         store.event('treasury_inventory',{**ctx,'complete':True,'utxos':projected,'scope':'one actual fully scanned member only'})
         inventories[name] = store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
     from .treasury import _capture_assets
+    from .two_step_normal import source_members,verify_cln_members
     if len(inventories) != len(actors)+5:raise EvidenceGap('exact17/29 wallet and twoCLN inventories required')
     assets = _capture_assets(store,{**boundary,'members':[members[k] for k in inventories]},inventories,chain)
     _context(store,observation);cln_join.owning_join.owning._tip(chain,observation);deadline_check()
@@ -282,10 +286,14 @@ async def collect(store,config,chain,observation,*,boundary,checked,runtime,cln,
         'bank_original_event_hashes':[first_bank['hash'],last_bank['hash']],
         'confirmed_scan':provenance,'mempool_activity':{'before':activity,'after':final_activity},'metadata':metadata,
         'historical_identity_sources':identities['sources'],'inventory_sequences':inventories,'inventory_source_sequences':sources,
+        'member_source_hashes':{name:digest(canonical(_source_event(store,sequence)[1]).encode()) for name,sequence in sources.items()},
         'actual_member_assets':assets,'qualification_sequence':binding.qualification_sequence,
         'remaining_declared_members':sorted(set(members)-set(inventories)),
         'complete':False,'qualified':False,'financial_readiness':False,
         'scope':'actual17/29 wallet and twoCLN source union only; native backing/liability/joint/urgent fees and final normal admission remain required'}
+    subset={**boundary,'members':[members[k] for k in inventories]}
+    actual_members=source_members(store,subset,inventories,result,now=time.time())
+    verify_cln_members(store,actual_members,result,inventories,chain)
     public_payload(result);store.event(KIND,result)
     result['source_sequence'] = store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
     return {'safe':result,'private_runtime_source':current,'private_confirmed_scripts':scripts,

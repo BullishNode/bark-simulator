@@ -22,7 +22,7 @@ from .final_campaign import _source_event
 from .financial_transition import _current_claims, _superseded_ark_input, history, recorded
 from .model import SIGNET_GENESIS, btc_to_sat, canonical, integer, public_payload, timestamp
 from .normal_native_fee import verify_native_fee_epoch
-from .normal_pending_board import verify_pending_boards
+from .normal_pending_board import verify_pending_boards, join_board_service_allocations
 from .normal_pool import authenticate_pool, join_pool_finance, POOL_TABLES
 from .normal_source_deadline import ACTIVE, Deadline, DeadlineChain, timeout as source_timeout, check as deadline_check
 from .normal_money_sources import collect_money_sources
@@ -59,7 +59,8 @@ def strict_json(raw, *, decimals=False):
     return json.loads(raw, object_pairs_hook=unique, parse_float=Decimal if decimals else float)
 
 
-def native_tables(raw, expected_sha256, *, pending_board_proof_sha256=None, ordinary_pool_source_sha256=None):
+def native_tables(raw, expected_sha256, *, pending_board_proof_sha256=None, ordinary_pool_source_sha256=None,
+                  ordinary_lineage_configuration=None):
     """Exact bounded RR table cut; a missing table never means zero liabilities."""
     if not isinstance(raw, bytes) or len(raw) > 16*1024*1024 or digest(raw) != expected_sha256:
         raise ValueError('original private SQL hash or aggregate byte bound differs')
@@ -90,6 +91,15 @@ def native_tables(raw, expected_sha256, *, pending_board_proof_sha256=None, ordi
         if ordinary_pool_source_sha256!=CLASSIFIER_SHA256:
             raise ValueError('qualified ordinary classifier hash required for transport framing')
         supported = supported | POOL_TABLES
+    if ordinary_lineage_configuration is not None:
+        from .normal_lineage_join import CONFIGURATION, ROUND_CONFIGURATION
+        if (not isinstance(ordinary_lineage_configuration, dict)
+                or type(ordinary_lineage_configuration.get('schema_version')) is not int
+                or ordinary_lineage_configuration not in (CONFIGURATION, ROUND_CONFIGURATION)):
+            raise ValueError('exact installed ordinary lineage framing required')
+        if ordinary_lineage_configuration == ROUND_CONFIGURATION:
+            from .normal_pool import ROUND_TABLES
+            supported = supported | ROUND_TABLES
     if any(tables[name] for name in TABLES-supported):
         raise ValueError('native conditional/round/pool/pending domain needs its own resolver')
     return tables
@@ -106,6 +116,23 @@ def native_wallet(raw, wallet):
 
 
 def run_proof(tool, request):
+    """Existing proof contract; default limits and behavior remain unchanged."""
+    return _run_proof(tool, request, input_limit=2*1024*1024,
+                      output_limit=2*1024*1024, timeout_seconds=12)
+
+
+def run_native_fee_source_proof(tool, request):
+    """Fixed source-admitted native offline CLI; same private proof lifecycle."""
+    if tuple(tool['command'][1:]) != ('native-fee-source-proof',):
+        raise ValueError('fixed native fee proof subcommand required')
+    encoded, reply = _run_proof(tool, request, input_limit=64*1024*1024,
+                               output_limit=16*1024*1024+1, timeout_seconds=30)
+    payload = reply[:-1] if reply.endswith(b'\n') else reply
+    if len(payload)>16*1024*1024:raise ValueError('native fee proof payload exceeds bound')
+    return encoded, reply
+
+
+def _run_proof(tool, request, *, input_limit, output_limit, timeout_seconds):
     """Execute the admitted pure verifier and retain its exact private originals."""
     command = tool['command']; binary = Path(command[0]); parent = Path(tool['evidence_directory'])
     if (not binary.is_absolute() or binary.is_symlink() or not binary.is_file()
@@ -119,17 +146,17 @@ def run_proof(tool, request):
         with os.fdopen(os.open(directory/name, os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW, 0o600), 'wb') as stream:
             stream.write(raw); stream.flush(); os.fsync(stream.fileno())
     encoded = canonical(request).encode()
-    if len(encoded) > 2*1024*1024: raise ValueError('private proof input exceeds bound')
+    if len(encoded) > input_limit: raise ValueError('private proof input exceeds bound')
     save('request.json', encoded)
     try:
-        reply = subprocess.run(command, input=encoded, capture_output=True, timeout=source_timeout(12))
+        reply = subprocess.run(command, input=encoded, capture_output=True, timeout=source_timeout(timeout_seconds))
     except subprocess.TimeoutExpired as error:
         save('stdout', error.stdout or b''); save('stderr', error.stderr or b'')
         save('terminal.json', canonical({'timed_out':True, 'tool_sha256':tool['sha256']}).encode())
         raise ValueError('native private proof timed out') from error
     save('stdout', reply.stdout); save('stderr', reply.stderr)
     save('terminal.json', canonical({'timed_out':False, 'exit':reply.returncode, 'tool_sha256':tool['sha256']}).encode())
-    if (reply.returncode or len(reply.stdout) > 2*1024*1024 or len(reply.stderr) > 65536
+    if (reply.returncode or len(reply.stdout) > output_limit or len(reply.stderr) > 65536
             or digest(binary.read_bytes()) != tool['sha256']):
         raise ValueError('native proof refused, changed or exceeded bounds')
     strict_json(reply.stdout)
@@ -590,9 +617,14 @@ class Collector:
                 or value['component_sha256'] != hashes
                 or value['proof_tool_sha256'] != {name:tool['sha256'] for name,tool in self.tools.items()}
                 or value['proof_commands_sha256'] != {name:digest(canonical(tool['command']).encode()) for name,tool in self.tools.items()}
-                or set(self.tools) not in ({'policy', 'binding'}, {'policy', 'binding', 'pending'})):
+                or not self._proof_tools(admitted=value)):
             raise ValueError('installed source collector/tool qualification differs')
         return value
+
+    def _proof_tools(self, *, admitted):
+        if self.native_profile is not None and hasattr(self.native_profile, 'validate_proof_tools'):
+            return self.native_profile.validate_proof_tools(self.tools, admitted)
+        return set(self.tools) in ({'policy', 'binding'}, {'policy', 'binding', 'pending'})
 
     async def __call__(self, store, config, chain, snapshot, observation):
         from .treasury import boundary
@@ -715,14 +747,15 @@ class Collector:
     def _a_native_facts(self, store, chain, boundary, envelope, captured, source_event, source, originals, admitted, opening, now, *, observation):
         tables = native_tables(originals['native_sql'], source['original_sha256']['native_sql'],
             pending_board_proof_sha256=admitted['proof_tool_sha256'].get('pending'),
-            ordinary_pool_source_sha256=admitted.get('ordinary_pool',{}).get('classifier_sha256'))
+            ordinary_pool_source_sha256=admitted.get('ordinary_pool',{}).get('classifier_sha256'),
+            ordinary_lineage_configuration=admitted.get('ordinary_lineage'))
         lineage_context = None
         if admitted.get('ordinary_lineage') is not None:
             from .normal_lineage_join import authenticate_frontier, public_frontier
             lineage_context = authenticate_frontier(store,tables,self.tools,
                 server_pubkey=source['identity']['server_pubkey'],genesis=SIGNET_GENESIS,
                 native_source_sha256=source['original_sha256']['native_sql'],observation_id=observation['id'],
-                configuration=admitted['ordinary_lineage'])
+                configuration=admitted['ordinary_lineage'],admission_sequence=self.admission_sequence)
             if source.get('ordinary_lineage') != public_frontier(lineage_context):
                 raise ValueError('source and independent collector typed frontier differ')
         elif source.get('ordinary_lineage') is not None:
@@ -756,7 +789,7 @@ class Collector:
                 current.append({**claim,'chain_anchor':original['chain_anchor']})
             pool_checked=authenticate_pool(tables,originals['native_sql'],pool_originals,originals['core'],chain,self.tools['policy'],
                 configuration=ordinary,server_pubkey=source['identity']['server_pubkey'],height=source['height'],
-                tip_hash=source['tip_hash'],customer_claims=current)
+                tip_hash=source['tip_hash'],customer_claims=current,lineage_context=lineage_context)
         elif any(tables[name]for name in POOL_TABLES-{'sweep'}):
             raise ValueError('ordinary pool original sources unavailable')
         claims, authenticated = authenticate_claims(store, tables, self.tools, source['identity']['server_pubkey'],
@@ -803,6 +836,8 @@ class Collector:
             native_source_sha256=source['original_sha256']['native_sql'],
             native_member_ids={'rounds':source['rounds_member_id'], 'watchman':source['watchman_member_id']},
             height=source['height'], tip_hash=source['tip_hash'], funding_intents=())
+        board_allocations = join_board_service_allocations(pending_resolution,money,authenticated,members,
+            server_pubkey=source['identity']['server_pubkey'],native_source_sha256=source['original_sha256']['native_sql'])
         source_event, source = journal_money_sources(store, money, source_event, source,
             helper_sha256=module_hash(collect_money_sources))
         limits = {name:fee['ordinary_signed_ceiling_sat_kvb'] for name in PATHS-{'claim','progression'}}
@@ -835,5 +870,6 @@ class Collector:
         if available < sum(max(0,envelope['fee_budgets_msat'][key]-used[key]) for key in used):
             raise ValueError('actual unreserved fee cash does not back remaining outer budgets')
         return (assets, claims, fee, limits, pending_fees, recovered, fresh_backing, edge, available, source_event, source), {
-            'pending_board_resolution':pending_resolution, 'ordinary_pool_resolution':pool_checked,
+            'pending_board_resolution':pending_resolution, 'board_service_allocations':board_allocations,
+            'ordinary_pool_resolution':pool_checked,
             'ordinary_lineage':source.get('ordinary_lineage')}

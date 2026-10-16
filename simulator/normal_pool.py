@@ -11,7 +11,7 @@ from . import normal_ordinary_classifier as classifier
 from .bundle_audit import decode_transaction
 from .model import SIGNET_GENESIS, btc_to_sat, canonical, integer
 
-CLASSIFIER_SHA256='674b965f0a618f5bfd86eee73dd53713149e79658fbdd05e7632c6624ed4a158'
+CLASSIFIER_SHA256='10aa64b21d3725fc9f503d54f2ddd971fa57127cd1eaa6b72ebc9a07372d030e'
 POOL_AUX={'owning_pool_inventory':'native-pool.private.json',
           'ordinary_source_classification':'ordinary-source-classification.private.json'}
 POOL_TABLES={'vtxo_pool','ephemeral_tweak','nursery_tx','sweep'}
@@ -50,7 +50,8 @@ def source_originals(package, configuration):
 
 
 def authenticate_pool(tables, raw_sql, originals, raw_core, chain, tool, *,
-                      configuration, server_pubkey, height, tip_hash, customer_claims):
+                      configuration, server_pubkey, height, tip_hash, customer_claims,
+                      lineage_context=None):
     """Execute Full/depth proofs and check one unspent, unallocated pool cut.
 
     Returns no complete flag. Every native pool row must remain selectable in
@@ -62,7 +63,8 @@ def authenticate_pool(tables, raw_sql, originals, raw_core, chain, tool, *,
     if (set(originals)!=set(POOL_AUX) or any(not isinstance(raw,bytes)or len(raw)>4*1024*1024 for raw in originals.values())):
         raise ValueError('bounded named ordinary pool originals required')
     if any(tables[name]for name in ROUND_TABLES):
-        raise ValueError('round allocations require a separate authenticated resolver')
+        from .normal_lineage_join import require_round_evidence
+        require_round_evidence(lineage_context, tables, digest(raw_sql))
     core=strict_json(raw_core,decimals=True);pool=strict_json(originals['owning_pool_inventory'])
     if (core.get('genesis')!=SIGNET_GENESIS or any(frame.get('chain')!='signet'
             or frame.get('initialblockdownload')is not False
