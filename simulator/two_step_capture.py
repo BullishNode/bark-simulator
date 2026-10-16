@@ -120,7 +120,11 @@ class SourceCapture:
         self.configuration = configuration; self.dependencies = dependencies or {}
         if native_profile is not None:
             from .b_normal_profile_adapter import require_profile
-            require_profile(native_profile)
+            from .c_normal_profile_adapter import DirectPerKeyProfile
+            if type(native_profile) is not DirectPerKeyProfile:
+                require_profile(native_profile)
+            elif native_profile.target.reader.read != target_reader:
+                raise ValueError('C target checker must bind the SAME shared source reader')
         self.native_profile = native_profile
         if set(self.dependencies)&{'target_reader','member_reader'}:raise ValueError('reader dependency identity cannot be overridden')
 
@@ -161,6 +165,21 @@ class SourceCapture:
             raise ValueError('installed actual source-reader qualification/configuration differs')
         return value
 
+    async def checked_target(self, store, chain, observation):
+        """C expected-context verification precedes ANY member/package use.
+
+        A/B keep their original transport and downstream checks. C returns its
+        own typed private cut; this hook does not turn it into A30/B wire shape.
+        The complete C capture/reducer registration is separately required.
+        """
+        from .c_normal_profile_adapter import DirectPerKeyProfile
+        native = self.native_profile
+        if type(native) is DirectPerKeyProfile:
+            started = native.begin_target(store, chain, observation)
+            transport = await self.target_reader(json.loads(canonical(observation)))
+            return native.checked_target(store, chain, observation, transport, started)
+        return await self.target_reader(json.loads(canonical(observation)))
+
     async def collect(self, store, config, chain, snapshot, observation):
         admission = self.admission(store, observation); members = _members(self.boundary)
         if (observation['boundary_id'] != self.boundary['id'] or observation['financial_pins'] != self.boundary['pins']):
@@ -189,7 +208,13 @@ class SourceCapture:
                 or digest(executable.read_bytes()) != observation['financial_pins']['driver_sha256']
                 or digest(driver_config.read_bytes()) != self.configuration['driver_config_sha256']):
             raise ValueError('actual independent public server identity differs')
-        target = await self.target_reader(json.loads(canonical(observation)))
+        target = await self.checked_target(store, chain, observation)
+        from .c_normal_profile_adapter import DirectPerKeyProfile
+        if type(self.native_profile) is DirectPerKeyProfile:
+            # This source primitive is admitted only for the private source cut.
+            # Its whole-member/normal money reducer is not installed yet. Never
+            # run generic member consumption against missing A/B source fields.
+            raise ValueError('C checked cut requires actual full-normal member/runtime/fee composition')
         # No parallel bank/Core/CLN calls before the owning TARGET cut completes.
         if self.native_profile is None:
             additional = await self.member_reader(json.loads(canonical(observation)), members, target)
@@ -298,7 +323,7 @@ class SourceCapture:
                         seq = event('treasury_backing_verified', backing)
                         utxos[backing['outpoint']]['verification_sequence'] = seq
                     utxos = list(utxos.values())
-                    body.update(source_kind='b_original_direct_backing',
+                    body.update(source_kind=self.native_profile.backing_source_kind,
                         original_source_sha256=target['manifest']['original_sha256']['native_sql'])
                 else:
                     frame = strict_json(additional['members'][name]['raw_original'])

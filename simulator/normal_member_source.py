@@ -245,7 +245,7 @@ class MemberReader:
                     roots[point]={'amount_sat':btc_to_sat(coin['value']),'script':coin['scriptPubKey']['hex']}
             frames[backing]={'source_kind':'native_signed_ordinary_backing','roots':roots}
         else:
-            frames, b_context = self.native_profile.member_frames(self.store, runtime_config, chain,
+            frames, profile_context = self.native_profile.member_frames(self.store, runtime_config, chain,
                 cfg, observation, members, target, originals, manifest, rpc_records)
             prepared_raw=private_file(cfg['prepared_descriptors'],65536)
             fixture = cfg['fixture_member_id']; target_cln = cfg['target_cln_member_id']
@@ -261,9 +261,10 @@ class MemberReader:
             'unresolved_sources':[],'original_sha256':{name:frame['source_sha256'] for name,frame in result.items()},
             'helper_manifest_sha256':digest(raw_manifest),'prepared_descriptors_sha256':digest(prepared_raw)}
         if self.native_profile is not None:
-            result_manifest['b_public_context_sha256']=digest(canonical(b_context).encode())
-            save('b-public-metadata-context.json',canonical(b_context).encode())
+            context_key=self.native_profile.public_context_key
+            result_manifest[context_key+'_sha256']=digest(canonical(profile_context).encode())
+            save(self.native_profile.public_context_filename,canonical(profile_context).encode())
         encoded=canonical(result_manifest).encode();save('manifest.json',encoded)
         package={'manifest':result_manifest,'raw_manifest':encoded,'manifest_sha256':digest(encoded),'members':result}
-        if self.native_profile is not None:package['b_public_context']=b_context
+        if self.native_profile is not None:package[self.native_profile.public_context_key]=profile_context
         return package

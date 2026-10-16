@@ -60,17 +60,35 @@ class CheckedTargetReader:
         if value['limits']['deadline_ms']>25000 or not 0<self.reader.timeout<=25:
             raise ValueError('C existing protected target deadline cannot increase')
         return expected
-    async def read(self,store,chain,observation):
-        _context(store,observation);deadline_check();admitted=canonical(self.admission(store,observation));original=canonical(observation)
-        def identity():
-            value=chain.identity()
-            from .model import SIGNET_GENESIS
-            if(chain.call('getblockhash',0)!=SIGNET_GENESIS or value.get('chain')!='signet'or value.get('initialblockdownload')is not False
-                    or(value['blocks'],value['bestblockhash'])!=(observation['height'],observation['tip_hash'])):
-                raise ValueError('actual independent C target chain differs')
-            return {'genesis':SIGNET_GENESIS,'height':value['blocks'],'tip_hash':value['bestblockhash'],'ibd':False}
-        before=identity();began=time.time();monotonic_start=time.monotonic()
-        transport=await self.reader.read(copy.deepcopy(observation));deadline_check()
+    def begin(self,store,chain,observation):
+        """Authenticate expected context BEFORE the one shared transport starts."""
+        _context(store,observation);deadline_check()
+        admitted=canonical(self.admission(store,observation))
+        return {'admission':admitted,'observation':canonical(observation),
+            'chain':self._identity(chain,observation),'started_at':time.time(),
+            'monotonic_start':time.monotonic()}
+
+    @staticmethod
+    def _identity(chain,observation):
+        value=chain.identity()
+        from .model import SIGNET_GENESIS
+        if(chain.call('getblockhash',0)!=SIGNET_GENESIS or value.get('chain')!='signet'or value.get('initialblockdownload')is not False
+                or(value['blocks'],value['bestblockhash'])!=(observation['height'],observation['tip_hash'])):
+            raise ValueError('actual independent C target chain differs')
+        return {'genesis':SIGNET_GENESIS,'height':value['blocks'],'tip_hash':value['bestblockhash'],'ibd':False}
+
+    def check_transport(self,store,chain,observation,transport,started):
+        """Check an ALREADY captured original; never execute a second reader.
+
+        `started` comes from begin() in the trusted capture, before transport;
+        producer timestamps cannot substitute for that local lifecycle bracket.
+        """
+        _context(store,observation);deadline_check()
+        if(not isinstance(started,dict)or set(started)!={'admission','observation','chain','started_at','monotonic_start'}
+                or started['admission']!=canonical(self.admission(store,observation))
+                or started['observation']!=canonical(observation)):
+            raise ValueError('original C pre-transport context changed')
+        before=started['chain'];began=started['started_at'];monotonic_start=started['monotonic_start']
         if(transport.get('kind')!='c-private-normal-transport-only'or transport.get('complete')is not False
                 or transport.get('qualified')is not False or not callable(transport.get('producer_exit'))):
             raise ValueError('original actual private transport/terminal missing')
@@ -81,7 +99,7 @@ class CheckedTargetReader:
           expected_history_identity=cfg['history_identity'],expected_policy_sha256=cfg['policy_sha256'],
           adapter=self.adapter,limits=cfg['limits'],binding=cfg['binding'],producer_exit=transport['producer_exit'])
         completed=time.time();deadline_check()
-        if(identity()!=before or canonical(self.admission(store,observation))!=admitted or canonical(observation)!=original
+        if(self._identity(chain,observation)!=before or canonical(self.admission(store,observation))!=started['admission'] or canonical(observation)!=started['observation']
                 or not observation['started_at']<=began<=completed or completed-observation['started_at']>90
                 or time.monotonic()-monotonic_start>self.configuration['limits']['deadline_ms']/1000):
             raise ValueError('C target source context/chain/admission changed')
@@ -89,6 +107,11 @@ class CheckedTargetReader:
         # not producer-supplied timestamps or proof of hidden source authority.
         return {'kind':'c-checked-native-target-source','source_observation':copy.deepcopy(observation),
           'started_at':began,'completed_at':completed,'qualification_sequence':self.qualification_sequence,
-          'qualified_constructor_sha256':digest(admitted.encode()),'loaded':loaded,
+          'qualified_constructor_sha256':digest(started['admission'].encode()),'loaded':loaded,
           'original_private_source_references':loaded['original_private_source_references'],
           'complete':False,'qualified':False,'financial_readiness':False}
+
+    async def read(self,store,chain,observation):
+        started=self.begin(store,chain,observation)
+        transport=await self.reader.read(copy.deepcopy(observation))
+        return self.check_transport(store,chain,observation,transport,started)
