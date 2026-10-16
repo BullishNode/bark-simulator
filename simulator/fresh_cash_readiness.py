@@ -38,12 +38,32 @@ METADATA_TABLES = {'bark_properties', 'bark_fallback_record',
                    'bark_vtxo_key', 'bark_mailbox_checkpoint'}
 
 
+def _identity_sources(store):
+    """Replay immutable identities; current assets are independently rescanned.
+
+    A prospective twelve-member profile never expands the original bootstrap.
+    Its separate authenticated enrollment must be complete, including all native
+    creates, historical zero proofs and actual retained key rows.
+    """
+    original=declaration(store)
+    if original is None:raise ValueError('original fresh cash bootstrap missing')
+    if profile(store)==DIRECT_PER_KEY:
+        from .c_cohort import cohort_profile,seal,historical_initial_identity_sources
+        selected=cohort_profile(store)
+        if selected is not None and seal(store).get('opening_kind')=='unfunded_initial12':
+            view=historical_initial_identity_sources(store)
+            return {**original,'declaration':{**original['declaration'],'actors':view['actors']},
+                    'historical_initial12_sources':view}
+    return original
+
+
 def validate_client_action_scope(store,proof,*,operation,maximum_fee_sat,reserved_action_id):
     """An optional source restriction only narrows the ordinary preflight."""
     if 'client_action_scope' not in proof:return
     scope=proof['client_action_scope']
-    bootstrap=declaration(store)
-    count=2 if profile(store)==DIRECT_PER_KEY else 3
+    bootstrap=_identity_sources(store)
+    count=(12 if 'historical_initial12_sources' in bootstrap else
+           2 if profile(store)==DIRECT_PER_KEY else 3)
     if (not isinstance(scope,dict) or set(scope)!={'actors','operations','maximum_fee_sat','args'}
             or not isinstance(scope['actors'],list) or len(scope['actors'])!=count
             or any(not isinstance(actor,str) for actor in scope['actors'])
@@ -63,11 +83,12 @@ def validate_client_action_scope(store,proof,*,operation,maximum_fee_sat,reserve
 
 
 def observe_empty_client_economics(store,config):
-    """Read counts from all three actual owning SQLite files, without payloads."""
+    """Read every authenticated cohort SQLite file, without monetary payloads."""
     from .identity_bootstrap import _context,_root,_sole_writer
-    original=declaration(store)
-    if original is None:raise ValueError('original fresh cash bootstrap missing')
-    value=original['declaration'];_context(config,value);_sole_writer(value['wallet_root'])
+    original=_identity_sources(store)
+    # Validate native context against the unchanged original declaration, not
+    # the extended actor view. The separate closure authenticates extra actors.
+    value=original['declaration'];_context(config,declaration(store)['declaration'],store=store);_sole_writer(value['wallet_root'])
     if _root(value['wallet_root'])!=original['filesystem']:
         raise ValueError('fresh-cash wallet root identity changed')
     result={}
@@ -118,7 +139,7 @@ def _fresh(value):
 
 def _phase_history(store,pins,actors):
     if (store.db.execute("SELECT 1 FROM action WHERE state!='completed' OR actual_fee_sat IS NOT 0 "
-            "OR fee_reservation_sat!=0 OR args!='{}' LIMIT 1").fetchone()
+            "OR fee_reservation_sat IS NOT 0 OR args!='{}' LIMIT 1").fetchone()
             or store.db.execute("SELECT 1 FROM funding_batch WHERE state!='confirmed' LIMIT 1").fetchone()):
         raise ValueError('fresh cash phase has unknown, paid or unfinished client/funding work')
     for row in store.db.execute('SELECT actor_id,operation,result FROM action'):
@@ -134,9 +155,9 @@ def _phase_history(store,pins,actors):
                 raise ValueError('prior sync had monetary state or unresolved receives')
         if row['operation']=='snapshot' and (data.get('vtxos')!=[] or data.get('evidence',{}).get('coins')!=[]):
             raise ValueError('prior snapshot contained Ark ownership')
-    original=declaration(store)
-    if original is None or original['declaration']['pins']!=pins or set(original['declaration']['actors'])!=set(actors):
-        raise ValueError('original cash-only three-customer bootstrap differs')
+    original=_identity_sources(store)
+    if original['declaration']['pins']!=pins or set(original['declaration']['actors'])!=set(actors):
+        raise ValueError('original authenticated cash-only cohort differs')
 
 
 def _confirmed_funding(store,chain):
@@ -197,7 +218,7 @@ def _current_operator_ranges(initial,current,tip):
 
 
 async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_startup_path):
-    """Actual six-wallet closing assets after funding; no wallet synchronization."""
+    """Complete authenticated closing assets after funding; no wallet synchronization."""
     from .funding_bank import collect_funding_bank_source
     from .process import json_command,public_command_capture
     started=time.monotonic()
@@ -208,7 +229,7 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
     members={member['id']:member for member in initial['members']}
     actors=sorted(member['id'] for member in members.values() if member['role']=='customer')
     if len(members)!=len(policy['customers'])+3 or set(members)!={'bank','rounds','watchman',*actors} or set(actors)!=policy['customers']:
-        raise ValueError('exact six-member cash boundary required')
+        raise ValueError('exact authenticated cash member boundary required')
     _phase_history(store,plan['pins'],actors)
     before=chain.identity();tip=(before['blocks'],before['bestblockhash'])
     if before.get('chain')!='signet' or before.get('initialblockdownload') is not False:
@@ -360,7 +381,7 @@ def _operator_fee_funding(store,source,assets,current):
     return available
 
 
-def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_source_sequence,current_startup_path):
+def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_source_sequence,current_startup_path,source_observation=None):
     """Admit only fee-free cash synchronization after actual source collection."""
     from .runtime_startup import _read
     from .treasury import boundary,capture_assets
@@ -429,5 +450,8 @@ def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_sou
             bank_capital_counts_as_signer_liquidity=False,urgent_isolation_qualified=False,
             urgent_qualification_scope='C11 separate urgent selection/reservation proof OPEN; labels and aggregate budgets alone do not qualify it')
     validate_client_action_scope(store,receipt,operation='sync',maximum_fee_sat=0,reserved_action_id=None)
+    if source_observation is not None:
+        from .c_normal_source import bind_source_observation
+        bind_source_observation(store,receipt,source,source_observation)
     store.event('financial_operating_readiness',receipt)
     return {'operating_readiness_sequence':store.db.execute('SELECT max(sequence) FROM event').fetchone()[0],**receipt}

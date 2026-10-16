@@ -292,6 +292,17 @@ def prospective_funding_policy(store):
 
 
 def initial_identity_sources(store):
+    """Pre-money collector view; never reuse this as post-funding readiness."""
+    _no_money(store)
+    return _initial_identity_sources(store,initial_rows=True)
+
+
+def historical_initial_identity_sources(store):
+    """Authenticate retained identities after funding; no current asset claim."""
+    return _initial_identity_sources(store,initial_rows=False)
+
+
+def _initial_identity_sources(store,*,initial_rows):
     """Verified source references for the prospective original12 collector.
 
     Original bootstrap metadata remains two actors. The extra10 are a separate
@@ -299,7 +310,6 @@ def initial_identity_sources(store):
     minted here, and the actual financial collector must independently rescan
     the entire current owning footprint at one tip before any admission.
     """
-    _no_money(store)
     policy=prospective_funding_policy(store)
     current=enrollment(store,'initial')
     if current is None or not enrollment_complete(store,'initial'):
@@ -342,7 +352,7 @@ def initial_identity_sources(store):
             'height':zero['height'],'tip_hash':zero['tip_hash'],'genesis':SIGNET_GENESIS,
             'native_response_sha256':zero['native_response_sha256'],
             'bootstrap_declaration_sha256':_digest(declared)})
-        _verify_key_sources(store,actor,action_id,data,policy['pins'])
+        _verify_key_sources(store,actor,action_id,data,policy['pins'],initial_rows=initial_rows)
         binding=data['binding']
         if binding['mailbox_pk'] in mailboxes or binding['spk'] in scripts:
             raise ValueError('distinct original12 native payout identities required')
@@ -705,7 +715,7 @@ def verify_native_identity(store,actor,action_id,data):
     return _verify_key_sources(store,actor,action_id,data,current['declaration']['pins'])
 
 
-def _verify_key_sources(store,actor,action_id,data,pins):
+def _verify_key_sources(store,actor,action_id,data,pins,*,initial_rows=True):
     from .per_key import initial_origins,binding_matches,proof_matches
     origins=initial_origins(data);binding=data['binding']
     rows=store.db.execute("SELECT sequence FROM event WHERE kind='public_ownership_verified' AND json_extract(payload,'$.action_id')=?",(action_id,)).fetchall()
@@ -725,4 +735,4 @@ def _verify_key_sources(store,actor,action_id,data,pins):
             or not binding_matches(json.loads(record['proof']),binding)):
         raise ValueError('cohort original immutable native payout record differs')
     from .c_pilot import verify_public_key_rows
-    return verify_public_key_rows(store,actor,origins,initial=True)
+    return verify_public_key_rows(store,actor,origins,initial=initial_rows)

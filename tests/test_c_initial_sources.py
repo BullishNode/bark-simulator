@@ -177,7 +177,7 @@ class CInitialSourceControls(unittest.TestCase):
         case.lease.__exit__(None,None,None)
         store=case.store;store.attach_trace();chain=CChain();chain.store=store
         chain.coin['amount']='0.00900000'
-        config=dataclasses.replace(case.config,inventory_command=('synthetic-c-public-source',))
+        config=dataclasses.replace(case.config,inventory_command=('synthetic-c-public-source',),board_amount_sat=20000,action_fee_reserve_sat=1000)
         data={actor:json.loads(store.db.execute('SELECT result FROM action WHERE actor_id=?',(actor,)).fetchone()[0])['data'] for actor in c_cohort.INITIAL}
         with Lease(case.wallet):records,links=_c_records_links(store,data,case.pins)
         bank=copy.deepcopy(self.bank)
@@ -198,6 +198,8 @@ class CInitialSourceControls(unittest.TestCase):
                     'simulator.finite_funding_readiness.json_command',AsyncMock(return_value=database)):
                 return asyncio.run(collect_initial_funding_sources(store,config,chain,self.bank_rpc,
                     runtime_source_sequence=runtime_sequence,current_startup_path=self.current,boundary_id='c-treasury'))
+        observation={'id':'f'*32,'started_at':time.time(),'architecture_profile':'direct_per_key',
+            'financial_pins':case.pins,'boundary_id':'c-treasury','height':100,'tip_hash':'a'*64}
         result=collect();source=result['source']
         self.assertEqual(612,len(links));self.assertEqual(12,len(records))
         self.assertEqual(15,len(source['members']))
@@ -207,6 +209,28 @@ class CInitialSourceControls(unittest.TestCase):
         self.assertEqual([50000,50000],[row['amount_sat'] for row in source['funding_recipients'] if row['member_id']=='watchman'])
         self.assertEqual(set(c_cohort.INITIAL),set(source['customer_source_sequences']))
         self.assertEqual(0,store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
+        original_call=chain.call
+        def actual_bank_coin(method,*args,**kwargs):
+            if method=='gettxout':return {'confirmations':10,'value':'0.00900000','scriptPubKey':{'hex':chain.coin['scriptPubKey']}}
+            return original_call(method,*args,**kwargs)
+        chain.call=actual_bank_coin
+        with Lease(case.wallet):declare_boundary(store,result['boundary_declaration'],chain)
+        limits={'id':'c-full-initial12','pins':case.pins,'boundary_id':'c-treasury','capital_exposure_msat':900000000,
+            'fee_budgets_msat':{'ordinary':60000000,'urgent':40000000},
+            'fee_ceilings_sat_kvb':{'round':None,'pool':None,'sweep':20000,'payout':20000,'claim':None,'progression':None},
+            'operation_fee_paths':{'funding':['sweep','payout'],'sync':['sweep','payout']},
+            'per_action_fee_sat':1000,'grant_sat':25000,'board_sat':20000,'board_fee_reserve_sat':1000,
+            'minimum_pool_sat':1,'minimum_channel_msat':1,'fee_assets':['b'*64+':0']}
+        with Lease(case.wallet):declare_envelope(store,limits,config,result['inventory_sequences'],chain)
+        with Lease(case.wallet):
+            ready=record_initial_funding_readiness(store,config,chain,result['source_sequence'],source_observation=observation)
+        self.assertEqual(observation,ready['source_observation'])
+        self.assertEqual(400000,ready['funding_total_transfer_sat'])
+        self.assertEqual(300000,ready['client_principal_sat'])
+        self.assertEqual(['funding'],ready['operation_scope'])
+        self.assertFalse(ready['pool_ready']);self.assertFalse(ready['channel_route_ready'])
+        with Lease(case.wallet),self.assertRaisesRegex(ValueError,'already emitted'):
+            record_initial_funding_readiness(store,config,chain,result['source_sequence'],source_observation=observation)
         database['rows']['links']=links[:-1]
         with self.assertRaisesRegex(ValueError,'51 C links'):collect()
 

@@ -118,7 +118,7 @@ def _empty_owner(frame,owner,tip):
 
 
 async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_source_sequence,current_startup_path,boundary_id):
-    """Read actual sources and emit six verified members/inventories, without funding.
+    """Read every declared member/inventory from actual sources, without funding.
 
     Root must validate the exact startup capture first. The named bank collector
     is refreshed after expensive independent scans. No supplied complete labels
@@ -381,7 +381,7 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
                 fee_signer_member=policy['fee_signer_member'],
                 actual_daemon_fee_liquidity_msat=0,urgent_isolation_qualified=False,
                 ordinary_fee_holds_sat={'funding':1000,'one_board':1000},
-                scope='C initial Core-bank funding only: exact 25000-sat sender and 100000-sat watchman outputs; recipient/rounds zero; actual signer liquidity must be independently observed after confirmation; urgent separation/C11 and full qualification open')
+                scope=('C initial Core-bank funding only: twelve authenticated customers at25000 sat each and watchman100000; rounds zero; current signer liquidity and full qualification remain separate' if policy.get('opening_kind')=='unfunded_initial12' else 'C initial Core-bank funding only: exact 25000-sat sender and 100000-sat watchman outputs; recipient/rounds zero; actual signer liquidity must be independently observed after confirmation; urgent separation/C11 and full qualification open'))
         public_payload(source);store._event('finite_initial_funding_sources_verified',source)
         sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
     return {'source_sequence':sequence,'source':source,
@@ -436,7 +436,7 @@ def record_initial_funding_readiness(store,config,chain,source_sequence,*,source
         operator_fee_grants_sat=policy['operator_fee_grants_sat'],
         fee_signer_member='bank',actual_daemon_fee_liquidity_msat=0,
         urgent_isolation_qualified=False,
-        scope='C once-only Core-bank batch: sender25000/watchman100000; postfunding Board requires true confirmed/trusted watchman liquidity; urgent separation/C11 and full qualification open')
+        scope=('C once-only initial12 Core-bank batch: twelve customers25000 each/watchman100000; current signer liquidity and full qualification remain separate' if policy.get('opening_kind')=='unfunded_initial12' else 'C once-only Core-bank batch: sender25000/watchman100000; postfunding Board requires true confirmed/trusted watchman liquidity; urgent separation/C11 and full qualification open'))
     if per_key and store.get_meta('finite_initial_funding_plan') is not None:
         from .finite_funding import _plan, verify_initial_revalidation
         original_plan=_plan(store)
@@ -444,12 +444,7 @@ def record_initial_funding_readiness(store,config,chain,source_sequence,*,source
         receipt.update(original_finite_initial_source_sequence=original_plan['finite_initial_source_sequence'],
                        original_bank_source_sequence=original_plan['bank_source_sequence'])
     if source_observation is not None:
-        if (not isinstance(source_observation,dict)
-                or source_observation.get('financial_pins')!=source['financial_pins']
-                or source_observation.get('boundary_id')!=source['boundary_id']
-                or (source_observation.get('height'),source_observation.get('tip_hash'))!=(source['height'],source['tip_hash'])):
-            raise ValueError('actual normal observation differs from freshly collected source')
-        public_payload(source_observation)
-        receipt['source_observation']=dict(source_observation)
+        from .c_normal_source import bind_source_observation
+        bind_source_observation(store,receipt,source,source_observation)
     store.event('financial_operating_readiness',receipt)
     return {'operating_readiness_sequence':store.db.execute('SELECT max(sequence) FROM event').fetchone()[0],**receipt}
