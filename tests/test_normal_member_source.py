@@ -147,3 +147,60 @@ class BankTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'independent'):self.project()
         self.coin['value']=Decimal('.002');self.raw['getaddressinfo']['owned']['hdkeypath']='m/7h'
         with self.assertRaisesRegex(ValueError,'ordinary derivation'):self.project()
+
+
+class MemberLiteralOriginalTests(unittest.IsolatedAsyncioTestCase):
+    """Real private helper process/files; Core/financial boundaries are explicit stubs."""
+    async def test_backing_discovery_preserves_literal_bank_and_cln_originals(self):
+        import hashlib
+        import json
+        import sys
+        import time
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from simulator.model import SIGNET_GENESIS
+        from simulator.normal_member_source import MemberReader
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);evidence=root/'evidence';helper_root=root/'helper';wallets=root/'wallets'
+            for path in (evidence,helper_root,wallets):path.mkdir(mode=0o700)
+            prepared=root/'prepared.json';prepared.write_bytes(b'{}');prepared.chmod(0o600)
+            fixture_raw=b'{ "getinfo" : {}, "listfunds":{}, "listpeerchannels":{} }\n'
+            target_raw=b'{ "getinfo":{}, "listfunds" : {}, "listpeerchannels":{} }\n'
+            tip='a'*64;anchor='b'*64+':0';identifier='c'*32
+            helper=root/'helper.py'
+            helper.write_text("import pathlib,json,hashlib,sys,time\n"+
+                "root=pathlib.Path("+repr(str(helper_root))+ ")/sys.argv[1];root.mkdir(mode=0o700)\n"+
+                "files={'bank.json':b'{}','fixture.json':"+repr(fixture_raw)+",'core.json':json.dumps("+
+                repr({'genesis':SIGNET_GENESIS,'before':{'chain':'signet','blocks':100,'bestblockhash':tip,'initialblockdownload':False},'after':{'chain':'signet','blocks':100,'bestblockhash':tip,'initialblockdownload':False}})+
+                ").encode()}\n"+
+                "entries={}\nfor name,raw in files.items():\n p=root/name;p.write_bytes(raw);p.chmod(0o600);entries[name]={'sha256':hashlib.sha256(raw).hexdigest(),'size_bytes':len(raw)}\n"+
+                "roles={'bank':'bank.json','fixture_cln':'fixture.json','core':'core.json'}\n"+
+                "manifest={'source_observation_id':sys.argv[1],'unresolved_sources':[],'source_program_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'height':100,'tip_hash':"+repr(tip)+",'started_at':time.time(),'completed_at':time.time(),'files':entries,'originals_map':roles,'original_sha256':{k:entries[v]['sha256']for k,v in roles.items()}}\n"+
+                "p=root/'manifest.json';p.write_text(json.dumps(manifest));p.chmod(0o600);print(json.dumps({'manifest_path':str(p),'manifest_sha256':hashlib.sha256(p.read_bytes()).hexdigest()}))\n")
+            helper.chmod(0o600)
+            cfg={'evidence_root':str(evidence),'helper_evidence_root':str(helper_root),'helper_command':[sys.executable,str(helper)],
+                'helper_sha256':hashlib.sha256(helper.read_bytes()).hexdigest(),'chain_url':'unused','scoped_core_config':'unused',
+                'prepared_descriptors':str(prepared),'prepared_descriptors_sha256':hashlib.sha256(prepared.read_bytes()).hexdigest(),
+                'actor_member_ids':{},'wallet_root':str(wallets),'descriptor_checkpoint':'unused','descriptor_checkpoint_sha256':'d'*64,
+                'bank_member_id':'bank','fixture_member_id':'fixture','target_cln_member_id':'target','backing_member_id':'backing'}
+            class Chain:
+                def __init__(self,*args,**kwargs):pass
+                def identity(self):return {'blocks':100,'bestblockhash':tip,'initialblockdownload':False}
+                def call(self,method,*args):
+                    if (method,args)!=('gettxout',('b'*64,0,True)):raise AssertionError((method,args))
+                    return {'bestblock':tip,'value':Decimal('.001'),'scriptPubKey':{'hex':'51'}}
+            class Database:
+                def execute(self,query):
+                    if query!='SELECT id,proof FROM owned_coin ORDER BY id':raise AssertionError(query)
+                    return SimpleNamespace(fetchall=lambda:[{'id':'preserved-original','proof':json.dumps({'chain_anchor':anchor})}])
+            target={'raw_sql':b'original-sql','manifest':{'original_sha256':{'native_sql':'e'*64},'auxiliary_originals':{'target_cln':'target-cln.json'}},'auxiliary_originals':{'target-cln.json':target_raw}}
+            tables={'vtxo':[{'vtxo_id':anchor,'onchain_spent_txid':None}]}
+            members={name:{}for name in ('bank','fixture','target','backing')}
+            with patch('simulator.normal_member_source.ChainReader',Chain),patch('simulator.normal_member_source.current_from_checkpoint',return_value={}),patch('simulator.normal_member_source.bank_projection',return_value={'bank':'projection'}),patch('simulator.normal_member_source.native_tables',return_value=tables):
+                value=await MemberReader(cfg,SimpleNamespace(db=Database())).read({'id':identifier,'height':100,'tip_hash':tip},members,target)
+            self.assertEqual(fixture_raw,value['members']['fixture']['raw_original'])
+            self.assertEqual(target_raw,value['members']['target']['raw_original'])
+            self.assertEqual(hashlib.sha256(fixture_raw).hexdigest(),value['manifest']['original_sha256']['fixture'])
+            backing=json.loads(value['members']['backing']['raw_original'])
+            self.assertEqual({anchor:{'amount_sat':100000,'script':'51'}},backing['roots'])
+            self.assertEqual([],value['manifest']['unresolved_sources'])
