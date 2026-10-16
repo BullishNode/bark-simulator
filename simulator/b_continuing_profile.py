@@ -18,8 +18,11 @@ from .model import btc_to_sat
 from .two_step_normal import digest,module_hash,native_wallet,strict_json
 
 
-def continuing_profile(store,requested):
+def continuing_profile(store,requested,*,native_fee_tool=None):
     _require(requested==DIRECT and profile(store)==DIRECT,'explicit matching continuing direct_xpub required')
+    if native_fee_tool is not None:
+        from .b_final_native_profile import FinalNativeDirectProfile
+        return FinalNativeDirectProfile(native_fee_tool)
     return ContinuingDirectProfile()
 
 
@@ -68,9 +71,12 @@ class ContinuingDirectProfile(InitialDirectProfile):
             'b_source_deadline':module_hash(DeadlineChain.owned_activity),
             'b_fee_partition':module_hash(partition_native_fee_authorizations)}
 
+    def native_server(self,runtime):
+        return runtime['native_budget']['disk_budget']['server_pubkey']
+
     def activity_context(self,store,chain,target,runtime,scripts,scan,cfg,tip,members):
         return _projection(store,chain,target,runtime,scripts,scan,
-            server=runtime['native_budget']['disk_budget']['server_pubkey'],backing=cfg['backing_member_id'],
+            server=self.native_server(runtime),backing=cfg['backing_member_id'],
             actors=cfg['actor_member_ids'],tip=tip,depth=cfg['b_runtime_admission']['b_sweep_min_confs'],members=members)
 
     def check_operator_inventory(self,owning,scanned,name,activity,tip,scripts):
@@ -81,7 +87,7 @@ class ContinuingDirectProfile(InitialDirectProfile):
     def native_projection(self,store,chain,target,scripts,tip,admission,boundary,context):
         members={m['id']:m for m in boundary['members']}
         runtime=runtime_from_target(target,admission)
-        server=runtime['native_budget']['disk_budget']['server_pubkey']
+        server=self.native_server(runtime)
         _require(server==context['_server_pubkey'],'protected native server differs from public server')
         backings=[m['id']for m in boundary['members']if m['kind']=='ark_backing'and m['identity']==server]
         _require(len(backings)==1,'exact declared signed server backing required')
