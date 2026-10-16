@@ -122,9 +122,14 @@ def bank_projection(raw,member,chain,*,height,tip_hash,records):
 
 
 class MemberReader:
-    def __init__(self,configuration,store):self.configuration=configuration;self.store=store
+    def __init__(self,configuration,store, *, native_profile=None):
+        self.configuration=configuration;self.store=store
+        if native_profile is not None:
+            from .b_normal_profile_adapter import require_profile
+            require_profile(native_profile)
+        self.native_profile=native_profile
 
-    async def read(self,observation,members,target):
+    async def read(self,observation,members,target, *, runtime_config=None):
         cfg=self.configuration;identifier=observation['id'];start=time.time()
         if re.fullmatch('[0-9a-f]{32}',identifier) is None:raise ValueError('canonical member source nonce required')
         evidence=Path(cfg['evidence_root'])/identifier
@@ -195,49 +200,56 @@ class MemberReader:
         chain=ChainReader(cfg['chain_url'],cfg['scoped_core_config'],SIGNET_GENESIS,capture=capture,consumer='normal-current-members')
         chain.credential=ConfigCredential(cfg['scoped_core_config'])
         if ACTIVE.get() is not None:chain=DeadlineChain(chain,ACTIVE.get())
-        prepared_raw=private_file(cfg['prepared_descriptors'],65536)
-        if digest(prepared_raw)!=cfg['prepared_descriptors_sha256']:raise ValueError('immutable pure descriptor provenance differs')
-        prepared=strict_json(prepared_raw);metadata={}
-        for actor in cfg['actor_member_ids']:
-            path=Path(cfg['wallet_root'])/actor/'db.sqlite'
-            metadata[actor]=wallet_metadata(path) if path.exists() else {'wallet_database_exists':False}
-        save('public-wallet-metadata.json',canonical(metadata).encode())
-        frames=current_from_checkpoint(chain,members,cfg['actor_member_ids'],prepared,metadata,rpc_records,
-            path=cfg['descriptor_checkpoint'],expected_sha256=cfg['descriptor_checkpoint_sha256'],
-            prepared_sha256=cfg['prepared_descriptors_sha256'])
-        bank=cfg['bank_member_id'];fixture=cfg['fixture_member_id'];target_cln=cfg['target_cln_member_id'];backing=cfg['backing_member_id']
-        bank_raw=strict_json(originals[manifest['originals_map']['bank']],decimals=True)
-        frames[bank]=bank_projection(bank_raw,members[bank],chain,height=observation['height'],tip_hash=observation['tip_hash'],records=[digest(raw_manifest),*rpc_records])
-        frames[fixture]=strict_json(originals[manifest['originals_map']['fixture_cln']])
-        cln_name=target['manifest']['auxiliary_originals']['target_cln']
-        frames[target_cln]=strict_json(target['auxiliary_originals'][cln_name])
-        # Core checks current unspent roots. Spent roots retain liabilities and
-        # are resolved later by actual native proof + recovery-hold validation.
-        tables=native_tables(target['raw_sql'],target['manifest']['original_sha256']['native_sql'],
-            pending_board_proof_sha256=cfg.get('pending_board_proof_sha256'),
-            ordinary_pool_source_sha256=cfg.get('ordinary_pool',{}).get('classifier_sha256'))
-        roots={}
-        from .financial_transition import _current_claims
-        for claim in _current_claims(self.store):
-            proof=json.loads(self.store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(claim['coin_id'],)).fetchone()['proof'])
-            point=proof['chain_anchor'];row=next((row for row in tables['vtxo'] if row['vtxo_id']==point),None)
-            if row is None:raise ValueError('native original backing root missing')
-            if row['onchain_spent_txid'] is not None:continue
-            txid,index=point.rsplit(':',1);coin=chain.call('gettxout',txid,int(index),False)
-            if coin is None or coin['bestblock']!=observation['tip_hash']:raise ValueError('current original backing source unavailable')
-            roots[point]={'amount_sat':btc_to_sat(coin['value']),'script':coin['scriptPubKey']['hex']}
-        if cfg.get('ordinary_pool')is not None:
-            from .normal_pool import source_originals
-            pool=strict_json(source_originals(target,cfg['ordinary_pool'])['owning_pool_inventory'])
-            if len(pool['candidates'])>256:raise ValueError('bounded actual pool candidates required')
-            rows={row['vtxo_id']:row for row in tables['vtxo']}
-            for candidate in pool['candidates']:
-                row=rows.get(candidate['id'])
-                if row is None:raise ValueError('pool source missing exact same-cut SQL identity')
-                point=row['anchor_point'];txid,index=point.rsplit(':',1);coin=chain.call('gettxout',txid,int(index),True)
-                if coin is None or coin['bestblock']!=observation['tip_hash']:raise ValueError('pool source backing not currently unspent')
+        if self.native_profile is None:
+            prepared_raw=private_file(cfg['prepared_descriptors'],65536)
+            if digest(prepared_raw)!=cfg['prepared_descriptors_sha256']:raise ValueError('immutable pure descriptor provenance differs')
+            prepared=strict_json(prepared_raw);metadata={}
+            for actor in cfg['actor_member_ids']:
+                path=Path(cfg['wallet_root'])/actor/'db.sqlite'
+                metadata[actor]=wallet_metadata(path) if path.exists() else {'wallet_database_exists':False}
+            save('public-wallet-metadata.json',canonical(metadata).encode())
+            frames=current_from_checkpoint(chain,members,cfg['actor_member_ids'],prepared,metadata,rpc_records,
+                path=cfg['descriptor_checkpoint'],expected_sha256=cfg['descriptor_checkpoint_sha256'],
+                prepared_sha256=cfg['prepared_descriptors_sha256'])
+            bank=cfg['bank_member_id'];fixture=cfg['fixture_member_id'];target_cln=cfg['target_cln_member_id'];backing=cfg['backing_member_id']
+            bank_raw=strict_json(originals[manifest['originals_map']['bank']],decimals=True)
+            frames[bank]=bank_projection(bank_raw,members[bank],chain,height=observation['height'],tip_hash=observation['tip_hash'],records=[digest(raw_manifest),*rpc_records])
+            frames[fixture]=strict_json(originals[manifest['originals_map']['fixture_cln']])
+            cln_name=target['manifest']['auxiliary_originals']['target_cln']
+            frames[target_cln]=strict_json(target['auxiliary_originals'][cln_name])
+            # Core checks current unspent roots. Spent roots retain liabilities and
+            # are resolved later by actual native proof + recovery-hold validation.
+            tables=native_tables(target['raw_sql'],target['manifest']['original_sha256']['native_sql'],
+                pending_board_proof_sha256=cfg.get('pending_board_proof_sha256'),
+                ordinary_pool_source_sha256=cfg.get('ordinary_pool',{}).get('classifier_sha256'))
+            roots={}
+            from .financial_transition import _current_claims
+            for claim in _current_claims(self.store):
+                proof=json.loads(self.store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(claim['coin_id'],)).fetchone()['proof'])
+                point=proof['chain_anchor'];row=next((row for row in tables['vtxo'] if row['vtxo_id']==point),None)
+                if row is None:raise ValueError('native original backing root missing')
+                if row['onchain_spent_txid'] is not None:continue
+                txid,index=point.rsplit(':',1);coin=chain.call('gettxout',txid,int(index),False)
+                if coin is None or coin['bestblock']!=observation['tip_hash']:raise ValueError('current original backing source unavailable')
                 roots[point]={'amount_sat':btc_to_sat(coin['value']),'script':coin['scriptPubKey']['hex']}
-        frames[backing]={'source_kind':'native_signed_ordinary_backing','roots':roots}
+            if cfg.get('ordinary_pool')is not None:
+                from .normal_pool import source_originals
+                pool=strict_json(source_originals(target,cfg['ordinary_pool'])['owning_pool_inventory'])
+                if len(pool['candidates'])>256:raise ValueError('bounded actual pool candidates required')
+                rows={row['vtxo_id']:row for row in tables['vtxo']}
+                for candidate in pool['candidates']:
+                    row=rows.get(candidate['id'])
+                    if row is None:raise ValueError('pool source missing exact same-cut SQL identity')
+                    point=row['anchor_point'];txid,index=point.rsplit(':',1);coin=chain.call('gettxout',txid,int(index),True)
+                    if coin is None or coin['bestblock']!=observation['tip_hash']:raise ValueError('pool source backing not currently unspent')
+                    roots[point]={'amount_sat':btc_to_sat(coin['value']),'script':coin['scriptPubKey']['hex']}
+            frames[backing]={'source_kind':'native_signed_ordinary_backing','roots':roots}
+        else:
+            frames, b_context = self.native_profile.member_frames(self.store, runtime_config, chain,
+                cfg, observation, members, target, originals, manifest, rpc_records)
+            prepared_raw=private_file(cfg['prepared_descriptors'],65536)
+            fixture = cfg['fixture_member_id']; target_cln = cfg['target_cln_member_id']
+            cln_name = target['manifest']['auxiliary_originals']['target_cln']
         final=chain.identity()
         if (final['blocks'],final['bestblockhash'],final['initialblockdownload'])!=(observation['height'],observation['tip_hash'],False):raise ValueError('current member source chain changed')
         result={name:{'raw_original':canonical(frame).encode()} for name,frame in frames.items()}
@@ -248,5 +260,10 @@ class MemberReader:
             'height':observation['height'],'tip_hash':observation['tip_hash'],'source_program_sha256':digest(Path(__file__).read_bytes()),
             'unresolved_sources':[],'original_sha256':{name:frame['source_sha256'] for name,frame in result.items()},
             'helper_manifest_sha256':digest(raw_manifest),'prepared_descriptors_sha256':digest(prepared_raw)}
+        if self.native_profile is not None:
+            result_manifest['b_public_context_sha256']=digest(canonical(b_context).encode())
+            save('b-public-metadata-context.json',canonical(b_context).encode())
         encoded=canonical(result_manifest).encode();save('manifest.json',encoded)
-        return {'manifest':result_manifest,'raw_manifest':encoded,'manifest_sha256':digest(encoded),'members':result}
+        package={'manifest':result_manifest,'raw_manifest':encoded,'manifest_sha256':digest(encoded),'members':result}
+        if self.native_profile is not None:package['b_public_context']=b_context
+        return package
