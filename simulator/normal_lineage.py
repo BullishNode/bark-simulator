@@ -68,7 +68,7 @@ def ids(values):
 
 def bind_coin(owned, native, request_raw, response_raw, *, genesis, server_pubkey,
               policy_request_raw=None, policy_response_raw=None, anchor_raw=None,
-              policy_sdk_commit=None):
+              policy_sdk_commit=None, completed_vtxo=None):
     """Bind completed owned Full AND literal native representation after execution.
 
     Different native/client bodies require the admitted helper's exact four-key
@@ -82,9 +82,18 @@ def bind_coin(owned, native, request_raw, response_raw, *, genesis, server_pubke
         and set(req) == {'signed_vtxo', 'binding', 'key_link_attestation'},
         'Full-mode per-key request required')
     need(req['signed_vtxo'] == owned['signed_vtxo'], 'retained completed Full original differs')
-    completed_raw = bytes.fromhex(owned['signed_vtxo'])
+    retained_raw = bytes.fromhex(owned['signed_vtxo'])
+    projected = retained_raw.startswith(b'{')
+    if projected:
+        need(isinstance(completed_vtxo,str) and not bytes.fromhex(completed_vtxo).startswith(b'{'),
+            'retained projection requires a separate genuine ordinary Full')
+        completed_hex = completed_vtxo
+    else:
+        need(completed_vtxo is None, 'literal retained Full cannot be replaced')
+        completed_hex = owned['signed_vtxo']
+    completed_raw = bytes.fromhex(completed_hex)
     native_raw = bytes.fromhex(native['signed_vtxo_hex'])
-    need(sha(completed_raw) == owned['signed_hash'], 'original owned signed bytes changed')
+    need(sha(retained_raw) == owned['signed_hash'], 'original owned signed bytes changed')
     preserved = strict(owned['proof'].encode()) if isinstance(owned['proof'], str) else owned['proof']
     key = owned['pubkey']; ident = owned['id']; point(ident)
     expected = {'id': ident, 'amount_sat': amount(owned['amount_sat']), 'user_pubkey': key,
@@ -115,17 +124,17 @@ def bind_coin(owned, native, request_raw, response_raw, *, genesis, server_pubke
         'chain_anchor': proof['chain_anchor'], 'path': path,
         'native_request_sha256': sha(request_raw), 'native_response_sha256': sha(response_raw),
         'native_full_sha256': sha(native_raw), 'completed_full_sha256': sha(completed_raw),
-        'completed_vtxo_hex': owned['signed_vtxo']}
+        'completed_vtxo_hex': completed_hex,'retained_original_sha256':sha(retained_raw)}
     if policy_request_raw is None and policy_response_raw is None and anchor_raw is None and policy_sdk_commit is None:
-        need(native_raw == completed_raw, 'different native Full requires executed strict completion proof')
+        need(not projected and native_raw == completed_raw, 'different native Full requires executed strict completion proof')
         return result
     need(isinstance(anchor_raw, str) and policy_sdk_commit == NATIVE_COMPLETION_SDK,
         'exact admitted native-completion anchor/SDK required')
     preq, policy = strict(policy_request_raw), strict(policy_response_raw)
-    need(isinstance(preq, dict) and isinstance(policy, dict)
-        and set(preq) == {'signed_vtxo', 'native_vtxo', 'anchor_raw', 'server_pubkey'}
-        and preq == {'signed_vtxo': owned['signed_vtxo'], 'native_vtxo': native['signed_vtxo_hex'],
-            'anchor_raw': anchor_raw, 'server_pubkey': server_pubkey},
+    wanted_request={'signed_vtxo':completed_hex,'native_vtxo':native['signed_vtxo_hex'],
+        'anchor_raw':anchor_raw,'server_pubkey':server_pubkey}
+    if projected:wanted_request['retained_public_projection']=owned['signed_vtxo']
+    need(isinstance(preq, dict) and isinstance(policy, dict) and preq == wanted_request,
         'literal completed/native Full and source anchor request required')
     expected_policy = {'schema_version': 1, 'sdk_commit': policy_sdk_commit, 'id': ident,
         'amount_sat': owned['amount_sat'], 'candidate_user_pubkey': key,
@@ -139,6 +148,12 @@ def bind_coin(owned, native, request_raw, response_raw, *, genesis, server_pubke
     relation = 'exact_full_equality' if native_raw == completed_raw else 'final_hark_leaf_completion'
     need(policy.get('native_completion_relation') == relation,
         'strict known-field-preserving completion relation required')
+    if projected:
+        need(policy.get('retained_public_projection_sha256')==sha(retained_raw)
+            and policy.get('retained_public_projection_relation')=='exact_ordinary_public_encoding'
+            and policy.get('retained_public_projection_verified')is True
+            and policy.get('retained_original_owner_verified')is False,
+            'executed exact retained projection/ordinary Full relation required')
     unlock = policy.get('unlock_hash')
     need(unlock is None or isinstance(unlock, str) and re.fullmatch('[0-9a-f]{64}', unlock),
         'validated leaf unlock hash malformed')
@@ -197,13 +212,17 @@ def authenticate_owned_originals(store, tables, tools, *, genesis, server_pubkey
         need(strict(sent) == request, 'actual native Full request changed')
         anchor = virtual.get(point(row['anchor_point'])[0])
         need(anchor is not None and anchor['is_funding'] is True, 'original Full anchor missing')
-        policy_request = {'signed_vtxo':original['signed_vtxo'], 'native_vtxo':row['signed_vtxo_hex'],
+        projected=bytes.fromhex(original['signed_vtxo']).startswith(b'{')
+        completed=row['signed_vtxo_hex']if projected else original['signed_vtxo']
+        policy_request = {'signed_vtxo':completed, 'native_vtxo':row['signed_vtxo_hex'],
             'anchor_raw':anchor['signed_transaction_hex'], 'server_pubkey':server_pubkey}
+        if projected:policy_request['retained_public_projection']=original['signed_vtxo']
         psent, preceived = run_proof(tools['policy'],policy_request)
         need(strict(psent) == policy_request, 'actual native completion request changed')
         result[identifier] = bind_coin(original,row,sent,received,genesis=genesis,server_pubkey=server_pubkey,
             policy_request_raw=psent, policy_response_raw=preceived,
-            anchor_raw=anchor['signed_transaction_hex'], policy_sdk_commit=NATIVE_COMPLETION_SDK)
+            anchor_raw=anchor['signed_transaction_hex'], policy_sdk_commit=NATIVE_COMPLETION_SDK,
+            completed_vtxo=completed if projected else None)
     store.verify_event_chain()
     return result
 

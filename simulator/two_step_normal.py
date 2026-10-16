@@ -190,12 +190,15 @@ def authenticate_claims(store, tables, tools, server_pubkey, *, authenticated_po
         if row is None: raise ValueError('retained customer right absent from native source')
         original = store.db.execute('SELECT signed_vtxo,signed_hash,proof FROM owned_coin WHERE id=?', (claim['coin_id'],)).fetchone()
         if original is None: raise ValueError('retained completed claim original missing')
-        completed = original['signed_vtxo']
-        if digest(bytes.fromhex(completed)) != original['signed_hash'] or claim.get('signed_hash') != original['signed_hash']:
+        retained = original['signed_vtxo']
+        projected=bytes.fromhex(retained).startswith(b'{')
+        completed = row['signed_vtxo_hex']if projected else retained
+        if digest(bytes.fromhex(retained)) != original['signed_hash'] or claim.get('signed_hash') != original['signed_hash']:
             raise ValueError('retained completed claim original hash differs')
         lineage_coin=None if lineage_context is None else lineage_context.get('authenticated_coins',{}).get(claim['coin_id'])
         if lineage_context is not None and (lineage_coin is None
-                or lineage_coin.get('completed_full_sha256')!=original['signed_hash']
+                or lineage_coin.get('completed_full_sha256')!=digest(bytes.fromhex(completed))
+                or projected and lineage_coin.get('retained_original_sha256')!=original['signed_hash']
                 or lineage_coin.get('native_full_sha256')!=digest(bytes.fromhex(row['signed_vtxo_hex']))):
             raise ValueError('current claim differs from executed lineage Full pair')
         proof = json.loads(original['proof'])
@@ -208,6 +211,7 @@ def authenticate_claims(store, tables, tools, server_pubkey, *, authenticated_po
             raise ValueError('original signed native anchor required')
         wanted_contract = {'signed_vtxo':completed, 'native_vtxo':row['signed_vtxo_hex'],
             'anchor_raw':anchor['signed_transaction_hex'], 'server_pubkey':server_pubkey}
+        if projected:wanted_contract['retained_public_projection']=retained
         contract_request, contract_reply = run_proof(tools['policy'], wanted_contract)
         if strict_json(contract_request) != wanted_contract:
             raise ValueError('executed current completed/native request changed')
@@ -222,7 +226,8 @@ def authenticate_claims(store, tables, tools, server_pubkey, *, authenticated_po
             'expiry_height':proof['expiry_height'], 'exit_delta':12, 'server_pubkey':server_pubkey, 'binding':proof['binding']}
         verified=bind_native_claim(expected_claim, row, contract_request, contract_reply,
             binding_request, binding_reply, genesis=SIGNET_GENESIS, server_pubkey=server_pubkey,
-            completed_vtxo=completed,source_anchor_raw=anchor['signed_transaction_hex'],policy_sdk_commit=NATIVE_COMPLETION_SDK)
+            completed_vtxo=completed,source_anchor_raw=anchor['signed_transaction_hex'],policy_sdk_commit=NATIVE_COMPLETION_SDK,
+            retained_public_projection=retained if projected else None)
         authenticated.append({**verified,'native_source_sha256':native_source_sha256,
             'source_observation_id':source_observation_id})
     return claims, authenticated
