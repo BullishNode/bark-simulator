@@ -20,7 +20,9 @@ from tests import test_c_premoney
 
 class TargetBoundary(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.x=target_fixture.CheckedTarget();self.x.setUp();self.addCleanup(self.x.doCleanups)
+        self.x=target_fixture.CheckedTarget();self.x.setUp()
+        for function,args,kwargs in self.x._cleanups:self.addCleanup(function,*args,**kwargs)
+        self.x._cleanups.clear()
         self.x.store.attach_trace();self.profile=c.DirectPerKeyProfile(self.x.target)
         self.transport_calls=[]
 
