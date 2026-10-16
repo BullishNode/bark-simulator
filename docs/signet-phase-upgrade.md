@@ -83,11 +83,14 @@ original bootstrap's parser error after its successful payment. Preserve that
 original intent/reply and use payment-hash reconciliation, never payment replay.
 
 For Noah, use the coordinator's clean, pinned backend-only build. Record actual
-LNURL metadata/invoice consistency, one intended external payment, backend swap
-ownership, and final native recipient receipts. Keep the recipient wallet truly
+LNURL metadata/invoice consistency, one intended external payment, conditional
+HTLC resolution, recipient-signed claim registration and actual mailbox delivery.
+Keep the recipient wallet truly
 offline while the backend remains online; capture its public destination before
-absence. No mobile or Noah client build is part of this phase. Keep backend
-custody and recipient delivery distinct until real receipts prove delivery.
+absence. No mobile or Noah client build is part of this phase. A for-address
+claim is signed directly to the recipient before its separate mailbox delivery;
+the backend does not own that claim output. Distinguish conditional HTLC state,
+recipient ownership and actual delivery using the signed policy and lineage.
 
 ## A failed upgrade
 

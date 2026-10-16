@@ -20,9 +20,13 @@ Source inspection, not a running compatibility result:
   linking the Noah server to the fresh Bark wallet SDK.
 - Product `bfbe6b7c3088a09dd4e81c4ac24cdc763a627a8c`,
   `bark-rest/src/api/v1/lightning.rs`, `generate_invoice_for_address`, still
-  accepts that request schema. Its documented operation claims the Lightning
-  receive in the backend wallet, then forwards the Ark VTXO to the supplied
-  address's mailbox.
+  accepts that request schema. `bark/src/lightning/receive.rs`,
+  `bolt11_invoice_for_address`, and `bark/src/actions/lightning/receive.rs`,
+  `prepare_lightning_receive_claim`, build the claim directly against the
+  recipient address policy. The backend has no key that can spend those claim
+  outputs. `claim_lightning_receive_htlcs` registers the signed claim outputs
+  with the server before `deliver_lightning_receive` posts them to the recipient
+  mailbox. Recipient ownership and mailbox availability are separate boundaries.
 
 There is a concrete compatibility concern before payment: Noah supplies a plain
 memo, while LNURL-pay requires the invoice's description hash to commit to the
@@ -50,23 +54,40 @@ The trace needs these actual transitions:
 
 1. LNURL metadata and callback bind the declared user and exact amount.
 2. The original Lightning payment settles or fails with a canonical outcome.
-3. The backend wallet receives/claims or refunds the actual HTLC.
-4. The backend forwards the value to the absent recipient's Ark key, or records
-   a still-outstanding forwarding obligation.
+3. The backend drives the conditional HTLC claim/refund. Capture the actual
+   claim destination policy and the server-registered signed output lineage.
+4. Recipient-bound signed outputs are delivered to the absent recipient's
+   mailbox, or delivery remains parked. An undelivered output does not become
+   backend-owned merely because its signed bytes are in the backend checkpoint.
 5. If forwarded coins expire, the registered recipient receives their fallback;
    verify it on chain without waking the original wallet.
 
-Three custody boundaries matter when recording interrupted results:
+Three ownership and availability boundaries matter for interrupted results:
 
 | Boundary | What the fallback can establish |
 |---|---|
-| HTLC not terminal | The payment/claim/refund outcome is still unresolved. |
-| Backend claimed; forwarding not committed | The backend owns the Ark coins. A payout to its registered script does not discharge its obligation to the intended recipient. |
-| Forward committed to recipient | Verify the recipient's real coin/registration and eventual fallback, independently of the backend's success reply. |
+| Before signed claim registration | Conditional HTLC/forwarding operation; payment settlement alone does not establish recipient discharge. Resolve from the actual policy and immutable settlement facts. |
+| Recipient claim registered; mailbox not delivered | Outputs are signed to the recipient policy; the provider cannot spend them. Verify those signed bytes and canonical server lineage. Permanent registered-xpub fallback search may identify the recipient despite missing mailbox evidence; this requires an actual native qualification case. Never pay the provider merely because it ran the receive. |
+| Recipient mailbox delivery committed | Verify the recipient's actual coin/registration and eventual fallback independently of the backend's success reply. Delivery makes the signed output available; it is not a second ownership transfer. |
 
 Distinguish **recipient offline with backend running** from **backend forwarding
-wallet stopped**. They are different conditions. Do not claim the recipient
-received value merely because Lightning settled or the backend recovered funds.
+wallet stopped**. They are different conditions. Do not claim wallet delivery
+merely because Lightning settled, nor infer coin ownership from the process
+holding a parked checkpoint.
+
+Add the native window after signed claim registration and before separate
+mailbox delivery. Keep the recipient absent; read the active provider wallet's
+existing `lightning_receive_checkpoint`/`lightning_receive_state` SDK view.
+`Progress::Delivering(Delivery)` exposes actual signed `Delivery.vtxos` for
+policy/key verification without opening the recipient or querying product SQL.
+The eventual payout must follow the recipient's authenticated xpub record.
+Before claim registration, classify the operation separately as conditional.
+
+On the unchanged long Signet profile a normal LN coin may retain up to 4,320
+blocks before expiry. A successful offline receive or native missing-mailbox
+test does not prove this entire public expiry occurred. Report prompt monetary
+integration, controlled native ownership tests and the separate ordinary short
+S02 lifecycle with their actual scopes and heights.
 
 The old deployment has been retired. Until a real compatible backend is supplied
 and this path runs on public Signet, report S09 `BLOCKED: owned compatible backend
