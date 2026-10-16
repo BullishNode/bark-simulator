@@ -127,6 +127,15 @@ class SourceCapture:
         actual_readers={'target':{'command':list(target_instance.command),
             'evidence_directory':str(target_instance.evidence_directory),'timeout':target_instance.timeout},
             'member':member_instance.configuration}
+        # Defaults retain the original A admission shape. Trusted alternative
+        # decoding and request input require their own explicit admission; no
+        # package, observation or saved flag can select either behavior.
+        if target_instance.request_stdin:
+            actual_readers['target']['request_stdin']=True
+        if target_instance.loader is not None:
+            loader=target_instance.loader
+            actual_readers['target']['loader']={'module':loader.__module__,
+                'qualified_name':loader.__qualname__,'source_sha256':module_hash(loader)}
         if (event['kind'] != 'normal_financial_collector_qualified'
                 or value['reader_configuration_sha256'] != digest(canonical(actual_readers).encode())
                 or value['financial_pins'] != observation['financial_pins']

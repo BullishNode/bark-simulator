@@ -92,11 +92,20 @@ class TargetTarReader:
     Its command/configuration/source and authenticated transport must be admitted
     separately. The only request is the public observation nonce/context. Opaque
     stdout/stderr and any partial failure stay in private exclusive evidence.
+
+    Trusted code may install a loader(path, producer_exit=accessor) and enable
+    the existing bounded public request on stdin. Admission binds that loader's
+    module, qualified name and source bytes, plus the stdin mode. The accessor
+    exposes the actual reaped return code; a failed producer never reaches it.
     """
-    def __init__(self,command,evidence_directory,*,timeout=45):
+    def __init__(self,command,evidence_directory,*,timeout=45,loader=None,request_stdin=False):
+        if loader is not None and not callable(loader):raise ValueError('trusted code loader required')
+        if type(request_stdin)is not bool:raise ValueError('trusted code stdin mode required')
+        self.loader=loader;self.request_stdin=request_stdin
         self.command=tuple(command);self.evidence_directory=Path(evidence_directory);self.timeout=timeout
 
     async def read(self,observation):
+        deadline=asyncio.get_running_loop().time()+source_timeout(self.timeout)
         parent=self.evidence_directory
         if (not self.command or not Path(self.command[0]).is_absolute() or not 0<self.timeout<=45
                 or not parent.is_absolute() or parent.is_symlink() or not parent.is_dir()
@@ -130,19 +139,31 @@ class TargetTarReader:
             return count
         stdout=asyncio.create_task(drain(process.stdout,'source.tar',MAX_BYTES))
         stderr=asyncio.create_task(drain(process.stderr,'stderr',65536))
+        async def send():
+            try:
+                if self.request_stdin:
+                    # asyncio transport writes are nonblocking; drain concurrently
+                    # with BOTH output pipes under the one absolute deadline.
+                    for offset in range(0,len(encoded),4096):
+                        process.stdin.write(encoded[offset:offset+4096])
+                        await process.stdin.drain()
+            finally:process.stdin.close()
+        sender=asyncio.create_task(send())
         try:
-            process.stdin.close()
-            sizes=await asyncio.wait_for(asyncio.gather(stdout,stderr,process.wait()),timeout=source_timeout(self.timeout))
+            remaining=deadline-asyncio.get_running_loop().time()
+            if remaining<=0:raise TimeoutError('private source deadline consumed')
+            sizes=await asyncio.wait_for(asyncio.gather(stdout,stderr,process.wait(),sender),timeout=remaining)
             terminal.update(exit=process.returncode,stdout_bytes=sizes[0],stderr_bytes=sizes[1])
             if process.returncode:raise ValueError('private source command refused')
         except BaseException as error:
             terminal.update(error_type=type(error).__name__,timed_out=isinstance(error,TimeoutError))
             try:os.killpg(process.pid,signal.SIGKILL)
             except ProcessLookupError:pass
-            await process.wait();await asyncio.gather(stdout,stderr,return_exceptions=True)
+            await process.wait();await asyncio.gather(stdout,stderr,sender,return_exceptions=True)
             terminal['exit']=process.returncode
             raise
         finally:
             with create('terminal.json') as output:
                 output.write(canonical(terminal).encode());output.flush();os.fsync(output.fileno())
-        return load_target_tar(directory/'source.tar')
+        if self.loader is None:return load_target_tar(directory/'source.tar')
+        return self.loader(directory/'source.tar',producer_exit=lambda:process.returncode)
