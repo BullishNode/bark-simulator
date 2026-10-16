@@ -155,6 +155,7 @@ class Store:
                 if len(rows)!=1:raise CampaignPaused('unique original execution intent required')
                 _,intent=_source_event(self,rows[0][0])
                 fields=('execution_release','deployment_epoch_id','runtime_source_sequence','financial_pins_scope')
+                if manifest.get('context_kind')=='c_pre_money_execution':fields+=('origin_financial_pins',)
                 if any(key not in intent for key in fields):raise CampaignPaused('pre-cutover intent cannot execute in new deployment')
                 context={key:intent[key] for key in fields}
                 if kind=='action_dispatched':

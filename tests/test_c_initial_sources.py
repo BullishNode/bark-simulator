@@ -108,6 +108,36 @@ class CInitialSourceControls(unittest.TestCase):
             self.database['rows'][name]=original
         self.database['architecture_profile']='direct_xpub'
         with self.assertRaises(ValueError):self.collect()
+
+    def test_explicit_watch_geometry_is_built_from_actual_owning_descriptor_children(self):
+        from simulator import c_fee_geometry
+        from simulator.finite_funding import declare_finite_funding
+        c_fee_geometry.declare(self.store)
+        result=self.collect();source=result['source'];rows=source['funding_recipients']
+        self.assertEqual([('actor-01',25000,1),('watchman',50000,0),('watchman',50000,1)],
+                         [(r['member_id'],r['amount_sat'],r['child_index'])for r in rows])
+        self.assertEqual(3,len({r['script']for r in rows}))
+        self.assertEqual(c_fee_geometry.declaration(self.store)['source_sequence'],
+                         source['watchman_funding_geometry_sequence'])
+        self.assertFalse(source['urgent_isolation_qualified'])
+        self.assertEqual(125000,source['principal_sat'])
+        declare_boundary(self.store,result['boundary_declaration'],self.chain)
+        declaration={'id':'synthetic-c-funding','pins':self.fixture.pins,'boundary_id':'c-treasury',
+            'bank_member_id':'bank','bank_wallet_name':source['bank_wallet_name'],
+            'bank_source_sequence':source['bank_source_sequence'],
+            'finite_initial_source_sequence':result['source_sequence'],'recipients':rows,
+            'maximum_principal_sat':125000,'maximum_miner_fee_sat':1000,
+            'fee_rate_sat_kvb':source['estimated_fee_rate_sat_kvb']}
+        self.assertTrue(declare_finite_funding(self.store,declaration,self.chain))
+        self.assertFalse(self.store.db.execute('SELECT 1 FROM funding_batch').fetchone())
+
+    def test_geometry_refuses_unknown_create_fee_or_retained_fee_reservation(self):
+        from simulator import c_fee_geometry
+        self.store.db.execute("UPDATE action SET actual_fee_sat=NULL WHERE actor_id='actor-01'")
+        with self.assertRaisesRegex(ValueError,'fee-zero'):c_fee_geometry.declare(self.store)
+        self.store.db.execute("UPDATE action SET actual_fee_sat=0,fee_reservation_sat=1 WHERE actor_id='actor-01'")
+        with self.assertRaisesRegex(ValueError,'fee-zero'):c_fee_geometry.declare(self.store)
+        self.assertIsNone(self.store.get_meta(c_fee_geometry.KEY))
     def test_common_financial_admission_is_funding_only_and_cannot_spend_urgent_reserve(self):
         result=self.collect();f=self.fixture
         declare_boundary(self.store,result['boundary_declaration'],self.chain)
@@ -124,6 +154,116 @@ class CInitialSourceControls(unittest.TestCase):
         for operation in ('board','sync','claim','send_arkoor'):
             with self.subTest(operation=operation),self.assertRaises(ValueError):preflight(self.store,self.config,snapshot,operation=operation)
         with self.assertRaises(ValueError):preflight(self.store,self.config,snapshot,operation='funding',amount_sat=25000,maximum_fee_sat=1001)
+
+    def test_explicit_initial12_collects_all612_links_and_exact400k_same_grant_geometry(self):
+        from tests.test_c_premoney import PremoneyControls
+        from simulator import c_cohort,c_fee_geometry
+        from simulator.finite_funding_readiness import _c_records_links
+        case=PremoneyControls();self.addCleanup(case.doCleanups)
+        original_initial_data=initial_data
+        def funded_address_data(offset):
+            data,proofs=original_initial_data(offset)
+            actor='actor-'+str(offset//100).zfill(2)
+            data['funding_address']=address('synthetic-public-'+actor,1)
+            return data,proofs
+        with patch('tests.test_c_premoney.initial_data',side_effect=funded_address_data):
+            case.setUp();case.verify()
+            c_cohort.seal_unfunded(case.store,case.config,case.chain)
+            c_cohort.declare_profile(case.store,case.profile())
+            case.complete_new_identity('actor-02')
+            c_cohort.declare_enrollment(case.store,case.config,'initial',identifier='extra10',
+                actions={actor:'c_create_'+actor[-2:] for actor in c_cohort.INITIAL[2:]})
+            for actor in c_cohort.INITIAL[2:]:case.complete_new_identity(actor)
+        case.lease.__exit__(None,None,None)
+        store=case.store;store.attach_trace();chain=CChain();chain.store=store
+        chain.coin['amount']='0.00900000'
+        config=dataclasses.replace(case.config,inventory_command=('synthetic-c-public-source',),board_amount_sat=20000,action_fee_reserve_sat=1000)
+        data={actor:json.loads(store.db.execute('SELECT result FROM action WHERE actor_id=?',(actor,)).fetchone()[0])['data'] for actor in c_cohort.INITIAL}
+        with Lease(case.wallet):records,links=_c_records_links(store,data,case.pins)
+        bank=copy.deepcopy(self.bank)
+        bank['listunspent'][0]['amount']='0.00900000';bank['getbalances']['mine']['trusted']='0.00900000'
+        def collect_bank(*args,**kwargs):
+            store.event('treasury_bank_original_source',bank)
+            return store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
+        database=copy.deepcopy(self.database)
+        for table in ('records','journal_records'):database['rows'][table]=records
+        for table in ('links','journal_links'):database['rows'][table]=links
+        store.event('owned_runtime_configuration_verified',{'loaded_configuration_identity_verified':True,
+            'product_commit':case.pins['product_commit'],'schema_sha256':case.pins['schema_sha256'],
+            'current_source_sha256':hashlib.sha256(self.current.read_bytes()).hexdigest(),'observed_at':time.time()})
+        runtime_sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
+        c_fee_geometry.declare(store)
+        def collect():
+            with Lease(case.wallet),patch('simulator.finite_funding_readiness.collect_funding_bank_source',side_effect=collect_bank),patch(
+                    'simulator.finite_funding_readiness.json_command',AsyncMock(return_value=database)):
+                return asyncio.run(collect_initial_funding_sources(store,config,chain,self.bank_rpc,
+                    runtime_source_sequence=runtime_sequence,current_startup_path=self.current,boundary_id='c-treasury'))
+        observation={'id':'f'*32,'started_at':time.time(),'architecture_profile':'direct_per_key',
+            'financial_pins':case.pins,'boundary_id':'c-treasury','height':100,'tip_hash':'a'*64}
+        result=collect();source=result['source']
+        self.assertEqual(612,len(links));self.assertEqual(12,len(records))
+        self.assertEqual(15,len(source['members']))
+        self.assertEqual(14,len(source['funding_recipients']))
+        self.assertEqual(400000,sum(row['amount_sat'] for row in source['funding_recipients']))
+        self.assertEqual(300000,source['client_principal_sat'])
+        self.assertEqual([50000,50000],[row['amount_sat'] for row in source['funding_recipients'] if row['member_id']=='watchman'])
+        self.assertEqual(set(c_cohort.INITIAL),set(source['customer_source_sequences']))
+        self.assertEqual(0,store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
+        original_call=chain.call
+        def actual_bank_coin(method,*args,**kwargs):
+            if method=='gettxout':return {'confirmations':10,'value':'0.00900000','scriptPubKey':{'hex':chain.coin['scriptPubKey']}}
+            return original_call(method,*args,**kwargs)
+        chain.call=actual_bank_coin
+        with Lease(case.wallet):declare_boundary(store,result['boundary_declaration'],chain)
+        limits={'id':'c-full-initial12','pins':case.pins,'boundary_id':'c-treasury','capital_exposure_msat':900000000,
+            'fee_budgets_msat':{'ordinary':60000000,'urgent':40000000},
+            'fee_ceilings_sat_kvb':{'round':None,'pool':None,'sweep':20000,'payout':20000,'claim':None,'progression':None},
+            'operation_fee_paths':{'funding':['sweep','payout'],'sync':['sweep','payout']},
+            'per_action_fee_sat':1000,'grant_sat':25000,'board_sat':20000,'board_fee_reserve_sat':1000,
+            'minimum_pool_sat':1,'minimum_channel_msat':1,'fee_assets':['b'*64+':0']}
+        with Lease(case.wallet):declare_envelope(store,limits,config,result['inventory_sequences'],chain)
+        with Lease(case.wallet):
+            ready=record_initial_funding_readiness(store,config,chain,result['source_sequence'],source_observation=observation)
+        self.assertEqual(observation,ready['source_observation'])
+        self.assertEqual(400000,ready['funding_total_transfer_sat'])
+        self.assertEqual(300000,ready['client_principal_sat'])
+        self.assertEqual(['funding'],ready['operation_scope'])
+        self.assertFalse(ready['pool_ready']);self.assertFalse(ready['channel_route_ready'])
+        with Lease(case.wallet),self.assertRaisesRegex(ValueError,'already emitted'):
+            record_initial_funding_readiness(store,config,chain,result['source_sequence'],source_observation=observation)
+        database['rows']['links']=links[:-1]
+        with self.assertRaisesRegex(ValueError,'51 C links'):collect()
+
+    def test_fresh_full_collection_preserves_original_boundary_and_plan_without_relabeling(self):
+        from simulator.finite_funding import declare_finite_funding,verify_initial_revalidation
+        first=self.collect();source=first['source']
+        declare_boundary(self.store,first['boundary_declaration'],self.chain)
+        plan={'id':'c-once-only','pins':self.fixture.pins,'boundary_id':'c-treasury',
+            'bank_member_id':'bank','bank_wallet_name':source['bank_wallet_name'],
+            'bank_source_sequence':source['bank_source_sequence'],
+            'finite_initial_source_sequence':first['source_sequence'],
+            'recipients':source['funding_recipients'],'maximum_principal_sat':125000,
+            'maximum_miner_fee_sat':1000,'fee_rate_sat_kvb':source['estimated_fee_rate_sat_kvb']}
+        declare_finite_funding(self.store,plan,self.chain)
+        original_plan=self.store.get_meta('finite_initial_funding_plan')
+        original_boundary=self.store.get_meta('conserved_treasury_boundary')
+        second=self.collect();fresh=second['source']
+        self.assertGreater(second['source_sequence'],first['source_sequence'])
+        self.assertNotEqual(fresh['bank_source_sequence'],source['bank_source_sequence'])
+        self.assertEqual(source['members'],fresh['members'])
+        self.assertNotEqual(source['member_revalidation_sequences'],fresh['member_revalidation_sequences'])
+        self.assertEqual(fresh,verify_initial_revalidation(self.store,plan,second['source_sequence']))
+        self.assertEqual(original_plan,self.store.get_meta('finite_initial_funding_plan'))
+        self.assertEqual(original_boundary,self.store.get_meta('conserved_treasury_boundary'))
+        for field,changed in [('funding_recipients',fresh['funding_recipients'][:-1]),
+                              ('descriptor_ranges',[]),('members',fresh['members'][:-1]),
+                              ('opening_total_sat',fresh['opening_total_sat']+1),
+                              ('watchman_funding_geometry_sequence',123)]:
+            self.store.event('finite_initial_funding_sources_verified',{**fresh,field:changed})
+            with self.subTest(field=field),self.assertRaisesRegex(ValueError,'immutable'):
+                verify_initial_revalidation(self.store,plan,self.seq())
+        self.assertEqual(0,self.store.db.execute('SELECT count(*) FROM funding_batch').fetchone()[0])
+        self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
 
     def test_synced_lookahead_growth_requires_real_native_proof_and_every_actual_public_row(self):
         from simulator.c_pilot import retained_links

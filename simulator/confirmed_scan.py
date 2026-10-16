@@ -37,12 +37,19 @@ def _identity(store,config,chain,current,*,pins,boundary_id,members):
     release=_sha(current.get('product_commit'),40);daemons={}
     from .architecture import DIRECT_PER_KEY,profile
     per_key=profile(store)==DIRECT_PER_KEY
+    actual_release=pins['product_commit']
+    if per_key:
+        from .c_execution_context import active
+        context=active(store)
+        if context is not None:
+            if pins!=context['financial_pins']:raise ValueError('actual C scan financial pins differ from activation')
+            actual_release=context['execution_release']['product_commit']
     if current.get('kind')!=('owned_native_startup_source' if per_key else 'owned_startup_source') or set(current.get('daemons',{}))!={'captaind','watchmand'}:
         raise ValueError('actual daemon identities required for confirmed scan')
     for service,row in sorted(current['daemons'].items()):
         if per_key:
             if (current.get('architecture_profile')!=DIRECT_PER_KEY or current.get('runtime_transport')!='systemd'
-                    or release!=pins['product_commit'] or current.get('schema_sha256')!=pins['schema_sha256']
+                    or release!=actual_release or current.get('schema_sha256')!=pins['schema_sha256']
                     or row.get('running') is not True or type(row.get('pid')) is not int or row['pid']<=0
                     or row.get('process_exe_sha256')!=row.get('binary_sha256')
                     or service=='captaind' and (row.get('unit')!=config.expected_container

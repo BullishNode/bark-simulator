@@ -15,6 +15,9 @@ from .topology import ready as channel_ready
 KEY='financial_operating_envelope'
 PATHS={'round','pool','sweep','payout','claim','progression'}
 BUDGETS={'ordinary','urgent'}
+# Immediate operator mining publications only. Board is paid by the client's
+# separately bounded SDK funding transaction; Arkoor only cosigns virtual spends.
+NO_OPERATOR_PUBLICATION_OPERATIONS=frozenset({'board','send_arkoor'})
 
 
 def validate(declaration,config):
@@ -37,10 +40,13 @@ def validate(declaration,config):
         supported=set()
         for operation,paths in scope.items():
             if (not isinstance(operation,str) or not operation or len(operation)>64
-                    or not isinstance(paths,list) or not paths
+                    or not isinstance(paths,list)
+                    or (not paths and operation not in NO_OPERATOR_PUBLICATION_OPERATIONS)
                     or any(not isinstance(path,str) for path in paths)
                     or len(set(paths))!=len(paths) or set(paths)-PATHS):
                 raise ValueError('each scoped operation requires distinct existing fee paths')
+            if operation in NO_OPERATOR_PUBLICATION_OPERATIONS and set(paths)&{'claim','progression'}:
+                raise ValueError('client board/arkoor cannot use urgent operator fee paths')
             supported.update(paths)
         for path,amount in declaration['fee_ceilings_sat_kvb'].items():
             if path in supported:integer(amount,'explicit positive supported fee ceiling',1)
@@ -103,15 +109,21 @@ def declare_envelope(store,declaration,config,inventory_sequences,chain):
 def envelope(store,config):
     value=store.get_meta(KEY)
     if value is None:raise ValueError('financial operating limits not declared')
-    declaration=json.loads(value);validate(declaration,config)
+    declaration=json.loads(value)
     rows=store.db.execute("SELECT payload FROM event WHERE kind='financial_operating_envelope_declared'").fetchall()
     if len(rows)!=1 or json.loads(rows[0][0])['declaration']!=declaration:
         raise ValueError('financial limits differ from original declaration')
+    from .preserved_treasury_upgrade import envelope as upgraded_envelope
+    declaration=upgraded_envelope(store,declaration)
+    validate(declaration,config)
     return declaration
 
 
 def fee_totals(store,pins,*,reserved_action_id=None):
     """Deduplicate original miner/router costs and hold each unfinished action once."""
+    from .preserved_treasury_upgrade import fee_totals as upgraded_totals
+    upgraded=upgraded_totals(store,pins,reserved_action_id=reserved_action_id)
+    if upgraded is not None:return upgraded
     from .financial_transition import recorded
     opening=recorded(store)
     old=set(opening['declaration']['history']['action_ids']) if opening else set()

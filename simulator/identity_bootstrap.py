@@ -58,8 +58,39 @@ def _sole_writer(root):
     raise ValueError('bootstrap requires this process to hold the existing wallet-root Lease')
 
 
+def _effective_pins(store,pins):
+    from .architecture import profile,DIRECT_PER_KEY
+    if profile(store)!=DIRECT_PER_KEY:return pins
+    from .c_execution_context import effective_pins
+    return effective_pins(store,pins)
+
+
+def _source_pins(store,sequence,pins):
+    from .architecture import profile,DIRECT_PER_KEY
+    if profile(store)!=DIRECT_PER_KEY:return pins
+    from .c_execution_context import source_pins
+    return source_pins(store,sequence,pins)
+
+
+def _create_context(store, config, value):
+    """Only an explicit C activation may move a new create to new execution.
+
+    Existing target epochs may authenticate historical reads, but never grant
+    fresh creates through an old bootstrap declaration.
+    """
+    if getattr(config, 'architecture_profile', None) == 'direct_per_key':
+        from .c_execution_context import active
+        if active(store) is not None:
+            return _context(config, value, store=store)
+    return _context(config, value)
+
+
 def _context(config, value, *, store=None):
     selected = getattr(config, 'architecture_profile', None)
+    if selected=='direct_per_key' and store is not None:
+        from .c_execution_context import validate_driver_context
+        current=validate_driver_context(store,config,value)
+        if current is not None:return current
     if (selected not in {'direct_xpub','direct_per_key'}
             or config.expected_sdk_commit != value['pins']['sdk_commit']
             or str(config.wallet_root) != value['wallet_root']
@@ -129,7 +160,7 @@ def declare(store, config, value):
     if old is not None:
         if old['declaration'] != value: raise ValueError('bootstrap declaration immutable')
         return False
-    context = _context(config, value)
+    context = _create_context(store, config, value)
     filesystem = _root(value['wallet_root'])
     if any(Path(value['wallet_root']).iterdir()): raise ValueError('bootstrap root must initially be empty')
     with store.transaction():
@@ -150,13 +181,17 @@ def declare(store, config, value):
 
 
 def pending(store):
+    from .c_cohort import pending_enrollment
+    if pending_enrollment(store) is not None:return True
     proof = declaration(store)
     if proof is None: return False
     value = proof['declaration']
     verified = set()
     for row in store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_zero_assets_verified'"):
         _, item = _source_event(store, row['sequence'])
-        if item.get('financial_pins') != value['pins'] or item.get('bootstrap_id') != value['id']:
+        from .c_execution_context import source_pins
+        expected_pins=source_pins(store,item.get('driver_response_sequence',row['sequence']),value['pins'])
+        if item.get('financial_pins') != expected_pins or item.get('bootstrap_id') != value['id']:
             raise ValueError('bootstrap zero-asset source context differs')
         actor = item.get('actor')
         if actor not in value['actors'] or actor in verified or item.get('complete') is not True or item.get('zero_assets') is not True:
@@ -182,20 +217,32 @@ def require_only_verified_creates(store, pins):
     """
     if not store.get_meta('paused'):
         raise ValueError('pause before checking pre-funding bootstrap history')
+    combined=None;cohort=None
+    from .architecture import profile as architecture
+    if architecture(store)=='direct_per_key':
+        from . import c_cohort
+        opening=c_cohort.seal(store)
+        if opening is not None and opening.get('opening_kind')=='unfunded_initial12':
+            combined=c_cohort.initial_identity_sources(store)
+            cohort=c_cohort.enrollment(store,'initial')
+            if combined['financial_pins']!=pins:raise ValueError('original12 history pins differ')
     dispatches = store.db.execute("SELECT sequence FROM event WHERE kind='action_dispatched' LIMIT 13").fetchall()
+    if combined is not None and len(dispatches)!=12:
+        raise ValueError('every original12 real dispatch required')
     if not dispatches:
         return
     original = declaration(store)
-    if original is None or len(dispatches) > 12 or original['declaration']['pins'] != pins or pending(store):
+    if original is None or len(dispatches) > 12 or _effective_pins(store,original['declaration']['pins']) != pins or pending(store):
         raise ValueError('only independently verified bootstrap creates may precede financial declarations')
     value = original['declaration']
     declared = store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_declared'").fetchone()[0]
+    expected_actors=set(combined['actors']) if combined else set(value['actors'])
     seen = set()
     for row in dispatches:
         dispatch_event, dispatch = _source_event(store, row['sequence'])
         action_id = dispatch.get('action_id')
         action = store.db.execute('SELECT * FROM action WHERE id=?', (action_id,)).fetchone()
-        if (action is None or action['actor_id'] not in value['actors'] or action['actor_id'] in seen
+        if (action is None or action['actor_id'] not in expected_actors or action['actor_id'] in seen
                 or action['operation'] != 'create' or action['state'] != 'completed'
                 or json.loads(action['args']) != {} or action['fee_reservation_sat'] != 0
                 or action['actual_fee_sat'] != 0 or dispatch.get('actor') != action['actor_id']):
@@ -208,39 +255,57 @@ def require_only_verified_creates(store, pins):
                 raise ValueError('unique original verified bootstrap action sources required')
             return _source_event(store, rows[0][0])
 
+        actor=action['actor_id']
+        extra=combined is not None and actor in cohort['declaration']['actors']
+        action_declaration=cohort['declaration'] if extra else value
+        declaration_sequence=cohort['enrollment_sequence'] if extra else declared
         intent_event, intent = one('action_intent')
-        begin_event, begin = one('identity_bootstrap_create_intent')
+        begin_event, begin = one('direct_per_key_cohort_create_intent' if extra else 'identity_bootstrap_create_intent')
         response_event, native = one('driver_response')
-        verified_event, verified = one('identity_bootstrap_zero_assets_verified')
+        if combined:
+            reference=combined['sources'][actor]
+            verified_event,verified=_source_event(store,reference['zero_source_sequence'])
+            if (response_event['sequence']!=reference['driver_response_sequence']
+                    or response_event['hash']!=reference['driver_response_hash']
+                    or verified_event['hash']!=reference['zero_event_hash']
+                    or action_id!=reference['create_action_id']
+                    or intent.get('financial_pins')!=reference['financial_pins'] or dispatch.get('financial_pins')!=reference['financial_pins']):
+                raise ValueError('original12 dispatch/source provenance differs')
+        else:
+            verified_event, verified = one('identity_bootstrap_zero_assets_verified')
         response = native['response']
         if (intent.get('actor') != action['actor_id'] or intent.get('operation') != 'create'
                 or intent.get('args') != {} or intent.get('fee_reservation_sat') != 0
                 or begin.get('actor') != action['actor_id'] or begin.get('operation') != 'create'
-                or begin.get('bootstrap_id') != value['id'] or begin.get('financial_pins') != pins
+                or begin.get('bootstrap_id') != action_declaration['id'] or begin.get('financial_pins') != _source_pins(store,begin_event['sequence'],value['pins'])
                 or begin.get('maximum_fee_sat') != 0 or begin.get('actor_path_absent') is not True
                 or response != json.loads(action['result']) or response.get('action_id') != action_id
                 or verified.get('actor') != action['actor_id']
-                or verified.get('bootstrap_declaration_sha256') != hashlib.sha256(canonical(value).encode()).hexdigest()
+                or verified.get('bootstrap_declaration_sha256') != hashlib.sha256(canonical(action_declaration).encode()).hexdigest()
                 or verified.get('source_sequence') != response_event['sequence']
                 or verified.get('driver_response_sequence') != response_event['sequence']
                 or verified.get('source_event_hash') != response_event['hash']
                 or verified.get('confirmed_assets_sat') != 0 or verified.get('unconfirmed_assets_sat') != 0
-                or not declared < intent_event['sequence'] < dispatch_event['sequence']
+                or not declaration_sequence < intent_event['sequence'] < dispatch_event['sequence']
                     < begin_event['sequence'] < response_event['sequence'] < verified_event['sequence']):
             raise ValueError('original verified zero-fee bootstrap history differs')
-    if seen != set(value['actors']):
+    if seen != expected_actors:
         raise ValueError('every declared bootstrap identity requires its original verified dispatch')
 
 
 def eligible(store, config, snapshot, action=None):
+    from .c_cohort import pending_enrollment,eligible_create
+    if pending_enrollment(store) is not None:return eligible_create(store,config,snapshot,action)
     proof = declaration(store)
     if proof is None or not pending(store): return False
     value = proof['declaration']
-    _context(config, value)
+    from .c_cohort import validate_original_unfunded_create
+    validate_original_unfunded_create(store,action)
+    _create_context(store, config, value)
     if _root(value['wallet_root']) != proof['filesystem']: raise ValueError('bootstrap root identity changed')
     _sole_writer(value['wallet_root'])
     config.validate_identity(snapshot)
-    if snapshot.get('financial_pins') != value['pins']: raise ValueError('bootstrap actual financial pins differ')
+    if snapshot.get('financial_pins') != _effective_pins(store,value['pins']): raise ValueError('bootstrap actual financial pins differ')
     if (not 0 <= time.time()-timestamp(snapshot['observed_at'],'bootstrap observation') <= 90
             or snapshot.get('stable_tip') is not True or snapshot.get('initial_block_download') is not False
             or snapshot.get('server_status',{}).get('status') != 'running'):
@@ -270,23 +335,28 @@ def eligible(store, config, snapshot, action=None):
 
 
 def begin(store, config, snapshot, action):
+    from .c_cohort import pending_enrollment,begin_create
+    if pending_enrollment(store) is not None:return begin_create(store,config,snapshot,action)
     if not eligible(store, config, snapshot, action): raise ValueError('bootstrap is not active')
     proof = declaration(store)
     value = proof['declaration']
     with store.transaction():
         store._event('identity_bootstrap_create_intent', {'bootstrap_id': value['id'],
-            'financial_pins': value['pins'], 'actor': action['actor_id'], 'action_id': action['id'],
+            'financial_pins': _effective_pins(store,value['pins']), 'actor': action['actor_id'], 'action_id': action['id'],
             'operation': 'create', 'maximum_fee_sat': 0, 'actor_path_absent': True,
-            'filesystem': _root(value['wallet_root']), 'context': _context(config, value),
+            'filesystem': _root(value['wallet_root']), 'context': _create_context(store, config, value),
             'unknown_outcome': 'park; never retry or regenerate identity'})
 
 
 def verify_created(store,config,chain,actor,action_id):
     """Invoke the actual native/Core verifier; a reply or balance is insufficient."""
+    from .c_cohort import enrollment_for_actor,verify_created as verify_cohort_created
+    if enrollment_for_actor(store,actor) is not None:
+        return verify_cohort_created(store,config,chain,actor,action_id)
     proof=declaration(store)
     if proof is None:raise ValueError('bootstrap declaration missing')
     value=proof['declaration']
-    _context(config,value)
+    _context(config,value,store=store)
     if _root(value['wallet_root'])!=proof['filesystem']:raise ValueError('bootstrap root identity changed')
     from .closed_cohort_sources import verify_bootstrap_zero_assets
     return verify_bootstrap_zero_assets(store,config,chain,actor,action_id,bootstrap_declaration=value)

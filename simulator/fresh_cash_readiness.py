@@ -38,12 +38,32 @@ METADATA_TABLES = {'bark_properties', 'bark_fallback_record',
                    'bark_vtxo_key', 'bark_mailbox_checkpoint'}
 
 
+def _identity_sources(store):
+    """Replay immutable identities; current assets are independently rescanned.
+
+    A prospective twelve-member profile never expands the original bootstrap.
+    Its separate authenticated enrollment must be complete, including all native
+    creates, historical zero proofs and actual retained key rows.
+    """
+    original=declaration(store)
+    if original is None:raise ValueError('original fresh cash bootstrap missing')
+    if profile(store)==DIRECT_PER_KEY:
+        from .c_cohort import cohort_profile,seal,historical_initial_identity_sources
+        selected=cohort_profile(store)
+        if selected is not None and seal(store).get('opening_kind')=='unfunded_initial12':
+            view=historical_initial_identity_sources(store)
+            return {**original,'declaration':{**original['declaration'],'actors':view['actors'],'pins':view['financial_pins']},
+                    'historical_initial12_sources':view}
+    return original
+
+
 def validate_client_action_scope(store,proof,*,operation,maximum_fee_sat,reserved_action_id):
     """An optional source restriction only narrows the ordinary preflight."""
     if 'client_action_scope' not in proof:return
     scope=proof['client_action_scope']
-    bootstrap=declaration(store)
-    count=2 if profile(store)==DIRECT_PER_KEY else 3
+    bootstrap=_identity_sources(store)
+    count=(12 if 'historical_initial12_sources' in bootstrap else
+           2 if profile(store)==DIRECT_PER_KEY else 3)
     if (not isinstance(scope,dict) or set(scope)!={'actors','operations','maximum_fee_sat','args'}
             or not isinstance(scope['actors'],list) or len(scope['actors'])!=count
             or any(not isinstance(actor,str) for actor in scope['actors'])
@@ -63,11 +83,12 @@ def validate_client_action_scope(store,proof,*,operation,maximum_fee_sat,reserve
 
 
 def observe_empty_client_economics(store,config):
-    """Read counts from all three actual owning SQLite files, without payloads."""
+    """Read every authenticated cohort SQLite file, without monetary payloads."""
     from .identity_bootstrap import _context,_root,_sole_writer
-    original=declaration(store)
-    if original is None:raise ValueError('original fresh cash bootstrap missing')
-    value=original['declaration'];_context(config,value);_sole_writer(value['wallet_root'])
+    original=_identity_sources(store)
+    # Validate native context against the unchanged original declaration, not
+    # the extended actor view. The separate closure authenticates extra actors.
+    value=original['declaration'];_context(config,declaration(store)['declaration'],store=store);_sole_writer(value['wallet_root'])
     if _root(value['wallet_root'])!=original['filesystem']:
         raise ValueError('fresh-cash wallet root identity changed')
     result={}
@@ -118,7 +139,7 @@ def _fresh(value):
 
 def _phase_history(store,pins,actors):
     if (store.db.execute("SELECT 1 FROM action WHERE state!='completed' OR actual_fee_sat IS NOT 0 "
-            "OR fee_reservation_sat!=0 OR args!='{}' LIMIT 1").fetchone()
+            "OR fee_reservation_sat IS NOT 0 OR args!='{}' LIMIT 1").fetchone()
             or store.db.execute("SELECT 1 FROM funding_batch WHERE state!='confirmed' LIMIT 1").fetchone()):
         raise ValueError('fresh cash phase has unknown, paid or unfinished client/funding work')
     for row in store.db.execute('SELECT actor_id,operation,result FROM action'):
@@ -134,9 +155,9 @@ def _phase_history(store,pins,actors):
                 raise ValueError('prior sync had monetary state or unresolved receives')
         if row['operation']=='snapshot' and (data.get('vtxos')!=[] or data.get('evidence',{}).get('coins')!=[]):
             raise ValueError('prior snapshot contained Ark ownership')
-    original=declaration(store)
-    if original is None or original['declaration']['pins']!=pins or set(original['declaration']['actors'])!=set(actors):
-        raise ValueError('original cash-only three-customer bootstrap differs')
+    original=_identity_sources(store)
+    if original['declaration']['pins']!=pins or set(original['declaration']['actors'])!=set(actors):
+        raise ValueError('original authenticated cash-only cohort differs')
 
 
 def _confirmed_funding(store,chain):
@@ -196,8 +217,38 @@ def _current_operator_ranges(initial,current,tip):
     return specs
 
 
+def _verify_cash_frontier(store,initial_rows,current_rows,actors):
+    """Only native-acknowledged signed link growth can change the cash frontier."""
+    if profile(store)!=DIRECT_PER_KEY:
+        if current_rows!=initial_rows:raise ValueError('cash-only monetary database frontier is no longer empty')
+        return
+    from .finite_funding_readiness import TABLES
+    from .c_pilot import retained_links
+    from .per_key import record_envelope
+    retained=retained_links(store,actors=actors)
+    records=sorted(({'mailbox_pk':row['binding']['mailbox_pk'],'spk':row['binding']['spk'],
+                     'mailbox_sig':record_envelope(row['binding'])[-64:].hex()}
+                    for row in retained.values()),key=lambda r:r['mailbox_pk'])
+    links=sorted((link for row in retained.values() for link in row['links']),key=lambda r:r['user_pubkey'])
+    if (not isinstance(initial_rows,dict) or not isinstance(current_rows,dict)
+            or set(initial_rows)!=TABLES or set(current_rows)!=TABLES
+            or any(not isinstance(rows,list) for rows in [*initial_rows.values(),*current_rows.values()])):
+        raise ValueError('complete original and current nineteen-table cash frontier required')
+    for table in TABLES:
+        if table in {'records','journal_records'}:
+            if (sorted(initial_rows[table],key=lambda r:r['mailbox_pk'])!=records
+                    or sorted(current_rows[table],key=lambda r:r['mailbox_pk'])!=records):
+                raise ValueError('immutable original cash payout records differ')
+        elif table in {'links','journal_links'}:
+            if (any(link not in links for link in initial_rows[table])
+                    or sorted(current_rows[table],key=lambda r:r['user_pubkey'])!=links):
+                raise ValueError('complete independently checked native cash key prefix required')
+        elif initial_rows[table]!=[] or current_rows[table]!=[]:
+            raise ValueError('cash-only monetary database frontier is no longer empty')
+
+
 async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_startup_path):
-    """Actual six-wallet closing assets after funding; no wallet synchronization."""
+    """Complete authenticated closing assets after funding; no wallet synchronization."""
     from .funding_bank import collect_funding_bank_source
     from .process import json_command,public_command_capture
     started=time.monotonic()
@@ -208,7 +259,7 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
     members={member['id']:member for member in initial['members']}
     actors=sorted(member['id'] for member in members.values() if member['role']=='customer')
     if len(members)!=len(policy['customers'])+3 or set(members)!={'bank','rounds','watchman',*actors} or set(actors)!=policy['customers']:
-        raise ValueError('exact six-member cash boundary required')
+        raise ValueError('exact authenticated cash member boundary required')
     _phase_history(store,plan['pins'],actors)
     before=chain.identity();tip=(before['blocks'],before['bestblockhash'])
     if before.get('chain')!='signet' or before.get('initialblockdownload') is not False:
@@ -235,14 +286,14 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
         if owner is None:raise ValueError('confirmed funding has foreign output')
         recipient=recipients.get(output['script'])
         if recipient is not None:
-            if (recipient['member_id'] in seen or recipient['member_id']!=owner['member_id']
+            if (output['script'] in seen or recipient['member_id']!=owner['member_id']
                     or recipient['amount_sat']!=output['amount_sat']):raise ValueError('confirmed finite recipient differs')
-            seen.add(recipient['member_id'])
+            seen.add(output['script'])
         else:
             change+=1
             if owner['member_id']!='bank' or change>1:raise ValueError('finite funding change ownership differs')
         expected[funded['txid']+':'+str(output['vout'])]={**owner,'amount_sat':output['amount_sat'],'script':output['script']}
-    if seen!={row['member_id'] for row in plan['recipients']} or sum(c['amount_sat'] for c in expected.values())!=policy['opening_sat']-transaction['fee_sat']:
+    if seen!={row['script'] for row in plan['recipients']} or sum(c['amount_sat'] for c in expected.values())!=policy['opening_sat']-transaction['fee_sat']:
         raise ValueError('exact finite cash conservation differs')
     observed={}
     rows=scan.get('unspents')
@@ -288,8 +339,10 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
             or database.get('complete')!=initial_db['response'].get('complete')
             or database.get('qualified')!=initial_db['response'].get('qualified')
             or database.get('database_tables_complete') is not True or database.get('inventory_consistent') is not True
-            or database.get('read_only') is not True or database.get('rows')!=initial_db['response']['rows']):
+            or database.get('read_only') is not True
+            or profile(store)==DIRECT_PER_KEY and database.get('architecture_profile')!=DIRECT_PER_KEY):
         raise ValueError('cash-only monetary database frontier is no longer empty')
+    _verify_cash_frontier(store,initial_db['response']['rows'],database.get('rows'),actors)
     store.event('closed_cohort_original_source',{'source_kind':'closed_frontier','response':database,
         'response_sha256':_digest(database),'financial_pins':plan['pins'],'observed_at':time.time()})
     database_sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
@@ -360,7 +413,7 @@ def _operator_fee_funding(store,source,assets,current):
     return available
 
 
-def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_source_sequence,current_startup_path):
+def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_source_sequence,current_startup_path,source_observation=None):
     """Admit only fee-free cash synchronization after actual source collection."""
     from .runtime_startup import _read
     from .treasury import boundary,capture_assets
@@ -381,12 +434,8 @@ def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_sou
         raise ValueError('fresh cash source has different financial context')
     runtime_event,runtime=_source_event(store,runtime_source_sequence)
     current,current_sha=_read(current_startup_path)
-    if (runtime_event['kind']!='owned_runtime_configuration_verified'
-            or runtime.get('loaded_configuration_identity_verified') is not True
-            or runtime.get('current_source_sha256')!=current_sha
-            or runtime.get('product_commit')!=plan['pins']['product_commit']
-            or runtime.get('schema_sha256')!=plan['pins']['schema_sha256']):
-        raise ValueError('actual same-process loaded cash configuration required')
+    from .target_epochs import verified_runtime_source
+    verified_runtime_source(store,runtime_source_sequence,origin_pins=plan['pins'],current_source_sha256=current_sha)
     _fresh(runtime['observed_at'])
     limits=envelope(store,config);treasury=boundary(store)
     if (limits['pins']!=plan['pins'] or limits['boundary_id']!=plan['boundary_id']
@@ -429,5 +478,8 @@ def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_sou
             bank_capital_counts_as_signer_liquidity=False,urgent_isolation_qualified=False,
             urgent_qualification_scope='C11 separate urgent selection/reservation proof OPEN; labels and aggregate budgets alone do not qualify it')
     validate_client_action_scope(store,receipt,operation='sync',maximum_fee_sat=0,reserved_action_id=None)
+    if source_observation is not None:
+        from .c_normal_source import bind_source_observation
+        bind_source_observation(store,receipt,source,source_observation)
     store.event('financial_operating_readiness',receipt)
     return {'operating_readiness_sequence':store.db.execute('SELECT max(sequence) FROM event').fetchone()[0],**receipt}
