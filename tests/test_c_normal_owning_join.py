@@ -15,7 +15,12 @@ from tests import test_c_owning_wallet_source as fixture
 
 class OwningJoin(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.f=fixture.OwningSources();self.f.setUp();self.addCleanup(self.f.doCleanups)
+        self.f=fixture.OwningSources();self.f.setUp()
+        # A manually instantiated IsolatedAsyncioTestCase has no runner. Its
+        # doCleanups silently records cleanup errors instead of stopping mocks.
+        # Run the registered callbacks on THIS actual running test instead.
+        for function,args,kwargs in self.f._cleanups:self.addCleanup(function,*args,**kwargs)
+        self.f._cleanups.clear()
         self.store=self.f.store;self.observation=self.f.observation
         self.source={'kind':'owned_native_startup_source','architecture_profile':'direct_per_key',
             'runtime_transport':'systemd','product_commit':self.observation['financial_pins']['product_commit'],
