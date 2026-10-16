@@ -91,9 +91,12 @@ class Config:
     phase_manifest_sha256: str | None = None
     architecture_profile: str | None = None
     expected_sdk_commit: str | None = None
+    closed_frontier_schema: int = 1
 
     def __post_init__(self):
         validate_architecture(self.architecture_profile)
+        from .frontier_source import schema
+        schema(self)
         if self.architecture_profile is not None:
             sdk=self.expected_sdk_commit
             if not isinstance(sdk,str) or len(sdk)!=40 or any(c not in '0123456789abcdef' for c in sdk):
@@ -196,7 +199,7 @@ class Config:
         operator_descriptors = declaration_paths(operator.get('descriptors', []), paths[1])
         if operator.get('bridge', False) and (not operator_descriptors or not runtime.get('inventory_command') or not trace.get('enabled', True)):
             raise ValueError('operator bridge requires public descriptors, inventory command and trace')
-        return cls(architecture_profile=target.get('architecture_profile'),expected_sdk_commit=target.get('sdk_commit'),phase_enabled=runtime.get('phase_enabled',False),phase_manifest_sha256=runtime.get('phase_manifest_sha256'),log_target_enabled=logs.get('target',False),log_local_sources=tuple(local_sources),log_since_us=since_us,log_rows_per_page=log_rows,log_maximum_bytes=log_bytes,server_policy_command=tuple(policy), state_dir=paths[0], observer_command=tuple(runtime["observer_command"]),
+        return cls(closed_frontier_schema=runtime.get('closed_frontier_schema',1),architecture_profile=target.get('architecture_profile'),expected_sdk_commit=target.get('sdk_commit'),phase_enabled=runtime.get('phase_enabled',False),phase_manifest_sha256=runtime.get('phase_manifest_sha256'),log_target_enabled=logs.get('target',False),log_local_sources=tuple(local_sources),log_since_us=since_us,log_rows_per_page=log_rows,log_maximum_bytes=log_bytes,server_policy_command=tuple(policy), state_dir=paths[0], observer_command=tuple(runtime["observer_command"]),
                    driver_command=tuple(runtime.get("driver_command", [])), wallet_root=paths[1],
                    expected_genesis=target["genesis"], expected_container=container,
                    expected_image=image, expected_server_pubkey=pubkey,

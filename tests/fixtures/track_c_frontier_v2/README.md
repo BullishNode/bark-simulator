@@ -1,0 +1,3 @@
+These frozen public sources and two synthetic stream helpers exercise the original TraceStore consumer in a clean checkout. The manifest pins every imported file to the reviewed Track C packet. No database, SSH transport, credentials, deployment configuration or wallet data is included.
+
+The tests supply synthetic installed-file authority and a harmless local producer. Passing these controls does not qualify the protected deployment, resource cancellation, financial readiness or simulation. Keep this fixture separate from runtime installation and deliberately update its hashes when the external source contract changes.

@@ -3,6 +3,7 @@
 This is a finite source producer, never a dispatcher. Unknown or unsupported
 states hold; the original campaign collector alone supplies recipient credit.
 """
+from . import frontier_source
 import hashlib
 import json
 import os
@@ -422,6 +423,7 @@ def record_ordinary_journey(store,config,chain,*,source_sequence):
     if (event['kind']!=KIND or source.get('complete') is not True or source.get('ordinary_plan_id')!=value['id']
             or source.get('ordinary_step') is not None or source.get('financial_pins')!=value['pins']
             or source.get('boundary_id')!=value['boundary_id']):raise ValueError('actual complete ordinary source required')
+    frontier_source.verify_source(store,config,source,value['pins'])
     from .owned_mempool import verify_source as verify_owned_source
     verify_owned_source(store,source,'board_backing',fresh=True)
     _fresh(source['observed_at']);origin=backing._origin(store,chain)
