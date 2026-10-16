@@ -95,8 +95,10 @@ class TargetTarReader:
 
     Trusted code may install a loader(path, producer_exit=accessor) and enable
     the existing bounded public request on stdin. Admission binds that loader's
-    module, qualified name and source bytes, plus the stdin mode. The accessor
-    exposes the actual reaped return code; a failed producer never reaches it.
+    module, qualified name and source bytes, plus the stdin mode; admitted
+    loaders must be stateless module-level functions. The accessor exposes the
+    actual reaped return code; a failed producer never reaches it. Synchronous
+    decoding remains subject to the enclosing collector's aggregate deadline.
     """
     def __init__(self,command,evidence_directory,*,timeout=45,loader=None,request_stdin=False):
         if loader is not None and not callable(loader):raise ValueError('trusted code loader required')
