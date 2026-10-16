@@ -23,7 +23,8 @@ def initial_profile(store, requested):
 
 
 def require_profile(value):
-    if type(value) is not InitialDirectProfile:
+    from .b_continuing_profile import ContinuingDirectProfile
+    if type(value) not in (InitialDirectProfile,ContinuingDirectProfile):
         raise EvidenceGap('fixed installed B initial profile required; arbitrary reducers refused')
 
 
@@ -62,6 +63,50 @@ class InitialDirectProfile:
                 'b_initial_money':module_hash(initial.historical_money),
                 'b_native_fee_policy':module_hash(loaded_native_fee_policy),
                 'b_runtime':module_hash(runtime_source.verify)}
+
+    def activity_context(self,store,chain,target,runtime,scripts,scan,cfg,tip,members):
+        from .owned_mempool import arguments,MAX_RESPONSE_BYTES
+        _require(chain.call('getdescriptoractivity',*arguments(set(scripts)),max_response_bytes=MAX_RESPONSE_BYTES)
+                 == {'activity':[]}, 'owned matching-script mempool activity unresolved')
+        return None
+
+    def check_operator_inventory(self,owning,scanned,name,activity,tip,scripts):
+        _require(not owning['pending_transactions'] and not owning['unavailable_parent_txids'],
+                 'owning operator pending source unresolved')
+        _require(sorted((r['outpoint'],r['value_sat'],r['script_pubkey'])for r in owning['utxos'])==
+                 sorted((r['outpoint'],r['amount_sat'],r['script'])for r in scanned),
+                 'whole operator BDK set differs from complete Core scan')
+
+    def public_pending(self,member_id,activity,scripts):
+        return []
+
+    def public_wallet_projection(self,member,raw,*,height,tip_hash,context,chain):
+        from .two_step_capture import public_wallet_projection
+        return public_wallet_projection(member,raw,height=height,tip_hash=tip_hash)
+
+    def wallet_projection(self,member,native,*,height,tip_hash,context,chain):
+        from .two_step_capture import wallet_projection
+        return wallet_projection(member,native,height=height,tip_hash=tip_hash)
+
+    def native_projection(self,store,chain,target,scripts,tip,admission,boundary,context):
+        return initial.InitialTerminalProfile().native_projection(store,chain,target['raw_sql'],
+            target['manifest']['original_sha256']['native_sql'],scripts=scripts,tip=tip,
+            minimum_confirmations=admission['b_sweep_min_confs'],boundary=boundary)
+
+    def money_projection(self,store,chain,old_boundary,boundary,context):
+        return initial.historical_money(store,chain,old_boundary,boundary,
+            context['scripts'],context['direct']['groups'])
+
+    def fee_projection(self,runtime,*,context,**kwargs):
+        return initial.InitialTerminalProfile().fee_projection(runtime,**kwargs)
+
+    def checked_claims(self,store,source,context,money,opening):
+        _require(not source['pending_liabilities'] and not context['pending_liabilities'],
+                 'unsettled original liability not supported by initial profile')
+        references={row['sequence']for row in opening['b_upgrade']['sources']}
+        _require(set(money['source_sequences'])|{r['sequence']for r in money['costs']} <= references,
+            'preserved upgrade omitted original reconciliation/flow/cost sources')
+        return []
 
     def member_frames(self, store, config, chain, cfg, observation, members, target,
                       originals, manifest, rpc_records):
@@ -108,8 +153,8 @@ class InitialDirectProfile:
         scripts, coverage, result, provenance = confirmed_scan.confirmed_scan(store,config,chain,current,
             pins=observation['financial_pins'],boundary_id=observation['boundary_id'],
             members=list(members.values()),specs=specs,tip=(observation['height'],observation['tip_hash']))
-        _require(chain.call('getdescriptoractivity',*arguments(set(scripts)),max_response_bytes=MAX_RESPONSE_BYTES)
-                 == {'activity':[]}, 'owned matching-script mempool activity unresolved')
+        activity=self.activity_context(store,chain,target,runtime,scripts,result,cfg,
+            (observation['height'],observation['tip_hash']),members)
         rows={name:[]for name in members}
         for coin in result['unspents']:
             owner=scripts[coin['scriptPubKey']]
@@ -121,16 +166,16 @@ class InitialDirectProfile:
             owning=native_wallet(target[key],label)
             _require(owning['public_descriptor'] in specs
                 and specs[owning['public_descriptor']][1] >= max(19,owning['last_revealed_index'])
-                and not owning['pending_transactions'] and not owning['unavailable_parent_txids'],
+                and not owning['unavailable_parent_txids'],
                 'owning operator frontier/pending source exceeds full scan')
-            actual=sorted((r['outpoint'],r['value_sat'],r['script_pubkey'])for r in owning['utxos'])
-            scanned=sorted((r['outpoint'],r['amount_sat'],r['script'])for r in rows[name])
-            _require(actual==scanned,'whole operator BDK set differs from complete Core scan')
+            self.check_operator_inventory(owning,rows[name],name,activity,
+                (observation['height'],observation['tip_hash']),scripts)
         frames={}
         for actor, member_id in cfg['actor_member_ids'].items():
             frames[member_id]={'source_kind':'core_descriptor_scan','network':'signet',
                 'height':observation['height'],'tip_hash':observation['tip_hash'],
-                'public_descriptors':members[member_id]['descriptors'],'pending_transactions':[],
+                'public_descriptors':members[member_id]['descriptors'],
+                'pending_transactions':self.public_pending(member_id,activity,scripts),
                 'reserved_outpoints':[r['txid']+':'+str(r['vout'])for r in metadata[actor]['locked_outpoints']],
                 'discovery_gaps':[],'utxos':rows[member_id],
                 'source_records':[provenance['raw_response_sha256'],*rpc_records]}
@@ -143,8 +188,8 @@ class InitialDirectProfile:
         frames[fixture]=strict_json(originals[manifest['originals_map']['fixture_cln']])
         cln_name=target['manifest']['auxiliary_originals']['target_cln']
         frames[target_cln]=strict_json(target['auxiliary_originals'][cln_name])
-        frames[cfg['backing_member_id']]={'source_kind':'b_original_direct_backing'}
-        context={'current_startup':current,'metadata':metadata,'descriptor_ranges':coverage,
+        frames[cfg['backing_member_id']]={'source_kind':self.backing_source_kind}
+        context={'current_startup':current,'metadata':metadata,'actor_member_ids':cfg['actor_member_ids'],'descriptor_ranges':coverage,
             'confirmed_scan_sequence':provenance['original_scan_sequence'],
             'confirmed_scan_event_hash':provenance['original_scan_event_hash']}
         return frames, context
@@ -168,10 +213,9 @@ class InitialDirectProfile:
             sequence=context['confirmed_scan_sequence'],pins=observation['financial_pins'],
             boundary_id=boundary['id'],members=boundary['members'],specs=specs,
             tip=(observation['height'],observation['tip_hash']))
-        projected=initial.InitialTerminalProfile().native_projection(store,chain,target['raw_sql'],
-            target['manifest']['original_sha256']['native_sql'],scripts=scripts,
-            tip=(observation['height'],observation['tip_hash']),
-            minimum_confirmations=admission['b_sweep_min_confs'],boundary=boundary)
+        projected=self.native_projection(store,chain,target,scripts,
+            (observation['height'],observation['tip_hash']),admission,boundary,
+            {**context,'_scan_unspents':scan['unspents'],'_server_pubkey':snapshot['identity']['server_pubkey']})
         # Preserve common source event identity fields; their values are joined
         # to the protected actual release, never to caller reported booleans.
         common_runtime={'identity':snapshot['identity'],'binary_sha256':admission['binary_sha256']}
@@ -182,7 +226,8 @@ class InitialDirectProfile:
         _require(len(backing)==1,'exact original server backing member required')
         return common_runtime,projected['database'],{
             **projected,'scripts':scripts,'scan':scan,'runtime':runtime,'backing_member_id':backing[0],
-            'public_context_sha256':digest(raw_context),'boundary':boundary}
+            'public_context_sha256':digest(raw_context),'boundary':boundary,
+            'tip_height':observation['height'],'tip_hash':observation['tip_hash']}
 
     def backing(self, member, context):
         _require(member['kind'] == 'ark_backing' and member['id']==context['backing_member_id']
@@ -214,6 +259,7 @@ class InitialDirectProfile:
         # target/runtime/watchman/public scan buffers admitted by the capture.
         target={'raw_sql':originals['native_sql'],'raw_runtime':captured['raw_runtime'],
             'raw_watchman_inventory':captured['raw_watchman_inventory'],
+            'raw_rounds_inventory':originals['rounds_inventory'],
             'manifest':{'original_sha256':{'native_sql':source['original_sha256']['native_sql']}}}
         context=captured['b_public_context'];additional={'b_public_context':context,
             'manifest':{'b_public_context_sha256':source['b_public_context_sha256']}}
@@ -227,8 +273,7 @@ class InitialDirectProfile:
         assets=_capture_assets(store,boundary,captured['inventory_sequences'],chain)
         _require((assets['height'],assets['tip_hash']) == (source['height'],source['tip_hash']),
                  'full treasury/native source tips differ')
-        money=initial.historical_money(store,chain,_originals(store)[0][0],boundary,
-            native_context['scripts'],native_context['direct']['groups'])
+        money=self.money_projection(store,chain,_originals(store)[0][0],boundary,native_context)
         runtime=native_context['runtime'];physical={}
         for name, member in members.items():
             if member['kind'] != 'wallet':continue
@@ -237,7 +282,7 @@ class InitialDirectProfile:
                 _require(row['outpoint'] not in physical,'physical owning output duplicated')
                 physical[row['outpoint']] = {'amount_sat':row['amount_sat'],
                     'script':row['script'],'member_id':name}
-        fee=initial.InitialTerminalProfile().fee_projection(runtime,costs=money['costs'],
+        fee=self.fee_projection(runtime,context=native_context,costs=money['costs'],
             groups=native_context['direct']['groups'],accounting_receipt_sha256=admitted['b_accounting_receipt_sha256'],
             watchman_raw=captured['raw_watchman_inventory'],physical=physical,selected_points=set(),
             chain=chain,server_pubkey=source['identity']['server_pubkey'])
@@ -249,16 +294,13 @@ class InitialDirectProfile:
                  'actual protected loaded public fee-policy source unavailable/different')
         limits=loaded_native_fee_policy(runtime,network=config.network)['fee_ceilings_sat_kvb']
         _require(limits == envelope['fee_ceilings_sat_kvb'], 'envelope differs from actual supported fee paths')
-        _require(not source['pending_liabilities'] and not native_context['pending_liabilities'],
-                 'unsettled original liability not supported by initial profile')
         _require(opening is not None and 'b_upgrade' in opening,
             'strict preserved treasury upgrade required; no A first-opening alias')
-        references={row['sequence']for row in opening['b_upgrade']['sources']}
-        _require(set(money['source_sequences'])|{r['sequence']for r in money['costs']} <= references,
-            'preserved upgrade omitted original reconciliation/flow/cost sources')
-        # The recorded strict overlay already conserved these exact historical
-        # events. Replaying them as new flows would debit/credit them twice.
-        edge=reconcile_edge(opening['opening_assets'],assets,[],[],members)
+        claims=self.checked_claims(store,source,native_context,money,opening)
+        # The original opening already conserved historical flows/costs. Only
+        # newly authenticated conservation deltas may follow that fixed cut.
+        edge=reconcile_edge(opening['opening_assets'],assets,money.get('delta_flows',[]),
+            native_context['pending_liabilities'],members)
         # Owning whole-input proof is explicit. A future prepare cannot recycle
         # pending change or claim unsupported urgent metadata as ordinary cash.
         available=sum(fee['confirmed_whole_input_urgent_reserve'].values())*1000
@@ -266,5 +308,5 @@ class InitialDirectProfile:
               for category in ('ordinary','urgent')}
         _require(available >= sum(max(0,envelope['fee_budgets_msat'][k]-used[k])for k in used),
                  'owning confirmed unencumbered fee cash cannot back remaining budgets')
-        claims=[];pending_fees={'ordinary':0,'urgent':0}
+        pending_fees=fee.get('pending_native_fee_exposure_msat',{'ordinary':0,'urgent':0})
         return assets,claims,fee,limits,pending_fees,None,None,edge,available,source_event,source

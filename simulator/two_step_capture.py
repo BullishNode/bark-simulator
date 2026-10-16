@@ -80,7 +80,7 @@ def cln_projection(member, raw, *, height):
     return native, cash, channels
 
 
-def public_wallet_projection(member, raw, *, height, tip_hash):
+def public_wallet_projection(member, raw, *, height, tip_hash, checked_pending=None):
     """Non-fee wallets discovered by admitted Core/public-descriptor readers.
 
     This is not a native wallet-known fee-cash claim. The normal treasury still
@@ -89,7 +89,8 @@ def public_wallet_projection(member, raw, *, height, tip_hash):
     if (member['role'] not in {'customer','funding_bank'}
             or raw['source_kind'] not in {'core_wallet_rpc','public_descriptor_activity','core_descriptor_scan'}
             or raw['network'] != 'signet' or (raw['height'],raw['tip_hash']) != (height,tip_hash)
-            or raw['pending_transactions'] or raw['discovery_gaps']
+            or (bool(raw['pending_transactions'])if checked_pending is None else raw['pending_transactions']!=checked_pending)
+            or raw['discovery_gaps']
             or raw['public_descriptors'] != member['descriptors']
             or not isinstance(raw['source_records'],list) or not raw['source_records']
             or any(not isinstance(value,str) or re.fullmatch('[0-9a-f]{64}',value) is None for value in raw['source_records'])
@@ -320,12 +321,23 @@ class SourceCapture:
                             raise ValueError('actual descriptor discovery remains incomplete')
                         source_kind = original_frame['source_kind']
                     if name in {rounds,watch}:
-                        literal, utxos = wallet_projection(member, source,
-                            height=observation['height'],tip_hash=observation['tip_hash'])
+                        if self.native_profile is None:
+                            literal, utxos = wallet_projection(member, source,
+                                height=observation['height'],tip_hash=observation['tip_hash'])
+                        else:
+                            literal, utxos = self.native_profile.wallet_projection(member,source,
+                                height=observation['height'],tip_hash=observation['tip_hash'],
+                                context=native_context,chain=chain)
                         body.update(wallet_inventory=literal,reserved_outpoints=literal['reserved_outpoints'])
                     else:
-                        utxos = public_wallet_projection(member, original_frame,
-                            height=observation['height'],tip_hash=observation['tip_hash'])
+                        if self.native_profile is None:
+                            utxos = public_wallet_projection(member, original_frame,
+                                height=observation['height'],tip_hash=observation['tip_hash'])
+                        else:
+                            utxos = self.native_profile.public_wallet_projection(member,original_frame,
+                                height=observation['height'],tip_hash=observation['tip_hash'],
+                                context=native_context,chain=chain)
+                            body['pending_transactions']=original_frame['pending_transactions']
                         body['reserved_outpoints'] = original_frame['reserved_outpoints']
                     body.update(original_source_sha256=source_hash,source_kind=source_kind)
                 elif member['kind'] == 'lightning_peer':
