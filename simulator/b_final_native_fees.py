@@ -24,8 +24,7 @@ def final_ordinary_fee_facts(runtime,*,native_fee_source,versions,costs,groups,
         raise EvidenceGap('B final fees: funding reservations require current owning input/family/Core joins')
     if partition['urgent'] or proof['urgent_rows']:
         raise EvidenceGap('B final fees: urgent publications require authenticated source-path/Core/ownership joins')
-    if proof['nursery_inventory'] or proof['unrelated_nursery_txids']:
-        raise EvidenceGap('B final fees: nonordinary whole nursery source remains unsupported')
+    require_ordinary_nursery(proof,versions,chain)
     opening=runtime['native_budget']['owner_snapshot']['opening']
     policy=runtime['native_budget']['owner_snapshot']['policy']
     if (partition['network']!='signet' or partition['genesis']!=SIGNET_GENESIS
@@ -63,3 +62,26 @@ def final_ordinary_fee_facts(runtime,*,native_fee_source,versions,costs,groups,
     return {'ordinary_subset':partition,'native_budget':budget,
         'confirmed_whole_input_urgent_reserve':urgent,'retained_version_states':versions['states'],
         'pending_native_fee_exposure_msat':{'ordinary':pending,'urgent':0},'loaded_policy':loaded}
+
+
+def require_ordinary_nursery(proof,versions,chain):
+    """Retain exact ordinary nursery history, without urgent/source aliases.
+
+    The existing direct verifier already checks allocation/physical inputs,
+    signed original rights, current Core body/fee, and replacement disposition.
+    Bind each same-RR private nursery member to that exact retained version and
+    independently observed witness identity/weight; never drop unknown rows.
+    """
+    inventory=proof['nursery_inventory'];ids={r['txid']for r in inventory}
+    if len(ids)!=len(inventory)or set(proof['unrelated_nursery_txids'])!=ids:
+        raise EvidenceGap('B final fees: complete whole nursery membership differs')
+    for row in inventory:
+        ident=row['txid']
+        if (row['kind']!='expiry-payout' or row['urgent_fee_bound'] is not False
+                or row['urgent_metadata_native_sha256'] is not None or ident not in versions['versions']):
+            raise EvidenceGap('B final fees: nonordinary whole nursery source remains unsupported')
+        actual=chain.tx(ident)
+        if (actual.get('txid')!=ident or actual.get('hash')!=row['wtxid']
+                or type(actual.get('weight')) is not int or actual['weight']!=row['weight_wu']
+                or actual['weight']!=versions['signed_weight_wu'].get(ident)):
+            raise EvidenceGap('B final fees: retained nursery native/current Core witness identity differs')

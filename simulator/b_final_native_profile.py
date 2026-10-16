@@ -98,6 +98,12 @@ class FinalNativeDirectProfile(ContinuingDirectProfile):
             target['auxiliary_originals'][AUXILIARY['b_native_fee_snapshot']],
             expected_tool_commit=self.native_fee_tool['sdk_commit'])
         result = super().native_projection(store,chain,target,scripts,tip,admission,boundary,context)
+        public_nursery=result['database']['rows']['nursery']
+        private_nursery=reply['nursery_inventory']
+        _require(len({r['txid']for r in public_nursery})==len(public_nursery)
+            and {(r['txid'],r['kind'])for r in public_nursery}==
+                {(r['txid'],r['kind'])for r in private_nursery},
+            'same public/private whole nursery membership differs')
         result['native_fee_source'] = {'partition':partition, 'reply':reply}
         return result
 

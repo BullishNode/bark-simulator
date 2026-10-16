@@ -243,6 +243,28 @@ class FinalRetainedAccountingControls(unittest.TestCase):
             remaining_total_sat=24136,discretionary_remaining_sat=9136,journal_bytes=6)
         owner['native_budget']['files']['ordinary-fee-budget']['bytes']=6;refresh()
         with self.assertRaisesRegex(EvidenceGap,'individual direct reservations'):self.run_fees(owner,proof,args)
+    def test_original_ordinary_nursery_is_retained_and_current_witness_bound(self):
+        snap,owner,proof,args,refresh=self.inputs();ident=next(iter(args['versions']['versions']))
+        row={'txid':ident,'wtxid':'f'*64,'weight_wu':400,'kind':'expiry-payout',
+            'urgent_fee_bound':False,'urgent_metadata_native_sha256':None}
+        proof.update(nursery_inventory=[row],unrelated_nursery_txids=[ident])
+        args['versions']['signed_weight_wu'][ident]=400
+        calls=[]
+        def tx(value):calls.append(value);return {'txid':value,'hash':'f'*64,'weight':400}
+        args['chain'].tx=tx
+        result=self.run_fees(owner,proof,args)
+        self.assertEqual(calls,[ident]);self.assertEqual(result['native_budget']['native_opening_spent_sat'],4985)
+        for field,value in [('wtxid','e'*64),('kind','internal'),('urgent_fee_bound',True),
+                            ('urgent_metadata_native_sha256','e'*64),('txid','e'*64)]:
+            saved=row[field];row[field]=value
+            with self.subTest(field=field),self.assertRaises(EvidenceGap):self.run_fees(owner,proof,args)
+            row[field]=saved
+    def test_ordinary_nursery_missing_independent_signed_weight_holds(self):
+        snap,owner,proof,args,refresh=self.inputs();ident=next(iter(args['versions']['versions']))
+        proof.update(nursery_inventory=[{'txid':ident,'wtxid':'f'*64,'weight_wu':400,'kind':'expiry-payout',
+            'urgent_fee_bound':False,'urgent_metadata_native_sha256':None}],unrelated_nursery_txids=[ident])
+        args['chain'].tx=lambda value:{'txid':value,'hash':'f'*64,'weight':400}
+        with self.assertRaisesRegex(EvidenceGap,'witness identity'):self.run_fees(owner,proof,args)
     def test_typed_native_fee_proof_does_not_erase_unclassified_publication(self):
         snap,owner,proof,args,refresh=self.inputs();proof['unrelated_nursery_txids']=['f'*64]
         with self.assertRaisesRegex(EvidenceGap,'whole nursery'):self.run_fees(owner,proof,args)
