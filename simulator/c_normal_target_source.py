@@ -18,6 +18,16 @@ from .private_source_package import TargetTarReader
 
 CONFIG_FIELDS={'source_sha256','body_source_sha256','history_identity','policy_sha256','limits','binding'}
 
+def _source_module(configuration):
+    # Trusted constructor choice only; never a transport/manifest-selected loader.
+    if not isinstance(configuration,dict):raise ValueError('fixed target configuration required')
+    if set(configuration)==CONFIG_FIELDS:return native
+    if set(configuration)==CONFIG_FIELDS|{'joint_source_sha256'}:
+        from . import c_private_joint_fee_cut as joint
+        from .c_private_fee_package import _sha
+        _sha(configuration['joint_source_sha256']);return joint
+    raise ValueError('exact versioned target configuration required')
+
 
 class CheckedTargetReader:
     """Actual trusted constructor only; qualification binds all static data.
@@ -27,28 +37,28 @@ class CheckedTargetReader:
     Separate installed/source qualification is required; event name is no proof.
     """
     def __init__(self,reader,adapter,configuration,qualification_sequence):
-        if(type(reader)is not TargetTarReader or reader.loader is not native.decode_transport or reader.request_stdin is not True
-                or not isinstance(configuration,dict)or set(configuration)!=CONFIG_FIELDS):
+        source=_source_module(configuration)
+        if(type(reader)is not TargetTarReader or reader.loader is not source.decode_transport or reader.request_stdin is not True):
             raise ValueError('fixed admitted C private source reader/configuration required')
         public_payload(configuration)
         self.reader=reader;self.adapter=adapter;self.configuration=copy.deepcopy(configuration)
         self.qualification_sequence=qualification_sequence
     def admission_requirement(self,observation):
         """Static expected source contract, never qualification authority."""
-        value=self.configuration
+        value=self.configuration;source=_source_module(value)
         from . import c_private_native_body_cut as body
         from . import c_private_fee_cut as fee
         expected={'architecture_profile':'direct_per_key','financial_pins':observation['financial_pins'],
           'configuration':value,'reader':{'command':list(self.reader.command),'evidence_directory':str(self.reader.evidence_directory),
             'timeout':self.reader.timeout,'request_stdin':True},
           'components':{'typed_adapter':digest(Path(__file__).read_bytes()),'shared_reader':module_hash(TargetTarReader.read),
-            'stateless_loader':module_hash(native.decode_transport),'typed_loader':module_hash(native.load_target_tar),
+            'stateless_loader':module_hash(source.decode_transport),'typed_loader':module_hash(source.load_target_tar),
             'body':module_hash(body._assemble),'fee':module_hash(fee._assemble),
             'protected_adapter':module_hash(self.adapter),'protected_frontier':module_hash(self.adapter.frontier())}}
         return expected
     def admission(self,store,observation):
         expected=self.admission_requirement(observation);value=self.configuration
-        if type(self.reader)is not TargetTarReader or self.reader.loader is not native.decode_transport or self.reader.request_stdin is not True:
+        if type(self.reader)is not TargetTarReader or self.reader.loader is not _source_module(value).decode_transport or self.reader.request_stdin is not True:
             raise ValueError('fixed original private transport/loader changed')
         if set(self.reader.__dict__)!={'command','evidence_directory','timeout','request_stdin','loader'}:
             raise ValueError('fixed reader state contains unadmitted override')
@@ -89,15 +99,18 @@ class CheckedTargetReader:
                 or started['observation']!=canonical(observation)):
             raise ValueError('original C pre-transport context changed')
         before=started['chain'];began=started['started_at'];monotonic_start=started['monotonic_start']
-        if(transport.get('kind')!='c-private-normal-transport-only'or transport.get('complete')is not False
+        source=_source_module(self.configuration)
+        transport_kind='c-private-normal-transport-only'if source is native else 'c-private-joint-transport-only'
+        if(transport.get('kind')!=transport_kind or transport.get('complete')is not False
                 or transport.get('qualified')is not False or not callable(transport.get('producer_exit'))):
             raise ValueError('original actual private transport/terminal missing')
         cfg=self.configuration
-        loaded=native.load_target_tar(transport['path'],expected_package_sha256=transport['archive_sha256'],
+        loaded=source.load_target_tar(transport['path'],expected_package_sha256=transport['archive_sha256'],
           expected_source_sha256=cfg['source_sha256'],expected_body_source_sha256=cfg['body_source_sha256'],
           expected_financial_pins=observation['financial_pins'],expected_observation=observation,expected_chain=before,
           expected_history_identity=cfg['history_identity'],expected_policy_sha256=cfg['policy_sha256'],
-          adapter=self.adapter,limits=cfg['limits'],binding=cfg['binding'],producer_exit=transport['producer_exit'])
+          adapter=self.adapter,limits=cfg['limits'],binding=cfg['binding'],producer_exit=transport['producer_exit'],
+          **({'expected_joint_source_sha256':cfg['joint_source_sha256']}if source is not native else {}))
         completed=time.time();deadline_check()
         if(self._identity(chain,observation)!=before or canonical(self.admission(store,observation))!=started['admission'] or canonical(observation)!=started['observation']
                 or not observation['started_at']<=began<=completed or completed-observation['started_at']>90
