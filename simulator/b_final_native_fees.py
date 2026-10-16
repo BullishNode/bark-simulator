@@ -31,11 +31,14 @@ def final_ordinary_fee_facts(runtime,*,native_fee_source,versions,costs,groups,
     if (partition['network']!='signet' or partition['genesis']!=SIGNET_GENESIS
             or partition['server_pubkey']!=server_pubkey):
         raise EvidenceGap('B final fees: actual native chain/server differs')
-    # A native aggregate is not proof that every reservation has the configured
-    # ceiling. The native safe codec must expose complete individual rows.
-    if partition['direct_attempt_count']:
-        raise EvidenceGap('B final fees: typed individual direct reservations missing from native proof ABI')
-    rows=[]
+    # These rows come from the fixed native codec over the exact private
+    # journal, including failed/unpublished preparations; never infer them from
+    # an aggregate count/sum or parse the journal again in Python.
+    rows=proof.get('direct_reservations')
+    if (type(rows) is not list or len(rows)!=partition['direct_attempt_count']
+            or any(type(r) is not dict or set(r)!={'line','ceiling_sat'} for r in rows)
+            or sum(r['ceiling_sat']for r in rows)!=partition['direct_reserved_sat']):
+        raise EvidenceGap('B final fees: complete individual direct reservations missing from native proof ABI')
     loaded=loaded_final_native_fee_policy(runtime,network='signet')
     budget=retained_fee_accounting(runtime['native_budget'],
         history_prefix_bytes=opening['history_prefix_bytes'],history_prefix_sha256=opening['history_prefix_sha256'],

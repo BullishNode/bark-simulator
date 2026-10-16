@@ -142,7 +142,7 @@ class FinalRetainedAccountingControls(unittest.TestCase):
                     'value':format(row['value_sat']/100000000,'.8f'),'scriptPubKey':{'hex':row['script_pubkey']}}
         versions={'versions':copy.deepcopy(groups[0]['versions']),'states':{k:'confirmed'for k in groups[0]['versions']},
             'selected_fee_outpoints':[],'pending_txids':[],'signed_weight_wu':{}}
-        proof={'funding_rows':[],'urgent_rows':[],'nursery_inventory':[],'unrelated_nursery_txids':[]}
+        proof={'direct_reservations':[],'funding_rows':[],'urgent_rows':[],'nursery_inventory':[],'unrelated_nursery_txids':[]}
         context={'member':w.member,'scripts':w.scripts,'scan':w.scan,'tip':(101,'a'*64)}
         args={'versions':versions,'costs':costs,'groups':groups,'accounting_receipt_sha256':'e'*64,
             'watchman_raw':json.dumps({'watchman':w.native}).encode(),'physical':{
@@ -163,6 +163,72 @@ class FinalRetainedAccountingControls(unittest.TestCase):
         self.assertEqual(sum(result['confirmed_whole_input_urgent_reserve'].values()),50000)
         self.assertEqual(result['pending_native_fee_exposure_msat'],{'ordinary':0,'urgent':0})
         self.assertNotIn('disk_budget',owner['native_budget']);self.assertEqual(owner,before)
+    def pending_inputs(self):
+        from test_b_pending_carrier_profile import PendingWalletControls
+        snap,owner,proof,args,refresh=self.inputs();w=PendingWalletControls();w.setUp()
+        snap.update(direct_attempt_count=1,direct_reserved_sat=10000,charged_sat=35864,
+            remaining_total_sat=24136,discretionary_remaining_sat=9136,journal_bytes=6)
+        owner['native_budget']['files']['ordinary-fee-budget']['bytes']=6
+        history=owner['native_budget']['history'];history['txids'].append(w.txid)
+        raw=''.join(t+'\n'for t in history['txids']).encode();history.update(bytes=len(raw),sha256=digest(raw))
+        proof['direct_reservations']=[{'line':1,'ceiling_sat':10000}]
+        args['versions']['versions'][w.txid]=w.actual
+        args['versions']['states'][w.txid]='mempool'
+        args['versions']['signed_weight_wu'][w.txid]=w.raw[w.txid]['weight']
+        args['versions'].update(pending_txids=[w.txid],selected_fee_outpoints=[w.parent+':0'])
+        args.update(chain=w.chain,watchman_raw=json.dumps({'watchman':w.native}).encode(),
+            physical={c['txid']+':'+str(c['vout']):{'amount_sat':c['amount_sat'],
+                'script':c['script'],'member_id':'watchman'}for c in w.scan},
+            wallet_context={'member':w.member,'scripts':w.scripts,'scan':w.scan,'tip':(101,'a'*64)})
+        refresh();return snap,owner,proof,args,refresh,w
+    def test_pending_to_confirmed_preserves_full_reservation_and_excludes_pending_change(self):
+        snap,owner,proof,args,refresh,w=self.pending_inputs()
+        pending=self.run_fees(owner,proof,args)
+        self.assertEqual(pending['pending_native_fee_exposure_msat']['ordinary'],10000000)
+        self.assertEqual(sum(pending['confirmed_whole_input_urgent_reserve'].values()),15000)
+        self.assertEqual(pending['native_budget']['native_reserved_ceiling_sat'],10000)
+        args['versions']['states'][w.txid]='confirmed';args['versions']['pending_txids']=[]
+        w.actual.update(confirmations=1,blockhash='a'*64)
+        args['costs'].append({'sequence':5000,'txid':w.txid,'amount_msat':500000,
+            'budget':'ordinary','direct_payment_sequence':4999})
+        w.native.update(pending_transactions=[],pending_parents=[],reserved_outpoints=[])
+        w.native['utxos'][1].update(confirmations=1,confirmed_fee_eligible=True)
+        args['watchman_raw']=json.dumps({'watchman':w.native}).encode()
+        scan=[{'txid':w.parent,'vout':1,'amount_sat':15000,'script':w.urgent_script},
+              {'txid':w.txid,'vout':0,'amount_sat':25000,'script':w.change_script}]
+        args['wallet_context']['scan']=scan
+        args['physical']={c['txid']+':'+str(c['vout']):{'amount_sat':c['amount_sat'],
+            'script':c['script'],'member_id':'watchman'}for c in scan}
+        class ConfirmedChain:
+            def call(self,method,*values):
+                assert method=='gettxout'
+                point=values[0]+':'+str(values[1]);row=args['physical'].get(point)
+                if row is None:return None
+                return {'confirmations':2 if point.startswith(w.parent)else 1,
+                    'value':format(row['amount_sat']/100000000,'.8f'),'scriptPubKey':{'hex':row['script']}}
+        args['chain']=ConfirmedChain()
+        confirmed=self.run_fees(owner,proof,args)
+        self.assertEqual(confirmed['pending_native_fee_exposure_msat']['ordinary'],9500000)
+        self.assertEqual(confirmed['native_budget']['native_reserved_ceiling_sat'],10000)
+        self.assertEqual(confirmed['native_budget']['native_remaining_allowance_sat'],24136)
+        self.assertEqual(sum(confirmed['confirmed_whole_input_urgent_reserve'].values()),40000)
+        self.assertEqual(owner['native_budget']['owner_snapshot']['charged_sat'],35864)
+    def test_unequal_native_decimal_rows_with_same_aggregate_do_not_fake_uniform_policy(self):
+        snap,owner,proof,args,refresh,w=self.pending_inputs()
+        snap.update(direct_attempt_count=2,direct_reserved_sat=20000,charged_sat=45864,
+            remaining_total_sat=14136,discretionary_remaining_sat=-864,journal_bytes=12)
+        # Keep fixture within lifetime+urgent constraints with a larger declared
+        # allowance in BOTH genuinely supplied native/public policy projections.
+        snap['policy']['ordinary_budget_sat']=70000
+        for name in ('captaind','watchmand'):
+            row=owner['public_configuration'][name]
+            selected=row['ordinary_fee_policy']if name=='captaind'else row['direct_expiry']['ordinary_fee_policy']
+            selected['ordinary_budget_sat']=70000
+            owner['daemons'][name]['public_configuration']=copy.deepcopy(row)
+        snap.update(remaining_total_sat=24136,discretionary_remaining_sat=9136)
+        owner['native_budget']['files']['ordinary-fee-budget']['bytes']=12;refresh()
+        proof['direct_reservations']=[{'line':1,'ceiling_sat':9999},{'line':2,'ceiling_sat':10001}]
+        with self.assertRaisesRegex(EvidenceGap,'whole prepare ceilings'):self.run_fees(owner,proof,args)
     def test_original_cost_loss_or_refill_is_not_fixed_by_owner_snapshot(self):
         for which in ('cost','refill','history','reserve'):
             snap,owner,proof,args,refresh=self.inputs()
