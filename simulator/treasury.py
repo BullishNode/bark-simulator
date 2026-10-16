@@ -146,7 +146,8 @@ def boundary(store):
     rows=store.db.execute("SELECT payload FROM event WHERE kind='treasury_boundary_declared'").fetchall()
     if len(rows)!=1 or rows[0][0]!=canonical(declaration):
         raise ValueError('treasury declaration differs from immutable record')
-    return declaration
+    from .preserved_treasury_upgrade import boundary as upgraded_boundary
+    return upgraded_boundary(store,declaration)
 
 
 def capture_assets(store,inventory_sequences,chain):
