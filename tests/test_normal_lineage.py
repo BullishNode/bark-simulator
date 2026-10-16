@@ -97,8 +97,8 @@ class Controls(unittest.TestCase):
 
     def test_full_proof_original_identity_and_binding_are_required(self):
         binding={'mailbox_pk':KEY,'spk':'0014'+'44'*20,'seq':7}
-        original={'id':ident(1),'amount_sat':10000,'pubkey':KEY,'actor':'alice','signed_vtxo':'01',
-            'signed_hash':hashlib.sha256(b'\x01').hexdigest(),
+        original={'id':ident(1),'amount_sat':10000,'pubkey':KEY,'actor':'alice','signed_vtxo':'02',
+            'signed_hash':hashlib.sha256(b'\x02').hexdigest(),
             'proof':json.dumps({'chain_anchor':ident(900),'expiry_height':200,'binding':binding})}
         native={'vtxo_id':ident(1),'policy_type':'pubkey','amount':10000,'server_pubkey':KEY,
             'anchor_point':ident(900),'expiry':200,'signed_vtxo_hex':'02'}

@@ -44,7 +44,14 @@ class LineageIntegrationTests(unittest.TestCase):
                 proof={**self.proof,'user_pubkey':'02'+format(1,'064x'),'anchor_spender_txid':self.original.split(':')[0]}
             elif 'anchor_raw'in request:
                 row=self.reply_by_full[request['signed_vtxo']]
-                proof={**row,'chain_contract_verified':True,'tree_padding':False,'policy':'pubkey','candidate_user_pubkey':row['user_pubkey'],'unlock_hash':None}
+                self.assertEqual(set(request),{'signed_vtxo','native_vtxo','anchor_raw','server_pubkey'})
+                proof={**row,'schema_version':1,'sdk_commit':join.lineage.NATIVE_COMPLETION_SDK,
+                    'chain_contract_verified':True,'tree_padding':False,'policy':'pubkey',
+                    'candidate_user_pubkey':row['user_pubkey'],'unlock_hash':None,
+                    'native_vtxo_sha256':hashlib.sha256(bytes.fromhex(request['native_vtxo'])).hexdigest(),
+                    'completed_vtxo_sha256':hashlib.sha256(bytes.fromhex(request['signed_vtxo'])).hexdigest(),
+                    'native_completion_relation':'exact_full_equality' if request['native_vtxo']==request['signed_vtxo'] else 'final_hark_leaf_completion',
+                    'client_owner_verified':False,'native_owner_verified':False,'payment_verified':False}
             else:proof=self.reply_by_full[request['signed_vtxo']]
             return canonical(request).encode(),canonical(proof).encode()
         self.proof_patch=patch('simulator.two_step_normal.run_proof',side_effect=native);self.proof_patch.start();self.addCleanup(self.proof_patch.stop)
