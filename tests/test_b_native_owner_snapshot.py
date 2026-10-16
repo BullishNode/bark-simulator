@@ -195,3 +195,66 @@ class PrivateInputControls(unittest.TestCase):
     def test_bad_source_nonce_is_refused(self):
         t,r,o=self.inputs();o['id']='not-a-source-nonce'
         with self.assertRaisesRegex(EvidenceGap,'source observation'):self.prepare(t,r,o)
+
+
+class NativeReplyControls(unittest.TestCase):
+    """Synthetic interface controls; native executable/signature proof NOT_RUN."""
+    def proof(self):
+        owner,_=fixture();tool='2'*40
+        request={'schema':1,'kind':'b-native-fee-source-request','sdk_commit':tool,
+            'source_observation':{'id':'1'*32,'height':101,'tip_hash':H(30)},
+            'originals':{k:'synthetic original '+k for k in ['policy_raw','opening_raw','journal_raw','database_raw']}}
+        def tx(ident,witness,point,value,out,fee,weight=400):
+            return {'txid':H(ident),'wtxid':H(witness),'weight_wu':weight,'fee_sat':fee,
+                'inputs':[{'outpoint':point,'value_sat':value,'script_pubkey':'5120'+H(50)}],
+                'outputs':[{'vout':0,'value_sat':out,'script_pubkey':'5120'+H(50)}]}
+        funding=[]
+        for pub,point0,amount in [(owner['funding'][0],H(31)+':0',1000),(owner['funding'][1],H(32)+':0',2000)]:
+            ident=int(pub['txid'],16);fee=pub['ceiling_sat'];unsigned=tx(ident,ident,point0,amount,amount-fee,fee,200)
+            signed=tx(ident,int(pub['signed_wtxid'],16),point0,amount,amount-fee,fee)if pub['signed_wtxid']else None
+            funding.append({**{k:pub[k]for k in ['index','purpose','family_sha256','generation','unsigned_body_sha256','prevouts_sha256','ceiling_sat']},
+                'attempt_key':H(80+pub['index']),'reservation_native_sha256':H(90+pub['index']),
+                'max_fee_rate_sat_kwu':4000,'unsigned':unsigned,'signed':signed,
+                'family':{'Round':{'round_seq':123,'pinned_input':point0}}if pub['purpose']=='round'else{'Pool':{'funding_txid':pub['txid']}}})
+        txs=[tx(16,17,H(40)+':0',3000,2800,200),tx(18,19,H(16)+':0',2800,2500,300)]
+        urgent=[{'index':1,'ceiling_sat':1000,'policy_sha256':H(1),'metadata_binding_sha256':H(15),
+            'source_anchors':[H(40)+':0'],'journal_binding_sha256':H(15),'urgent_fee_bound':True,
+            'fee_sat':500,'transactions':txs}]
+        nursery=[{'txid':t['txid'],'wtxid':t['wtxid'],'weight_wu':t['weight_wu'],'kind':'internal',
+            'urgent_fee_bound':i==1,'urgent_metadata_native_sha256':H(15)if i==1 else None}for i,t in enumerate(txs)]
+        nursery.append({'txid':H(70),'wtxid':H(71),'weight_wu':400,'kind':'expiry-payout',
+            'urgent_fee_bound':False,'urgent_metadata_native_sha256':None})
+        raw=json.dumps(request).encode()
+        reply={'schema':1,'kind':'b-native-fee-source-proof','sdk_commit':tool,'input_sha256':digest(raw),
+            'source_observation':request['source_observation'],
+            'original_sha256':{k:digest(v.encode())for k,v in request['originals'].items()},
+            'snapshot':{k:v for k,v in owner.items()if k not in {'journal_device','journal_inode'}},
+            'funding_rows':funding,'urgent_rows':urgent,'resolutions':owner['resolutions'],
+            'nursery_inventory':nursery,'unrelated_nursery_txids':[H(70)]}
+        return raw,reply,json.dumps(owner).encode()
+    def bind(self,raw,reply,owner):
+        from simulator.b_native_fee_reply import bind_native_fee_reply
+        return bind_native_fee_reply(raw,json.dumps(reply).encode(),owner,expected_tool_commit='2'*40)
+    def reject(self,edit):
+        raw,reply,owner=self.proof();edit(reply)
+        with self.assertRaises((EvidenceGap,ValueError)):self.bind(raw,reply,owner)
+    def test_every_funding_and_full_urgent_member_retained_without_financial_flags(self):
+        raw,reply,owner=self.proof();result=self.bind(raw,reply,owner)
+        self.assertEqual(len(result['funding_rows']),2);self.assertEqual(len(result['urgent_rows'][0]['transactions']),2)
+        self.assertEqual(result['unrelated_nursery_txids'],[H(70)])
+        self.assertEqual(result['publication_inputpoints'],sorted([H(31)+':0',H(32)+':0',H(40)+':0',H(16)+':0']))
+        self.assertNotIn('complete',result);self.assertNotIn('qualified',result);self.assertNotIn('ready',result)
+    def test_unbound_unsigned_old_attempt_cannot_be_omitted(self):self.reject(lambda r:r['funding_rows'].pop())
+    def test_current_owner_snapshot_must_equal_all_private_native_projection(self):self.reject(lambda r:r['snapshot'].update(charged_sat=0))
+    def test_wrong_actual_tool_source(self):self.reject(lambda r:r.update(sdk_commit='3'*40))
+    def test_wrong_request_original_hash(self):self.reject(lambda r:r.update(input_sha256=H(33)))
+    def test_changed_private_original_hash(self):self.reject(lambda r:r['original_sha256'].update(journal_raw=H(33)))
+    def test_changed_original_funding_prevout_value(self):self.reject(lambda r:r['funding_rows'][0]['signed']['inputs'][0].update(value_sat=999))
+    def test_wrong_signed_winner_witness(self):self.reject(lambda r:r['funding_rows'][0]['signed'].update(wtxid=H(33)))
+    def test_private_raw_field_never_accepted_in_safe_transaction(self):self.reject(lambda r:r['urgent_rows'][0]['transactions'][0].update(witness='private marker'))
+    def test_missing_null_metadata_shared_parent(self):self.reject(lambda r:r['nursery_inventory'].pop(0))
+    def test_wrong_shared_parent_metadata(self):self.reject(lambda r:r['nursery_inventory'][0].update(urgent_metadata_native_sha256=H(33)))
+    def test_wrong_publication_bound_state(self):self.reject(lambda r:r['nursery_inventory'][1].update(urgent_fee_bound=False))
+    def test_unrelated_nursery_rows_not_silently_dropped(self):self.reject(lambda r:r.update(unrelated_nursery_txids=[]))
+    def test_resolution_sql_coverage_cannot_be_dropped(self):self.reject(lambda r:r.update(resolutions=[]))
+    def test_changed_urgent_member_witness(self):self.reject(lambda r:r['urgent_rows'][0]['transactions'][0].update(wtxid=H(33)))
