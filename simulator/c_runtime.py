@@ -20,11 +20,16 @@ def verify(store,startup_path,current_path,*,expected,execution_release=None):
         execution_release=context['execution_release']
     product=execution_release['product_commit'] if execution_release is not None else pins['product_commit']
     schema=execution_release['schema_sha256'] if execution_release is not None else pins['schema_sha256']
-    if (not isinstance(expected,dict) or set(expected)!={'architecture_profile','product_commit','schema_sha256','database','services'}
+    fields={'architecture_profile','product_commit','schema_sha256','database','services'}
+    if (not isinstance(expected,dict) or set(expected)not in (fields,fields|{'operating_profile'})
             or expected['architecture_profile']!='direct_per_key' or expected['product_commit']!=product
             or expected['schema_sha256']!=schema or expected['database']!='trackc'
             or not isinstance(expected['services'],dict) or set(expected['services'])!=SERVICES):
         raise ValueError('explicit exact C native startup expectations required')
+    operating_profile=expected.get('operating_profile')
+    if operating_profile is not None:
+        from .c_runtime_profile import validate
+        validate(operating_profile)
     startup,startup_sha=_read(startup_path);current,current_sha=_read(current_path)
     if context is not None and startup_sha!=context['startup_source_sha256']:
         raise ValueError('C startup source differs from activated original capture')
@@ -94,9 +99,13 @@ def verify(store,startup_path,current_path,*,expected,execution_release=None):
             if (cfg.get('vtxo_lifetime')!=48 or cfg.get('pool_lifetime_blocks')!=48
                     or cfg.get('required_board_confirmations')!=3
                     or cfg.get('direct_expiry',{}).get('enabled') is not True
-                    or cfg.get('expiry_payout',{}).get('enabled') is not False
-                    or cfg.get('lightning_configured') is not False or cfg.get('vtxopool',{}).get('vtxo_targets')!=[]):
+                    or cfg.get('expiry_payout',{}).get('enabled') is not False):
                 raise ValueError('C native pilot policy differs: 48-block lifetimes and 3 Board confirmations required')
+            if operating_profile is None and (cfg.get('lightning_configured') is not False or cfg.get('vtxopool',{}).get('vtxo_targets')!=[]):
+                raise ValueError('C native pilot keeps LN off and pool empty')
+        if operating_profile is not None:
+            from .c_runtime_profile import verify_loaded
+            verify_loaded(cfg,operating_profile,service,started_ns=started)
         verified[service]={**now,'pre_exec_config':pre}
     receipt={'kind':'owned_runtime_configuration_verified','architecture_profile':'direct_per_key',
         'runtime_transport':'systemd','product_commit':product,'schema_sha256':schema,
@@ -108,5 +117,8 @@ def verify(store,startup_path,current_path,*,expected,execution_release=None):
         'scope':'root-authenticated same native process and pre-exec configuration identity only; no treasury or financial admission'}
     if execution_release is not None:
         receipt.update(execution_release=execution_release,origin_financial_pins=pins)
+    if operating_profile is not None:
+        receipt['operating_profile']=operating_profile
+        receipt['scope']+='; declared fullnormal configuration source only, no proof of pool/router fee enforcement or treasury readiness'
     public_payload(receipt);store.event('owned_runtime_configuration_verified',receipt)
     return receipt
