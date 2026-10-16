@@ -153,6 +153,14 @@ class OriginalTraceConsumerControls(unittest.TestCase):
         self.bootstrap=mock.patch.object(f,'_bootstrap',return_value=(self.controller,self.binding,'synthetic-binding'))
         self.bootstrap.start();self.addCleanup(self.bootstrap.stop)
         same=mock.patch.object(f,'_same_binding');same.start();self.addCleanup(same.stop)
+        # These provenance tests deliberately exercise the existing real replay
+        # primitive in-process. Separate lifecycle controls execute actual fresh
+        # workers, blocking SQLite and descendant cleanup.
+        def replay(request):
+            f._context(self.controller,self.binding,self.config,self.pins)
+            return self.controller.verify(request['frame'],self.store.trace)
+        boundary=mock.patch.object(f,'_run_sync',side_effect=replay)
+        boundary.start();self.addCleanup(boundary.stop)
         self.event_source={'source_kind':'closed_frontier','response':self.frame,
             'response_sha256':hashlib.sha256(canonical(self.frame).encode()).hexdigest(),
             'financial_pins':self.pins,'observed_at':1}
@@ -201,6 +209,87 @@ class OriginalTraceConsumerControls(unittest.TestCase):
         with self.assertRaises(ValueError):f.verify_source(self.store,self.config,{**backing,'cash_source_sequence':wrong_seq},self.pins)
         with self.assertRaises(ValueError):f.verify_source(self.store,self.config,{'financial_pins':self.pins,'database':self.frame},self.pins)
         with self.assertRaises(ValueError):f.verify_source(self.store,self.config,{**cash,'database_response_sha256':'f'*64},self.pins)
+
+    def operating_proof(self,kind='finite_initial_funding'):
+        import time
+        from tests.owned_activity_fixture import receipt
+        source={'financial_pins':self.pins,'database_source_sequence':self.sequence,
+            'boundary_id':'own-boundary','height':100,'tip_hash':'a'*64,'descriptor_ranges':[],
+            'observed_at':time.time()}
+        if kind=='board_backing':
+            source['origin']={'anchor':'a'*64+':0','anchor_output':{'script':'0014'+'ab'*20}}
+            source['database']=self.frame
+        activity=receipt(self.store,source,kind)
+        source['mempool_activity' if kind=='finite_initial_funding' else 'mempool']=activity
+        if kind=='finite_initial_funding':
+            source['owned_mempool_activity_source_sequence']=self.event('finite_initial_funding_owned_mempool_activity',
+                {'height':100,'tip_hash':'a'*64,'financial_pins':self.pins,'activity_source':activity})
+        event_kind={'finite_initial_funding':'finite_initial_funding_sources_verified',
+                    'finite_fresh_cash':'finite_fresh_cash_sources_verified',
+                    'board_backing':'original_board_adoption_sources_verified'}[kind]
+        sequence=self.event(event_kind,source)
+        proof={key:source[key] for key in ('financial_pins','boundary_id','height','tip_hash')}
+        key={'finite_initial_funding':'finite_initial_source_sequence','finite_fresh_cash':'finite_fresh_cash_source_sequence',
+             'board_backing':'board_adoption_scope'}[kind]
+        proof[key]={'source_sequence':sequence} if kind=='board_backing' else sequence
+        return proof,source
+
+    def test_effective_admission_replays_all_four_exact_source_routes(self):
+        for kind in ('finite_initial_funding','finite_fresh_cash','board_backing'):
+            proof,source=self.operating_proof(kind)
+            f.verify_readiness(self.store,self.config,proof,self.pins)
+            if kind=='board_backing':
+                sequence=self.event('ordinary_arkoor_sources_verified',source)
+                proof.pop('board_adoption_scope');proof['ordinary_arkoor_scope']={'source_sequence':sequence}
+                f.verify_readiness(self.store,self.config,proof,self.pins)
+
+    def test_effective_admission_missing_context_old_schema_or_lost_trace_holds(self):
+        proof,source=self.operating_proof()
+        with self.assertRaisesRegex(ValueError,'lacks original'):
+            f.verify_readiness(self.store,self.config,{'financial_pins':self.pins},self.pins)
+        with self.assertRaisesRegex(ValueError,'context differs'):
+            f.verify_readiness(self.store,self.config,{**proof,'boundary_id':'foreign'},self.pins)
+        old={**self.event_source,'response':{'schema_version':1}}
+        old['response_sha256']=hashlib.sha256(canonical(old['response']).encode()).hexdigest()
+        old_seq=self.event('closed_cohort_original_source',old)
+        source_seq=self.event('finite_initial_funding_sources_verified',{**source,'database_source_sequence':old_seq})
+        with self.assertRaisesRegex(ValueError,'schema differs'):
+            f.verify_readiness(self.store,self.config,{**proof,'finite_initial_source_sequence':source_seq},self.pins)
+        from simulator.trace import partition_paths
+        path=partition_paths(self.store.trace.root)[0];path.rename(path.with_suffix('.missing'))
+        with self.assertRaises(ValueError):f.verify_readiness(self.store,self.config,proof,self.pins)
+
+    def test_effective_admission_refuses_copied_owning_activity_context(self):
+        proof,source=self.operating_proof('finite_fresh_cash')
+        changed=self.event('finite_fresh_cash_sources_verified',
+            {**source,'descriptor_ranges':[{'desc':'foreign-public-descriptor','range':[0,19]}]})
+        with self.assertRaisesRegex(ValueError,'collector context'):
+            f.verify_readiness(self.store,self.config,{**proof,'finite_fresh_cash_source_sequence':changed},self.pins)
+
+
+class EffectiveCallsiteControls(unittest.TestCase):
+    def test_actual_preflight_legacy_positive_cannot_be_reused_as_schema2(self):
+        from tests.test_operating_limits import OperatingLimitsTests
+        from simulator.operating_limits import preflight
+        fixture=OperatingLimitsTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        snapshot=fixture.readiness()
+        self.assertTrue(preflight(fixture.store,fixture.config,snapshot)['allowed'])
+        fixture.config.closed_frontier_schema=2
+        fixture.config.architecture_profile='direct_per_key';fixture.config.trace_enabled=True
+        with self.assertRaisesRegex(ValueError,'lacks original source'):
+            preflight(fixture.store,fixture.config,snapshot)
+
+    def test_schema2_never_falls_back_to_legacy_exploratory_dispatch(self):
+        from tests.test_operating_limits import OperatingLimitsTests
+        from simulator.operating_limits import preflight
+        fixture=OperatingLimitsTests();fixture.setUp();self.addCleanup(fixture.tearDown)
+        fixture.config.closed_frontier_schema=2
+        fixture.config.architecture_profile='direct_per_key';fixture.config.trace_enabled=True
+        with mock.patch('simulator.exploratory.scope',return_value={'legacy':'unqualified'}), \
+                mock.patch('simulator.exploratory.preflight') as legacy:
+            with self.assertRaisesRegex(ValueError,'legacy exploratory'):
+                preflight(fixture.store,fixture.config,fixture.snapshot)
+            legacy.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

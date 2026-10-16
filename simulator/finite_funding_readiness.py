@@ -223,34 +223,9 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             raise ValueError('actual bank coin ownership or amount differs')
         inventories['bank'].append({'outpoint':point,'amount_sat':btc_to_sat(coin['amount']),'script':coin['scriptPubKey'],
             'descriptor_index':position['descriptor_index'],'child_index':position['child_index']})
-    def mempool_ids():
-        value=chain.call('getrawmempool',False)
-        if (not isinstance(value,list) or len(value)>4096 or len(set(value))!=len(value)
-                or any(not isinstance(txid,str) or len(txid)!=64 or any(c not in '0123456789abcdef' for c in txid) for txid in value)):
-            raise ValueError('complete mempool exceeds declared transaction bound or has invalid IDs')
-        return set(value)
-    mempool=mempool_ids();checked_ids=set()
-    mempool_bytes=outputs=0;mempool_projection=[]
-    # Bound the union, not each convenient page. Every currently present ID
-    # must have its actual outputs checked; removal of unrelated IDs is safe.
-    for mempool_pass in range(1,9):
-        if len(checked_ids|mempool)>4096:raise ValueError('complete mempool union exceeds declared transaction bound')
-        for txid in sorted(mempool-checked_ids):
-            if time.monotonic()-started>180:raise ValueError('initial funding source deadline exceeded')
-            transaction=chain.tx(txid);mempool_bytes+=len(canonical(normalized(transaction)).encode())
-            vout=transaction.get('vout')
-            if not isinstance(vout,list):raise ValueError('complete mempool output inventory required')
-            outputs+=len(vout)
-            if mempool_bytes>8*1024*1024 or outputs>50000:raise ValueError('complete mempool exceeds declared byte/output bound')
-            for output in vout:
-                script=output.get('scriptPubKey',{}).get('hex')
-                if not isinstance(script,str):raise ValueError('complete mempool output script required')
-                if script in scripts:raise ValueError('initial owned wallet has unconfirmed assets')
-            mempool_projection.append({'txid':txid,'outputs':[{'n':output['n'],'script':output['scriptPubKey']['hex']} for output in vout]})
-            checked_ids.add(txid)
-        mempool=mempool_ids()
-        if mempool<=checked_ids:break
-    else:raise ValueError('complete mempool did not reach bounded output coverage')
+    from .owned_mempool import collect as collect_owned_activity,collector_context
+    mempool_activity = collect_owned_activity(store, chain, set(scripts), started,
+        context=collector_context('finite_initial_funding',{'financial_pins':pins,'boundary_id':boundary_id,'height':tip[0],'tip_hash':tip[1],'descriptor_ranges':scans}))
     refreshed_bank_sequence=collect_funding_bank_source(store,bank_rpc,chain,timeout_seconds=remaining(30))
     _,fresh_bank=_source_event(store,refreshed_bank_sequence)
     for field in ('source_identity','getwalletinfo','listdescriptors','listunspent','listlockunspent','listsinceblock','getbalances','locked_coins','pending_transactions','pending_parents'):
@@ -308,10 +283,8 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             'scans':scan_observations,'fee_estimate_target':6,'fee_estimate':normalized(estimate),
             'financial_pins':pins,'observed_at':time.time()})
         core_inventory_sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
-        store._event('finite_initial_funding_mempool_outputs',{'height':tip[0],'tip_hash':tip[1],
-            'transactions':mempool_projection,'current_txids':sorted(mempool),
-            'financial_pins':pins,'observed_at':time.time(),
-            'scope':'complete direct Core transaction-id/output-script projection; no witness or scriptSig bytes'})
+        store._event('finite_initial_funding_owned_mempool_activity',{'height':tip[0],'tip_hash':tip[1],
+            'activity_source':mempool_activity,'financial_pins':pins,'observed_at':time.time()})
         mempool_sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
         for member_id,spec in wallet_specs.items():
             identity=('core-wallet:'+bank['source_identity']['wallet_name']) if member_id=='bank' else 'bdk-wallet:'+_digest(spec['descriptors'])
@@ -331,18 +304,23 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             'observed_at':time.time(),'bank_member_id':'bank','bank_wallet_name':bank['source_identity']['wallet_name'],
             'bank_source_sequence':refreshed_bank_sequence,'database_source_sequence':database_sequence,
             'runtime_source_sequence':runtime_source_sequence,'customer_source_sequences':customer_sequences,
-            'mempool_projection_source_sequence':mempool_sequence,
+            'owned_mempool_activity_source_sequence':mempool_sequence,
+            'mempool_activity':mempool_activity,
             'core_inventory_source_sequence':core_inventory_sequence,
             'opening_total_sat':policy['opening_sat'],'opening_liabilities_sat':0,'funding_recipients':recipients,
             'funding_plan_sha256':_digest(recipients),'principal_sat':policy['principal_sat'],
             'maximum_funding_fee_sat':policy['maximum_fee_sat'],'maximum_fee_rate_sat_kvb':policy['maximum_rate_sat_kvb'],
             'estimated_fee_rate_sat_kvb':rate,'inventory_sequences':inventory_sequences,'members':members,
-            'descriptor_ranges':scans,'mempool_transactions_checked':len(checked_ids),'mempool_current_transactions':len(mempool),
-            'mempool_observation_passes':mempool_pass,'mempool_bytes_checked':mempool_bytes,
-            'mempool_outputs_checked':outputs,'ordinary_fee_holds_sat':{'funding':10000,'three_boards':12000,'three_normal_expiry_carriers':30000},
+            'descriptor_ranges':scans,'ordinary_fee_holds_sat':{'funding':10000,'three_boards':12000,'three_normal_expiry_carriers':30000},
             'urgent_fee_reserve_sat':policy['urgent_budget_sat'],'operation_scope':['funding'],
             'scope':'only initial funding of six fully enumerated owned wallets; all monetary database rows absent; no subsequent wallet operation admission'}
         if per_key:
+            from .c_escrow import transition as escrow_transition
+            escrow=escrow_transition(store)
+            if escrow is not None:
+                source.update(original_pilot_bank_opening_sat=escrow['original_pilot_bank_opening_sat'],
+                    escrow_bank_inflow_sat=escrow['escrow_bank_inflow_sat'],
+                    escrow_opening_transition_sequence=escrow['transition_sequence'])
             source.update(architecture_profile=DIRECT_PER_KEY,c_pilot_id=policy['pilot_id'],
                 client_principal_sat=policy['client_principal_sat'],
                 operator_fee_grants_sat=policy['operator_fee_grants_sat'],
@@ -369,6 +347,8 @@ def record_initial_funding_readiness(store,config,chain,source_sequence):
             or source.get('c_pilot_id')!=policy['pilot_id'] or source.get('opening_total_sat')!=policy['opening_sat']):
         raise ValueError('original C bounded pilot source required')
     frontier_source.verify_source(store,config,source,source['financial_pins'])
+    from .owned_mempool import verify_source as verify_owned_source
+    verify_owned_source(store,source,'finite_initial_funding',fresh=True)
     _fresh(source['observed_at'],'initial funding');_initial(store,source['financial_pins'])
     limits=envelope(store,config);treasury=boundary(store)
     if (limits['pins']!=source['financial_pins'] or limits['boundary_id']!=source['boundary_id']

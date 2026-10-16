@@ -171,40 +171,10 @@ def _confirmed_funding(store,chain):
     return value,initial,funded,actual,rows[0][0]
 
 
-def _empty_mempool(chain,scripts,started):
-    """Full current owned-output footprint; bounded fixed point, not truncation."""
-    from .trace import normalized
-    checked=set();bytes_read=outputs=0
-    def current():
-        ids=chain.call('getrawmempool',False)
-        if (not isinstance(ids,list) or len(ids)>4096 or any(not isinstance(txid,str)
-                or re.fullmatch('[0-9a-f]{64}',txid) is None for txid in ids) or len(set(ids))!=len(ids)):
-            raise ValueError('complete cash mempool transaction bound exceeded')
-        return set(ids)
-    pending=current()
-    for passes in range(1,9):
-        if len(pending|checked)>4096:raise ValueError('cash unique mempool bound exceeded')
-        for txid in sorted(pending-checked):
-            if time.monotonic()-started>180:raise ValueError('cash source deadline exceeded')
-            transaction=chain.tx(txid);bytes_read+=len(canonical(normalized(transaction)).encode())
-            rows=transaction.get('vout')
-            if not isinstance(rows,list):raise ValueError('complete cash mempool outputs required')
-            outputs+=len(rows)
-            if bytes_read>16*1024*1024 or outputs>50000:
-                raise ValueError('cash mempool byte/output bound exceeded: '
-                    f'observed_bytes={bytes_read}; maximum_bytes={16*1024*1024}; '
-                    f'observed_outputs={outputs}; maximum_outputs=50000; '
-                    f'observed_transactions={len(checked)+1}; maximum_unique_transactions=4096; maximum_seconds=180')
-            for row in rows:
-                script=row.get('scriptPubKey',{}).get('hex')
-                if not isinstance(script,str) or script in scripts:raise ValueError('cash wallet has missing or unconfirmed output source')
-            checked.add(txid)
-        pending=current()
-        if pending<=checked:return {'unique_checked':len(checked),'current_count':len(pending),
-            'current_set_sha256':_digest(sorted(pending)),'passes':passes,'bytes':bytes_read,'outputs':outputs,
-            'maximum_bytes':16*1024*1024,'maximum_outputs':50000,'maximum_unique_transactions':4096,
-            'maximum_passes':8,'maximum_seconds':180}
-    raise ValueError('complete cash mempool fixed point unavailable')
+def _empty_mempool(chain,scripts,started,*,store,context):
+    """Complete owned-script activity, with original Core31 trace provenance."""
+    from .owned_mempool import collect
+    return collect(store,chain,scripts,started,context=context)
 
 
 def _current_operator_ranges(initial,current,tip):
@@ -290,7 +260,9 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
         actual=chain.call('gettxout',txid,int(index),True)
         if (actual is None or actual.get('confirmations',0)<1 or btc_to_sat(actual['value'])!=coin['amount_sat']
                 or actual['scriptPubKey']['hex']!=coin['script']):raise ValueError('cash output unavailable or pending-spent')
-    mempool=_empty_mempool(chain,set(scripts),started)
+    from .owned_mempool import collector_context
+    mempool=_empty_mempool(chain,set(scripts),started,store=store,
+        context=collector_context('finite_fresh_cash',{'financial_pins':plan['pins'],'boundary_id':plan['boundary_id'],'height':tip[0],'tip_hash':tip[1],'descriptor_ranges':scans}))
     bank_sequence=collect_funding_bank_source(store,bank_rpc,chain);_,bank=_source_event(store,bank_sequence)
     bank_points={row['txid']+':'+str(row['vout']):row for row in bank['listunspent']}
     expected_bank={point:coin for point,coin in observed.items() if coin['member_id']=='bank'}
@@ -397,6 +369,8 @@ def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_sou
     event,source=_source_event(store,source_sequence)
     if event['kind']!='finite_fresh_cash_sources_verified' or source.get('operation_scope')!=OPERATIONS:
         raise ValueError('original exact fresh-cash source required')
+    from .owned_mempool import verify_source as verify_owned_source
+    verify_owned_source(store,source,'finite_fresh_cash',fresh=True)
     _fresh(source['observed_at'])
     plan,initial,funded,transaction,funding_sequence=_confirmed_funding(store,chain)
     frontier_source.verify_source(store,config,source,plan['pins'])

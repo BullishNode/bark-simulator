@@ -18,6 +18,7 @@ from simulator.operating_limits import declare_envelope,preflight
 from simulator.runtime_startup import PRODUCT_COMMIT
 from simulator.treasury import declare_boundary
 from tests import test_identity_bootstrap
+from tests.owned_activity_fixture import capture as capture_activity
 
 
 def address(descriptor,child):return descriptor+'-address-'+str(child)
@@ -41,6 +42,9 @@ class Chain:
             coins=copy.deepcopy(coins+self.unexpected)
             return {'success':True,'height':100,'bestblock':'a'*64,'unspents':coins,
                 'total_amount':sum(Decimal(coin['amount']) for coin in coins)}
+        if method=='getdescriptoractivity':
+            result=getattr(self,'activity',{'activity':[{'type':'receive'}] if self.mempool and self.pending_script in [item[4:-1] for item in args[1]] else []})
+            return capture_activity(self,self.store,args,result)
         if method=='getrawmempool':return self.mempool_views.pop(0) if self.mempool_views else self.mempool.copy()
         if method=='gettxout':return {'confirmations':10,'value':'0.00665454','scriptPubKey':{'hex':self.coin['scriptPubKey']}}
         if method=='estimatesmartfee':return {'feerate':'0.00001001','blocks':6}
@@ -51,7 +55,7 @@ class InitialFundingReadinessTests(unittest.TestCase):
     def setUp(self):
         self.fixture=test_identity_bootstrap.IdentityBootstrapTests('test_fresh_hashed_context_allows_only_zero_fee_create_with_existing_lease')
         self.fixture.setUp();f=self.fixture;f.value['actors']=sorted(CUSTOMERS);f.pins['product_commit']=PRODUCT_COMMIT
-        self.store=f.store;self.chain=Chain();self.store.attach_trace()
+        self.store=f.store;self.chain=Chain();self.chain.store=self.store;self.store.attach_trace()
         f.config=dataclasses.replace(f.config,inventory_command=('fixed-bridge',),board_amount_sat=20000,action_fee_reserve_sat=4000)
         self.config=f.config;f.declare();self.bindings=[]
         for number,actor in enumerate(sorted(CUSTOMERS),1):
@@ -154,16 +158,16 @@ class InitialFundingReadinessTests(unittest.TestCase):
         foreign.rmdir()
         self.store.db.execute("UPDATE action SET operation='board' WHERE actor_id='actor-01'")
         with self.assertRaisesRegex(ValueError,'bootstrap'):self.collect()
-    def test_current_mempool_coverage_allows_removal_and_checks_new_arrival(self):
-        self.chain.mempool_views=[['c'*64],['d'*64],['d'*64]]
-        source=self.collect()['source']
-        self.assertEqual(2,source['mempool_transactions_checked']);self.assertEqual(1,source['mempool_current_transactions'])
-        self.assertEqual(2,source['mempool_observation_passes'])
-    def test_mempool_nonconvergence_and_new_owned_arrival_refuse(self):
-        self.chain.mempool_views=[[str(i).zfill(64)] for i in range(9)]
-        with self.assertRaisesRegex(ValueError,'bounded output coverage'):self.collect()
-        self.chain.mempool_views=[[],['d'*64]]
-        self.chain.pending_script=script(address('actor-01-descriptor',1))
-        with self.assertRaisesRegex(ValueError,'unconfirmed assets'):self.collect()
+    def test_activity_provenance_replaces_global_projection(self):
+        self.chain.mempool=[f'{i:064x}' for i in range(10000)]
+        with patch.object(self.chain,'tx',side_effect=AssertionError('no unrelated body')):
+            source=self.collect()['source']
+        self.assertEqual('core31-owned-script-activity-v1',source['mempool_activity']['source_schema'])
+        self.assertNotIn('mempool_transactions_checked',source)
+        self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='finite_initial_funding_mempool_outputs'").fetchone()[0])
+    def test_nonempty_spend_and_missing_activity_refuse(self):
+        for result in ({'activity':[{'type':'spend'}]}, {}):
+            self.chain.activity=result
+            with self.subTest(result=result),self.assertRaises(ValueError):self.collect()
 
 if __name__=='__main__':unittest.main()

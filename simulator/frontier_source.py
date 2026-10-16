@@ -10,6 +10,9 @@ import os
 from pathlib import Path
 import re
 import stat
+import signal
+import subprocess
+import time
 import sys
 import threading
 import types
@@ -143,6 +146,60 @@ def _same_binding(digest):
         raise ValueError('protected binding changed during source use')
 
 
+def _worker_command():
+    return [sys.executable, '-I', str(Path(__file__).with_name('frontier_process.py').resolve()), '--supervise']
+
+
+def _request(store, config, pins, operation, *, frame=None, timeout=25):
+    if type(timeout) not in (int, float) or not 1 <= timeout <= 25:
+        raise ValueError('existing frontier caller allowance required')
+    _pins(pins)
+    from .trace import TraceStore
+    trace = getattr(store, 'trace', None)
+    if not isinstance(trace, TraceStore):
+        raise ValueError('original TraceStore required for schema 2')
+    request = {'operation': operation, 'pins': pins, 'frame': frame,
+        'deadline': time.monotonic() + timeout, 'allowance': timeout,
+        'trace': {'root': str(trace.root), 'retention_days': trace.retention_days,
+                  'max_record_bytes': trace.max_record_bytes},
+        'config': None if config is None else {key: getattr(config, key) for key in
+            ('network', 'expected_genesis', 'expected_server_pubkey')}}
+    public_payload(frame)
+    if len(json.dumps(request, allow_nan=False).encode()) > 2*1024*1024:
+        raise ValueError('frontier request exceeds existing command bound')
+    return request
+
+
+def _result(response):
+    if not isinstance(response, dict) or set(response) != {'ok', 'frame'} or response['ok'] is not True:
+        raise ValueError('protected frontier worker refused')
+    return response['frame']
+
+
+def _run_sync(request):
+    # Existing synchronous admission APIs also run inside an active Engine loop.
+    # This fixed child uses the same byte/JSON limits as common.process; no
+    # asyncio.run, thread, inherited SQLite handle or caller-selected command.
+    from .process import MAX_RESPONSE_BYTES, decode_object
+    raw=(json.dumps(request, allow_nan=False)+'\n').encode()
+    child=subprocess.Popen(_worker_command(),stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+                           stderr=subprocess.DEVNULL,start_new_session=True)
+    try:
+        output,_=child.communicate(raw,timeout=max(0.001,request['deadline']-time.monotonic()))
+        if len(output)>MAX_RESPONSE_BYTES or child.returncode or time.monotonic()>=request['deadline']:
+            raise ValueError('protected frontier worker refused')
+        return _result(decode_object(output.decode('utf-8')))
+    except subprocess.TimeoutExpired:
+        raise ValueError('protected frontier deadline exceeded') from None
+    finally:
+        # Normal deadline cleanup occurs inside the isolated subreaper. This
+        # last-resort bound kills ONLY this owned session, never Engine children.
+        if child.poll() is None:
+            try:os.killpg(child.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            child.wait()
+
+
 def verify_frame(store, config, frame, pins):
     selected = schema(config) if config is not None else None
     if not isinstance(frame, dict):
@@ -151,37 +208,37 @@ def verify_frame(store, config, frame, pins):
     if selected == 1:
         if actual == 2:
             raise ValueError('frontier schema differs from explicit selection')
-        return frame  # Preserve existing legacy validators unchanged.
+        return frame
     if type(actual) is not int or actual not in (1, 2) or selected == 2 and actual != 2:
         raise ValueError('frontier schema differs from explicit selection')
     if actual == 1:
         return frame
-    public_payload(frame)
-    controller, binding, digest = _bootstrap()
-    _context(controller, binding, config, pins)
-    if getattr(store, 'trace', None) is None:
-        raise ValueError('original TraceStore required for schema 2')
-    result = controller.verify(frame, store.trace)
-    _same_binding(digest)
-    return result
+    return _run_sync(_request(store,config,pins,'verify',frame=frame))
 
 
 async def collect(store, config, pins, *, timeout=25):
     if schema(config) != 2:
         raise ValueError('protected collection requires explicit schema 2 opt-in')
-    controller, binding, digest = _bootstrap()
-    _context(controller, binding, config, pins, timeout=timeout)
-    trace = getattr(store, 'trace', None)
-    if trace is None:
-        raise ValueError('original TraceStore required for schema 2')
-    # Producer pipes retain the declared deadline and are killed/reaped by the
-    # frozen adapter. Existing caller allowance is never enlarged. Cancellation
-    # cannot hard-interrupt filesystem/SQLite trace I/O in the worker thread;
-    # that inherited resource qualification remains OPEN, not a claimed bound.
-    result = await asyncio.wait_for(asyncio.to_thread(controller.collect, trace), timeout=timeout)
-    controller.verify(result, trace)
-    _same_binding(digest)
-    return result
+    from .process import json_command
+    request=_request(store,config,pins,'collect',timeout=timeout)
+    task=asyncio.create_task(json_command(_worker_command(),request,timeout=timeout))
+    cancelled=False
+    # Cancellation does not abandon an owned worker. Its independent supervisor
+    # stops/reaps the whole inherited group within the ORIGINAL remaining bound.
+    while True:
+        try:
+            response=await asyncio.shield(task)
+            break
+        except asyncio.CancelledError:
+            cancelled=True
+            if task.cancelled():raise
+        except Exception:
+            if cancelled:raise asyncio.CancelledError from None
+            raise
+    if cancelled:raise asyncio.CancelledError
+    if time.monotonic()>=request['deadline']:
+        raise ValueError('protected frontier deadline exceeded')
+    return _result(response)
 
 
 def verify_event(store, config, sequence, pins):
@@ -234,3 +291,32 @@ def verify_source(store, config, source, pins, *, _depth=0):
             if event['kind'] != kind:
                 raise ValueError('retained frontier ancestor kind differs')
             verify_source(store, config, parent, pins, _depth=_depth + 1)
+
+
+def verify_readiness(store, config, proof, pins):
+    """Effective admission replays original sources; old readiness is no v2 alias."""
+    if schema(config) != 2:
+        return
+    if proof.get('financial_pins') != pins:
+        raise ValueError('schema2 operating financial context differs')
+    if 'board_adoption_scope' in proof:
+        sequence=proof['board_adoption_scope'].get('source_sequence')
+        kind='original_board_adoption_sources_verified'; activity='board_backing'
+    elif 'ordinary_arkoor_scope' in proof:
+        sequence=proof['ordinary_arkoor_scope'].get('source_sequence')
+        kind='ordinary_arkoor_sources_verified'; activity='board_backing'
+    elif 'finite_fresh_cash_source_sequence' in proof:
+        sequence=proof['finite_fresh_cash_source_sequence']
+        kind='finite_fresh_cash_sources_verified'; activity='finite_fresh_cash'
+    elif 'finite_initial_source_sequence' in proof:
+        sequence=proof['finite_initial_source_sequence']
+        kind='finite_initial_funding_sources_verified'; activity='finite_initial_funding'
+    else:
+        raise ValueError('schema2 operating readiness lacks original source reference')
+    event,source=_source_event(store,sequence)
+    if (event['kind'] != kind or source.get('financial_pins') != pins
+            or any(source.get(key) != proof.get(key) for key in ('boundary_id','height','tip_hash'))):
+        raise ValueError('schema2 operating original source context differs')
+    verify_source(store,config,source,pins)
+    from .owned_mempool import verify_source as verify_owned_source
+    verify_owned_source(store,source,activity,fresh=True)
