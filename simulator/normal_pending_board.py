@@ -38,7 +38,7 @@ def prove_registered_board(item, registered, funding, tool, server_pubkey):
 
 
 def verify_pending_boards(store, tables, authenticated, chain, tool, *,
-                          server_pubkey, height, tip_hash, fresh_backing, recovered):
+                          server_pubkey, height, tip_hash, fresh_backing, recovered, lineage_context=None):
     from .two_step_normal import digest
     from .unknown_outcomes import _intent, _coins
     from .financial_transition import _superseded_ark_input
@@ -107,7 +107,11 @@ def verify_pending_boards(store, tables, authenticated, chain, tool, *,
                 or fee['mining_fee_sat']!=proposal['planned_mining_fee_sat']
                 or fee['service_charge_sat']!=proposal['estimated_service_fee_sat']):
             raise ValueError('pending Board original funded/miner/service intent differs')
-        related={name:claim for name,claim in claims.items()if claim['chain_anchor']==root}
+        if lineage_context is None:
+            related={name:claim for name,claim in claims.items()if claim['chain_anchor']==root}
+        else:
+            from .normal_lineage_join import board_descendants
+            related=board_descendants(lineage_context,identifier,claims,rows)
         if (not related or sum(row['amount_sat']for row in related.values())!=registered['amount']
                 or covered_claims.intersection(related)):
             raise ValueError('pending Board current liability lineage incomplete/duplicated')
@@ -116,13 +120,14 @@ def verify_pending_boards(store, tables, authenticated, chain, tool, *,
                 raise ValueError('registered pending Board has unknown current spend state')
             lineage='current authenticated registered Board claim'
         else:
-            if registered['spend_state']!='spent' or not _superseded_ark_input(store,coin):
+            if registered['spend_state']!='spent' or (not _superseded_ark_input(store,coin) if lineage_context is None else identifier not in lineage_context['consumed_claim_ids']):
                 raise ValueError('pending Board spent state lacks positive original Ark supersession')
-            for name in related:
-                saved=store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(name,)).fetchone()
-                origin=None if saved is None else _receipt_origin(json.loads(saved['proof']),[identifier])
-                if origin is None or origin['branch_txid']!=registered['oor_spent_txid']:
-                    raise ValueError('current pending Board descendant lacks exact signed Ark lineage')
+            if lineage_context is None:
+                for name in related:
+                    saved=store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(name,)).fetchone()
+                    origin=None if saved is None else _receipt_origin(json.loads(saved['proof']),[identifier])
+                    if origin is None or origin['branch_txid']!=registered['oor_spent_txid']:
+                        raise ValueError('current pending Board descendant lacks exact signed Ark lineage')
             lineage='authenticated original Ark supersession and signed descendants'
         if root_row.get('onchain_spent_txid')is None:
             coin=chain.call('gettxout',txid,index,True)

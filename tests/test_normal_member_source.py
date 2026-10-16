@@ -3,9 +3,66 @@ import copy
 import os
 import tempfile
 import unittest
+import asyncio
+import sys
 from decimal import Decimal
 from pathlib import Path
 from simulator.normal_member_source import ConfigCredential, bank_projection
+
+
+class MemberCaptureTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ownership_root_discovery_preserves_raw_helper_originals(self):
+        """Run a private local synthetic producer through the actual reader."""
+        from unittest.mock import patch
+        from simulator import normal_member_source as source
+        from simulator.model import canonical, SIGNET_GENESIS
+        from simulator.store import Store
+        from tests.test_two_step_normal import TablesTests
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'capture').mkdir();(root/'helper').mkdir()
+            helper=root/'producer.py'
+            helper.write_text('''import hashlib,json,pathlib,sys,time
+root=pathlib.Path(__file__).parent
+nonce=sys.argv[1]; out=root/'helper'/nonce; out.mkdir(mode=0o700)
+identity={'chain':'signet','blocks':100,'bestblockhash':'tip','initialblockdownload':False}
+originals={'core':json.dumps({'genesis':GENESIS,'before':identity,'after':identity}).encode(),
+           'bank':b'{}','fixture_cln':b'{"selected":"literal fixture original"}'}
+files={};hashes={}
+for name,raw in originals.items():
+ p=out/name;p.write_bytes(raw);p.chmod(0o600)
+ hashes[name]=hashlib.sha256(raw).hexdigest();files[name]={'sha256':hashes[name],'size_bytes':len(raw)}
+manifest={'source_observation_id':nonce,'unresolved_sources':[],
+ 'source_program_sha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
+ 'height':100,'tip_hash':'tip','started_at':time.time(),'completed_at':time.time(),
+ 'files':files,'originals_map':{name:name for name in originals},'original_sha256':hashes}
+p=out/'manifest.json';raw=json.dumps(manifest).encode();p.write_bytes(raw);p.chmod(0o600)
+print(json.dumps({'manifest_path':str(p),'manifest_sha256':hashlib.sha256(raw).hexdigest()}))
+'''.replace('GENESIS',repr(SIGNET_GENESIS)))
+            helper.chmod(0o600)
+            prepared=root/'prepared.json';prepared.write_bytes(b'{}');prepared.chmod(0o600)
+            cfg={'evidence_root':str(root/'capture'),'helper_evidence_root':str(root/'helper'),
+                'helper_command':[sys.executable,str(helper)],'helper_sha256':source.digest(helper.read_bytes()),
+                'chain_url':'http://synthetic.invalid','scoped_core_config':str(root/'unused.conf'),
+                'prepared_descriptors':str(prepared),'prepared_descriptors_sha256':source.digest(b'{}'),
+                'actor_member_ids':{},'descriptor_checkpoint':'unused','descriptor_checkpoint_sha256':'a'*64,
+                'bank_member_id':'bank','fixture_member_id':'fixture','target_cln_member_id':'target-cln',
+                'backing_member_id':'backing'}
+            class Chain:
+                def identity(self):return {'blocks':100,'bestblockhash':'tip','initialblockdownload':False}
+            tables=TablesTests();tables.setUp();raw_sql=tables.raw()
+            target={'raw_sql':raw_sql,'manifest':{'original_sha256':{'native_sql':source.digest(raw_sql)},
+                'auxiliary_originals':{'target_cln':'cln'}},'auxiliary_originals':{'cln':b'{"target":"literal"}'}}
+            store=Store(root/'store','member-control',10000)
+            try:
+                with patch.object(source,'ChainReader',return_value=Chain()), \
+                        patch.object(source,'current_from_checkpoint',return_value={}), \
+                        patch.object(source,'bank_projection',return_value={'synthetic_bank':True}):
+                    result=await source.MemberReader(cfg,store).read(
+                        {'id':'b'*32,'height':100,'tip_hash':'tip'},{'bank':{}},target)
+                self.assertEqual(b'{"selected":"literal fixture original"}',result['members']['fixture']['raw_original'])
+                self.assertEqual(target['auxiliary_originals']['cln'],result['members']['target-cln']['raw_original'])
+                self.assertEqual({'bank','fixture','target-cln','backing'},set(result['members']))
+            finally:store.close()
 
 class PrivateReadTests(unittest.TestCase):
     def test_read_uses_bounded_fd_not_unbounded_path_read(self):
