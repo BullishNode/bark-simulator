@@ -15,8 +15,49 @@ import stat
 import tarfile
 import time
 
-from .c_native_fee_sources import MAX_BYTES, MAX_ROWS, digest, _json, _raw, _observation, _pins
-from .model import SIGNET_GENESIS, canonical, integer
+# This target-side component deliberately has only stdlib dependencies. Its
+# encoding/pin contract is tested against the existing canonical common helpers.
+MAX_BYTES = 16*1024*1024
+MAX_ROWS = 10000
+SIGNET_GENESIS = '00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6'
+PIN_LENGTHS = {'product_commit':40,'sdk_commit':40,'driver_sha256':64,
+               'configuration_sha256':64,'schema_sha256':64}
+
+def canonical(value):
+    return json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False)
+
+def digest(raw):return hashlib.sha256(raw).hexdigest()
+
+def _json(raw):
+    def pairs(values):
+        result={}
+        for key,value in values:
+            if key in result:raise ValueError('duplicate private source field')
+            result[key]=value
+        return result
+    return json.loads(raw,object_pairs_hook=pairs,parse_constant=lambda _:(_ for _ in ()).throw(ValueError('nonfinite private source')))
+
+def _raw(value,maximum=MAX_BYTES):
+    if not isinstance(value,str)or len(value)>maximum*2 or re.fullmatch('(?:[0-9a-f]{2})*',value)is None:
+        raise ValueError('bounded canonical hex source required')
+    return bytes.fromhex(value)
+
+def _pins(value):
+    if not isinstance(value,dict)or set(value)!=set(PIN_LENGTHS):raise ValueError('complete financial pins required')
+    if any(not isinstance(value[k],str)or re.fullmatch('[0-9a-f]{'+str(n)+'}',value[k])is None for k,n in PIN_LENGTHS.items()):
+        raise ValueError('invalid financial pins')
+    return value
+
+def _observation(source,pins,height,tip):
+    observation=source.get('source_observation')
+    if (not isinstance(observation,dict)or observation.get('architecture_profile')!='direct_per_key'
+            or observation.get('financial_pins')!=pins or not isinstance(observation.get('id'),str)
+            or re.fullmatch('[0-9a-f]{32}',observation['id'])is None
+            or(observation.get('height'),observation.get('tip_hash'))!=(height,tip)
+            or type(observation.get('started_at'))not in(int,float)
+            or not 0<=time.time()-observation['started_at']<=90):
+        raise ValueError('current independent source observation required')
+    return observation
 
 HISTORY_ROOT = Path('/srv/track-c-data/captaind/direct-expiry-witness')
 MAX_ORIGINAL_BYTES = 4*1024*1024
@@ -110,7 +151,11 @@ def _assemble(files, pg, expected):
     for row in pg['carriers']:
         txid=row['txid']
         if set(row)!={'txid','signed_tx_hex','witness'}or txid in witnesses or txid not in records or not isinstance(row['witness'],str):raise ValueError('private carrier/history membership differs')
-        record=_json(_raw(records[txid]));signed=record.get('tx')
+        record=_json(_raw(records[txid]))
+        if(not isinstance(record,dict)or set(record)!={'freeze_set','tx','allocation_hash','carrier_hash'}
+                or not isinstance(record['freeze_set'],str)or not record['freeze_set']
+                or any(not isinstance(record[k],str)or re.fullmatch('[0-9a-f]{64}',record[k])is None for k in('allocation_hash','carrier_hash'))):raise ValueError('unknown/malformed native DirectRecord')
+        signed=record.get('tx')
         if not isinstance(signed,list)or any(type(v)is not int or not 0<=v<=255 for v in signed)or _raw(row['signed_tx_hex'])!=bytes(signed):raise ValueError('private PG signed bytes differ from independent history')
         witnesses[txid]=row['witness']
     if set(witnesses)!=set(records):raise ValueError('private PG omitted retained signed carrier')
