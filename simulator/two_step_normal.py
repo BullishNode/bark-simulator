@@ -293,6 +293,8 @@ def verified_money(store, chain, source, *, opening=None, funding_context=None, 
             raise ValueError('actual funding join must bind current immutable source boundary')
         checked = verify_funding_ownership(store, chain, boundary=boundary,
             height=source['height'], tip_hash=source['tip_hash'], **funding_context)
+        if checked['cost_records']or checked['flow_records']:
+            raise ValueError('verified funding originals require their separately admitted journal records')
         owned_flows = checked['verified_flow_records']
     flows = []; costs = {}; monetary = set()
     for sequence in sorted(sequences['flow_sequences']+sequences['cost_sequences']):
@@ -504,20 +506,29 @@ class Collector:
     current executables, exact policy/history/opening identity and proof tools.
     Nothing in a capture response can install or change this admission.
     """
-    def __init__(self, capture, admission_sequence, tools):
+    def __init__(self, capture, admission_sequence, tools, *, funding_reader=None):
         self.capture = capture
         self.admission_sequence = admission_sequence
         self.tools = tools
+        self.funding_reader=funding_reader
 
     def admission(self, store, pins):
         event, value = _source_event(store, self.admission_sequence)
         from .financial_components import inspect as inspect_components
+        from .normal_profile import collector_from_profile
         hashes = {'adapter':digest(Path(__file__).read_bytes()), 'capture':module_hash(self.capture),
             'financial_components':module_hash(inspect_components),
             'native_fee':module_hash(verify_native_fee_epoch), 'recovered_backing':module_hash(bind_native_claim),
             'money_sources':module_hash(collect_money_sources), 'money_join':module_hash(journal_money_sources),
             'deadline':module_hash(Deadline), 'pending_board':module_hash(verify_pending_boards),
             'ordinary_pool':module_hash(authenticate_pool)}
+        hashes['profile_builder']=module_hash(collector_from_profile)
+        if self.funding_reader is not None:
+            hashes['funding_reader']=module_hash(self.funding_reader.read)
+            if value.get('funding_reader_configuration_sha256')!=digest(canonical(self.funding_reader.configuration).encode()):
+                raise ValueError('installed funding original reader configuration differs')
+        elif value.get('funding_reader_configuration_sha256')is not None:
+            raise ValueError('admitted funding original reader is not installed')
         if (event['kind'] != 'normal_financial_collector_qualified' or value['financial_pins'] != pins
                 or value['component_sha256'] != hashes
                 or value['proof_tool_sha256'] != {name:tool['sha256'] for name,tool in self.tools.items()}
@@ -671,7 +682,9 @@ class Collector:
         limits = {name:fee['ordinary_signed_ceiling_sat_kvb'] for name in PATHS-{'claim','progression'}}
         limits.update({name:min(fee['urgent_child_signed_ceiling_sat_kvb'], fee['urgent_package_signed_ceiling_sat_kvb']) for name in ('claim','progression')})
         if limits != envelope['fee_ceilings_sat_kvb']: raise ValueError('envelope differs from actual signed native path ceilings')
-        flows, costs = verified_money(store, chain, source, opening=opening, boundary=boundary)
+        funding_context=None if self.funding_reader is None else self.funding_reader.read(store,boundary)
+        flows, costs = verified_money(store, chain, source, opening=opening, boundary=boundary,
+            funding_context=funding_context)
         if pool_checked is not None:
             borrowers=[name for name,member in members.items()if member['kind']=='ark_backing'and member['identity']==source['identity']['server_pubkey']]
             if len(borrowers)!=1:raise ValueError('one ordinary pool physical backing owner required')

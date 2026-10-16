@@ -75,6 +75,11 @@ def initialize(store: Store):
 class Engine:
     def __init__(self, config: Config, store: Store, *, financial_source_collector=None):
         self.config, self.store = config, store
+        if getattr(config,'normal_source_profile',None)is not None:
+            if financial_source_collector is not None:
+                raise ValueError('normal source profile and supplied collector are ambiguous')
+            from .normal_profile import collector_from_profile
+            financial_source_collector=collector_from_profile(config,store)
         self.financial_source_collector = financial_source_collector
         selected=campaign_profile(store)
         declared=getattr(config,'architecture_profile',None)

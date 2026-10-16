@@ -104,7 +104,7 @@ class MoneyTests(StoreTests):
             def transaction(inner,txid):return {'txid':txid,'confirmations':1,'fee_sat':1030}
             def tx(inner,txid):return {'txid':txid,'confirmations':1,'vout':[{'n':0,'value':Decimal('.002'),'scriptPubKey':{'hex':'51'}}]}
         self.chain=Chain()
-        self.ownership=patch('simulator.normal_funding_ownership.verify_funding_ownership',return_value={'verified_flow_records':{self.flow['monetary_id']:self.flow}})
+        self.ownership=patch('simulator.normal_funding_ownership.verify_funding_ownership',return_value={'cost_records':[],'flow_records':[],'verified_flow_records':{self.flow['monetary_id']:self.flow}})
         self.ownership.start();self.addCleanup(self.ownership.stop)
     def test_historical_or_current_funding_labels_without_actual_rejoin_always_hold(self):
         for kind in ('injection',):
@@ -125,6 +125,14 @@ class MoneyTests(StoreTests):
     def test_original_sweep_is_once_only_cost_not_another_injection(self):
         flows,costs=adapter.verified_money(self.store,self.chain,self.source,funding_context={'qualification_sequence':1,'packages':{}},boundary=self.boundary)
         self.assertEqual(2,len(flows));self.assertEqual(1030000,costs[self.txid]['amount_msat'])
+    def test_unjournaled_new_funding_cannot_disappear_into_opening_assets(self):
+        original=self.store.db.execute('SELECT count(*)FROM event').fetchone()[0]
+        with patch('simulator.normal_funding_ownership.verify_funding_ownership',return_value={
+                'verified_flow_records':{},'cost_records':[],'flow_records':[self.flow]}):
+            with self.assertRaisesRegex(ValueError,'separately admitted journal'):
+                adapter.verified_money(self.store,self.chain,self.source,
+                    funding_context={'qualification_sequence':1,'packages':{}},boundary=self.boundary)
+        self.assertEqual(original,self.store.db.execute('SELECT count(*)FROM event').fetchone()[0])
     def test_omitted_original_or_duplicate_monetary_id_refuses(self):
         self.source['cost_sequences']=[]
         with self.assertRaisesRegex(ValueError,'exhaustive'):adapter.verified_money(self.store,self.chain,self.source,funding_context={'qualification_sequence':1,'packages':{}},boundary=self.boundary)
@@ -309,12 +317,14 @@ class AdmissionTests(StoreTests):
             for name,character in [('policy','a'),('binding','b')]}
         self.collector=adapter.Collector(self.capture,1,self.tools)
         from simulator.financial_components import inspect as inspect_components
+        from simulator.normal_profile import collector_from_profile
         self.value={'financial_pins':PINS,'component_sha256':{'adapter':adapter.digest(Path(adapter.__file__).read_bytes()),
             'capture':adapter.module_hash(self.capture),'native_fee':adapter.module_hash(adapter.verify_native_fee_epoch),
             'recovered_backing':adapter.module_hash(adapter.bind_native_claim),
             'money_sources':adapter.module_hash(adapter.collect_money_sources),'money_join':adapter.module_hash(adapter.journal_money_sources),'deadline':adapter.module_hash(adapter.Deadline),'pending_board':adapter.module_hash(adapter.verify_pending_boards),'ordinary_pool':adapter.module_hash(adapter.authenticate_pool),'financial_components':adapter.module_hash(inspect_components)},
             'proof_tool_sha256':{name:tool['sha256'] for name,tool in self.tools.items()},
             'proof_commands_sha256':{name:adapter.digest(canonical(tool['command']).encode()) for name,tool in self.tools.items()}}
+        self.value['component_sha256']['profile_builder']=adapter.module_hash(collector_from_profile)
     def admit(self):self.collector.admission_sequence=self.event('normal_financial_collector_qualified',self.value)
     def test_actual_installed_components_and_tool_command_arguments_are_bound(self):
         self.admit();self.assertEqual(self.value,self.collector.admission(self.store,PINS))
@@ -330,6 +340,17 @@ class AdmissionTests(StoreTests):
             self.admit()
             with self.subTest(change=change),self.assertRaisesRegex(ValueError,'qualification'):self.collector.admission(self.store,PINS)
             self.value=original
+    def test_funding_reader_module_and_original_path_configuration_are_admitted(self):
+        class Reader:
+            configuration={'qualification_sequence':1,'packages':{'original':{'path':'fixed'}}}
+            def read(self,*args):raise AssertionError('admission must not read financial originals')
+        reader=Reader();self.collector.funding_reader=reader
+        self.value['component_sha256']['funding_reader']=adapter.module_hash(reader.read)
+        self.value['funding_reader_configuration_sha256']=adapter.digest(canonical(reader.configuration).encode())
+        self.admit();self.collector.admission(self.store,PINS)
+        reader.configuration['packages']['original']['path']='substituted'
+        with self.assertRaisesRegex(ValueError,'funding original reader configuration'):
+            self.collector.admission(self.store,PINS)
 
 
 class RecurringTests(unittest.IsolatedAsyncioTestCase):
