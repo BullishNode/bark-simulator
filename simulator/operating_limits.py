@@ -15,6 +15,9 @@ from .topology import ready as channel_ready
 KEY='financial_operating_envelope'
 PATHS={'round','pool','sweep','payout','claim','progression'}
 BUDGETS={'ordinary','urgent'}
+# Immediate operator mining publications only. Board is paid by the client's
+# separately bounded SDK funding transaction; Arkoor only cosigns virtual spends.
+NO_OPERATOR_PUBLICATION_OPERATIONS=frozenset({'board','send_arkoor'})
 
 
 def validate(declaration,config):
@@ -37,10 +40,13 @@ def validate(declaration,config):
         supported=set()
         for operation,paths in scope.items():
             if (not isinstance(operation,str) or not operation or len(operation)>64
-                    or not isinstance(paths,list) or not paths
+                    or not isinstance(paths,list)
+                    or (not paths and operation not in NO_OPERATOR_PUBLICATION_OPERATIONS)
                     or any(not isinstance(path,str) for path in paths)
                     or len(set(paths))!=len(paths) or set(paths)-PATHS):
                 raise ValueError('each scoped operation requires distinct existing fee paths')
+            if operation in NO_OPERATOR_PUBLICATION_OPERATIONS and set(paths)&{'claim','progression'}:
+                raise ValueError('client board/arkoor cannot use urgent operator fee paths')
             supported.update(paths)
         for path,amount in declaration['fee_ceilings_sat_kvb'].items():
             if path in supported:integer(amount,'explicit positive supported fee ceiling',1)
