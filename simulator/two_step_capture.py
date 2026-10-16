@@ -113,16 +113,22 @@ class SourceCapture:
     exact non-target member frames. Readers return raw records, never Store
     sequences. The normal collector independently re-verifies every money join.
     """
-    def __init__(self, target_reader, member_reader, admission_sequence, boundary, configuration, dependencies=None):
+    def __init__(self, target_reader, member_reader, admission_sequence, boundary, configuration, dependencies=None, *, native_profile=None):
         self.target_reader = target_reader; self.member_reader = member_reader
         self.admission_sequence = admission_sequence; self.boundary = boundary
         self.configuration = configuration; self.dependencies = dependencies or {}
+        if native_profile is not None:
+            from .b_normal_profile_adapter import require_profile
+            require_profile(native_profile)
+        self.native_profile = native_profile
         if set(self.dependencies)&{'target_reader','member_reader'}:raise ValueError('reader dependency identity cannot be overridden')
 
     def admission(self, store, observation):
         event, value = _source_event(store, self.admission_sequence)
         dependencies = {'target_reader':module_hash(self.target_reader),'member_reader':module_hash(self.member_reader),
             **{name:module_hash(function) for name,function in self.dependencies.items()}}
+        if self.native_profile is not None:
+            dependencies.update(self.native_profile.component_hashes())
         target_instance=self.target_reader.__self__;member_instance=self.member_reader.__self__
         actual_readers={'target':{'command':list(target_instance.command),
             'evidence_directory':str(target_instance.evidence_directory),'timeout':target_instance.timeout},
@@ -166,7 +172,11 @@ class SourceCapture:
             raise ValueError('actual independent public server identity differs')
         target = await self.target_reader(json.loads(canonical(observation)))
         # No parallel bank/Core/CLN calls before the owning TARGET cut completes.
-        additional = await self.member_reader(json.loads(canonical(observation)), members, target)
+        if self.native_profile is None:
+            additional = await self.member_reader(json.loads(canonical(observation)), members, target)
+        else:
+            additional = await self.member_reader(json.loads(canonical(observation)), members, target,
+                runtime_config=config)
         for package in (target, additional):
             manifest = package['manifest']
             if (digest(package['raw_manifest']) != package['manifest_sha256']
@@ -188,13 +198,18 @@ class SourceCapture:
             raise ValueError('private TARGET original content differs from authenticated manifest')
         if target['manifest']['fee_history_sha256'] != private_history_hash(target['fee_history']):
             raise ValueError('retained private fee history differs from authenticated manifest')
-        runtime = strict_json(target['raw_runtime'])
-        if (runtime['identity'] != snapshot['identity'] or runtime['binary_sha256'] != admission['binary_sha256']
-                or runtime['configuration_sha256'] != observation['financial_pins']['configuration_sha256']
-                or runtime['schema_sha256'] != observation['financial_pins']['schema_sha256']
-                or runtime['container_runtime_stable'] is not True):
-            raise ValueError('actual active runtime/policy/schema/source identity differs')
-        tables = native_tables(target['raw_sql'],target['manifest']['original_sha256']['native_sql'])
+        if self.native_profile is None:
+            runtime = strict_json(target['raw_runtime'])
+            if (runtime['identity'] != snapshot['identity'] or runtime['binary_sha256'] != admission['binary_sha256']
+                    or runtime['configuration_sha256'] != observation['financial_pins']['configuration_sha256']
+                    or runtime['schema_sha256'] != observation['financial_pins']['schema_sha256']
+                    or runtime['container_runtime_stable'] is not True):
+                raise ValueError('actual active runtime/policy/schema/source identity differs')
+            tables = native_tables(target['raw_sql'],target['manifest']['original_sha256']['native_sql'])
+            native_context = None
+        else:
+            runtime, tables, native_context = self.native_profile.decode(store, config, chain,
+                snapshot, observation, self.boundary, target, additional, admission)
         rounds = admission['rounds_member_id']; watch = admission['watchman_member_id']
         if rounds == watch or {rounds,watch}-set(members): raise ValueError('distinct actual native fee members required')
         if set(additional['members']) != set(members)-{rounds,watch}:
@@ -249,6 +264,14 @@ class SourceCapture:
                         'member_verification_sequence':member['verification_sequence'],
                         'getinfo':native['getinfo'],'listfunds':native['listfunds']})
                     utxos = [{**row,'source_sequence':cash_source} for row in utxos]
+                elif self.native_profile is not None:
+                    utxos, backing_sources = self.native_profile.backing(member, native_context)
+                    for backing in backing_sources:
+                        seq = event('treasury_backing_verified', backing)
+                        utxos[backing['outpoint']]['verification_sequence'] = seq
+                    utxos = list(utxos.values())
+                    body.update(source_kind='b_original_direct_backing',
+                        original_source_sha256=target['manifest']['original_sha256']['native_sql'])
                 else:
                     frame = strict_json(additional['members'][name]['raw_original'])
                     if frame['source_kind'] != 'native_signed_ordinary_backing':
@@ -285,13 +308,18 @@ class SourceCapture:
                 sources[name] = event('treasury_native_inventory_source',body)
                 hashes[name] = digest(canonical(body).encode())
                 inventories[name] = event('treasury_inventory', {**context,'complete':True,'utxos':utxos,'channels':channels})
-            for claim in _current_claims(store):
-                proof = json.loads(store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(claim['coin_id'],)).fetchone()['proof'])
-                borrowers = [name for name,member in members.items() if member['kind']=='ark_backing' and member['identity']==proof['server_pubkey']]
-                if len(borrowers)!=1:raise ValueError('one declared borrower required for each retained right')
-                liability = {'id':'coin:'+claim['coin_id'],'borrower':borrowers[0],'amount_msat':claim['amount_sat']*1000}
-                sequence = event('treasury_liability_verified',liability)
-                liabilities.append({**liability,'source_sequence':sequence})
+            if self.native_profile is None:
+                for claim in _current_claims(store):
+                    proof = json.loads(store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(claim['coin_id'],)).fetchone()['proof'])
+                    borrowers = [name for name,member in members.items() if member['kind']=='ark_backing' and member['identity']==proof['server_pubkey']]
+                    if len(borrowers)!=1:raise ValueError('one declared borrower required for each retained right')
+                    liability = {'id':'coin:'+claim['coin_id'],'borrower':borrowers[0],'amount_msat':claim['amount_sat']*1000}
+                    sequence = event('treasury_liability_verified',liability)
+                    liabilities.append({**liability,'source_sequence':sequence})
+            else:
+                for liability in native_context['pending_liabilities']:
+                    seq = event('treasury_liability_verified',liability)
+                    liabilities.append({**liability,'source_sequence':seq})
             frame = {'source_observation':observation,'financial_pins':self.boundary['pins'],'boundary_id':self.boundary['id'],
                 'height':observation['height'],'tip_hash':observation['tip_hash'],'observed_at':time.time(),
                 'identity':runtime['identity'],'binary_sha256':runtime['binary_sha256'],
@@ -305,7 +333,13 @@ class SourceCapture:
                 'cost_sequences':[row[0] for row in store.db.execute("SELECT sequence FROM event WHERE kind='financial_cost_verified' ORDER BY sequence")],
                 'target_manifest_sha256':target['manifest_sha256'],'member_manifest_sha256':additional['manifest_sha256']}
             frame['actual_public_server_info'] = info['data']
+            if self.native_profile is not None:
+                frame.update(self.native_profile.source_fields(native_context, target))
             source_sequence = event('normal_financial_source',frame)
-        return {'source_sequence':source_sequence,'inventory_sequences':inventories,
+        result = {'source_sequence':source_sequence,'inventory_sequences':inventories,
             'raw_sql':target['raw_sql'],'raw_policy':target['raw_policy'],'raw_core':target['raw_core'],
             'raw_rounds_inventory':target['raw_rounds_inventory'],'fee_history':target['fee_history']}
+
+        if self.native_profile is not None:
+            result.update(self.native_profile.originals(target, additional))
+        return result

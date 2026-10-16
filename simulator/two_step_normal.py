@@ -478,10 +478,14 @@ class Collector:
     current executables, exact policy/history/opening identity and proof tools.
     Nothing in a capture response can install or change this admission.
     """
-    def __init__(self, capture, admission_sequence, tools):
+    def __init__(self, capture, admission_sequence, tools, *, native_profile=None):
         self.capture = capture
         self.admission_sequence = admission_sequence
         self.tools = tools
+        if native_profile is not None:
+            from .b_normal_profile_adapter import require_profile
+            require_profile(native_profile)
+        self.native_profile = native_profile
 
     def admission(self, store, pins):
         event, value = _source_event(store, self.admission_sequence)
@@ -491,6 +495,8 @@ class Collector:
             'native_fee':module_hash(verify_native_fee_epoch), 'recovered_backing':module_hash(bind_native_claim),
             'money_sources':module_hash(collect_money_sources), 'money_join':module_hash(journal_money_sources),
             'deadline':module_hash(Deadline)}
+        if self.native_profile is not None:
+            hashes.update(self.native_profile.component_hashes())
         if (event['kind'] != 'normal_financial_collector_qualified' or value['financial_pins'] != pins
                 or value['component_sha256'] != hashes
                 or value['proof_tool_sha256'] != {name:tool['sha256'] for name,tool in self.tools.items()}
@@ -502,13 +508,15 @@ class Collector:
     async def __call__(self, store, config, chain, snapshot, observation):
         from .treasury import boundary
         from .operating_limits import envelope
-        opening = recorded(store)
+        opening = recorded(store) if self.native_profile is None else self.native_profile.opening(store)
         if opening is None: raise ValueError('first preserved financial opening must be admitted separately')
         return await self.produce(store, config, chain, snapshot, observation,
             boundary(store), envelope(store, config), opening=opening)
 
     async def prepare_opening(self, store, config, chain, snapshot, observation, boundary, envelope, declaration):
         """Verify first-opening evidence; does not declare epochs/budgets or resume."""
+        if self.native_profile is not None:
+            raise ValueError('B requires its strict preserved treasury upgrade; A opening validation is not used')
         if recorded(store) is not None: raise ValueError('first preserved opening already exists')
         return await self.produce(store, config, chain, snapshot, observation,
             boundary, envelope, opening_declaration=declaration)
@@ -526,7 +534,9 @@ class Collector:
 
     async def _produce(self, store, config, chain, snapshot, observation, boundary, envelope, *, opening=None, opening_declaration=None):
         store.verify_event_chain()
-        if profile(store) != 'two_step_per_key': raise ValueError('A collector cannot qualify another architecture')
+        expected_profile = 'two_step_per_key' if self.native_profile is None else self.native_profile.architecture
+        if profile(store) != expected_profile:
+            raise ValueError('A collector cannot qualify another architecture' if self.native_profile is None else 'B collector cannot qualify another architecture')
         if (observation['financial_pins'] != boundary['pins'] or envelope['pins'] != boundary['pins']
                 or observation['boundary_id'] != boundary['id'] or snapshot['financial_pins'] != boundary['pins']):
             raise ValueError('collector boundary/pins differ from immutable observation')
@@ -561,6 +571,55 @@ class Collector:
                 or source['fee_history_sha256'] != private_history_hash(captured['fee_history'])
                 or source['original_sha256']['policy'] != admitted['policy_sha256']):
             raise ValueError('authenticated original source buffer differs')
+        if self.native_profile is None:
+            facts = self._a_native_facts(store, chain, boundary, envelope, captured,
+                source_event, source, originals, admitted, opening, now)
+        else:
+            facts = self.native_profile.reduce(store, config, chain, boundary, envelope,
+                captured, source_event, source, originals, admitted, opening, now)
+        assets, claims, fee, limits, pending_fees, recovered, fresh_backing, edge, available, source_event, source = facts
+        quote = chain.call('estimatesmartfee', 1, 'CONSERVATIVE')
+        estimate = btc_to_sat(quote['feerate'])
+        if estimate < 1: raise ValueError('current source fee quote missing')
+        ending = chain.identity()
+        if (chain.call('getblockhash', 0) != SIGNET_GENESIS or ending['chain'] != 'signet'
+                or ending['initialblockdownload'] is not False
+                or (ending['blocks'],ending['bestblockhash']) != (start['blocks'],start['bestblockhash'])):
+            raise ValueError('independent chain changed during full financial observation')
+        proof = {'complete':True, 'source_observation':observation, 'financial_pins':boundary['pins'],
+            'boundary_id':boundary['id'], 'height':assets['height'], 'tip_hash':assets['tip_hash'],
+            'observed_at':time.time(), 'effective_fee_ceilings_sat_kvb':limits,
+            'estimated_fee_rate_sat_kvb':estimate, 'capital_exposure_msat':assets['total_msat'],
+            'available_fee_funding_msat':available, 'native_fee_reservations':fee,
+            'pending_native_fee_exposure_msat':pending_fees, 'pending_liabilities':source['pending_liabilities'],
+            'recovered_backing':recovered, 'fresh_backing':fresh_backing, 'treasury_reconciliation':edge,
+            'source_event_hash':source_event['hash'], 'original_source_hashes':source['original_sha256']}
+        if opening is None:
+            if opening_declaration is None: raise ValueError('explicit first-opening declaration required')
+            proof['preserved_history_opening'] = {'history':preserved,
+                'inventory_sequences':captured['inventory_sequences'], 'retained_client_rights':claims,
+                'pending_liabilities':source['pending_liabilities'],
+                'historical_cost_sequences':source['cost_sequences'], 'historical_flow_sequences':source['flow_sequences']}
+        deadline_check()
+        public_payload(proof)
+        if not 0 <= proof['observed_at']-timestamp(observation['started_at'],'normal observation start') <= 90:
+            raise ValueError('full source verification exceeded fresh observation bound')
+        with store.transaction():
+            deadline_check()
+            store.verify_event_chain()
+            if opening is None and history(store) != preserved: raise ValueError('original history changed during opening verification')
+            current_opening = recorded(store) if self.native_profile is None else self.native_profile.opening(store)
+            if opening is not None and current_opening != opening: raise ValueError('preserved financial opening changed')
+            store._event('financial_operating_readiness', proof)
+            sequence = store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
+            if opening is None:
+                from .financial_transition import validate
+                validate(store, {**opening_declaration, 'readiness_sequence':sequence}, boundary,
+                    captured['inventory_sequences'], chain, now=proof['observed_at'])
+            deadline_check()
+        return sequence
+
+    def _a_native_facts(self, store, chain, boundary, envelope, captured, source_event, source, originals, admitted, opening, now):
         tables = native_tables(originals['native_sql'], source['original_sha256']['native_sql'])
         if len(tables['recovery_reserve']) != 1:
             raise ValueError('one actual native recovery reserve required')
@@ -641,42 +700,4 @@ class Collector:
                 raise ValueError('outer new-cost budget exhausted by actual costs/held reservations')
         if available < sum(max(0,envelope['fee_budgets_msat'][key]-used[key]) for key in used):
             raise ValueError('actual unreserved fee cash does not back remaining outer budgets')
-        quote = chain.call('estimatesmartfee', 1, 'CONSERVATIVE')
-        estimate = btc_to_sat(quote['feerate'])
-        if estimate < 1: raise ValueError('current source fee quote missing')
-        ending = chain.identity()
-        if (chain.call('getblockhash', 0) != SIGNET_GENESIS or ending['chain'] != 'signet'
-                or ending['initialblockdownload'] is not False
-                or (ending['blocks'],ending['bestblockhash']) != (start['blocks'],start['bestblockhash'])):
-            raise ValueError('independent chain changed during full financial observation')
-        proof = {'complete':True, 'source_observation':observation, 'financial_pins':boundary['pins'],
-            'boundary_id':boundary['id'], 'height':assets['height'], 'tip_hash':assets['tip_hash'],
-            'observed_at':time.time(), 'effective_fee_ceilings_sat_kvb':limits,
-            'estimated_fee_rate_sat_kvb':estimate, 'capital_exposure_msat':assets['total_msat'],
-            'available_fee_funding_msat':available, 'native_fee_reservations':fee,
-            'pending_native_fee_exposure_msat':pending_fees, 'pending_liabilities':source['pending_liabilities'],
-            'recovered_backing':recovered, 'fresh_backing':fresh_backing, 'treasury_reconciliation':edge,
-            'source_event_hash':source_event['hash'], 'original_source_hashes':source['original_sha256']}
-        if opening is None:
-            if opening_declaration is None: raise ValueError('explicit first-opening declaration required')
-            proof['preserved_history_opening'] = {'history':preserved,
-                'inventory_sequences':captured['inventory_sequences'], 'retained_client_rights':claims,
-                'pending_liabilities':source['pending_liabilities'],
-                'historical_cost_sequences':source['cost_sequences'], 'historical_flow_sequences':source['flow_sequences']}
-        deadline_check()
-        public_payload(proof)
-        if not 0 <= proof['observed_at']-timestamp(observation['started_at'],'normal observation start') <= 90:
-            raise ValueError('full source verification exceeded fresh observation bound')
-        with store.transaction():
-            deadline_check()
-            store.verify_event_chain()
-            if opening is None and history(store) != preserved: raise ValueError('original history changed during opening verification')
-            if opening is not None and recorded(store) != opening: raise ValueError('preserved financial opening changed')
-            store._event('financial_operating_readiness', proof)
-            sequence = store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
-            if opening is None:
-                from .financial_transition import validate
-                validate(store, {**opening_declaration, 'readiness_sequence':sequence}, boundary,
-                    captured['inventory_sequences'], chain, now=proof['observed_at'])
-            deadline_check()
-        return sequence
+        return assets, claims, fee, limits, pending_fees, recovered, fresh_backing, edge, available, source_event, source
