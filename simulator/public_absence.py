@@ -252,7 +252,9 @@ async def collect_public_absence_sources(store,config,chain,bank_rpc,*,journey_s
                 'signed_weight_wu':group['signed_weight_wu'],'fee_rate_sat_kvb_ceil':group['fee_rate_sat_kvb_ceil'],
                 'accounting':group['result']['accounting']} for group in groups],
             direct_miner_fee_sat=fees,internal_service_sat=origin['service_charge_sat'])
-        source['mempool']=_empty_mempool(chain,set(scripts)|{coin['script'] for coin in physical.values()},started)
+        from .owned_mempool import collector_context
+        source['mempool']=_empty_mempool(chain,set(scripts)|{coin['script'] for coin in physical.values()},started,
+            store=store,context=collector_context('public_absence',source))
         bankseq=collect_funding_bank_source(store,bank_rpc,chain);_,bank=_source_event(store,bankseq)
         check_named_bank(bank,origin['funding_plan']['bank_wallet_name'],observed,tip);source['bank_source_sequence']=bankseq
         sequences={}

@@ -31,7 +31,9 @@ class BootstrapFinancialDeclarationsTests(unittest.TestCase):
                 'utxos': [], 'pending_transactions': [], 'pending_parents': [], 'unavailable_parent_txids': []}}}
         self.store.event('driver_response', {'action_id': action['id'], 'response': response})
         self.store.finish(action['id'], 'completed', response, 0)
-        bootstrap.verify_created(self.store, f.config, ZeroChain(), 'actor-01', action['id'])
+        zero_chain = ZeroChain()
+        zero_chain.store = self.store
+        bootstrap.verify_created(self.store, f.config, zero_chain, 'actor-01', action['id'])
         self.store.db.execute("INSERT INTO meta VALUES ('paused','declare money boundary')")
         self.action_id = action['id']
         self.chain = Chain()
