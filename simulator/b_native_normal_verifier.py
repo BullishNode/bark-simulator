@@ -307,14 +307,20 @@ def current_frontier(opening, transactions, scripts, chain, *, started):
     return frontier
 
 
-def urgent_reserve(native, physical, selected_points, chain, *, minimum_sat):
+def urgent_reserve(native, physical, selected_points, chain, *, minimum_sat, retained_versions=None):
     """Whole selected inputs are encumbered; pending change supplies no reserve."""
     integer(minimum_sat, 'actual urgent reserve')
     if (native.get('wallet') != 'watchman' or native.get('network') != 'signet'
-            or native.get('pending_transactions') or native.get('pending_parents')
+            or retained_versions is None and (native.get('pending_transactions') or native.get('pending_parents'))
             or native.get('unavailable_parent_txids')):
         raise EvidenceGap('watchman_inventory: owning wallet/pending source unresolved')
-    rows = native.get('utxos'); seen = set(); eligible = {}
+    if retained_versions is not None:
+        pending={r['txid']for r in native['pending_transactions']}
+        if not pending<=set(retained_versions['pending_txids']):
+            raise EvidenceGap('watchman_inventory: unverified pending wallet identity')
+        if set(selected_points)!=set(retained_versions['selected_fee_outpoints']):
+            raise EvidenceGap('watchman_inventory: selected whole input union differs')
+    rows = native.get('utxos'); seen = set(); pending_seen=set(); eligible = {}
     if not isinstance(rows, list):
         raise EvidenceGap('watchman_inventory.utxos: full native rows unavailable')
     for coin in rows:
@@ -326,6 +332,15 @@ def urgent_reserve(native, physical, selected_points, chain, *, minimum_sat):
         if point in seen:
             raise InvariantError('watchman_inventory: duplicate physical coin')
         seen.add(point); observed = physical.get(point)
+        if retained_versions is not None and coin.get('confirmations')==0:
+            txid,index=point.rsplit(':',1)
+            tx=retained_versions['versions'].get(txid)
+            matches=[]if tx is None else[o for o in tx['outputs']if o['vout']==int(index)]
+            if (txid not in retained_versions['pending_txids']or len(matches)!=1
+                    or (matches[0]['amount_sat'],matches[0]['script'])!=(coin['value_sat'],coin['script_pubkey'])
+                    or coin['confirmed_fee_eligible']is not False or observed is not None):
+                raise EvidenceGap('watchman_inventory: unconfirmed change is not exact pending source')
+            pending_seen.add(point);continue
         if (observed is None or observed['member_id'] != 'watchman'
                 or (observed['amount_sat'], observed['script']) !=
                    (coin['value_sat'], coin['script_pubkey'])):
@@ -344,7 +359,11 @@ def urgent_reserve(native, physical, selected_points, chain, *, minimum_sat):
                 raise EvidenceGap('urgent_reserve.' + point + ': actual confirmed unspent coin differs')
         eligible[point] = coin['value_sat']
     expected = {point for point, coin in physical.items() if coin['member_id'] == 'watchman'}
-    if seen != expected:
+    if retained_versions is None:
+        matches=seen==expected
+    else:
+        matches=(seen-pending_seen)-set(selected_points)==expected-set(selected_points)
+    if not matches:
         raise EvidenceGap('watchman_inventory: native/current full cash set differs')
     if sum(eligible.values()) < minimum_sat:
         raise EvidenceGap('urgent_reserve: confirmed unselected whole-input cash below policy')
@@ -353,7 +372,8 @@ def urgent_reserve(native, physical, selected_points, chain, *, minimum_sat):
 
 def require_native_budget_join(runtime, *, server_pubkey=None, costs=(), groups=(),
                                accounting_receipt_sha256=None,
-                               opening_cost_sequences=(234, 600, 2947)):
+                               opening_cost_sequences=(234, 600, 2947),
+                               retained_versions=None):
     """Independent money/set joins to the admitted peer runtime producer facts.
 
     The producer proves same process/config/FLOCK and stable original byte hashes.
@@ -416,6 +436,11 @@ def require_native_budget_join(runtime, *, server_pubkey=None, costs=(), groups=
             if txid in versions and versions[txid] != tx:
                 raise InvariantError('native_budget: conflicting retained version')
             versions[txid] = tx
+    if retained_versions is not None:
+        for txid,tx in retained_versions.items():
+            if txid!=tx.get('txid') or txid in versions and versions[txid]!=tx:
+                raise EvidenceGap('native_budget: exact retained candidate version differs')
+            versions[txid]=tx
     if set(ids) != set(versions):
         raise EvidenceGap('native_budget.history: extra or missing retained direct/Core version')
     original = ids[:prefix//65]; following = ids[prefix//65:]

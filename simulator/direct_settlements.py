@@ -124,6 +124,29 @@ def check_group(store,value,freeze,transactions):
     winner=confirmed[0];tx=transactions[winner['txid']]
     if (winner['confirmed_height'] is None or winner['confirmed_block']!=tx.get('blockhash')):
         raise EvidenceGap('winning Core confirmation and durable journal marker differ')
+    return _check_candidate(store,rows,allocs,versions,winner,tx,freeze,per_key,
+        'confirmed direct payment of independently proved ordinary sources; no delegated/Lightning terminal evidence or seed recovery inferred')
+
+
+def check_pending_candidate(store,value,freeze,txid,tx):
+    """Same exact source/accounting check, WITHOUT payment/retirement credit.
+
+    Caller must independently prove current mempool membership or a confirmed
+    conflicting winner. An unavailable Core version is never assumed pending.
+    """
+    frame(value,architecture=profile(store));rows=value['rows']
+    allocs=[r for r in rows['allocations'] if r['freeze_set']==freeze]
+    ids={r['id'] for r in allocs}
+    versions=[r for r in rows['carriers'] if any(m['txid']==r['txid'] and m['allocation_id'] in ids for m in rows['mappings'])]
+    winner=next((r for r in versions if r['txid']==txid),None)
+    if (not allocs or winner is None or tx.get('txid')!=txid or tx.get('confirmations',0)!=0
+            or winner['confirmed_height'] is not None or winner['confirmed_block'] is not None):
+        raise EvidenceGap('pending candidate is not exact unconfirmed source')
+    return _check_candidate(store,rows,allocs,versions,winner,tx,freeze,profile(store)==DIRECT_PER_KEY,
+        'checked ordinary unconfirmed candidate; original gross remains owed; no payment or retirement credit')
+
+
+def _check_candidate(store,rows,allocs,versions,winner,tx,freeze,per_key,scope):
     mapping={m['allocation_id']:m['vout'] for m in rows['mappings'] if m['txid']==winner['txid']}
     leaves=[];owners=[];proofs={};retired=set();operator_gross=0
     for row in allocs:
@@ -212,7 +235,7 @@ def check_group(store,value,freeze,transactions):
         if remaining:raise InvariantError('incomplete flat-fee allocation')
     return {'txid':winner['txid'],'freeze_set':freeze,'owners':owners,'retirement_ids':sorted(retired),
         'physical_inputs':sorted(actual_points),'accounting':account,'carrier_versions':sorted(c['txid'] for c in versions),
-        'scope':'confirmed direct payment of independently proved ordinary sources; no delegated/Lightning terminal evidence or seed recovery inferred'}
+        'scope':scope}
 
 
 def commit_checked(store,result,tx):
