@@ -217,6 +217,36 @@ def _current_operator_ranges(initial,current,tip):
     return specs
 
 
+def _verify_cash_frontier(store,initial_rows,current_rows,actors):
+    """Only native-acknowledged signed link growth can change the cash frontier."""
+    if profile(store)!=DIRECT_PER_KEY:
+        if current_rows!=initial_rows:raise ValueError('cash-only monetary database frontier is no longer empty')
+        return
+    from .finite_funding_readiness import TABLES
+    from .c_pilot import retained_links
+    from .per_key import record_envelope
+    retained=retained_links(store,actors=actors)
+    records=sorted(({'mailbox_pk':row['binding']['mailbox_pk'],'spk':row['binding']['spk'],
+                     'mailbox_sig':record_envelope(row['binding'])[-64:].hex()}
+                    for row in retained.values()),key=lambda r:r['mailbox_pk'])
+    links=sorted((link for row in retained.values() for link in row['links']),key=lambda r:r['user_pubkey'])
+    if (not isinstance(initial_rows,dict) or not isinstance(current_rows,dict)
+            or set(initial_rows)!=TABLES or set(current_rows)!=TABLES
+            or any(not isinstance(rows,list) for rows in [*initial_rows.values(),*current_rows.values()])):
+        raise ValueError('complete original and current nineteen-table cash frontier required')
+    for table in TABLES:
+        if table in {'records','journal_records'}:
+            if (sorted(initial_rows[table],key=lambda r:r['mailbox_pk'])!=records
+                    or sorted(current_rows[table],key=lambda r:r['mailbox_pk'])!=records):
+                raise ValueError('immutable original cash payout records differ')
+        elif table in {'links','journal_links'}:
+            if (any(link not in links for link in initial_rows[table])
+                    or sorted(current_rows[table],key=lambda r:r['user_pubkey'])!=links):
+                raise ValueError('complete independently checked native cash key prefix required')
+        elif initial_rows[table]!=[] or current_rows[table]!=[]:
+            raise ValueError('cash-only monetary database frontier is no longer empty')
+
+
 async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_startup_path):
     """Complete authenticated closing assets after funding; no wallet synchronization."""
     from .funding_bank import collect_funding_bank_source
@@ -309,8 +339,10 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
             or database.get('complete')!=initial_db['response'].get('complete')
             or database.get('qualified')!=initial_db['response'].get('qualified')
             or database.get('database_tables_complete') is not True or database.get('inventory_consistent') is not True
-            or database.get('read_only') is not True or database.get('rows')!=initial_db['response']['rows']):
+            or database.get('read_only') is not True
+            or profile(store)==DIRECT_PER_KEY and database.get('architecture_profile')!=DIRECT_PER_KEY):
         raise ValueError('cash-only monetary database frontier is no longer empty')
+    _verify_cash_frontier(store,initial_db['response']['rows'],database.get('rows'),actors)
     store.event('closed_cohort_original_source',{'source_kind':'closed_frontier','response':database,
         'response_sha256':_digest(database),'financial_pins':plan['pins'],'observed_at':time.time()})
     database_sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]

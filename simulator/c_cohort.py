@@ -299,7 +299,10 @@ def initial_identity_sources(store):
 
 def historical_initial_identity_sources(store):
     """Authenticate retained identities after funding; no current asset claim."""
-    return _initial_identity_sources(store,initial_rows=False)
+    result=_initial_identity_sources(store,initial_rows=None)
+    from .c_pilot import retained_links
+    retained_links(store,actors=result['actors'])
+    return result
 
 
 def _initial_identity_sources(store,*,initial_rows):
@@ -735,4 +738,5 @@ def _verify_key_sources(store,actor,action_id,data,pins,*,initial_rows=True):
             or not binding_matches(json.loads(record['proof']),binding)):
         raise ValueError('cohort original immutable native payout record differs')
     from .c_pilot import verify_public_key_rows
-    return verify_public_key_rows(store,actor,origins,initial=initial_rows)
+    if initial_rows is not None:
+        return verify_public_key_rows(store,actor,origins,initial=initial_rows)
