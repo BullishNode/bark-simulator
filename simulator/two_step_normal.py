@@ -106,6 +106,23 @@ def native_wallet(raw, wallet):
 
 
 def run_proof(tool, request):
+    """Existing proof contract; default limits and behavior remain unchanged."""
+    return _run_proof(tool, request, input_limit=2*1024*1024,
+                      output_limit=2*1024*1024, timeout_seconds=12)
+
+
+def run_native_fee_source_proof(tool, request):
+    """Fixed source-admitted native offline CLI; same private proof lifecycle."""
+    if tuple(tool['command'][1:]) != ('native-fee-source-proof',):
+        raise ValueError('fixed native fee proof subcommand required')
+    encoded, reply = _run_proof(tool, request, input_limit=64*1024*1024,
+                               output_limit=16*1024*1024+1, timeout_seconds=30)
+    payload = reply[:-1] if reply.endswith(b'\n') else reply
+    if len(payload)>16*1024*1024:raise ValueError('native fee proof payload exceeds bound')
+    return encoded, reply
+
+
+def _run_proof(tool, request, *, input_limit, output_limit, timeout_seconds):
     """Execute the admitted pure verifier and retain its exact private originals."""
     command = tool['command']; binary = Path(command[0]); parent = Path(tool['evidence_directory'])
     if (not binary.is_absolute() or binary.is_symlink() or not binary.is_file()
@@ -119,17 +136,17 @@ def run_proof(tool, request):
         with os.fdopen(os.open(directory/name, os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW, 0o600), 'wb') as stream:
             stream.write(raw); stream.flush(); os.fsync(stream.fileno())
     encoded = canonical(request).encode()
-    if len(encoded) > 2*1024*1024: raise ValueError('private proof input exceeds bound')
+    if len(encoded) > input_limit: raise ValueError('private proof input exceeds bound')
     save('request.json', encoded)
     try:
-        reply = subprocess.run(command, input=encoded, capture_output=True, timeout=source_timeout(12))
+        reply = subprocess.run(command, input=encoded, capture_output=True, timeout=source_timeout(timeout_seconds))
     except subprocess.TimeoutExpired as error:
         save('stdout', error.stdout or b''); save('stderr', error.stderr or b'')
         save('terminal.json', canonical({'timed_out':True, 'tool_sha256':tool['sha256']}).encode())
         raise ValueError('native private proof timed out') from error
     save('stdout', reply.stdout); save('stderr', reply.stderr)
     save('terminal.json', canonical({'timed_out':False, 'exit':reply.returncode, 'tool_sha256':tool['sha256']}).encode())
-    if (reply.returncode or len(reply.stdout) > 2*1024*1024 or len(reply.stderr) > 65536
+    if (reply.returncode or len(reply.stdout) > output_limit or len(reply.stderr) > 65536
             or digest(binary.read_bytes()) != tool['sha256']):
         raise ValueError('native proof refused, changed or exceeded bounds')
     strict_json(reply.stdout)
@@ -590,9 +607,14 @@ class Collector:
                 or value['component_sha256'] != hashes
                 or value['proof_tool_sha256'] != {name:tool['sha256'] for name,tool in self.tools.items()}
                 or value['proof_commands_sha256'] != {name:digest(canonical(tool['command']).encode()) for name,tool in self.tools.items()}
-                or set(self.tools) not in ({'policy', 'binding'}, {'policy', 'binding', 'pending'})):
+                or not self._proof_tools(admitted=value)):
             raise ValueError('installed source collector/tool qualification differs')
         return value
+
+    def _proof_tools(self, *, admitted):
+        if self.native_profile is not None and hasattr(self.native_profile, 'validate_proof_tools'):
+            return self.native_profile.validate_proof_tools(self.tools, admitted)
+        return set(self.tools) in ({'policy', 'binding'}, {'policy', 'binding', 'pending'})
 
     async def __call__(self, store, config, chain, snapshot, observation):
         from .treasury import boundary

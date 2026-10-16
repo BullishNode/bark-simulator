@@ -414,21 +414,52 @@ def require_native_budget_join(runtime, *, server_pubkey=None, costs=(), groups=
             or (lock.get('pid'), lock.get('device'), lock.get('inode')) !=
                (watch.get('pid'), actual['device'], actual['inode'])):
         raise EvidenceGap('native_budget.lock: same actual watchman whole-file FLOCK unavailable')
+    joined = retained_fee_accounting(budget,
+        history_prefix_bytes=disk['history_prefix_bytes'], history_prefix_sha256=disk['history_prefix_sha256'],
+        opening_accounting_receipt_sha256=disk.get('accounting_receipt_sha256'),
+        opening_native_spent_sat=disk['opening_native_spent_sat'],
+        opening_external_spent_sat=disk['opening_external_spent_sat'],
+        external_future_reserved_sat=disk['external_future_reserved_sat'],
+        ordinary_budget_sat=disk['ordinary_budget_sat'], urgent_reserve_sat=disk['urgent_reserve_sat'],
+        reserved_ceiling_sum_sat=disk['reserved_ceiling_sum_sat'], attempt_count=disk['attempt_count'],
+        accounting_receipt_sha256=accounting_receipt_sha256, costs=costs, groups=groups,
+        opening_cost_sequences=opening_cost_sequences, retained_versions=retained_versions)
+    opening = joined['native_opening_spent_sat'] + joined['external_opening_spent_sat'] + joined['external_future_partition_sat']
+    if (disk['opening_charge_sat'] != opening
+            or disk['total_charged_sat'] != opening + joined['native_reserved_ceiling_sat']
+            or disk['remaining_ordinary_allowance_sat'] != joined['native_remaining_allowance_sat']):
+        raise EvidenceGap('native_budget: opening/full-ceiling lifetime arithmetic differs')
+    return joined
+
+
+def retained_fee_accounting(budget, *, history_prefix_bytes, history_prefix_sha256,
+        opening_accounting_receipt_sha256, opening_native_spent_sat, opening_external_spent_sat,
+        external_future_reserved_sat, ordinary_budget_sat, urgent_reserve_sat,
+        reserved_ceiling_sum_sat, attempt_count, accounting_receipt_sha256,
+        costs, groups, opening_cost_sequences, retained_versions):
+    """Shared retained-history/money joins after the caller authenticates sources.
+
+    Both legacy source-bound disk observations and final native typed owner
+    observations use this exact conservation logic. This function interprets no
+    fee journal grammar, grants no custody and does not release held inputs.
+    """
+    import hashlib
+    import re
     history = budget['history']; ids = history.get('txids')
     if (not isinstance(ids, list) or len(ids) > 2000 or len(set(ids)) != len(ids)
             or any(not isinstance(value, str) or re.fullmatch('[0-9a-f]{64}', value) is None for value in ids)):
         raise EvidenceGap('native_budget.history.txids: full unique canonical retained set required')
     raw = ''.join(value + '\n' for value in ids).encode()
-    prefix = integer(disk['history_prefix_bytes'], 'original signed prefix bytes')
+    prefix = integer(history_prefix_bytes, 'original signed prefix bytes')
     if (prefix % 65 or prefix > len(raw) or history.get('bytes') != len(raw)
             or history.get('sha256') != hashlib.sha256(raw).hexdigest()
             or history.get('prefix_bytes') != prefix
             or history.get('prefix_sha256') != hashlib.sha256(raw[:prefix]).hexdigest()
-            or history['prefix_sha256'] != disk.get('history_prefix_sha256')):
+            or history['prefix_sha256'] != history_prefix_sha256):
         raise EvidenceGap('native_budget.history: retained IDs do not reproduce actual full/prefix bytes')
     if (not isinstance(accounting_receipt_sha256, str)
             or budget['accounting_receipt_sha256'] != accounting_receipt_sha256
-            or disk.get('accounting_receipt_sha256') != accounting_receipt_sha256):
+            or opening_accounting_receipt_sha256 != accounting_receipt_sha256):
         raise EvidenceGap('native_budget.accounting_receipt_sha256: original admitted accounting source differs')
     versions = {}
     for group in groups:
@@ -453,7 +484,7 @@ def require_native_budget_join(runtime, *, server_pubkey=None, costs=(), groups=
         if (cost is None or cost['direct_payment_sequence'] is None
                 or cost['amount_msat'] != versions[txid]['fee_sat']*1000):
             raise EvidenceGap('native_budget.opening: original retained miner cost source differs')
-    if disk['opening_native_spent_sat'] != native_opening:
+    if opening_native_spent_sat != native_opening:
         raise EvidenceGap('native_budget.opening_native_spent_sat: retained original fee coverage differs')
     by_sequence = {row['sequence']: row for row in costs}
     if len(by_sequence) != len(costs) or not set(opening_cost_sequences) <= set(by_sequence):
@@ -463,17 +494,15 @@ def require_native_budget_join(runtime, *, server_pubkey=None, costs=(), groups=
             or any(row['budget'] != 'ordinary' for row in opening_rows)):
         raise EvidenceGap('native_budget.opening: original accounting native identity/budget differs')
     expected_external = sum(row['amount_msat'] for row in opening_rows if row['direct_payment_sequence'] is None)
-    if expected_external % 1000 or disk['opening_external_spent_sat'] != expected_external//1000:
+    if expected_external % 1000 or opening_external_spent_sat != expected_external//1000:
         raise EvidenceGap('native_budget.opening_external_spent_sat: original external costs lost or doubled')
-    external_opening = integer(disk['opening_external_spent_sat'], 'original external opening')
-    future = integer(disk['external_future_reserved_sat'], 'declared external partition')
-    ordinary = integer(disk['ordinary_budget_sat'], 'declared ordinary native budget')
-    reserved = integer(disk['reserved_ceiling_sum_sat'], 'native full-ceiling reservations')
-    attempts = integer(disk['attempt_count'], 'native prepare attempts')
+    external_opening = integer(opening_external_spent_sat, 'original external opening')
+    future = integer(external_future_reserved_sat, 'declared external partition')
+    ordinary = integer(ordinary_budget_sat, 'declared ordinary native budget')
+    reserved = integer(reserved_ceiling_sum_sat, 'native full-ceiling reservations')
+    attempts = integer(attempt_count, 'native prepare attempts')
     opening = native_opening + external_opening + future
-    if (disk['opening_charge_sat'] != opening or disk['total_charged_sat'] != opening + reserved
-            or disk['remaining_ordinary_allowance_sat'] != ordinary-opening-reserved
-            or ordinary < opening+reserved):
+    if ordinary < opening+reserved:
         raise EvidenceGap('native_budget: opening/full-ceiling lifetime arithmetic differs')
     if len(following) > attempts or sum(versions[txid]['fee_sat'] for txid in following) > reserved:
         raise EvidenceGap('native_budget: complete retained new signed fees exceed durable reservations')
@@ -482,7 +511,7 @@ def require_native_budget_join(runtime, *, server_pubkey=None, costs=(), groups=
         and row['direct_payment_sequence'] is None)
     if later_external % 1000 or later_external//1000 > future:
         raise EvidenceGap('native_budget.external_future_partition: actual later costs exceed original partition')
-    return {'ordinary_budget_sat': ordinary, 'urgent_reserve_sat': disk['urgent_reserve_sat'],
+    return {'ordinary_budget_sat': ordinary, 'urgent_reserve_sat': urgent_reserve_sat,
             'native_opening_spent_sat': native_opening, 'external_opening_spent_sat': external_opening,
             'external_future_partition_sat': future,
             'external_future_partition_remaining_sat': future-later_external//1000,
