@@ -93,6 +93,19 @@ class CurrentJoin(unittest.IsolatedAsyncioTestCase):
             await self.collect(members)
         self.assertEqual(0,self.count(c.KIND))
 
+    async def test_V4_actual_current_caller_runs_byte_subgate_then_explicit_financial_hold(self):
+        from simulator import c_native_audit_tool as audit
+        members=await self.f.collect();self.checked['loaded']['manifest']['schema_version']=4
+        audit_binding=audit.AuditBinding({}, {}, {}, 1)
+        with patch.object(audit,'collect',return_value={'safe':{'complete':False,'qualified':False,'financial_readiness':False}})as execute:
+            with patch.object(c,'_context'),self.assertRaisesRegex(c.EvidenceGap,'legacy DirectRecord/allocation, Board-root'):
+                c.collect(self.store,SimpleNamespace(expected_server_pubkey=KEY),self.f.core,self.observation,
+                    boundary=self.f.boundary,checked=self.checked,members=members,binding=self.binding,audit_binding=audit_binding)
+            execute.assert_called_once()
+            self.assertIs(self.checked,execute.call_args.kwargs['checked'])
+        self.assertEqual(0,self.count('financial_operating_readiness'))
+        self.assertEqual(0,self.count(c.KIND))
+
     async def test_missing_tool_binding_is_specific_hold_in_actual_profile_caller(self):
         from simulator.c_normal_profile_adapter import DirectPerKeyProfile
         profile=DirectPerKeyProfile.__new__(DirectPerKeyProfile);profile.current=None
