@@ -87,8 +87,20 @@ def public_wallet_projection(member, raw, *, height, tip_hash, checked_pending=N
     This is not a native wallet-known fee-cash claim. The normal treasury still
     independently checks every output against its declared public descriptor.
     """
-    if (member['role'] not in {'customer','funding_bank'}
-            or raw['source_kind'] not in {'core_wallet_rpc','public_descriptor_activity','core_descriptor_scan'}
+    if member['role'] not in {'customer','funding_bank'}:
+        raise ValueError('actual non-fee public wallet source/discovery unresolved')
+    return _public_wallet_rows(member, raw, height=height, tip_hash=tip_hash,
+        checked_pending=checked_pending)
+
+
+def _public_wallet_rows(member, raw, *, height, tip_hash, checked_pending=None):
+    """Shared row checks; callers must separately authenticate the member role.
+
+    The public A/B entry retains its original role gate. Fixed C bank callers
+    first prove their exact declared operator bank and actual named-wallet
+    source; this helper does not grant a role or funding authority.
+    """
+    if (raw['source_kind'] not in {'core_wallet_rpc','public_descriptor_activity','core_descriptor_scan'}
             or raw['network'] != 'signet' or (raw['height'],raw['tip_hash']) != (height,tip_hash)
             or (bool(raw['pending_transactions'])if checked_pending is None else raw['pending_transactions']!=checked_pending)
             or raw['discovery_gaps']
@@ -127,16 +139,27 @@ class SourceCapture:
                 require_profile(native_profile)
             elif native_profile.target.reader.read != target_reader:
                 raise ValueError('C target checker must bind the SAME shared source reader')
+            elif member_reader is not None:
+                raise ValueError('fixed C sources do not use an A/B member helper')
         self.native_profile = native_profile
         self.lineage_tools = lineage_tools
         if set(self.dependencies)&{'target_reader','member_reader'}:raise ValueError('reader dependency identity cannot be overridden')
 
     def admission(self, store, observation):
         event, value = _source_event(store, self.admission_sequence)
-        dependencies = {'target_reader':module_hash(self.target_reader),'member_reader':module_hash(self.member_reader),
+        from .c_normal_profile_adapter import DirectPerKeyProfile
+        per_key = type(self.native_profile) is DirectPerKeyProfile
+        if per_key:
+            if self.member_reader is not None:raise ValueError('C member source helper override refused')
+            member_configuration=DirectPerKeyProfile.source_configuration(self.native_profile)
+        else:
+            member_configuration=self.member_reader.__self__.configuration
+        dependencies = {'target_reader':module_hash(self.target_reader),
             **{name:module_hash(function) for name,function in self.dependencies.items()}}
+        if not per_key:dependencies['member_reader']=module_hash(self.member_reader)
         if self.native_profile is not None:
-            dependencies.update(self.native_profile.component_hashes())
+            dependencies.update(DirectPerKeyProfile.component_hashes(self.native_profile)
+                if per_key else self.native_profile.component_hashes())
         if value.get('ordinary_lineage') is not None:
             if self.native_profile is not None:
                 raise ValueError('A typed lineage cannot qualify another native profile')
@@ -147,10 +170,10 @@ class SourceCapture:
                     or value.get('proof_tool_sha256') != {name:tool['sha256'] for name,tool in self.lineage_tools.items()}
                     or value.get('proof_commands_sha256') != {name:digest(canonical(tool['command']).encode()) for name,tool in self.lineage_tools.items()}):
                 raise ValueError('typed lineage tools differ from source admission')
-        target_instance=self.target_reader.__self__;member_instance=self.member_reader.__self__
+        target_instance=self.target_reader.__self__
         actual_readers={'target':{'command':list(target_instance.command),
             'evidence_directory':str(target_instance.evidence_directory),'timeout':target_instance.timeout},
-            'member':member_instance.configuration}
+            'member':member_configuration}
         # Defaults retain the original A admission shape. Trusted alternative
         # decoding and request input require their own explicit admission; no
         # package, observation or saved flag can select either behavior.
@@ -170,8 +193,8 @@ class SourceCapture:
         if (event['kind'] != 'normal_financial_collector_qualified'
                 or value['reader_configuration_sha256'] != digest(canonical(actual_readers).encode())
                 or value['financial_pins'] != observation['financial_pins']
-                or member_instance.configuration.get('pending_board_proof_sha256') != value.get('proof_tool_sha256',{}).get('pending')
-                or member_instance.configuration.get('ordinary_pool') != value.get('ordinary_pool')
+                or (not per_key and member_configuration.get('pending_board_proof_sha256') != value.get('proof_tool_sha256',{}).get('pending'))
+                or (not per_key and member_configuration.get('ordinary_pool') != value.get('ordinary_pool'))
                 or value['capture_dependencies_sha256'] != dependencies
                 or value['capture_configuration_sha256'] != digest(canonical(self.configuration).encode())
                 or self.configuration['boundary_sha256'] != digest(canonical(self.boundary).encode())):
@@ -227,6 +250,7 @@ class SourceCapture:
             runtime = await self.native_profile.collect_runtime(store, config, chain, observation, target)
             owning = await self.native_profile.collect_owning(store, config, chain, observation, self.boundary, target, runtime)
             cln = await self.native_profile.collect_cln(store, config, chain, observation, self.boundary, target, runtime, owning)
+            all_members = await self.native_profile.collect_members(store, config, chain, observation, self.boundary, target, runtime, cln)
             # This source primitive is admitted only for the private source cut.
             # Its whole-member/normal money reducer is not installed yet. Never
             # run generic member consumption against missing A/B source fields.
