@@ -134,9 +134,12 @@ def _pg_query(connection, sql):
         return value
 
 
-def _assemble(files, pg, expected):
+def _assemble(files, pg, expected, *, expected_role='trackcfeeobserver'):
+    # Only trusted fixed callers select one of these literal dedicated roles.
+    # Actual original role bytes are retained; diagnostic default is unchanged.
+    if expected_role not in {'trackcfeeobserver','trackcbodyobserver'}:raise ValueError('unsupported fixed native source role')
     if (not isinstance(pg,dict) or set(pg)!={'snapshot','database','role','read_only','isolation','allocations','carriers'}
-            or pg['database']!='trackc'or pg['role']!='trackcfeeobserver'or pg['read_only']!='on'or pg['isolation']!='repeatable read'
+            or pg['database']!='trackc'or pg['role']!=expected_role or pg['read_only']!='on'or pg['isolation']!='repeatable read'
             or not isinstance(pg['snapshot'],str)or not pg['snapshot']
             or any(not isinstance(pg[k],list)or len(pg[k])>MAX_ROWS for k in('allocations','carriers'))):
         raise ValueError('actual same-RR private native PG frame required')

@@ -34,7 +34,7 @@ def _name(value):
     raise ValueError('private package member outside exact native source allowlist')
 
 
-def _files(stream,size):
+def _files(stream,size,*,name_validator=_name):
     files={};payload=0;offset=0
     while True:
         header=stream.read(512);offset+=len(header)
@@ -46,7 +46,7 @@ def _files(stream,size):
                 raise ValueError('private tar trailing data/noncanonical EOF')
             break
         if header[257:265]!=b'ustar\00000':raise ValueError('only fixed USTAR originals accepted')
-        member=tarfile.TarInfo.frombuf(header,'utf-8','strict');name=_name(member.name)
+        member=tarfile.TarInfo.frombuf(header,'utf-8','strict');name=name_validator(member.name)
         if ('manifest.json'in files or member.type!=tarfile.REGTYPE or member.linkname
                 or member.mode!=0o600 or member.uid!=0 or member.gid!=0
                 or member.uname or member.gname or name in files or len(files)>=MAX_MEMBERS

@@ -11,12 +11,12 @@ import stat
 import tarfile
 
 from . import c_private_fee_cut as common
-from . import c_private_fee_package as tar_rules
 from . import c_private_native_body_cut as capture
 
 KIND='c-native-body-private-cut'
 SCOPE='Same-RR native bodies and public19 originals only; no economic ownership, paid, readiness or producer authority'
 FILES={'cut.json','private-pg.json','public-frontier.ndjson'}
+MAX_PAYLOAD_BYTES=32*1024*1024 # unchanged strict fee-transport aggregate ceiling
 FIELDS={'schema_version','kind','source_observation','financial_pins','chain','source_sha256','files','scope'}
 
 
@@ -29,7 +29,7 @@ def write_private_package(result,path):
     if result.get('kind')!=KIND or result.get('schema_version')!=1:raise ValueError('exact body capture required')
     files={'private-pg.json':result['private_pg'],'public-frontier.ndjson':b''.join(result['public_lines']),
       'cut.json':common.canonical({'schema_version':1,'kind':'c-native-body-preflight','preflight':result['preflight']}).encode()}
-    if any(not isinstance(v,bytes)or len(v)>capture.MAX_BYTES for v in files.values())or sum(map(len,files.values()))>tar_rules.MAX_PAYLOAD_BYTES:
+    if any(not isinstance(v,bytes)or len(v)>capture.MAX_BYTES for v in files.values())or sum(map(len,files.values()))>MAX_PAYLOAD_BYTES:
         raise ValueError('whole private body package exceeds unchanged transport bound')
     manifest={'schema_version':1,'kind':KIND,'source_observation':result['source_observation'],
       'financial_pins':result['financial_pins'],'chain':result['chain'],'source_sha256':result['source_sha256'],
@@ -47,22 +47,10 @@ def write_private_package(result,path):
     return {'bytes':path.stat().st_size,'sha256':common.digest(path.read_bytes()),'manifest_sha256':common.digest(files['manifest.json'])}
 
 
-def load_target_tar(path,*,expected_package_sha256,expected_source_sha256,expected_financial_pins,
-                    expected_observation,expected_chain,adapter,limits,binding,producer_exit):
-    """Fixed trusted loader injection only; root code admits worker/terminal.
-
-    Existing private fee USTAR parser is reused with an EXACT smaller member set.
-    Full output remains private. Caller must retain actual source originals and
-    TraceStore references, same-current-source runtime/chain and native proof ELF
-    provenance. Successful body transport never implies current economic owner.
-    """
-    tar_rules._sha(expected_package_sha256);tar_rules._sha(expected_source_sha256)
-    pins=common._pins(expected_financial_pins)
-    common._observation({'source_observation':expected_observation},pins,expected_chain.get('height'),expected_chain.get('tip_hash'))
-    if (expected_chain.get('genesis')!=common.SIGNET_GENESIS or expected_chain.get('ibd')is not False
-            or binding.get('schema_sha256')!=pins['schema_sha256']or binding.get('genesis')!=expected_chain['genesis']
-            or binding.get('network')!='signet'or binding.get('database')!='trackc'):
-        raise ValueError('private body chain/binding differs')
+def _read_files(path,expected_package_sha256,*,name_validator=None):
+    """Protected read reused by fixed C loaders, never a wire-selected callback."""
+    from . import c_private_fee_package as tar_rules
+    tar_rules._sha(expected_package_sha256)
     path=Path(path)
     if(not path.is_absolute()or any(p.is_symlink()for p in [path,*path.parents])
             or path.parent.stat().st_uid!=os.getuid()or path.parent.stat().st_mode&0o077):
@@ -76,9 +64,30 @@ def load_target_tar(path,*,expected_package_sha256,expected_source_sha256,expect
         h=hashlib.sha256()
         while raw:=stream.read(65536):h.update(raw)
         if h.hexdigest()!=expected_package_sha256:raise ValueError('private body package hash differs')
-        stream.seek(0);files=tar_rules._files(stream,before.st_size);after=os.fstat(stream.fileno())
+        stream.seek(0);files=tar_rules._files(stream,before.st_size,**({}if name_validator is None else {'name_validator':name_validator}));after=os.fstat(stream.fileno())
         if tar_rules._identity(before)!=tar_rules._identity(after)or tar_rules._identity(path.stat(follow_symlinks=False))!=tar_rules._identity(before):
             raise ValueError('private body archive changed during read')
+    return files
+
+
+def load_target_tar(path,*,expected_package_sha256,expected_source_sha256,expected_financial_pins,
+                    expected_observation,expected_chain,adapter,limits,binding,producer_exit):
+    """Fixed trusted loader injection only; root code admits worker/terminal.
+
+    Existing private fee USTAR parser is reused with an EXACT smaller member set.
+    Full output remains private. Caller must retain actual source originals and
+    TraceStore references, same-current-source runtime/chain and native proof ELF
+    provenance. Successful body transport never implies current economic owner.
+    """
+    from . import c_private_fee_package as tar_rules
+    tar_rules._sha(expected_package_sha256);tar_rules._sha(expected_source_sha256)
+    pins=common._pins(expected_financial_pins)
+    common._observation({'source_observation':expected_observation},pins,expected_chain.get('height'),expected_chain.get('tip_hash'))
+    if (expected_chain.get('genesis')!=common.SIGNET_GENESIS or expected_chain.get('ibd')is not False
+            or binding.get('schema_sha256')!=pins['schema_sha256']or binding.get('genesis')!=expected_chain['genesis']
+            or binding.get('network')!='signet'or binding.get('database')!='trackc'):
+        raise ValueError('private body chain/binding differs')
+    files=_read_files(path,expected_package_sha256)
     if set(files)!=FILES|{'manifest.json'}:raise ValueError('exact native body package members required')
     manifest_raw=files.pop('manifest.json');manifest=common._json(manifest_raw)
     if(not isinstance(manifest,dict)or set(manifest)!=FIELDS or type(manifest['schema_version'])is not int or manifest['schema_version']!=1
