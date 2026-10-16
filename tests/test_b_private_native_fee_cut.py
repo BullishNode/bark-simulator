@@ -4,7 +4,7 @@ import unittest
 from simulator.b_private_native_fee_cut import sql,query_sha256,PRIVATE_TABLES
 from simulator.two_step_normal import digest
 from simulator.ownership import EvidenceGap
-from test_b_native_owner_snapshot import PrivateInputControls
+import test_b_native_owner_snapshot as fixtures
 
 
 class PrivateCutControls(unittest.TestCase):
@@ -42,6 +42,6 @@ class PrivateCutControls(unittest.TestCase):
         self.assertIn("RAISE EXCEPTION 'bounded complete native fee source unavailable'",query)
         self.assertNotIn('EXCEPTION WHEN',query)
     def test_unguarded_or_two_cut_stdout_does_not_become_native_request(self):
-        f=PrivateInputControls();target,runtime,observation=f.inputs()
+        f=fixtures.PrivateInputControls();target,runtime,observation=f.inputs()
         f.mutate_originals(target,lambda value:value.update(sql_raw=value['sql_raw'].replace('DO\n','')))
         with self.assertRaisesRegex(EvidenceGap,'bounded single RR'):f.prepare(target,runtime,observation)
