@@ -88,8 +88,24 @@ fn verify(value: &Value) -> Result<Value, Error> {
     {
         return Err("pending reservation and registered Board commitments differ".into());
     }
+    // A Board may reserve its root using an expected off-chain exit edge. Derive
+    // that edge from the validated signed path, never from a supplied marker.
+    let mut anchor_spenders = registered.transactions().filter_map(|item| {
+        item.tx
+            .input
+            .iter()
+            .any(|input| input.previous_output == registered.chain_anchor())
+            .then(|| item.tx.compute_txid())
+    });
+    let anchor_spender = anchor_spenders
+        .next()
+        .ok_or("registered Board does not spend its anchor")?;
+    if anchor_spenders.next().is_some() {
+        return Err("registered Board anchor spender is ambiguous".into());
+    }
     Ok(json!({
-        "schema_version": 1,
+        "schema_version": 2,
+        "anchor_spender_txid": anchor_spender.to_string(),
         "id": registered.id().to_string(),
         "chain_anchor": registered.chain_anchor().to_string(),
         "server_pubkey": server.to_string(),
