@@ -196,6 +196,12 @@ class PrivateInputControls(unittest.TestCase):
     def test_two_transactions_cannot_be_relabelled_one_cut(self):
         t,r,o=self.inputs();self.mutate_originals(t,lambda v:v.update(sql_raw=v['sql_raw'].replace('\n{"native_funding','\nCOMMIT\nBEGIN\n{"native_funding')))
         with self.assertRaisesRegex(EvidenceGap,'transaction framing'):self.prepare(t,r,o)
+    def test_over_native64mib_transport_is_refused_before_partial_parse(self):
+        t,r,o=self.inputs();t['auxiliary_originals']['b-native-fee-originals.json']=b'x'*(64*1024*1024+1)
+        with self.assertRaisesRegex(EvidenceGap,'hash/size'):self.prepare(t,r,o)
+    def test_above_old16mib_original_is_checked_whole_not_truncated(self):
+        t,r,o=self.inputs();self.mutate_originals(t,lambda v:v.update(sql_raw='x'*(17*1024*1024)))
+        with self.assertRaisesRegex(EvidenceGap,'transaction framing'):self.prepare(t,r,o)
     def test_bad_source_nonce_is_refused(self):
         t,r,o=self.inputs();o['id']='not-a-source-nonce'
         with self.assertRaisesRegex(EvidenceGap,'source observation'):self.prepare(t,r,o)
