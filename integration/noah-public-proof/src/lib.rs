@@ -1,7 +1,7 @@
 //! Offline public protocol checks. No wallet, RPC or backend transport.
 use anyhow::{Context,Result,ensure,anyhow};
 use bitcoin::{Network,hashes::{Hash,sha256},secp256k1::{Message,PublicKey,Secp256k1,ecdsa::Signature}};
-use lightning_invoice::Bolt11Invoice;
+use lightning_invoice::{Bolt11Invoice,Currency};
 use serde::Deserialize;
 use serde_json::{Value,json};
 use std::str::FromStr;
@@ -16,13 +16,20 @@ pub struct InvoicePolicy {
     pub now:u64,
 }
 
+/// Validate the invoice currency allowed by an independently bound chain policy.
+/// A TB invoice alone does not authenticate Signet genesis, server or recipient.
+/// The response network names the supplied policy context, not a chain proof.
 pub fn validate_invoice(policy:&InvoicePolicy)->Result<Value> {
     ensure!(policy.invoice.len()<=65536 && policy.metadata.len()<=65536,"public invoice/metadata exceeds bound");
     let network=Network::from_str(&policy.network)?;
     ensure!(matches!(network,Network::Signet|Network::Regtest),"only owned signet/regtest invoice checks permitted");
     let invoice=Bolt11Invoice::from_str(&policy.invoice).map_err(|_|anyhow!("invalid BOLT11 syntax/semantics/signature"))?;
     invoice.check_signature().map_err(|_|anyhow!("invalid BOLT11 signature"))?;
-    ensure!(invoice.network()==network,"invoice network mismatch");
+    // The native Signet receive path emits either TB or TBS. Compare currencies
+    // directly: network() aliases Simnet to Regtest in lightning-invoice0.34.
+    ensure!(matches!((network,invoice.currency()),
+        (Network::Signet,Currency::Signet)|(Network::Signet,Currency::BitcoinTestnet)
+        |(Network::Regtest,Currency::Regtest)),"invoice network mismatch");
     ensure!(policy.amount_msat>=1000 && policy.amount_msat%1000==0 && invoice.amount_milli_satoshis()==Some(policy.amount_msat),"invoice amount mismatch");
     let expiry=invoice.expires_at().context("invoice expiry overflow")?.as_secs();
     ensure!(expiry>policy.now,"invoice expired");
