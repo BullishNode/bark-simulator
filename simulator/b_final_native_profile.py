@@ -31,6 +31,14 @@ def checked_owner(runtime):
     return owner_snapshot(raw.encode(), runtime, expected_product_commit=PRODUCT)
 
 
+def checked_owner_original(target,runtime):
+    partition=checked_owner(runtime)
+    _require(target.get('auxiliary_originals',{}).get(AUXILIARY['b_native_fee_snapshot'])==
+        runtime['native_budget']['owner_snapshot_raw'].encode(),
+        'private owner snapshot is not the exact protected CLI original')
+    return partition
+
+
 class FinalNativeDirectProfile(ContinuingDirectProfile):
     """Only the fixed native_fee tool set can construct this installed profile."""
     def __init__(self, tool):
@@ -52,6 +60,7 @@ class FinalNativeDirectProfile(ContinuingDirectProfile):
         from .b_final_native_fees import final_ordinary_fee_facts
         from .b_native_normal_verifier import retained_fee_accounting
         from .b_private_native_fee_cut import sql as native_cut_sql
+        from .b_private_native_fee_capture import capture_private_cut
         return {**super().component_hashes(),
             'b_final_native_profile':module_hash(checked_owner),
             'b_native_owner_snapshot':module_hash(owner_snapshot),
@@ -59,12 +68,13 @@ class FinalNativeDirectProfile(ContinuingDirectProfile):
             'b_native_fee_reply':module_hash(bind_native_fee_reply),
             'b_final_native_fees':module_hash(final_ordinary_fee_facts),
             'b_retained_fee_accounting':module_hash(retained_fee_accounting),
-            'b_private_native_fee_cut':module_hash(native_cut_sql)}
+            'b_private_native_fee_cut':module_hash(native_cut_sql),
+            'b_private_native_fee_capture':module_hash(capture_private_cut)}
 
     def prepare_target(self, target, admitted, observation, tools):
         self.validate_proof_tools(tools, admitted)
         runtime = runtime_from_target(target, admitted)
-        checked_owner(runtime)
+        checked_owner_original(target,runtime)
         selected = {k:observation[k] for k in ('id','height','tip_hash')}
         request = prepare_native_fee_request(target, runtime,
             expected_product_commit=PRODUCT, expected_tool_commit=self.native_fee_tool['sdk_commit'],
@@ -84,7 +94,7 @@ class FinalNativeDirectProfile(ContinuingDirectProfile):
 
     def native_projection(self, store, chain, target, scripts, tip, admission, boundary, context):
         runtime = runtime_from_target(target, admission)
-        partition = checked_owner(runtime)
+        partition = checked_owner_original(target,runtime)
         proof = target.get(PRIVATE)
         _require(type(proof) is dict and set(proof) == {'request_raw','reply_raw'},
                  'actual native private proof originals absent')
