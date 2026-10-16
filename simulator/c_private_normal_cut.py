@@ -122,13 +122,34 @@ def load_target_tar(path,*,expected_package_sha256,expected_source_sha256,expect
         if name.startswith('history/'):return tar_rules._name(name)
         raise ValueError('combined original name outside fixed scope')
     files=package._read_files(path,expected_package_sha256,name_validator=allowed)
+    return _consume_files(files,expected_package_sha256=expected_package_sha256,expected_source_sha256=expected_source_sha256,
+        expected_body_source_sha256=expected_body_source_sha256,expected_financial_pins=pins,expected_observation=expected_observation,
+        expected_chain=expected_chain,expected_history_identity=expected_history_identity,expected_policy_sha256=expected_policy_sha256,
+        adapter=adapter,limits=limits,binding=binding,producer_exit=producer_exit)
+
+
+def _consume_files(files,*,expected_package_sha256,expected_source_sha256,expected_body_source_sha256,
+        expected_financial_pins,expected_observation,expected_chain,expected_history_identity,expected_policy_sha256,
+        adapter,limits,binding,producer_exit,expected_joint_source_sha256=None):
+    # Private validated-file seam only. The public v1 loader retains its exact
+    # filename grammar; a v2 caller must supply an independently pinned source.
+    from .c_native_fee_sources import NATIVE_SIGNET_CHAIN_HASH
+    pins=fee._pins(expected_financial_pins)
     manifest_raw=files.pop('manifest.json',None)
     if manifest_raw is None:raise ValueError('combined manifest missing')
     manifest=fee._json(manifest_raw)
+    if not isinstance(manifest,dict):raise ValueError('combined manifest must be object')
     fields={'schema_version','kind','scope','financial_pins','source_observation','chain','source_sha256',
       'body_source_sha256','policy_sha256','history_identity','files'}
+    kind,scope,version=KIND,SCOPE,1
+    if expected_joint_source_sha256 is not None:
+        from . import c_private_joint_fee_cut as joint
+        fields|={'joint_source_sha256','joint_abi_sha256','round_abi_sha256'}
+        kind,scope,version=joint.KIND,joint.SCOPE,joint.VERSION
+        if(manifest.get('joint_source_sha256')!=expected_joint_source_sha256 or manifest.get('joint_abi_sha256')!=joint.ABI_SHA256 or manifest.get('round_abi_sha256')!=joint.ROUND_ABI_SHA256):
+            raise ValueError('joint expected source/ABI differs')
     if(not isinstance(manifest,dict)or set(manifest)!=fields or type(manifest['schema_version'])is not int
-            or manifest['schema_version']!=1 or manifest['kind']!=KIND or manifest['scope']!=SCOPE
+            or manifest['schema_version']!=version or manifest['kind']!=kind or manifest['scope']!=scope
             or fee.canonical(manifest).encode()!=manifest_raw or manifest['financial_pins']!=pins
             or manifest['source_observation']!=expected_observation or manifest['chain']!=expected_chain
             or manifest['source_sha256']!=expected_source_sha256 or manifest['body_source_sha256']!=expected_body_source_sha256

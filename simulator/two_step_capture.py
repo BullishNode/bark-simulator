@@ -261,6 +261,7 @@ class SourceCapture:
             owning = await self.native_profile.collect_owning(store, config, chain, observation, self.boundary, target, runtime)
             cln = await self.native_profile.collect_cln(store, config, chain, observation, self.boundary, target, runtime, owning)
             all_members = await self.native_profile.collect_members(store, config, chain, observation, self.boundary, target, runtime, cln)
+            current = self.native_profile.collect_current(store, config, chain, observation, self.boundary, target, all_members)
             # This source primitive is admitted only for the private source cut.
             # Its whole-member/normal money reducer is not installed yet. Never
             # run generic member consumption against missing A/B source fields.

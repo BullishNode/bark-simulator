@@ -87,6 +87,13 @@ class Admission(unittest.IsolatedAsyncioTestCase):
             self.capture.admission(self.f.store,self.f.f.observation)
         self.assertEqual([],self.f.calls)
 
+    async def test_opaque_target_instance_override_refuses_before_capture(self):
+        called=[]
+        self.profile.target.begin=lambda *args:called.append(True)
+        with self.assertRaisesRegex(EvidenceGap,'all fixed actual'):
+            self.capture.admission(self.f.store,self.f.f.observation)
+        self.assertEqual([],called);self.assertEqual([],self.f.calls)
+
     async def test_A_B_member_helper_cannot_be_smuggled_into_C_capture(self):
         with self.assertRaisesRegex(ValueError,'do not use'):
             SourceCapture(self.f.reader.read,lambda *a:None,1,{}, {},native_profile=self.profile)
