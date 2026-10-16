@@ -11,6 +11,15 @@ from simulator.private_source_package import TargetTarReader
 from simulator.normal_member_source import MemberReader
 from tests.test_final_campaign import PINS
 
+def private_loader(path, *, producer_exit):
+    return path,producer_exit()
+
+def other_private_loader(path, *, producer_exit):
+    return path,producer_exit()
+
+def default_private_loader(path, *, producer_exit=None):
+    return path,producer_exit
+
 class AdmissionTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.store=Store(Path(self.tmp.name),'reader-admission',10000)
@@ -37,3 +46,45 @@ class AdmissionTests(unittest.TestCase):
             SourceCapture(self.target.read,self.member.read,self.sequence,self.boundary,self.config,dependencies={'member_reader':module_hash})
         self.boundary['id']='substituted'
         with self.assertRaisesRegex(ValueError,'qualification'):self.capture.admission(self.store,{'financial_pins':PINS})
+    def test_default_admission_cannot_enable_request_input_or_private_loader(self):
+        self.target.request_stdin=True
+        with self.assertRaisesRegex(ValueError,'qualification'):
+            self.capture.admission(self.store,{'financial_pins':PINS})
+        self.target.request_stdin=False;self.target.loader=private_loader
+        with self.assertRaisesRegex(ValueError,'qualification'):
+            self.capture.admission(self.store,{'financial_pins':PINS})
+    def test_hidden_loader_state_is_not_admitted_by_a_source_hash(self):
+        state={'expected':'not in admitted configuration'}
+        def closed_loader(path, *, producer_exit):
+            return state,path,producer_exit()
+        class BoundLoader:
+            def load(self,path,*,producer_exit):
+                return state,path,producer_exit()
+        for loader in (closed_loader,BoundLoader().load,default_private_loader,lambda path,**kw:path):
+            self.target.loader=loader
+            with self.subTest(loader=loader),self.assertRaisesRegex(ValueError,'stateless module-level'):
+                self.capture.admission(self.store,{'financial_pins':PINS})
+    def test_admitted_loader_and_request_input_are_bound_to_name_source_and_mode(self):
+        self.target.request_stdin=True;self.target.loader=private_loader
+        target={'command':list(self.target.command),'evidence_directory':str(self.target.evidence_directory),
+            'timeout':45,'request_stdin':True,'loader':{'module':private_loader.__module__,
+            'qualified_name':private_loader.__qualname__,'source_sha256':module_hash(private_loader)}}
+        value={**self.value,'reader_configuration_sha256':digest(canonical(
+            {'target':target,'member':self.member.configuration}).encode())}
+        self.store.event('normal_financial_collector_qualified',value)
+        self.capture.admission_sequence=self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
+        self.assertEqual(value,self.capture.admission(self.store,{'financial_pins':PINS}))
+        # These functions share one module/hash, but select different code.
+        self.target.loader=other_private_loader
+        with self.assertRaisesRegex(ValueError,'qualification'):
+            self.capture.admission(self.store,{'financial_pins':PINS})
+        self.target.loader=private_loader;self.target.request_stdin=False
+        with self.assertRaisesRegex(ValueError,'qualification'):
+            self.capture.admission(self.store,{'financial_pins':PINS})
+        self.target.request_stdin=True;target['loader']['source_sha256']='0'*64
+        value['reader_configuration_sha256']=digest(canonical(
+            {'target':target,'member':self.member.configuration}).encode())
+        self.store.event('normal_financial_collector_qualified',value)
+        self.capture.admission_sequence=self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
+        with self.assertRaisesRegex(ValueError,'qualification'):
+            self.capture.admission(self.store,{'financial_pins':PINS})
