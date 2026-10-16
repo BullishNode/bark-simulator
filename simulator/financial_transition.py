@@ -174,12 +174,17 @@ def validate(store, opening, boundary_declaration, inventory_sequences, chain, *
             or not 0 <= now-proof.get('observed_at', -1) <= 90):
         raise ValueError('fresh independently qualified normal opening source required')
     reconciliation = proof.get('preserved_history_opening')
+    typed_claims = None
+    if proof.get('ordinary_lineage') is not None:
+        from .normal_lineage_join import opening_claims
+        typed_claims = opening_claims(store, proof, source['sequence'], opening['pins'])
+    retained_claims = _current_claims(store) if typed_claims is None else typed_claims
     if (not isinstance(reconciliation, dict) or set(reconciliation) != {
             'history', 'inventory_sequences', 'retained_client_rights', 'pending_liabilities',
             'historical_cost_sequences', 'historical_flow_sequences'}
             or reconciliation['history'] != opening['history']
             or reconciliation['inventory_sequences'] != inventory_sequences
-            or reconciliation['retained_client_rights'] != _current_claims(store)):
+            or reconciliation['retained_client_rights'] != retained_claims):
         raise ValueError('complete exact historical rights, costs and inventories required')
     # These are the producer's independently checked exhaustive liabilities and
     # original monetary sources, not zero values inferred from absent fields.

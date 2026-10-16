@@ -352,6 +352,7 @@ class SourceCapture:
             if lineage_context is not None:
                 from .normal_lineage_join import public_frontier
                 frame['ordinary_lineage']=public_frontier(lineage_context)
+                frame['lineage_admission_sequence']=self.admission_sequence
             frame['actual_public_server_info'] = info['data']
             source_sequence = event('normal_financial_source',frame)
         return {'source_sequence':source_sequence,'inventory_sequences':inventories,

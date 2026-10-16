@@ -89,3 +89,106 @@ def board_descendants(value, identifier, claims, native):
         if native[name]['anchor_point'] != native[identifier]['anchor_point']:
             raise ValueError('pending Board descendant has foreign physical anchor')
     return selected
+
+
+def opening_claims(store, proof, readiness_sequence, pins):
+    """Bind the already executed frontier to its original qualified source chain.
+
+    This is a declaration handoff, never a new producer or a supplied ID list.
+    The independently qualified Collector has already rerun all supplied-byte
+    native proofs and compared the source frontier under the same nonce/SQL cut.
+    """
+    import json
+    from .final_campaign import _source_event
+    from .architecture import profile, TWO_STEP
+    from .normal_lineage import bind_coin
+    from .two_step_normal import Collector, module_hash
+    from .two_step_capture import SourceCapture
+    value = proof.get('ordinary_lineage')
+    if value is None:
+        return None
+    if (not isinstance(value, dict) or set(value) != {'current_claim_ids', 'consumed_claim_ids',
+            'obligation_groups', 'native_source_sha256', 'source_observation_id', 'coin_proof_hashes'}
+            or not isinstance(value['current_claim_ids'], list) or not isinstance(value['consumed_claim_ids'], list)
+            or not isinstance(value['coin_proof_hashes'], dict)):
+        raise ValueError('opening typed frontier exact qualified schema required')
+    rows = store.db.execute('SELECT sequence FROM event WHERE hash=?', (proof.get('source_event_hash'),)).fetchall()
+    if len(rows) != 1:
+        raise ValueError('opening typed frontier original source missing')
+    source_event, source = _source_event(store, rows[0]['sequence'])
+    observation = proof.get('source_observation')
+    if (profile(store) != TWO_STEP or not isinstance(value, dict)
+            or source_event['kind'] != 'normal_financial_source' or source_event['sequence'] >= readiness_sequence
+            or source.get('financial_pins') != pins or source.get('boundary_id') != proof.get('boundary_id')
+            or not isinstance(observation, dict) or observation.get('architecture_profile') != TWO_STEP
+            or source.get('source_observation') != observation
+            or source.get('ordinary_lineage') != value
+            or source.get('original_sha256') != proof.get('original_source_hashes')
+            or value.get('native_source_sha256') != source.get('original_sha256', {}).get('native_sql')
+            or value.get('source_observation_id') != observation.get('id')):
+        raise ValueError('opening typed frontier is detached from authenticated observation/SQL')
+    sequence = source.get('lineage_admission_sequence')
+    if type(sequence) is not int or not 0 < sequence < source_event['sequence']:
+        raise ValueError('opening typed frontier original admission missing')
+    admission_event, admitted = _source_event(store, sequence)
+    expected = {'ordinary_lineage': module_hash(authenticate_frontier), 'typed_lineage': module_hash(bind_coin),
+        'adapter': module_hash(Collector.produce), 'capture': module_hash(SourceCapture.collect)}
+    if (admission_event['kind'] != 'normal_financial_collector_qualified'
+            or admitted.get('financial_pins') != pins or admitted.get('ordinary_lineage') != CONFIGURATION
+            or any(admitted.get('component_sha256', {}).get(name) != digest for name, digest in expected.items())
+            or any(admitted.get('capture_dependencies_sha256', {}).get(name) != expected[name]
+                for name in ('ordinary_lineage', 'typed_lineage'))
+            or not {'binding', 'policy'} <= set(admitted.get('proof_tool_sha256', {}))
+            or set(admitted.get('proof_tool_sha256', {})) != set(admitted.get('proof_commands_sha256', {}))):
+        raise ValueError('opening typed frontier collector/module/tool admission differs')
+    for mapping in ('proof_tool_sha256', 'proof_commands_sha256'):
+        for digest in admitted[mapping].values():
+            lineage.hash_id(digest)
+    owned = {row['id']: row for row in store.db.execute('SELECT c.*,k.actor FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey ORDER BY c.id')}
+    current = lineage.ids(value['current_claim_ids']) if value['current_claim_ids'] else ()
+    consumed = lineage.ids(value['consumed_claim_ids']) if value['consumed_claim_ids'] else ()
+    if (set(current) & set(consumed) or set(current) | set(consumed) != set(owned)
+            or set(value['coin_proof_hashes']) != set(owned)):
+        raise ValueError('opening typed frontier omits or duplicates an original right')
+    fields = {'native_request_sha256', 'native_response_sha256', 'native_full_sha256',
+        'native_policy_request_sha256', 'native_policy_response_sha256'}
+    for record in value['coin_proof_hashes'].values():
+        if set(record) != fields:
+            raise ValueError('opening typed frontier native original hashes incomplete')
+        for digest in record.values():
+            lineage.hash_id(digest)
+    board_ids = []
+    for action in store.db.execute("SELECT result FROM action WHERE operation='board' AND state='completed'"):
+        board_ids.extend(json.loads(action['result'])['data']['board']['vtxos'])
+    groups = value['obligation_groups']; origins = []; frontier = []
+    if not isinstance(groups, list) or len(groups) > lineage.MAX_COINS:
+        raise ValueError('bounded original obligation groups required')
+    for group in groups:
+        if (not isinstance(group, dict) or set(group) != {'original_claim_ids', 'current_claim_ids',
+                'original_principal_sat', 'current_principal_sat', 'sdk_service_charge_sat', 'action_ids',
+                'per_origin_fee_allocation'}
+                or any(type(group[key]) is not int for key in ('original_principal_sat', 'current_principal_sat', 'sdk_service_charge_sat'))
+                or group['per_origin_fee_allocation'] is not None):
+            raise ValueError('opening typed frontier exact obligation schema required')
+        original = lineage.ids(group['original_claim_ids']); leaves = lineage.ids(group['current_claim_ids'])
+        if (set(original+leaves) - set(owned) or group['sdk_service_charge_sat'] != 0
+                or group['original_principal_sat'] != sum(owned[name]['amount_sat'] for name in original)
+                or group['current_principal_sat'] != sum(owned[name]['amount_sat'] for name in leaves)
+                or group['original_principal_sat'] != group['current_principal_sat']):
+            raise ValueError('opening typed frontier changes original unpaid principal')
+        origins.extend(original); frontier.extend(leaves)
+    if (sorted(origins) != sorted(board_ids) or len(set(origins)) != len(origins)
+            or sorted(frontier) != sorted(current) or len(set(frontier)) != len(frontier)):
+        raise ValueError('opening typed frontier original/current obligation coverage differs')
+    result = []
+    for identifier in current:
+        row = owned[identifier]
+        if hashlib.sha256(bytes.fromhex(row['signed_vtxo'])).hexdigest() != row['signed_hash']:
+            raise ValueError('opening retained signed original bytes changed')
+        state = store.db.execute('SELECT state,action_id FROM coin_observation WHERE coin_id=? ORDER BY observed_at DESC,action_id DESC LIMIT 1', (identifier,)).fetchone()
+        if state is None:
+            raise ValueError('opening retained original observation missing')
+        result.append({'coin_id': identifier, 'actor': row['actor'], 'amount_sat': row['amount_sat'],
+            'signed_hash': row['signed_hash'], 'state': state['state'], 'observation_action_id': state['action_id']})
+    store.verify_event_chain()
+    return result
