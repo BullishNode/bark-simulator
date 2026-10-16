@@ -26,7 +26,8 @@ def owning_projection(member,native,*,scripts,scan,versions,chain,tip):
         need(set(row)=={'txid','transaction_body','signed_weight_wu','encoding'}
             and row['encoding']=='bitcoin-stripped-body-v1','public pending/parent encoding differs')
         body=decode_transaction(row['transaction_body'],public_body=True)
-        need(body['witness_redacted']is False and body['txid']==row['txid'],'stripped identity differs')
+        need(body['witness_redacted']is False and not any(body['input_script_sig_sizes'])
+            and body['txid']==row['txid'],'unsafe/non-stripped pending identity differs')
         raw=chain.tx(row['txid']);core=decode_transaction(raw['hex'],public_body=True)
         need(body['stripped_hex']==core['stripped_hex']and row['signed_weight_wu']==raw['weight'],
             'public body/actual signed weight differs')
