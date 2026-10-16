@@ -17,6 +17,7 @@ from simulator.ownership import record_verified
 from simulator.store import Store
 from tests import account_fixtures
 from tests.test_final_campaign import PINS
+from tests.owned_activity_fixture import receipt as activity_receipt
 
 
 class OrdinaryFixture(unittest.TestCase):
@@ -277,6 +278,9 @@ class NativeAdoptionControls(OrdinaryFixture):
         source={'financial_pins':PINS,'boundary_id':'finite','ordinary_plan_id':self.value['id'],'ordinary_step':None,
             'origin':self.origin,'height':100,'tip_hash':'tip','observed_at':time.time(),'complete':True,'server':server,
             'physical_total_sat':664575,'physical_assets':{self.anchor:{'amount_sat':20000,'script':'anchor'},'cash:0':{'amount_sat':644575,'script':'cash'}}}
+        source['descriptor_ranges']=[]
+        self.origin['anchor_output']={'script':'anchor'}
+        source['mempool']=activity_receipt(self.store,source,'board_backing')
         self.store.event(ordinary.KIND,source);sequence=self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
         chain=SimpleNamespace(identity=lambda:{'initialblockdownload':False,'blocks':100,'bestblockhash':'tip'},
             call=lambda *args:{'confirmations':1,'value':'0.00020000','scriptPubKey':{'hex':'anchor'}})

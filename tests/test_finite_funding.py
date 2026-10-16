@@ -19,6 +19,7 @@ from simulator.operating_limits import declare_envelope
 from simulator.store import Store
 from simulator.treasury import declare_boundary
 from tests.test_final_campaign import PINS
+from tests.owned_activity_fixture import receipt as activity_receipt
 
 TIP = 'a'*64
 BANK_TX = 'b'*64
@@ -122,10 +123,15 @@ class FiniteFundingTests(unittest.TestCase):
             'read_only':True,'stable_tip':True,'source_identity':{'wallet_name':Bank.wallet,'descriptors':['wpkh(bank)#checksum']},
             'height':100,'tip_hash':TIP,'listunspent':[self.coin]})
         bank_sequence=self.sequence()
-        self.event('finite_initial_funding_sources_verified',{'financial_pins':PINS,'boundary_id':'finite-boundary',
+        initial_source={'financial_pins':PINS,'boundary_id':'finite-boundary',
             'bank_member_id':'bank','bank_wallet_name':Bank.wallet,'bank_source_sequence':bank_sequence,
             'principal_sat':325000,'maximum_funding_fee_sat':10000,'maximum_fee_rate_sat_kvb':20000,
-            'funding_recipients':self.recipients,'height':100,'tip_hash':TIP})
+            'funding_recipients':self.recipients,'height':100,'tip_hash':TIP,'descriptor_ranges':[]}
+        initial_source['mempool_activity']=activity_receipt(self.store,initial_source,'finite_initial_funding')
+        self.event('finite_initial_funding_owned_mempool_activity',{'activity_source':initial_source['mempool_activity'],
+            'financial_pins':PINS,'height':100,'tip_hash':TIP})
+        initial_source['owned_mempool_activity_source_sequence']=self.sequence()
+        self.event('finite_initial_funding_sources_verified',initial_source)
         self.plan={'id':'one-and-only','pins':PINS,'boundary_id':'finite-boundary','bank_member_id':'bank',
             'bank_wallet_name':Bank.wallet,'bank_source_sequence':bank_sequence,'finite_initial_source_sequence':self.sequence(),
             'recipients':copy.deepcopy(self.recipients),'maximum_principal_sat':325000,

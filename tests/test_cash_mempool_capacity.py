@@ -1,30 +1,22 @@
-"""Synthetic complete verbose-transport bounds; no Core or financial credit."""
-import time
-import unittest
-from types import SimpleNamespace
+"""Strict64KiB matching activity replaces global verbose-body resource controls."""
+import io,time,unittest
+from unittest.mock import patch
 from simulator.fresh_cash_readiness import _empty_mempool
-from simulator.model import canonical
+from simulator.owned_mempool import MAX_RESPONSE_BYTES
+from tests.test_owned_mempool import OwnedMempoolTests
 
-
-class CashMempoolCapacityTests(unittest.TestCase):
-    def chain(self,size,outputs=1):
-        txid='d'*64
-        transaction={'txid':txid,'vout':[{'n':index,'scriptPubKey':{'hex':'unrelated'}} for index in range(outputs)],'verbose_padding':''}
-        overhead=len(canonical(transaction).encode());transaction['verbose_padding']='x'*(size-overhead)
-        self.assertEqual(size,len(canonical(transaction).encode()))
-        return SimpleNamespace(call=lambda *args:[txid],tx=lambda point:transaction)
-    def test_exact_sixteen_mib_complete_reply_is_accepted_with_declared_limits(self):
-        result=_empty_mempool(self.chain(16*1024*1024),{'owned'},time.monotonic())
-        self.assertEqual(16*1024*1024,result['bytes']);self.assertEqual(16*1024*1024,result['maximum_bytes'])
-        self.assertEqual(1,result['unique_checked']);self.assertEqual(1,result['current_count'])
-        self.assertEqual(50000,result['maximum_outputs']);self.assertEqual(4096,result['maximum_unique_transactions'])
-        self.assertEqual(180,result['maximum_seconds'])
-    def test_one_byte_over_sixteen_mib_refuses_with_exact_observed_counts(self):
-        size=16*1024*1024+1
-        with self.assertRaisesRegex(ValueError,f'observed_bytes={size}; maximum_bytes=16777216; observed_outputs=1; maximum_outputs=50000'):
-            _empty_mempool(self.chain(size),{'owned'},time.monotonic())
-    def test_output_limit_remains_complete_and_refuses_even_below_byte_limit(self):
-        count=50001;rows=[{'n':index,'scriptPubKey':{'hex':'unrelated'}} for index in range(count)]
-        size=len(canonical({'txid':'d'*64,'vout':rows,'verbose_padding':''}).encode())
-        with self.assertRaisesRegex(ValueError,f'observed_bytes={size}; maximum_bytes=16777216; observed_outputs=50001; maximum_outputs=50000'):
-            _empty_mempool(self.chain(size,outputs=count),{'owned'},time.monotonic())
+class CashActivityCapacityControls(unittest.TestCase):
+    def setUp(self):self.f=OwnedMempoolTests();self.f.setUp()
+    def tearDown(self):self.f.tearDown()
+    def collect(self,raw):
+        with patch('urllib.request.urlopen',return_value=io.BytesIO(raw)):
+            return _empty_mempool(self.f.chain,self.f.scripts,time.monotonic(),store=self.f.store,context={'collector':'synthetic-control'})
+    def test_exact64k_reply_is_complete_with_truthful_source_metrics(self):
+        raw=self.f.raw+b' '*(MAX_RESPONSE_BYTES-len(self.f.raw));receipt=self.collect(raw)
+        self.assertEqual(MAX_RESPONSE_BYTES,receipt['response_bytes']);self.assertNotIn('bytes_checked',receipt)
+    def test_one_byte_over64k_refuses_not_empty(self):
+        raw=self.f.raw+b' '*(MAX_RESPONSE_BYTES+1-len(self.f.raw))
+        with self.assertRaisesRegex(ValueError,'capture bound'):self.collect(raw)
+    def test_nonempty_reply_refuses_even_below_response_limit(self):
+        raw=b'{"id":1,"result":{"activity":[{"type":"spend"}]}}'
+        with self.assertRaisesRegex(ValueError,'unconfirmed assets or spends'):self.collect(raw)
