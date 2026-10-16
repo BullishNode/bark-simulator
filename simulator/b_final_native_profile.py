@@ -51,13 +51,15 @@ class FinalNativeDirectProfile(ContinuingDirectProfile):
     def component_hashes(self):
         from .b_final_native_fees import final_ordinary_fee_facts
         from .b_native_normal_verifier import retained_fee_accounting
+        from .b_private_native_fee_cut import sql as native_cut_sql
         return {**super().component_hashes(),
             'b_final_native_profile':module_hash(checked_owner),
             'b_native_owner_snapshot':module_hash(owner_snapshot),
             'b_private_native_fee_inputs':module_hash(prepare_native_fee_request),
             'b_native_fee_reply':module_hash(bind_native_fee_reply),
             'b_final_native_fees':module_hash(final_ordinary_fee_facts),
-            'b_retained_fee_accounting':module_hash(retained_fee_accounting)}
+            'b_retained_fee_accounting':module_hash(retained_fee_accounting),
+            'b_private_native_fee_cut':module_hash(native_cut_sql)}
 
     def prepare_target(self, target, admitted, observation, tools):
         self.validate_proof_tools(tools, admitted)

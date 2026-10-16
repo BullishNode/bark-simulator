@@ -144,7 +144,7 @@ class PrivateInputControls(unittest.TestCase):
         whole=b'{"kind":"synthetic-whole-frontier"}'
         database={'native_funding_fee_intent':[],'native_funding_fee_input':[],
             'native_funding_fee_resolution':[],'nursery_tx':[]}
-        originals['sql_raw']='BEGIN\nSET\n'+whole.decode()+'\n'+json.dumps(database)+'\nCOMMIT\n'
+        originals['sql_raw']='BEGIN\nSET\nDO\n'+whole.decode()+'\n'+json.dumps(database)+'\nCOMMIT\n'
         files={'b-native-fee-originals.json':json.dumps(originals).encode(),
             'b-native-fee-snapshot.json':json.dumps(s).encode()}
         target={'raw_sql':whole,'auxiliary_originals':files,
