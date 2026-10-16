@@ -147,6 +147,8 @@ class SourceCapture:
         if (event['kind'] != 'normal_financial_collector_qualified'
                 or value['reader_configuration_sha256'] != digest(canonical(actual_readers).encode())
                 or value['financial_pins'] != observation['financial_pins']
+                or member_instance.configuration.get('pending_board_proof_sha256') != value.get('proof_tool_sha256',{}).get('pending')
+                or member_instance.configuration.get('ordinary_pool') != value.get('ordinary_pool')
                 or value['capture_dependencies_sha256'] != dependencies
                 or value['capture_configuration_sha256'] != digest(canonical(self.configuration).encode())
                 or self.configuration['boundary_sha256'] != digest(canonical(self.boundary).encode())):
@@ -211,7 +213,15 @@ class SourceCapture:
                 or runtime['schema_sha256'] != observation['financial_pins']['schema_sha256']
                 or runtime['container_runtime_stable'] is not True):
             raise ValueError('actual active runtime/policy/schema/source identity differs')
-        tables = native_tables(target['raw_sql'],target['manifest']['original_sha256']['native_sql'])
+        tables = native_tables(target['raw_sql'],target['manifest']['original_sha256']['native_sql'],
+            pending_board_proof_sha256=admission.get('proof_tool_sha256',{}).get('pending'),
+            ordinary_pool_source_sha256=admission.get('ordinary_pool',{}).get('classifier_sha256'))
+        from .normal_pool import source_originals, POOL_AUX
+        ordinary_pool_originals=None
+        if admission.get('ordinary_pool')is not None:
+            ordinary_pool_originals=source_originals(target,admission['ordinary_pool'])
+        elif set(target['manifest'].get('auxiliary_originals',{}))&set(POOL_AUX):
+            raise ValueError('ordinary source auxiliary originals are not admitted')
         rounds = admission['rounds_member_id']; watch = admission['watchman_member_id']
         if rounds == watch or {rounds,watch}-set(members): raise ValueError('distinct actual native fee members required')
         if set(additional['members']) != set(members)-{rounds,watch}:
@@ -296,6 +306,21 @@ class SourceCapture:
                             'server_identity':member['identity'],'native_source_sha256':target['manifest']['original_sha256']['native_sql']})
                         utxos.append({'outpoint':point,'amount_sat':actual['amount_sat'],'script':actual['script'],
                             'verification_sequence':sequence})
+                    if ordinary_pool_originals is not None:
+                        pool=strict_json(ordinary_pool_originals['owning_pool_inventory'])
+                        if len(pool['candidates'])>256:raise ValueError('bounded owning pool original required')
+                        for candidate in pool['candidates']:
+                            row=rows.get(candidate['id'])
+                            if row is None:raise ValueError('pool source coin missing from same SQL cut')
+                            point=row['anchor_point']
+                            if point in root_points:continue
+                            actual=frame['roots'].get(point)
+                            if actual is None:raise ValueError('pool physical backing source omitted')
+                            sequence=event('treasury_backing_verified',{'outpoint':point,'script':actual['script'],
+                                'financial_pins':self.boundary['pins'],'inside_members':sorted(inside),
+                                'server_identity':member['identity'],'native_source_sha256':target['manifest']['original_sha256']['native_sql']})
+                            utxos.append({'outpoint':point,'amount_sat':actual['amount_sat'],'script':actual['script'],'verification_sequence':sequence})
+                            root_points.add(point)
                     if set(frame['roots']) != root_points:raise ValueError('extra or missing unspent backing attribution')
                     body.update(source_kind=frame['source_kind'],original_source_sha256=target['manifest']['original_sha256']['native_sql'])
                 body.update(reported_utxos=utxos,reported_channels=channels)
@@ -321,8 +346,12 @@ class SourceCapture:
                 'flow_sequences':[row[0] for row in store.db.execute("SELECT sequence FROM event WHERE kind='treasury_flow_verified' ORDER BY sequence")],
                 'cost_sequences':[row[0] for row in store.db.execute("SELECT sequence FROM event WHERE kind='financial_cost_verified' ORDER BY sequence")],
                 'target_manifest_sha256':target['manifest_sha256'],'member_manifest_sha256':additional['manifest_sha256']}
+            if ordinary_pool_originals is not None:
+                frame['ordinary_pool_configuration']=admission['ordinary_pool']
+                frame['ordinary_pool_original_sha256']={key:digest(raw)for key,raw in ordinary_pool_originals.items()}
             frame['actual_public_server_info'] = info['data']
             source_sequence = event('normal_financial_source',frame)
         return {'source_sequence':source_sequence,'inventory_sequences':inventories,
             'raw_sql':target['raw_sql'],'raw_policy':target['raw_policy'],'raw_core':target['raw_core'],
-            'raw_rounds_inventory':target['raw_rounds_inventory'],'fee_history':target['fee_history']}
+            'raw_rounds_inventory':target['raw_rounds_inventory'],'fee_history':target['fee_history'],
+            'ordinary_pool_originals':ordinary_pool_originals}

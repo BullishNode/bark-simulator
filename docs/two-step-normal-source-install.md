@@ -93,3 +93,33 @@ expense; signed unconfirmed carriers remain reservations. Any funding intent is
 explicitly refused until independent original input and destination ownership
 joins are qualified. This version cannot import bank funding from a declaration
 or amount alone, and cannot supply missing historical injection records.
+
+Retained `pending_board` rows require the separately qualified native
+`pending` proof command. Its executable SHA256 and exact command join the
+existing `policy` and `binding` entries in the immutable qualification event;
+`component_sha256.pending_board` binds the installed consumer module.
+`member_configuration.pending_board_proof_sha256` must equal that same admitted
+executable hash. A configuration value or source-reported verdict alone cannot
+enable pending-row resolution. Without this admission, nonempty pending rows
+continue to hold.
+
+The native request contains only the original pending and registered Full
+bytes, original funding transaction, and server key. The retained pending Full
+is unsigned: its bytes need not equal the registered signed Full. The consumer
+requires native unsigned-structure, registered-signature and identical unsigned
+path proofs, then joins the original completed Board intent and confirmed
+funding, authenticated current registered claim or exact signed Ark descendants,
+and independently verified fresh or recovered backing. It retains the native
+`pending_signature_verified=false` and
+`current_liability_or_payment_verified=false` scope. Existing customer rights
+remain counted once; resolving a retained registration adds no paid credit,
+asset or duplicate liability. Unregistered, unmatched, unknown-spent and
+payment-only cases hold. Consumer tests isolate native cryptography explicitly;
+they do not qualify a new executable or activate this admission.
+
+The fresh-root exception additionally requires native proof schema2 with the
+unique `anchor_spender_txid` derived from the verified registered transaction
+path. The native root's OOR marker must equal that exact spender; the marker,
+registered leaf ID or an unsigned path flag alone is insufficient. Core's
+current output check includes the mempool. A mempool exit therefore holds even
+when the confirmed-only view still reports the funding output unspent.

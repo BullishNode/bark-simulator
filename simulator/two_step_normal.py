@@ -22,6 +22,8 @@ from .final_campaign import _source_event
 from .financial_transition import _current_claims, _superseded_ark_input, history, recorded
 from .model import SIGNET_GENESIS, btc_to_sat, canonical, integer, public_payload, timestamp
 from .normal_native_fee import verify_native_fee_epoch
+from .normal_pending_board import verify_pending_boards
+from .normal_pool import authenticate_pool, join_pool_finance, POOL_TABLES
 from .normal_source_deadline import ACTIVE, Deadline, DeadlineChain, timeout as source_timeout, check as deadline_check
 from .normal_money_sources import collect_money_sources
 from .normal_money_join import journal_money_sources
@@ -57,7 +59,7 @@ def strict_json(raw, *, decimals=False):
     return json.loads(raw, object_pairs_hook=unique, parse_float=Decimal if decimals else float)
 
 
-def native_tables(raw, expected_sha256):
+def native_tables(raw, expected_sha256, *, pending_board_proof_sha256=None, ordinary_pool_source_sha256=None):
     """Exact bounded RR table cut; a missing table never means zero liabilities."""
     if not isinstance(raw, bytes) or len(raw) > 16*1024*1024 or digest(raw) != expected_sha256:
         raise ValueError('original private SQL hash or aggregate byte bound differs')
@@ -77,7 +79,18 @@ def native_tables(raw, expected_sha256):
                 or any(not isinstance(row, dict) or len(canonical(row).encode()) > 2*1024*1024 for row in rows)):
             raise ValueError('native table coverage or bounded original rows differ')
         tables[name] = rows
-    if any(tables[name] for name in TABLES-SUPPORTED):
+    supported = SUPPORTED
+    if pending_board_proof_sha256 is not None:
+        import re
+        if not isinstance(pending_board_proof_sha256,str) or re.fullmatch('[0-9a-f]{64}',pending_board_proof_sha256) is None:
+            raise ValueError('qualified pending Board proof hash required for transport framing')
+        supported = supported | {'pending_board'}
+    if ordinary_pool_source_sha256 is not None:
+        from .normal_pool import CLASSIFIER_SHA256
+        if ordinary_pool_source_sha256!=CLASSIFIER_SHA256:
+            raise ValueError('qualified ordinary classifier hash required for transport framing')
+        supported = supported | POOL_TABLES
+    if any(tables[name] for name in TABLES-supported):
         raise ValueError('native conditional/round/pool/pending domain needs its own resolver')
     return tables
 
@@ -123,7 +136,7 @@ def run_proof(tool, request):
     return encoded, reply.stdout
 
 
-def authenticate_claims(store, tables, tools, server_pubkey):
+def authenticate_claims(store, tables, tools, server_pubkey, *, authenticated_pool_ids=()):
     """Neither SQL spendable nor a provided signature verdict authenticates a Full."""
     claims = _current_claims(store)
     rows = {row['vtxo_id']:row for row in tables['vtxo']}
@@ -132,7 +145,7 @@ def authenticate_claims(store, tables, tools, server_pubkey):
     if len(virtuals) != len(tables['virtual_transaction']): raise ValueError('duplicate native transaction')
     expected = {claim['coin_id'] for claim in claims}
     for identifier, row in rows.items():
-        if row['policy_type'] != 'pubkey' or identifier in expected: continue
+        if row['policy_type'] != 'pubkey' or identifier in expected or identifier in authenticated_pool_ids: continue
         old = store.db.execute('SELECT c.*,k.actor FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey WHERE c.id=?', (identifier,)).fetchone()
         if old is None or not _superseded_ark_input(store, old):
             raise ValueError('unattributed native ordinary right cannot be omitted')
@@ -216,7 +229,7 @@ def verify_cln_members(store, members, source, inventories, chain):
             gaps=['Transport discovery and complete boundary checked by installed collector'])
 
 
-def verify_fresh_backing(authenticated, tables, chain, *, height, server_pubkey):
+def verify_fresh_backing(authenticated, tables, chain, *, height, server_pubkey, pending_tool=None):
     """Current native ordinary leaves backed by exact confirmed unspent roots.
 
     Native Full/path+per-key signatures were executed above. No expiry-based
@@ -227,10 +240,31 @@ def verify_fresh_backing(authenticated, tables, chain, *, height, server_pubkey)
         leaf = rows[claim['coin_id']]; point = claim['chain_anchor']; root = rows.get(point)
         if (root is None or root['policy_type'] != 'expiry' or root['anchor_point'] != point
                 or root['server_pubkey'] != server_pubkey
-                or any(leaf.get(k) is not None or root.get(k) is not None
-                    for k in ('onchain_spent_txid','oor_spent_txid','spent_in_round','offboarded_in'))):
+                or any(leaf.get(k) is not None for k in ('onchain_spent_txid','oor_spent_txid','spent_in_round','offboarded_in'))
+                or any(root.get(k) is not None for k in ('onchain_spent_txid','spent_in_round','offboarded_in'))):
             raise ValueError('fresh ordinary claim has unresolved leaf/root disposition')
-        txid, index = point.rsplit(':', 1); coin = chain.call('gettxout', txid, int(index), False)
+        if root.get('oor_spent_txid') is not None:
+            # Native Board reserves its one signed exit before registration.
+            # Only the independently proved pending/registered Board edge is
+            # compatible with an unspent funding root; arbitrary OOR spends hold.
+            # Registration names the original Board, whereas an authenticated
+            # current Ark descendant has its own ID. Prove the original edge;
+            # verify_pending_boards separately rejoins every current descendant
+            # to that original intent and exact signed supersession below.
+            pending = [row for row in tables.get('pending_board',[]) if row['id']==point]
+            funding = [row for row in tables['virtual_transaction'] if row['txid']==point.split(':')[0] and row['is_funding']is True]
+            registered = rows.get(pending[0]['vtxo_id']) if len(pending)==1 else None
+            if (len(pending)!=1 or len(funding)!=1
+                    or registered is None or registered['anchor_point']!=point
+                    or registered['policy_type']!='pubkey' or registered['server_pubkey']!=server_pubkey
+                    or pending[0]['expiry']!=registered['expiry'] or registered['expiry']!=leaf['expiry']
+                    or root['expiry']!=leaf['expiry']):
+                raise ValueError('fresh Board root lacks exact pending registered exit edge')
+            from .normal_pending_board import prove_registered_board
+            _,_,contract,_,_=prove_registered_board(pending[0],registered,funding[0],pending_tool,server_pubkey)
+            if root['oor_spent_txid']!=contract['anchor_spender_txid']:
+                raise ValueError('fresh Board root lacks exact pending registered exit edge')
+        txid, index = point.rsplit(':', 1); coin = chain.call('gettxout', txid, int(index), True)
         tx = chain.tx(txid); decoded = decode_transaction(tx['hex'])
         if (coin is None or coin.get('confirmations', 0) < 3 or tx.get('confirmations', 0) < 3
                 or tx.get('blockhash') != chain.call('getblockhash', height-tx['confirmations']+1)
@@ -267,6 +301,8 @@ def verified_money(store, chain, source, *, opening=None, funding_context=None, 
             raise ValueError('actual funding join must bind current immutable source boundary')
         checked = verify_funding_ownership(store, chain, boundary=boundary,
             height=source['height'], tip_hash=source['tip_hash'], **funding_context)
+        if checked['cost_records']or checked['flow_records']:
+            raise ValueError('verified funding originals require their separately admitted journal records')
         owned_flows = checked['verified_flow_records']
     flows = []; costs = {}; monetary = set()
     for sequence in sorted(sequences['flow_sequences']+sequences['cost_sequences']):
@@ -478,24 +514,34 @@ class Collector:
     current executables, exact policy/history/opening identity and proof tools.
     Nothing in a capture response can install or change this admission.
     """
-    def __init__(self, capture, admission_sequence, tools):
+    def __init__(self, capture, admission_sequence, tools, *, funding_reader=None):
         self.capture = capture
         self.admission_sequence = admission_sequence
         self.tools = tools
+        self.funding_reader=funding_reader
 
     def admission(self, store, pins):
         event, value = _source_event(store, self.admission_sequence)
         from .financial_components import inspect as inspect_components
+        from .normal_profile import collector_from_profile
         hashes = {'adapter':digest(Path(__file__).read_bytes()), 'capture':module_hash(self.capture),
             'financial_components':module_hash(inspect_components),
             'native_fee':module_hash(verify_native_fee_epoch), 'recovered_backing':module_hash(bind_native_claim),
             'money_sources':module_hash(collect_money_sources), 'money_join':module_hash(journal_money_sources),
-            'deadline':module_hash(Deadline)}
+            'deadline':module_hash(Deadline), 'pending_board':module_hash(verify_pending_boards),
+            'ordinary_pool':module_hash(authenticate_pool)}
+        hashes['profile_builder']=module_hash(collector_from_profile)
+        if self.funding_reader is not None:
+            hashes['funding_reader']=module_hash(self.funding_reader.read)
+            if value.get('funding_reader_configuration_sha256')!=digest(canonical(self.funding_reader.configuration).encode()):
+                raise ValueError('installed funding original reader configuration differs')
+        elif value.get('funding_reader_configuration_sha256')is not None:
+            raise ValueError('admitted funding original reader is not installed')
         if (event['kind'] != 'normal_financial_collector_qualified' or value['financial_pins'] != pins
                 or value['component_sha256'] != hashes
                 or value['proof_tool_sha256'] != {name:tool['sha256'] for name,tool in self.tools.items()}
                 or value['proof_commands_sha256'] != {name:digest(canonical(tool['command']).encode()) for name,tool in self.tools.items()}
-                or set(self.tools) != {'policy', 'binding'}):
+                or set(self.tools) not in ({'policy', 'binding'}, {'policy', 'binding', 'pending'})):
             raise ValueError('installed source collector/tool qualification differs')
         return value
 
@@ -561,7 +607,9 @@ class Collector:
                 or source['fee_history_sha256'] != private_history_hash(captured['fee_history'])
                 or source['original_sha256']['policy'] != admitted['policy_sha256']):
             raise ValueError('authenticated original source buffer differs')
-        tables = native_tables(originals['native_sql'], source['original_sha256']['native_sql'])
+        tables = native_tables(originals['native_sql'], source['original_sha256']['native_sql'],
+            pending_board_proof_sha256=admitted['proof_tool_sha256'].get('pending'),
+            ordinary_pool_source_sha256=admitted.get('ordinary_pool',{}).get('classifier_sha256'))
         if len(tables['recovery_reserve']) != 1:
             raise ValueError('one actual native recovery reserve required')
         reserve = tables['recovery_reserve'][0]
@@ -578,12 +626,29 @@ class Collector:
         assets = _capture_assets(store, boundary, captured['inventory_sequences'], chain)
         if (assets['height'], assets['tip_hash']) != (source['height'], source['tip_hash']):
             raise ValueError('native and independent treasury asset tips differ')
-        claims, authenticated = authenticate_claims(store, tables, self.tools, source['identity']['server_pubkey'])
+        pool_checked = None
+        pool_originals = captured.get('ordinary_pool_originals')
+        if pool_originals is not None:
+            ordinary = admitted.get('ordinary_pool')
+            if (ordinary is None or source.get('ordinary_pool_configuration')!=ordinary
+                    or source.get('ordinary_pool_original_sha256')!={key:digest(raw)for key,raw in pool_originals.items()}):
+                raise ValueError('ordinary pool source admission differs')
+            current=[]
+            for claim in _current_claims(store):
+                original=strict_json(store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(claim['coin_id'],)).fetchone()[0])
+                current.append({**claim,'chain_anchor':original['chain_anchor']})
+            pool_checked=authenticate_pool(tables,originals['native_sql'],pool_originals,originals['core'],chain,self.tools['policy'],
+                configuration=ordinary,server_pubkey=source['identity']['server_pubkey'],height=source['height'],
+                tip_hash=source['tip_hash'],customer_claims=current)
+        elif any(tables[name]for name in POOL_TABLES-{'sweep'}):
+            raise ValueError('ordinary pool original sources unavailable')
+        claims, authenticated = authenticate_claims(store, tables, self.tools, source['identity']['server_pubkey'],
+            authenticated_pool_ids=()if pool_checked is None else pool_checked['coin_ids'])
         holds = {row['id'] for row in tables['recovery_source_hold']}
         recovered_claims = [claim for claim in authenticated if claim['chain_anchor'] in holds]
         fresh_claims = [claim for claim in authenticated if claim['chain_anchor'] not in holds]
         fresh_backing = verify_fresh_backing(fresh_claims, tables, chain,
-            height=source['height'], server_pubkey=source['identity']['server_pubkey'])
+            height=source['height'], server_pubkey=source['identity']['server_pubkey'], pending_tool=self.tools.get('pending'))
         recovered = None
         if recovered_claims or tables['recovery_receipt'] or holds:
             recovered = verify_recovered_backing(recovered_claims, tables, core, rounds,
@@ -591,6 +656,9 @@ class Collector:
                     'tip_height':source['height'], 'tip_hash':source['tip_hash'],
                     'fee_headroom_sat':admitted['recovery_fee_headroom_sat']},
                 source_hashes={key:source['original_sha256'][key] for key in ('native_sql','core','rounds_inventory')})
+        pending_resolution = verify_pending_boards(store,tables,authenticated,chain,self.tools.get('pending'),
+            server_pubkey=source['identity']['server_pubkey'],height=source['height'],tip_hash=source['tip_hash'],
+            fresh_backing=fresh_backing,recovered=recovered)
         liabilities = []
         for claim in authenticated:
             borrowers = [name for name, member in members.items()
@@ -622,7 +690,14 @@ class Collector:
         limits = {name:fee['ordinary_signed_ceiling_sat_kvb'] for name in PATHS-{'claim','progression'}}
         limits.update({name:min(fee['urgent_child_signed_ceiling_sat_kvb'], fee['urgent_package_signed_ceiling_sat_kvb']) for name in ('claim','progression')})
         if limits != envelope['fee_ceilings_sat_kvb']: raise ValueError('envelope differs from actual signed native path ceilings')
-        flows, costs = verified_money(store, chain, source, opening=opening, boundary=boundary)
+        funding_context=None if self.funding_reader is None else self.funding_reader.read(store,boundary)
+        flows, costs = verified_money(store, chain, source, opening=opening, boundary=boundary,
+            funding_context=funding_context)
+        if pool_checked is not None:
+            borrowers=[name for name,member in members.items()if member['kind']=='ark_backing'and member['identity']==source['identity']['server_pubkey']]
+            if len(borrowers)!=1:raise ValueError('one ordinary pool physical backing owner required')
+            pool_checked=join_pool_finance(pool_checked,tables,fee,costs,money['zero_fee_carriers'],assets,
+                rounds_member_id=source['rounds_member_id'],backing_member_id=borrowers[0])
         pending_fees, native_txids = native_fee_exposure(tables, fee, chain, costs, store=store,
             zero_fee_carriers=money['zero_fee_carriers'])
         funding = {row['txid'] for row in tables['virtual_transaction'] if row['is_funding'] is True}
@@ -655,7 +730,8 @@ class Collector:
             'estimated_fee_rate_sat_kvb':estimate, 'capital_exposure_msat':assets['total_msat'],
             'available_fee_funding_msat':available, 'native_fee_reservations':fee,
             'pending_native_fee_exposure_msat':pending_fees, 'pending_liabilities':source['pending_liabilities'],
-            'recovered_backing':recovered, 'fresh_backing':fresh_backing, 'treasury_reconciliation':edge,
+            'recovered_backing':recovered, 'fresh_backing':fresh_backing, 'pending_board_resolution':pending_resolution, 'ordinary_pool_resolution':pool_checked,
+            'treasury_reconciliation':edge,
             'source_event_hash':source_event['hash'], 'original_source_hashes':source['original_sha256']}
         if opening is None:
             if opening_declaration is None: raise ValueError('explicit first-opening declaration required')
