@@ -235,14 +235,14 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
         if owner is None:raise ValueError('confirmed funding has foreign output')
         recipient=recipients.get(output['script'])
         if recipient is not None:
-            if (recipient['member_id'] in seen or recipient['member_id']!=owner['member_id']
+            if (output['script'] in seen or recipient['member_id']!=owner['member_id']
                     or recipient['amount_sat']!=output['amount_sat']):raise ValueError('confirmed finite recipient differs')
-            seen.add(recipient['member_id'])
+            seen.add(output['script'])
         else:
             change+=1
             if owner['member_id']!='bank' or change>1:raise ValueError('finite funding change ownership differs')
         expected[funded['txid']+':'+str(output['vout'])]={**owner,'amount_sat':output['amount_sat'],'script':output['script']}
-    if seen!={row['member_id'] for row in plan['recipients']} or sum(c['amount_sat'] for c in expected.values())!=policy['opening_sat']-transaction['fee_sat']:
+    if seen!={row['script'] for row in plan['recipients']} or sum(c['amount_sat'] for c in expected.values())!=policy['opening_sat']-transaction['fee_sat']:
         raise ValueError('exact finite cash conservation differs')
     observed={}
     rows=scan.get('unspents')
