@@ -72,6 +72,41 @@ class PreservedCohortControls(unittest.TestCase):
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
         self.assertEqual(2,self.store.db.execute('SELECT count(*) FROM actor').fetchone()[0])
 
+    def test_distinct_retained_watchman_outputs_sum_once_without_changing_grants(self):
+        self.origin['funding_plan']['recipients']=[
+            {'member_id':'actor-01','amount_sat':25000},
+            {'member_id':'watchman','amount_sat':50000},
+            {'member_id':'watchman','amount_sat':50000}]
+        self.outputs[1]['amount_sat']=50000
+        self.outputs.append({'vout':2,'amount_sat':50000,'script':'0014'+'33'*20})
+        # Both independently decoded and Core-observed outputs retain their
+        # distinct vout/script identity. Aggregation grants no additional value.
+        with mock.patch('simulator.finite_funding._retained',return_value={
+                'outputs':copy.deepcopy(self.outputs),'inputs':self.inputs}):
+            self.assertTrue(self.record())
+        original=c.seal(self.store)
+        self.assertEqual({'actor-01':25000,'watchman':100000},original['funding_credits_sat'])
+        c.declare_profile(self.store,self.profile())
+        self.assertEqual(275000,sum(c.cohort_request(self.store,'initial')['funding_requirements_sat'].values()))
+        self.assertEqual({'ordinary':300000,'urgent':0},original['used_fees_msat'])
+        self.assertEqual(1,self.store.db.execute('SELECT count(*) FROM funding_batch').fetchone()[0])
+
+    def test_split_funding_wrong_total_or_chain_output_gets_no_sealed_credit(self):
+        self.origin['funding_plan']['recipients']=[
+            {'member_id':'actor-01','amount_sat':25000},
+            {'member_id':'watchman','amount_sat':50000},
+            {'member_id':'watchman','amount_sat':50001}]
+        with self.assertRaisesRegex(ValueError,'exact original'):self.record()
+        self.assertIsNone(self.store.get_meta(c.SEAL_KEY))
+        self.origin['funding_plan']['recipients'][-1]['amount_sat']=50000
+        self.outputs[1]['amount_sat']=50000
+        self.outputs.append({'vout':2,'amount_sat':50000,'script':'0014'+'33'*20})
+        retained={'outputs':copy.deepcopy(self.outputs),'inputs':self.inputs}
+        self.outputs[-1]['script']='0014'+'44'*20
+        with mock.patch('simulator.finite_funding._retained',return_value=retained):
+            with self.assertRaisesRegex(ValueError,'ancestry'):self.record()
+        self.assertIsNone(self.store.get_meta(c.SEAL_KEY))
+
     def test_claimed_complete_source_never_substitutes_for_native_reducer(self):
         with mock.patch('simulator.ordinary_arkoor.record_ordinary_journey',side_effect=ValueError('missing native source')):
             with self.assertRaisesRegex(ValueError,'native source'):self.record()

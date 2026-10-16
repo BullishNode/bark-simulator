@@ -112,7 +112,12 @@ def seal_pilot(store,config,chain,*,source_sequence):
             or actual.get('outputs')!=retained['outputs']
             or [{'outpoint':i['outpoint']} for i in actual['inputs']]!=retained['inputs']):
         raise ValueError('original finite funding independent chain ancestry differs')
-    credits={r['member_id']:r['amount_sat'] for r in funding['recipients']}
+    credits={}
+    for recipient in funding['recipients']:
+        amount=recipient['amount_sat']
+        integer(amount,'retained funding credit',1)
+        member=recipient['member_id']
+        credits[member]=credits.get(member,0)+amount
     if credits!={'actor-01':25000,'watchman':100000}:
         raise ValueError('exact original 25k/100k funding credits required')
     tip=chain.identity()
