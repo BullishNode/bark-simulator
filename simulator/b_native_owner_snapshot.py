@@ -56,8 +56,11 @@ def owner_snapshot(raw, runtime, *, expected_product_commit):
     need(type(runtime) is dict and runtime.get('product_commit')==expected_product_commit
         and runtime.get('execution_release',{}).get('product_commit')==expected_product_commit,
         'actual protected native source differs')
-    need(type(raw) is bytes and 0<len(raw)<=MAX_BYTES,'bounded original native snapshot absent')
-    snapshot=strict_json(raw)
+    need(type(raw) is bytes and 0<len(raw)<=MAX_BYTES+1,'bounded original native snapshot absent')
+    # The native projection is at most2MiB; its actual CLI appends one LF.
+    payload=raw[:-1] if raw.endswith(b'\n') else raw
+    need(0<len(payload)<=MAX_BYTES,'native projection exceeds payload bound')
+    snapshot=strict_json(payload)
     need(type(snapshot) is dict and set(snapshot)==FIELDS and type(snapshot['schema']) is int
         and snapshot['schema']==1,'exact native schema1 required')
     budget=runtime.get('native_budget',{});files=budget.get('files',{});lock=budget.get('lock',{})

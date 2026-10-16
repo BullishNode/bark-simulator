@@ -72,6 +72,10 @@ class SnapshotControls(unittest.TestCase):
     def test_no_refund_from_resolution(self):
         s,r=fixture();p=run(s,r);s['resolutions']=[]
         self.assertEqual(run(s,r)['charged_sat'],p['charged_sat'])
+    def test_actual_cli_final_lf_preserves_projection_and_original_digest(self):
+        s,r=fixture();raw=json.dumps(s).encode();p=owner_snapshot(raw+b'\n',r,expected_product_commit=PIN)
+        self.assertEqual(p['snapshot_sha256'],digest(raw+b'\n'))
+        self.assertEqual(p['charged_sat'],run(s,r)['charged_sat'])
     def test_wrong_native_source(self):self.reject(lambda s,r:r.update(product_commit='2'*40))
     def test_wrong_release_source(self):self.reject(lambda s,r:r['execution_release'].update(product_commit='2'*40))
     def test_extra_ready_flag(self):self.reject(lambda s,r:s.update(ready=True))
