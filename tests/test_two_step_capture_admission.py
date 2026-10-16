@@ -41,6 +41,14 @@ class AdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'qualification'):self.capture.admission(self.store,{'financial_pins':PINS})
         self.target.command=('/usr/bin/ssh','actual-owned-target');self.member.configuration['helper_command'][-1]='/other/helper.py'
         with self.assertRaisesRegex(ValueError,'qualification'):self.capture.admission(self.store,{'financial_pins':PINS})
+    def test_pending_transport_config_cannot_enable_unadmitted_or_other_tool(self):
+        self.member.configuration['pending_board_proof_sha256']='a'*64
+        self.value['reader_configuration_sha256']=digest(canonical({'target':{'command':list(self.target.command),'evidence_directory':str(self.target.evidence_directory),'timeout':45},'member':self.member.configuration}).encode())
+        self.store.event('normal_financial_collector_qualified',self.value);self.capture.admission_sequence=self.store.db.execute('SELECT max(sequence)FROM event').fetchone()[0]
+        with self.assertRaisesRegex(ValueError,'qualification'):self.capture.admission(self.store,{'financial_pins':PINS})
+        self.value['proof_tool_sha256']={'pending':'a'*64}
+        self.store.event('normal_financial_collector_qualified',self.value);self.capture.admission_sequence=self.store.db.execute('SELECT max(sequence)FROM event').fetchone()[0]
+        self.assertEqual(self.value,self.capture.admission(self.store,{'financial_pins':PINS}))
     def test_dependency_override_and_boundary_substitution_refuse(self):
         with self.assertRaisesRegex(ValueError,'overridden'):
             SourceCapture(self.target.read,self.member.read,self.sequence,self.boundary,self.config,dependencies={'member_reader':module_hash})
@@ -88,3 +96,22 @@ class AdmissionTests(unittest.TestCase):
         self.capture.admission_sequence=self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
         with self.assertRaisesRegex(ValueError,'qualification'):
             self.capture.admission(self.store,{'financial_pins':PINS})
+    def test_factory_refuses_pending_hash_before_constructing_any_reader(self):
+        from simulator.two_step_normal_factory import build_collector
+        for member,tools in [({'pending_board_proof_sha256':'a'*64},{}),
+                ({},{'pending':{'sha256':'a'*64}}),
+                ({'pending_board_proof_sha256':'b'*64},{'pending':{'sha256':'a'*64}})]:
+            with self.subTest(member=member,tools=tools),self.assertRaisesRegex(ValueError,'exact installed admitted'):
+                build_collector(self.store,admission_sequence=self.sequence,boundary=self.boundary,
+                    capture_configuration={},target_configuration={},member_configuration=member,tools=tools)
+    def test_pool_config_requires_immutable_reader_and_collector_binding(self):
+        self.member.configuration['ordinary_pool']={'classifier_sha256':'a'*64}
+        self.value['reader_configuration_sha256']=digest(canonical({'target':{'command':list(self.target.command),
+            'evidence_directory':str(self.target.evidence_directory),'timeout':45},'member':self.member.configuration}).encode())
+        self.store.event('normal_financial_collector_qualified',self.value);self.capture.admission_sequence=self.store.db.execute('SELECT max(sequence)FROM event').fetchone()[0]
+        with self.assertRaisesRegex(ValueError,'qualification'):self.capture.admission(self.store,{'financial_pins':PINS})
+        self.value['ordinary_pool']=copy.deepcopy(self.member.configuration['ordinary_pool'])
+        self.store.event('normal_financial_collector_qualified',self.value);self.capture.admission_sequence=self.store.db.execute('SELECT max(sequence)FROM event').fetchone()[0]
+        self.capture.admission(self.store,{'financial_pins':PINS})
+        self.member.configuration['ordinary_pool']['maximum_exit_depth']=999
+        with self.assertRaisesRegex(ValueError,'qualification'):self.capture.admission(self.store,{'financial_pins':PINS})
