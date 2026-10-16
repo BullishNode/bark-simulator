@@ -103,6 +103,9 @@ async def collect(store, config, chain, snapshot, collector):
     # Report the real quote even above a quiet ceiling. The existing preflight
     # decides each operation's affordability and preserves separate urgent paths.
     ending = _tip(chain, config)
+    completed = time.time()
+    if not 0 <= completed-started <= 90:
+        raise EvidenceGap('normal financial aggregate deadline exceeded during final independent tip read')
     if ((ending['blocks'], ending['bestblockhash']) !=
             (before['blocks'], before['bestblockhash'])):
         raise EvidenceGap('independent chain changed during normal source verification')

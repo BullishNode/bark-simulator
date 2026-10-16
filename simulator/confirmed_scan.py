@@ -14,6 +14,8 @@ from .trace import normalized, partition_paths, readonly, record_hash, public_ra
 
 KEY='last_complete_confirmed_descriptor_scan'
 KIND='confirmed_descriptor_scan_verified'
+MAX_SCRIPTS=2000
+MIN_DESCRIPTOR_SCRIPTS=20
 
 
 def _digest(value):return hashlib.sha256(canonical(value).encode()).hexdigest()
@@ -88,17 +90,21 @@ def _identity(store,config,chain,current,*,pins,boundary_id,members):
 
 
 def _coverage(members,specs):
+    from .treasury import MAX_MEMBERS
     owners={};coverage=[]
-    if (not isinstance(members,list) or not 1<=len(members)<=16 or len({member['id'] for member in members})!=len(members)):raise ValueError('bounded confirmed scan owners required')
+    if (not isinstance(members,list) or not 1<=len(members)<=MAX_MEMBERS or len({member['id'] for member in members})!=len(members)):raise ValueError('bounded confirmed scan owners required')
     for member in sorted(members,key=lambda row:row['id']):
         for index,descriptor in enumerate(member['descriptors']):
             interval=specs.get(descriptor)
             if (descriptor in owners or not isinstance(descriptor,str) or not 1<=len(descriptor)<=4096
                     or not isinstance(interval,list) or len(interval)!=2 or interval[0]!=0 or type(interval[0]) is not int
-                    or type(interval[1]) is not int or not 19<=interval[1]<2000):raise ValueError('complete bounded descriptor coverage required')
+                    or type(interval[1]) is not int or not MIN_DESCRIPTOR_SCRIPTS-1<=interval[1]<MAX_SCRIPTS):raise ValueError('complete bounded descriptor coverage required')
             owners[descriptor]={'member_id':member['id'],'descriptor_index':index}
             coverage.append({'desc':descriptor,'range':list(interval)})
-    if (not 1<=len(coverage)<=16 or sum(row['range'][1]+1 for row in coverage)>2000
+    # Each descriptor contributes at least twenty scripts. The unchanged total
+    # script budget therefore bounds descriptor work without truncating the
+    # declared twelve/twenty-four-client cohort or descriptorless LN members.
+    if (not 1<=len(coverage)<=MAX_SCRIPTS//MIN_DESCRIPTOR_SCRIPTS or sum(row['range'][1]+1 for row in coverage)>MAX_SCRIPTS
             or set(specs)!=set(owners)):raise ValueError('confirmed descriptor/script bound or membership differs')
     return owners,coverage
 
