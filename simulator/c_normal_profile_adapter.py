@@ -83,14 +83,24 @@ class DirectPerKeyProfile:
     public_context_filename = 'c-public-metadata-context.json'
     backing_source_kind = 'c_native_current_backing'
 
-    def __init__(self, target, *, runtime=None):
+    def __init__(self, target, *, runtime=None, owning=None, cln=None):
         if type(target) is not CheckedTargetReader:
             raise EvidenceGap('fixed C checked-target reader required')
         from .c_normal_runtime_source import RuntimeSource
         if runtime is not None and type(runtime) is not RuntimeSource:
             raise EvidenceGap('fixed admitted C runtime producer required')
         self.target = target
+        from .c_normal_owning_join import OwningBinding
+        if owning is not None:
+            if type(owning) is not OwningBinding:raise EvidenceGap('fixed C owning source binding required')
+            owning.check()
         self.runtime = runtime
+        self.owning = owning
+        from .c_normal_cln_join import ClnBinding
+        if cln is not None:
+            if type(cln) is not ClnBinding:raise EvidenceGap('fixed C two-host CLN binding required')
+            cln.check()
+        self.cln = cln
 
     def component_hashes(self):
         result = {'c_profile':digest(Path(__file__).read_bytes()),
@@ -109,7 +119,26 @@ class DirectPerKeyProfile:
             result['c_runtime_constructor_sha256']=digest(canonical({
                 'configuration':self.runtime.configuration,
                 'qualification_sequence':self.runtime.qualification_sequence}).encode())
+        if self.owning is not None:
+            from .c_normal_owning_join import collect
+            result['c_owning_join']=module_hash(collect)
+            result['c_owning_constructor_sha256']=digest(canonical(self.owning.check()).encode())
+        if self.cln is not None:
+            from .c_normal_cln_join import collect
+            result['c_cln_join']=module_hash(collect)
+            result['c_cln_constructor_sha256']=digest(canonical(self.cln.check()).encode())
         return result
+
+    async def collect_cln(self,store,config,chain,observation,boundary,checked,runtime,owning):
+        if self.cln is None:raise EvidenceGap('actual fixed C two-host CLN source is not installed')
+        from .c_normal_cln_join import collect
+        return await collect(store,config,chain,observation,boundary=boundary,checked=checked,
+            runtime=runtime,owning=owning,binding=self.cln)
+
+    async def collect_owning(self,store,config,chain,observation,boundary,checked,runtime):
+        if self.owning is None:raise EvidenceGap('actual fixed C owning source is not installed')
+        from .c_normal_owning_join import collect
+        return await collect(store,config,chain,observation,boundary=boundary,checked=checked,runtime=runtime,binding=self.owning)
 
     async def collect_runtime(self, store, config, chain, observation, checked):
         if (checked.get('kind')!='c-checked-native-target-source'
