@@ -103,15 +103,21 @@ def declare_envelope(store,declaration,config,inventory_sequences,chain):
 def envelope(store,config):
     value=store.get_meta(KEY)
     if value is None:raise ValueError('financial operating limits not declared')
-    declaration=json.loads(value);validate(declaration,config)
+    declaration=json.loads(value)
     rows=store.db.execute("SELECT payload FROM event WHERE kind='financial_operating_envelope_declared'").fetchall()
     if len(rows)!=1 or json.loads(rows[0][0])['declaration']!=declaration:
         raise ValueError('financial limits differ from original declaration')
+    from .preserved_treasury_upgrade import envelope as upgraded_envelope
+    declaration=upgraded_envelope(store,declaration)
+    validate(declaration,config)
     return declaration
 
 
 def fee_totals(store,pins,*,reserved_action_id=None):
     """Deduplicate original miner/router costs and hold each unfinished action once."""
+    from .preserved_treasury_upgrade import fee_totals as upgraded_totals
+    upgraded=upgraded_totals(store,pins,reserved_action_id=reserved_action_id)
+    if upgraded is not None:return upgraded
     from .financial_transition import recorded
     opening=recorded(store)
     old=set(opening['declaration']['history']['action_ids']) if opening else set()
