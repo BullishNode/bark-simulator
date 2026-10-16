@@ -273,7 +273,15 @@ def _run(argv, maximum=2*1024*1024, *, timeout=8):
     finally:
         try:
             if root is not None:
-                _stop_command(process, root, end)
+                try:
+                    _stop_command(process, root, end)
+                finally:
+                    # Keep the retained direct-child pidfd usable even if
+                    # descendant discovery or its initial signal fails.
+                    if process.poll() is None:
+                        try: signal.pidfd_send_signal(owned_fd, signal.SIGKILL)
+                        except ProcessLookupError: pass
+                        process.wait(timeout=max(.001, end-time.monotonic()))
             else:
                 # A setup failure must still reap the exact direct Popen child.
                 # Before wait(), it cannot have been reaped and reused here.

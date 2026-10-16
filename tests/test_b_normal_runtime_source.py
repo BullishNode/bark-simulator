@@ -319,6 +319,14 @@ class CaptureCleanupRegressionTests(unittest.TestCase):
                     runtime._run([sys.executable, '-c', 'pass'])
         self.run_tracked(body)
 
+    def test_initial_cleanup_signal_failure_still_reaps_direct_child(self):
+        import sys
+        def body():
+            with patch.object(runtime, '_stop_command', side_effect=ValueError('initial stop failed')):
+                with self.assertRaisesRegex(ValueError, 'initial stop'):
+                    runtime._run([sys.executable, '-c', 'import time; time.sleep(10)'])
+        self.run_tracked(body)
+
     def test_discovery_failure_still_reaps_direct_child(self):
         import sys
         def body():
