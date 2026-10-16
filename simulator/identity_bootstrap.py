@@ -240,6 +240,8 @@ def eligible(store, config, snapshot, action=None):
     proof = declaration(store)
     if proof is None or not pending(store): return False
     value = proof['declaration']
+    from .c_cohort import validate_original_unfunded_create
+    validate_original_unfunded_create(store,action)
     _context(config, value)
     if _root(value['wallet_root']) != proof['filesystem']: raise ValueError('bootstrap root identity changed')
     _sole_writer(value['wallet_root'])

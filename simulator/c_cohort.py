@@ -153,6 +153,140 @@ def seal_pilot(store,config,chain,*,source_sequence):
     return True
 
 
+
+def _no_money(store):
+    """Prospective path only: no financial intent, signed state or budget debit."""
+    if store.db.execute("SELECT 1 FROM action WHERE operation!='create' OR state!='completed' OR actual_fee_sat!=0 OR fee_reservation_sat!=0 LIMIT 1").fetchone():
+        raise ValueError('pre-money opening permits completed zero-fee creates only')
+    for table in ('funding_batch','owned_coin','movement_evidence'):
+        if store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
+            if store.db.execute('SELECT 1 FROM '+table+' LIMIT 1').fetchone():
+                raise ValueError('preserved funded path required over existing '+table)
+    if store.db.execute("SELECT 1 FROM event WHERE kind IN ('fixture_funding_intent','fixture_funding_prepared','fixture_funding_broadcast_intent','closed_cohort_funding_intent','financial_cost_verified','ark_transfer_verified','board_funded') LIMIT 1").fetchone():
+        raise ValueError('pre-money opening cannot replace original financial history')
+    if store.get_meta('final_financial_epoch') is not None or store.get_meta('qualified_campaign_active_seconds') not in (None,'0'):
+        raise ValueError('pre-money opening cannot reset epoch or clock')
+
+
+def seal_unfunded(store,config,chain):
+    """Preserve actual original create01; no pilot payment detour is required.
+
+    This requires the original independently verified zero-asset receipt and all
+    51 native key acknowledgements. It never recreates, opens or funds a wallet.
+    The source must match the independently observed current tip. A missing zero
+    proof remains a hold, including the actual namespace before reconciliation.
+    """
+    previous=seal(store)
+    if previous is not None:
+        if previous.get('opening_kind')!='unfunded_initial12':
+            raise ValueError('preserve existing funded opening')
+        return False
+    _quiescent(store);_no_money(store)
+    from .c_pilot import declaration
+    from .identity_bootstrap import declaration as bootstrap,_context,_root,_sole_writer
+    pilot=declaration(store);original=bootstrap(store)
+    if original is None or original['declaration']['actors']!=['actor-01','actor-02']:
+        raise ValueError('original two-actor identity declaration required')
+    _context(config,original['declaration'],store=store)
+    root=original['declaration']['wallet_root'];_sole_writer(root)
+    if _root(root)!=original['filesystem']:raise ValueError('original wallet root changed')
+    actions=[dict(row) for row in store.db.execute('SELECT * FROM action ORDER BY id')]
+    if len(actions)!=1 or actions[0]['id']!='c_create_01' or actions[0]['actor_id']!='actor-01':
+        raise ValueError('exact once-completed original c_create_01 required')
+    rows=store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_zero_assets_verified' AND json_extract(payload,'$.actor')='actor-01'").fetchall()
+    if len(rows)!=1:raise ValueError('original actor01 independent zero-asset proof required')
+    event,zero=_source_event(store,rows[0][0])
+    if (zero.get('action_id')!='c_create_01' or zero.get('bootstrap_id')!=original['declaration']['id']
+            or zero.get('bootstrap_declaration_sha256')!=_digest(original['declaration'])
+            or zero.get('financial_pins')!=pilot['pins'] or zero.get('complete') is not True
+            or zero.get('zero_assets') is not True or zero.get('confirmed_assets_sat')!=0
+            or zero.get('unconfirmed_assets_sat')!=0):
+        raise ValueError('original actor01 zero source context differs')
+    native_event,native=_source_event(store,zero.get('driver_response_sequence'))
+    response=native.get('response',{})
+    if (native_event['kind']!='driver_response' or native.get('action_id')!='c_create_01'
+            or response.get('action_id')!='c_create_01' or response.get('status')!='ok'
+            or response.get('actual_fee_sat')!=0 or json.loads(actions[0]['result'])!=response
+            or _digest(response)!=zero.get('native_response_sha256')
+            or native_event['hash']!=zero.get('source_event_hash')):
+        raise ValueError('original completed create body differs')
+    _verify_key_sources(store,'actor-01','c_create_01',response.get('data',{}),pilot['pins'])
+    descriptors=zero.get('descriptors')
+    if (not isinstance(descriptors,list) or len(descriptors)!=1
+            or descriptors!=response['data'].get('onchain_inventory',{}).get('descriptors')
+            or descriptors[0].get('keychain')!='external'):
+        raise ValueError('original public owning descriptor source required')
+    derived=chain.call('deriveaddresses',descriptors[0]['descriptor'],[0,0])
+    if not isinstance(derived,list) or len(derived)!=1:
+        raise ValueError('independent native external0 payout derivation required')
+    address=chain.call('validateaddress',derived[0])
+    if address.get('isvalid') is not True or address.get('scriptPubKey')!=response['data']['binding']['spk']:
+        raise ValueError('original immutable payout differs from independent external0')
+    from .owned_mempool import verify as verify_activity
+    from .model import SIGNET_GENESIS
+    verify_activity(store,zero.get('mempool_activity'),expected_context={
+        'collector':'identity_bootstrap_zero_assets','actor':'actor-01','action_id':'c_create_01',
+        'height':zero['height'],'tip_hash':zero['tip_hash'],'genesis':SIGNET_GENESIS,
+        'native_response_sha256':zero['native_response_sha256'],
+        'bootstrap_declaration_sha256':_digest(original['declaration'])})
+    import time
+    tip=chain.identity()
+    if (tip.get('chain')!='signet' or tip.get('initialblockdownload') is not False
+            or (tip['blocks'],tip['bestblockhash'])!=(zero['height'],zero['tip_hash'])
+            or not 0<=time.time()-zero.get('observed_at',0)<=90):
+        raise ValueError('current independently verified original actor01 zero source required')
+    last=store.db.execute('SELECT sequence,hash FROM event ORDER BY sequence DESC LIMIT 1').fetchone()
+    value={'opening_kind':'unfunded_initial12','source_sequence':event['sequence'],
+        'pilot_sha256':_digest(pilot),'bootstrap_sha256':_digest(original),'pins':pilot['pins'],
+        'wallet_root':root,'wallet_root_identity':_root(root),'checkpoint':dict(last),
+        'actions':{row['id']:_digest(row) for row in actions},'cost_sources':{},
+        'used_fees_msat':{'ordinary':0,'urgent':0},'funding_credits_sat':{'watchman':0},
+        'pending_original_create_ids':{'actor-02':'c_create_02'},
+        'height':zero['height'],'tip_hash':zero['tip_hash'],
+        'scope':'original unfunded identity preservation only; no funding/readiness authority'}
+    public_payload(value)
+    with store.transaction():
+        _quiescent(store);_no_money(store)
+        if store.get_meta(SEAL_KEY) is not None:raise ValueError('opening concurrent writer')
+        _checkpoint(store,value['checkpoint'])
+        store.db.execute('INSERT INTO meta VALUES (?,?)',(SEAL_KEY,canonical(value)))
+        store._event(SEAL_EVENT,value)
+    return True
+
+
+def validate_original_unfunded_create(store,action):
+    """Keep original predeclared02 ID; existing01 is never admitted again."""
+    if architecture(store)!=DIRECT_PER_KEY:return
+    opening=seal(store)
+    if opening is None or opening.get('opening_kind')!='unfunded_initial12':return
+    if action is not None and (action.get('actor_id')!='actor-02' or action.get('id')!='c_create_02'):
+        raise ValueError('preserve original pending c_create_02; never retry01')
+
+
+def prospective_funding_policy(store):
+    """Exact direct-initial12 contract for the root-owned collector integration.
+
+    A declaration is no financial permission. Actual complete original12 source,
+    immutable first funding plan and all ordinary preflight checks are required.
+    """
+    value=cohort_profile(store);opening=seal(store)
+    if value is None or opening.get('opening_kind')!='unfunded_initial12':
+        raise ValueError('explicit unfunded initial12 profile required')
+    from .c_pilot import declaration
+    from .c_escrow import effective_opening_sat
+    pilot=declaration(store)
+    return {'customers':set(INITIAL),'amounts':{**{actor:25000 for actor in INITIAL},'watchman':100000},
+        'profile_id':value['id'],'pilot_id':pilot['id'],'boundary_id':pilot['boundary_id'],
+        'opening_sat':effective_opening_sat(store),'urgent_isolation_qualified':False,
+        'principal_sat':400000,'client_principal_sat':300000,
+        'operator_fee_grants_sat':{'rounds':0,'watchman':100000},'fee_signer_member':'watchman',
+        'ordinary_budget_sat':60000,'urgent_budget_sat':40000,'maximum_fee_sat':1000,
+        'maximum_rate_sat_kvb':20000,'grant_sat':25000,'board_sat':20000,'board_fee_reserve_sat':1000,
+        'pins':value['pins'],'opening_kind':'unfunded_initial12','seal_sequence':value['seal_sequence'],
+        'required_source_actors':list(INITIAL),'retained_create_ids':{'actor-01':'c_create_01','actor-02':'c_create_02'},
+        'scope':'source contract only; root finite-funding integration and complete12 source remain required'}
+
+
 def cohort_profile(store):
     encoded=store.get_meta(PROFILE_KEY)
     rows=store.db.execute('SELECT sequence FROM event WHERE kind=?',(PROFILE_EVENT,)).fetchall()
@@ -286,6 +420,16 @@ def declare_enrollment(store,config,phase,*,identifier,actions):
         if previous['declaration']['id']!=identifier or previous['actions']!=actions:
             raise ValueError('cohort enrollment and create IDs immutable')
         return False
+    opening=seal(store)
+    if phase=='initial' and opening.get('opening_kind')=='unfunded_initial12':
+        from .identity_bootstrap import pending
+        if pending(store):raise ValueError('original01/02 zero-asset proofs required before extra10')
+        rows=store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_zero_assets_verified' AND json_extract(payload,'$.actor')='actor-02'").fetchall()
+        if len(rows)!=1:raise ValueError('original c_create_02 zero source required')
+        _,zero=_source_event(store,rows[0][0])
+        if zero.get('action_id')!='c_create_02':raise ValueError('original02 create ID changed')
+        _,native=_source_event(store,zero['driver_response_sequence'])
+        _verify_key_sources(store,'actor-02','c_create_02',native['response'].get('data',{}),selected['pins'])
     if phase=='ramp' and not enrollment_complete(store,'initial'):
         raise ValueError('all initial new identities require original checked sources')
     from pathlib import Path
@@ -484,8 +628,12 @@ def verify_native_identity(store,actor,action_id,data):
     """Consume all native acknowledgements and already independently checked keys."""
     current=enrollment_for_actor(store,actor)
     if current is None or current['actions'][actor]!=action_id:raise ValueError('declared cohort identity required')
+    return _verify_key_sources(store,actor,action_id,data,current['declaration']['pins'])
+
+
+def _verify_key_sources(store,actor,action_id,data,pins):
     from .per_key import initial_origins,binding_matches,proof_matches
-    origins=initial_origins(data);binding=data['binding'];pins=current['declaration']['pins']
+    origins=initial_origins(data);binding=data['binding']
     rows=store.db.execute("SELECT sequence FROM event WHERE kind='public_ownership_verified' AND json_extract(payload,'$.action_id')=?",(action_id,)).fetchall()
     if len(rows)!=1:raise ValueError('unique original native signature verification source required')
     _,proof_source=_source_event(store,rows[0][0])
