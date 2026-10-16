@@ -1,5 +1,6 @@
 """Synthetic source controls only. No actual signatures/native/Core qualification."""
 import copy
+import asyncio
 import sqlite3
 import time
 import unittest
@@ -45,6 +46,26 @@ class DirectControls(unittest.TestCase):
         self.assertEqual(txid, result['groups'][0]['transaction']['txid'])
         self.assertEqual(0, result['outstanding_liability_sat'])
         self.assertEqual(19670, sum(row['amount_sat'] for row in result['liabilities']))
+    def test_captured_descriptor_scan_replays_original_raw_trace_without_write(self):
+        from simulator import confirmed_scan
+        frame = asyncio.run(self.f.collect())
+        provenance = frame['confirmed_scan']; specs = {row['desc']: row['range'] for row in frame['descriptor_ranges']}
+        context = {'owners': self.f.members, 'scope': 'synthetic immutable actual epoch'}
+        before = self.store.db.total_changes
+        with patch.object(confirmed_scan, '_identity', return_value=context):
+            scripts, result = native.captured_scan(self.store, self.f.config, self.f.chain, self.f.current,
+                sequence=provenance['original_scan_sequence'], pins=frame['financial_pins'],
+                boundary_id=frame['boundary_id'], members=self.f.members, specs=specs,
+                tip=(self.f.height, self.f.tip))
+        self.assertEqual(before, self.store.db.total_changes)
+        self.assertEqual(124, len(scripts)); self.assertEqual(6, len(result['unspents']))
+        self.assertIn(self.f.script('watchman:21'), scripts)
+        with patch.object(confirmed_scan, '_identity', return_value={**context, 'scope': 'changed'}):
+            with self.assertRaisesRegex(EvidenceGap, 'identity/context'):
+                native.captured_scan(self.store, self.f.config, self.f.chain, self.f.current,
+                    sequence=provenance['original_scan_sequence'], pins=frame['financial_pins'],
+                    boundary_id=frame['boundary_id'], members=self.f.members, specs=specs,
+                    tip=(self.f.height, self.f.tip))
     def test_other_architecture_is_not_implicitly_admitted(self):
         with patch.object(native, 'profile', return_value='direct_per_key'):
             with self.assertRaisesRegex(EvidenceGap, 'requires direct_xpub'): self.run_snapshot()
@@ -115,6 +136,48 @@ class MonetaryControls(unittest.TestCase):
             with self.assertRaisesRegex(EvidenceGap, 'independent miner fee differs'):
                 native.original_costs(SimpleNamespace(db=db), chain)
         db.close()
+    def budget(self):
+        import hashlib, os
+        from simulator.model import SIGNET_GENESIS
+        txid = 'a'*64; raw = (txid+'\n').encode(); sha = hashlib.sha256(raw).hexdigest()
+        disk = {'network':'signet','genesis':SIGNET_GENESIS,'server_pubkey':'02'+'1'*64,
+            'policy_sha256':'b'*64,'opening_sha256':'c'*64,'budget_file_sha256':'d'*64,
+            'history_prefix_bytes':65,'history_prefix_sha256':sha,'accounting_receipt_sha256':'e'*64,
+            'opening_native_spent_sat':4985,'opening_external_spent_sat':879,
+            'external_future_reserved_sat':20000,'ordinary_budget_sat':60000,'urgent_reserve_sat':15000,
+            'opening_charge_sat':25864,'reserved_ceiling_sum_sat':0,'attempt_count':0,
+            'total_charged_sat':25864,'remaining_ordinary_allowance_sat':34136,
+            **{key:False for key in ('runtime_loaded_identity_verified','retained_signed_fee_coverage_verified',
+                'urgent_selection_isolation_verified','complete','qualified')}}
+        files = {name:{'device':os.makedev(0,44),'inode':1234+i,'sha256':digest} for i,(name,digest) in enumerate([
+            ('ordinary-fee-budget','d'*64),('ordinary-fee-opening.json','c'*64),('ordinary-fee-policy.json','b'*64)])}
+        runtime = {'daemons':{'watchmand':{'pid':321}},'native_budget':{'disk_budget':disk,'files':files,
+            'lock':{'pid':321,'device':os.makedev(0,44),'inode':1234,
+                'lock_line':'lock:\t1: FLOCK  ADVISORY  WRITE 321 00:2c:1234 0 EOF'},
+            'history':{'txids':[txid],'bytes':65,'sha256':sha,'prefix_bytes':65,'prefix_sha256':sha},
+            'accounting_receipt_sha256':'e'*64}}
+        costs = [{'sequence':seq,'txid':tid,'amount_msat':fee*1000,'budget':'ordinary',
+            'direct_payment_sequence':2946 if seq==2947 else None} for seq,tid,fee in [
+            (234,'1'*64,708),(600,'2'*64,171),(2947,txid,4985),(4117,'3'*64,2378)]]
+        groups = [{'versions':{txid:{'txid':txid,'fee_sat':4985}}}]
+        return runtime,costs,groups
+    def test_loaded_lock_retained_history_and_original_costs_join_without_reset(self):
+        runtime,costs,groups = self.budget()
+        result = native.require_native_budget_join(runtime,server_pubkey='02'+'1'*64,
+            costs=costs,groups=groups,accounting_receipt_sha256='e'*64)
+        self.assertEqual(34136,result['native_remaining_allowance_sat'])
+        self.assertEqual(17622,result['external_future_partition_remaining_sat'])
+        self.assertEqual(60000,result['ordinary_budget_sat'])
+    def test_wrong_lock_missing_version_or_undercharged_opening_hold(self):
+        runtime,costs,groups = self.budget(); runtime['native_budget']['lock']['pid']=322
+        with self.assertRaisesRegex(EvidenceGap,'FLOCK'):native.require_native_budget_join(runtime,
+            server_pubkey='02'+'1'*64,costs=costs,groups=groups,accounting_receipt_sha256='e'*64)
+        runtime,costs,groups = self.budget();groups[0]['versions']={}
+        with self.assertRaisesRegex(EvidenceGap,'extra or missing'):native.require_native_budget_join(runtime,
+            server_pubkey='02'+'1'*64,costs=costs,groups=groups,accounting_receipt_sha256='e'*64)
+        runtime,costs,groups = self.budget();runtime['native_budget']['disk_budget']['opening_external_spent_sat']=0
+        with self.assertRaisesRegex(EvidenceGap,'external costs lost'):native.require_native_budget_join(runtime,
+            server_pubkey='02'+'1'*64,costs=costs,groups=groups,accounting_receipt_sha256='e'*64)
     def test_disk_false_or_caller_true_flags_never_prove_loaded_budget(self):
         for value in [None, {'disk_budget': {'complete': True, 'qualified': True}, 'runtime_loaded_identity_verified': True}]:
             with self.assertRaises(EvidenceGap): native.require_native_budget_join(value)
