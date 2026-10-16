@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -177,6 +178,23 @@ class SignetTests(unittest.TestCase):
             command("send", {"destination": "bitcoin:tb1qqqq", "amount_sat": 1}, self.config)
         with self.assertRaises(ValueError):
             command("create", {"force": True}, self.config)
+
+    def test_process_identity_does_not_mistake_reopening_an_object_for_restart(self):
+        first = self.campaign.controller_id
+        config_path = self.root / "config.json"
+        config_path.write_text(json.dumps(self.config))
+        config_path.chmod(0o600)
+        self.campaign.close()
+        self.campaign = Campaign(self.root / "campaign", self.config)
+        self.assertEqual(self.campaign.controller_id, first)
+        child = subprocess.check_output([
+            sys.executable, "-c",
+            "import json,sys; from pathlib import Path; from simulator.signet import Campaign; "
+            "c=Campaign(Path(sys.argv[1]),json.loads(Path(sys.argv[2]).read_text())); "
+            "print(c.controller_id); c.close()",
+            str(self.root / "campaign"), str(config_path),
+        ], text=True).strip()
+        self.assertNotEqual(child, first)
 
 
 if __name__ == "__main__":

@@ -94,10 +94,21 @@ class S01:
                     except ValueError as error:
                         proofs.append({"coin_id": coin["id"], "status": "UNAVAILABLE",
                                        "diagnostic": type(error).__name__})
-        return {"case": "S01", "stage": "NATIVE_TRANSFER_OBSERVED", "evidence": check,
+        signed = proofs and all(p["status"] == "PASS" for p in proofs)
+        original = self.campaign.db.execute("SELECT controller_id FROM action_context WHERE intent='s01-transfer'").fetchone()
+        restarted = original is not None and original[0] != self.campaign.controller_id
+        outcome = {"case": "S01", "stage": "NATIVE_TRANSFER_OBSERVED", "evidence": check,
                 "signature_proofs": proofs,
-                "signature_path_verification": "PASS" if proofs and all(p["status"] == "PASS" for p in proofs)
-                else "INCOMPLETE"}
+                "signature_path_verification": "PASS" if signed else "INCOMPLETE",
+                "controller_restart_observed": restarted, "case_verdict": "INCOMPLETE"}
+        if signed and restarted:
+            outcome.update({"kind": "case_result", "stage": "COMPLETE", "case_verdict": "PASS",
+                            "scope": "S01 native registration, boarding, transfer, signed ownership, confirmed backing and controller restart; fallback not exercised."})
+            self.campaign.db.execute("INSERT OR IGNORE INTO result VALUES ('s01-native-complete',?,?)",
+                                     (time.time(), canonical(outcome)))
+        elif signed:
+            outcome["dependency"] = "Run s01-step from a new controller process to verify retained transfer state without reissuing it."
+        return outcome
 
     def advance(self) -> dict:
         campaign = self.campaign

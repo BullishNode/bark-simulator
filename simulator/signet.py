@@ -190,6 +190,11 @@ class Campaign:
         os.chmod(directory, 0o700)
         self.root = directory
         self.config = config
+        # Linux process identity survives object recreation but changes on a
+        # real controller restart, including PID reuse after reboot.
+        start_ticks = Path("/proc/self/stat").read_text().rsplit(")", 1)[1].split()[19]
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        self.controller_id = hashlib.sha256(f"{boot}:{os.getpid()}:{start_ticks}".encode()).hexdigest()
         if (set(config) != {"source_commit", "binary", "binary_sha256", "ark_url", "core_url",
                            "core_credential", "product_config_sha256"}
                 or not re.fullmatch(r"[0-9a-f]{40}", config["source_commit"])
@@ -221,6 +226,10 @@ class Campaign:
                 intent TEXT NOT NULL, kind TEXT NOT NULL, relative_path TEXT NOT NULL,
                 sha256 TEXT NOT NULL, bytes INTEGER NOT NULL, truncated INTEGER NOT NULL,
                 PRIMARY KEY(intent,kind));
+            CREATE TABLE IF NOT EXISTS action_context(
+                intent TEXT PRIMARY KEY, controller_id TEXT NOT NULL,
+                source_commit TEXT NOT NULL, binary_sha256 TEXT NOT NULL,
+                product_config_sha256 TEXT NOT NULL);
         """)
         fingerprint = canonical(config)
         self.db.execute("INSERT OR IGNORE INTO meta VALUES ('config',?)", (fingerprint,))
@@ -290,6 +299,9 @@ class Campaign:
             self.db.execute("INSERT INTO action VALUES (?,?,?,?,?,?,?,?,?,?)", (
                 intent, actor, operation, canonical(args), "dispatched", now, now,
                 canonical(chain), None, None))
+            self.db.execute("INSERT INTO action_context VALUES (?,?,?,?,?)", (
+                intent, self.controller_id, self.config["source_commit"], self.config["binary_sha256"],
+                self.config["product_config_sha256"]))
             self.db.execute("COMMIT")  # Durable before starting the native process.
         except BaseException:
             if self.db.in_transaction:
@@ -394,14 +406,17 @@ class Campaign:
             for key in ("arguments", "chain", "reply"):
                 if row[key] is not None:
                     row[key] = json.loads(row[key])
+        results = [json.loads(row[0]) for row in self.db.execute("SELECT payload FROM result ORDER BY observed,id")]
+        cases = [result for result in results if result.get("kind") == "case_result"]
         return {"source_commit": self.config["source_commit"],
                 "binary_sha256": self.config["binary_sha256"],
                 "product_config_sha256": self.config["product_config_sha256"],
                 "network": "public-signet", "actions": rows,
-                "results": [json.loads(row[0]) for row in self.db.execute("SELECT payload FROM result ORDER BY observed,id")],
+                "results": results, "cases": cases,
+                "action_contexts": [dict(row) for row in self.db.execute("SELECT * FROM action_context ORDER BY intent")],
                 "protected_artifacts": [dict(row) for row in self.db.execute(
                     "SELECT * FROM native_artifact ORDER BY intent,kind")],
-                "case_verdict": "NOT_EVALUATED",
+                "case_verdict": "SEE_CASE_RESULTS" if cases else "NOT_EVALUATED",
                 "note": "Native acknowledgements are not proof of terminal payment or fallback."}
 
 

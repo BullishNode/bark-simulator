@@ -169,6 +169,14 @@ Core backing match. It still reports the exact signature-verification coverage;
 native signed-path verification is being connected through the product's own
 `dev vtxo verify` command. There is no global qualified-time gate.
 
+Once signed-path and original-destination proofs pass, invoke `s01-step` from a
+new controller process. The original transfer intent must be retained unchanged.
+Only then does S01 record `COMPLETE / PASS`, scoped to this native ordinary-flow
+case. It does not claim fallback or production readiness. On Linux, controller
+identity hashes the actual boot ID, PID and `/proc` process start time; recreating
+a Python object in the same process cannot satisfy this restart observation.
+Each dispatch records that identity and its exact source/executable/config pins.
+
 The verifier transport now invokes `bark dev vtxo verify SERIALIZED_VTXO
 RAW_FUNDING_TRANSACTION` without `--datadir`, so this verification itself opens
 no wallet. It uses the same pinned executable, requires the exact returned coin
