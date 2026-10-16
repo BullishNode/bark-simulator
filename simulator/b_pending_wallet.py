@@ -52,7 +52,14 @@ def owning_projection(member,native,*,scripts,scan,versions,chain,tip):
             need(type(coin.get(flag))is bool,'actual '+flag+' absent')
         if point in outputs:
             need(coin['confirmations']==0 and coin['confirmed_fee_eligible']is False,'pending change cannot fund fees')
-        else:need(coin['confirmations']>=1,'unclassified unconfirmed output')
+        else:
+            need(coin['confirmations']>=1,'unclassified unconfirmed output')
+            txid,index=point.rsplit(':',1);actual=chain.call('gettxout',txid,int(index),False)
+            from .model import btc_to_sat
+            need(actual is not None and actual.get('confirmations')==coin['confirmations']
+                and btc_to_sat(actual['value'])==coin['value_sat']
+                and actual['scriptPubKey']['hex']==coin['script_pubkey'],
+                'actual confirmed owning UTXO position/value differs')
         seen[point]=(coin['value_sat'],coin['script_pubkey'])
     need(seen==expected,'whole native unspent graph differs from Core confirmed cut plus pending edges')
     reserved=set(native['reserved_outpoints'])

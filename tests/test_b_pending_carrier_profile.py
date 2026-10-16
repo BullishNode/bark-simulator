@@ -136,6 +136,10 @@ class PendingCarrierControls(unittest.TestCase):
         del self.f.raw[self.txid]
         with self.assertRaisesRegex(EvidenceGap,'outcome unavailable|missing current Core'):self.collect()
 
+    def test_retained_operator_script_cannot_replace_current_descriptor_ownership(self):
+        self.f.store.db.execute('INSERT INTO operator_script VALUES(?,?)',('5120'+'f'*64,'{}'))
+        with self.assertRaisesRegex(EvidenceGap,'operator script lacks current'):self.collect()
+
 
 class ActivityDecoderControls(unittest.TestCase):
     def raw(self,value):return json.dumps({'jsonrpc':'2.0','id':1,'result':value,'error':None}).encode()
@@ -324,3 +328,58 @@ class TypedBoundaryControls(unittest.TestCase):
             public_wallet_projection(member,frame,height=1,tip_hash='a'*64,checked_pending=[])
         self.assertEqual([],public_wallet_projection(member,frame,height=1,tip_hash='a'*64,
             checked_pending=frame['pending_transactions']))
+
+
+class ContinuingCallbackControls(unittest.TestCase):
+    def test_actual_wallet_callback_retains_complete_literal_pending_graph(self):
+        wallet=PendingWalletControls();wallet.setUp()
+        context={'scripts':wallet.scripts,'normalized_scan':wallet.scan,'versions':wallet.versions}
+        report,assets=ContinuingDirectProfile().wallet_projection(wallet.member,wallet.native,
+            height=101,tip_hash='a'*64,context=context,chain=wallet.chain)
+        self.assertEqual(wallet.native['pending_transactions'],report['pending_transactions'])
+        self.assertEqual(wallet.native['pending_parents'],report['pending_parents'])
+        self.assertEqual(50000,sum(row['amount_sat']for row in assets))
+        wallet.native['utxos'][0]['confirmations']=1
+        with self.assertRaisesRegex(EvidenceGap,'owning UTXO position'):
+            ContinuingDirectProfile().wallet_projection(wallet.member,wallet.native,
+                height=101,tip_hash='a'*64,context=context,chain=wallet.chain)
+
+    def test_actual_backing_and_claim_callbacks_advance_only_confirmed_group(self):
+        f=fixtures.CurrentRightsTests();self.addCleanup(f.doCleanups);f.setUp();profile=ContinuingDirectProfile()
+        def check():
+            rights=f.collect();context={'direct':rights,'pending_liabilities':rights['liabilities'],
+                'backing_member_id':'ark','actor_member_ids':{'actor-01':'customer'},
+                'boundary':{'pins':{}},'native_source_sha256':'a'*64}
+            source={'pending_liabilities':[{**r,'source_sequence':1}for r in rights['liabilities']],
+                'cost_sequences':[],'flow_sequences':[]}
+            claims=profile.checked_claims(f.store,source,context,{'cost_sequences':[],'flow_sequences':[]},{})
+            roots,sources=profile.backing({'id':'ark','kind':'ark_backing','identity':f.server},context)
+            self.assertEqual(sum(c['amount_sat']for c in claims),rights['outstanding_liability_sat'])
+            self.assertEqual(len(roots),len(sources))
+            return len(claims),sum(row['amount_sat']for row in roots.values())
+        before=f.store.db.total_changes
+        f.carrier(False);self.assertEqual((2,42000),check())
+        f.carrier(True);self.assertEqual((1,21000),check())
+        self.assertEqual((1,21000),check());self.assertEqual(before,f.store.db.total_changes)
+
+    def test_fixed_existing_factory_builds_real_B_continuing_callbacks_without_reading(self):
+        from simulator.two_step_normal_factory import build_collector
+        f=fixtures.CurrentRightsTests();self.addCleanup(f.doCleanups);f.setUp()
+        collector=build_collector(f.store,admission_sequence=1,boundary={},capture_configuration={},
+            target_configuration={'command':['/bin/false'],'evidence_directory':f.tmp.name,'timeout':5},
+            member_configuration={'pending_board_proof_sha256':None},tools={},architecture_profile='direct_xpub')
+        self.assertIs(type(collector.native_profile),ContinuingDirectProfile)
+        self.assertIs(collector.capture.__self__.native_profile,collector.native_profile)
+
+    def test_changed_continuing_dependency_invalidates_existing_admission(self):
+        from tests import test_two_step_normal as normal
+        f=normal.AdmissionTests();f.setUp();self.addCleanup(f.tearDown)
+        f.collector.native_profile=ContinuingDirectProfile()
+        hashes=f.collector.native_profile.component_hashes();f.value['component_sha256'].update(hashes)
+        f.admit();self.assertEqual(f.value,f.collector.admission(f.store,f.value['financial_pins']))
+        from unittest.mock import patch
+        from simulator import b_continuing_profile as module
+        original=module.module_hash
+        with patch.object(module,'module_hash',side_effect=lambda fn:'0'*64 if fn is module.owning_projection else original(fn)):
+            with self.assertRaisesRegex(ValueError,'qualification'):
+                f.collector.admission(f.store,f.value['financial_pins'])

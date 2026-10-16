@@ -35,6 +35,10 @@ def _projection(store,chain,target,runtime,scripts,scan,*,server,backing,actors,
     rights=current_ordinary_liabilities(store,chain,database,server_pubkey=server,
         borrower=backing,tip=tip,minimum_confirmations=depth,actor_member_ids=actors)
     versions=retained_ordinary_versions(store,chain,database,rights,scripts=scripts,tip=tip)
+    for checked in versions['checked_candidates'].values():
+        for allocation,owner in checked['owners']:
+            _require(scripts.get(allocation['spk'],{}).get('member_id')==actors.get(owner['actor']),
+                'current fallback destination is outside its declared customer wallet')
     normalized=[{'txid':r['txid'],'vout':r['vout'],'amount_sat':btc_to_sat(r['amount']),
                  'script':r['scriptPubKey']}for r in scan['unspents']]
     wallets={}
@@ -140,10 +144,6 @@ class ContinuingDirectProfile(InitialDirectProfile):
 def runtime_from_target(target,admission):
     from .b_normal_profile_adapter import runtime_from_target as replay
     return replay(target,admission)
-
-
-def runtime_server(target,admission):
-    return runtime_from_target(target,admission)['native_budget']['disk_budget']['server_pubkey']
 
 
 def public_pending(member_id,versions,scripts):
