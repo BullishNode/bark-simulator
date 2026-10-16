@@ -6,6 +6,15 @@ from pathlib import Path
 from .model import SIGNET_GENESIS,btc_to_sat,integer,transaction_fee
 from .trace import normalized,public_raw
 from .model import public_payload
+
+
+class CoreRpcError(ValueError):
+    """A matching authenticated JSON-RPC error, without its opaque message/data."""
+    def __init__(self, method, params, code, capture):
+        super().__init__('independent chain evidence unavailable')
+        self.method, self.params, self.code, self.capture = method, tuple(params), code, capture
+
+
 class ChainReader:
     def __init__(self,url,credential,expected_genesis,*,capture=None,consumer='chain-reader'):
         if not url.startswith('http://127.0.0.1:'):raise ValueError('independent Core must be loopback')
@@ -54,7 +63,13 @@ class ChainReader:
             self._capture(method,args,None,type(error).__name__,None if method=='getdescriptoractivity' else raw)
             raise
         self._capture(method,args,r.get('result'),r.get('error'),raw)
-        if r.get('error'):raise ValueError('independent chain evidence unavailable')
+        if r.get('error'):
+            error=r['error']
+            if (isinstance(error,dict) and type(error.get('code')) is int
+                    and type(r.get('id')) is int and r['id']==1 and r.get('jsonrpc')=='2.0'
+                    and r.get('result') is None):
+                raise CoreRpcError(method,args,error['code'],self.last_capture)
+            raise ValueError('independent chain evidence unavailable')
         return r['result']
     def _capture(self,method,args,result,error,raw):
         if self.capture is None:return
