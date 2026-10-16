@@ -15,7 +15,7 @@ import time
 import uuid
 
 from .c_normal_source import _context
-from . import c_runtime
+from . import c_runtime, c_runtime_profile
 from .final_campaign import _source_event
 from .model import SIGNET_GENESIS,canonical,public_payload
 from .normal_source_deadline import check as deadline_check,timeout as source_timeout
@@ -97,6 +97,7 @@ class RuntimeSource:
             'component_sha256':{'producer':digest(Path(__file__).read_bytes()),
                 'startup_verifier':module_hash(verify_owned_startup_sources),
                 'c_verifier':module_hash(c_runtime.verify),
+                'operating_policy':module_hash(c_runtime_profile.verify_loaded),
                 'process':module_hash(json_command)}}
 
     def admission(self,store,config,observation):

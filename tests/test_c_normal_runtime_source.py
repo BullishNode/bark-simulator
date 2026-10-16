@@ -11,6 +11,7 @@ import tempfile
 import time
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from simulator import c_normal_runtime_source as c,c_pilot
 from simulator.architecture import DIRECT_PER_KEY
@@ -108,6 +109,17 @@ print(json.dumps(value))
         self.helper.chmod(0o700);self.helper.write_text('raise SystemExit(99)\n');self.helper.chmod(0o500)
         with self.assertRaisesRegex(ValueError,'component changed'):await self.collect()
         self.assertEqual([],list(self.directory.iterdir()));self.assertEqual(0,self.events(c.KIND))
+
+    async def test_changed_operating_policy_helper_invalidates_original_source_admission(self):
+        from simulator import c_runtime_profile
+        original=c.module_hash
+        def changed(component):
+            return '0'*64 if component is c_runtime_profile.verify_loaded else original(component)
+        with patch.object(c,'module_hash',side_effect=changed):
+            with self.assertRaisesRegex(ValueError,'qualification'):
+                await self.collect()
+        self.assertEqual([],list(self.directory.iterdir()))
+        self.assertEqual(0,self.events(c.KIND))
 
     async def test_unsuccessful_actual_child_cannot_publish_source(self):
         self.frame['synthetic_child_failure']=True;self.write(self.frame_path,self.frame)

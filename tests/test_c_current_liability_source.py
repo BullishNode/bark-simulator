@@ -36,6 +36,13 @@ class CurrentJoin(unittest.TestCase):
     def test_original_customer_right_and_actual_same_RR_still_not_global_readiness(self):
         audit=self.reduce();self.assertEqual([],audit['unresolved']);rights=c.require_resolved(audit)
         self.assertEqual(25000000,rights[0]['amount_msat']);self.assertFalse(audit['complete']);self.assertFalse(audit['financial_readiness'])
+    def test_missing_or_wrong_unresolved_inventory_cannot_be_treated_as_empty(self):
+        audit=self.reduce()
+        for value in (None,False,0,{},''):
+            with self.subTest(value=value),self.assertRaises(EvidenceGap):
+                c.require_resolved({**audit,'unresolved':value})
+        del audit['unresolved']
+        with self.assertRaises(EvidenceGap):c.require_resolved(audit)
     def test_native_signedfalse_and_conditional_policy_stay_hold(self):
         original=copy.deepcopy(self.loaded)
         self.paths['paths'][0]['signed_path_valid']=False

@@ -136,6 +136,8 @@ def collect(store,chain,loaded,tool,*,tool_identity,observation,server_pubkey):
 
 def require_resolved(audit):
     """No blanket nativeFull/signature flag can promote unresolved ownership."""
-    if audit.get('kind')!='c-current-liability-source-audit'or audit.get('unresolved'):
+    if (not isinstance(audit,dict)or audit.get('kind')!='c-current-liability-source-audit'
+            or type(audit.get('unresolved'))is not list or audit['unresolved']
+            or type(audit.get('supported_retained_customer_rights'))is not list):
         raise EvidenceGap('complete current conditional/round/pool/retirement economic source missing')
     return audit['supported_retained_customer_rights']
