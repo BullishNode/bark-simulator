@@ -118,6 +118,7 @@ def _superseded_ark_input(store, original):
 def _current_claims(store):
     """Retain every independently owned current right, including locked rights."""
     from .ownership import proof_matches_profile
+    from .architecture import profile, DIRECT_PER_KEY
     claims = []
     for row in store.db.execute('SELECT c.*,k.actor FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey ORDER BY c.id'):
         observed = store.db.execute('SELECT state,action_id FROM coin_observation WHERE coin_id=? ORDER BY observed_at DESC,action_id DESC LIMIT 1', (row['id'],)).fetchone()
@@ -128,7 +129,12 @@ def _current_claims(store):
         # SDK expiry may also use Spent. Only a positively proved economic
         # supersession removes a right; expired/unpaid rights remain liabilities.
         proof = json.loads(row['proof'])
-        if (not proof_matches_profile(store, proof, {'user_pubkey': row['pubkey']})
+        bound = proof.get('binding', {})
+        origin = ({'user_pubkey': row['pubkey'], 'key_link_attestation': bound.get('key_link_attestation')}
+            if profile(store) == DIRECT_PER_KEY else
+            {'user_pubkey': row['pubkey'], 'child_index': bound.get('child_index'),
+             'blinded_mailbox_id': bound.get('blinded_mailbox_id')})
+        if (not proof_matches_profile(store, proof, origin)
                 or proof.get('signed_path_valid') is not True or proof.get('id') != row['id']
                 or proof.get('amount_sat') != row['amount_sat']):
             raise ValueError('original retained right lacks signed ownership')
