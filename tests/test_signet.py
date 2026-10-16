@@ -214,6 +214,18 @@ class SignetTests(unittest.TestCase):
         self.assertEqual((path / "config.toml").read_text(), "existing protected wallet")
         run.assert_not_called()
 
+    def test_short_profile_change_blocks_a_new_native_wallet_open(self):
+        profile = {"vtxo_refresh_expiry_threshold": 4, "vtxo_exit_margin": 2}
+        with patch("simulator.signet.subprocess.run", return_value=subprocess.CompletedProcess([], 0)):
+            row = self.campaign.execute("short-create", "alice", "create", {"wallet_profile": profile})
+        self.assertEqual(row["state"], "acknowledged")
+        path = self.campaign.actor_path("alice") / "config.toml"
+        path.write_text(path.read_text().replace("vtxo_exit_margin = 2", "vtxo_exit_margin = 12"))
+        with patch("simulator.signet.subprocess.run") as run:
+            with self.assertRaisesRegex(ValueError, "profile configuration changed"):
+                self.campaign.execute("new-observation", "alice", "sync_vtxos", {})
+        run.assert_not_called()
+
     def test_short_profile_rejects_missing_unsafe_and_unbounded_parameters(self):
         for profile in [{"vtxo_exit_margin": 2},
                         {"vtxo_refresh_expiry_threshold": 2, "vtxo_exit_margin": 4},

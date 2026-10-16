@@ -329,6 +329,15 @@ class Campaign:
                 raise ValueError("recovery requires a distinct, previously empty wallet directory")
             source = recovery_source(self, args["source_actor"])
             native_args += ["--mnemonic-file", str(source)]
+        profile_pin = self.db.execute("""SELECT json_extract(reply,'$.wallet_config_sha256')
+            FROM action WHERE actor=? AND operation='create' AND state='acknowledged'
+            AND json_extract(reply,'$.wallet_config_sha256') IS NOT NULL LIMIT 1""", (actor,)).fetchone()
+        if profile_pin:
+            wallet_config = path / "config.toml"
+            if (wallet_config.is_symlink() or not wallet_config.is_file()
+                    or wallet_config.stat().st_mode & 0o077
+                    or digest(wallet_config) != profile_pin[0]):
+                raise ValueError("native wallet profile configuration changed; new cohort required")
         # Potentially slow file hashing and Core reads happen before the short
         # SQLite write transaction. Actor exclusion is rechecked atomically below.
         if digest(Path(self.config["binary"])) != self.config["binary_sha256"]:
