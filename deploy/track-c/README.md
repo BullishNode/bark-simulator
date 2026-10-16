@@ -110,3 +110,19 @@ must select the actual C native JSON. The public context contains exactly
 The collector checks actual local artifact bytes and the target's matching
 declarations and running release versions; SDK lineage remains the reviewed
 immutable paired-build assertion. Missing context or changed artifacts hold.
+
+The operating-policy transport is WIP source, with no installation or financial
+qualification implied. `native-ops.py` retains the existing fixed read-only
+operation allowlist and adds the public `operating_source` config projection.
+An independently admitted deployment may bind an `operating_projection` object
+containing exactly the SHA-256 hashes of `c_runtime_profile.py`, `model.py` and
+`bip39-english.txt`. Install those exact existing `simulator/` files under the
+fixed root-protected `/opt/track-c/observer/operating-projection/` directory.
+Authenticate the updated ops and observer bytes in the deployment declaration.
+The ops loader authenticates every dependency before execution, uses the
+existing projector and protected public-certificate reader, and checks the
+package and native config again afterward. It exports certificate identities
+and endpoint hashes; it never reads client private keys. An absent package
+declaration supplies no operating source, and the full normal collector must
+remain held. Source controls use synthetic certificate/process authority and
+do not prove an installed TLS connection or money readiness.
