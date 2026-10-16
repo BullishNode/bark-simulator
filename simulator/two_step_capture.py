@@ -222,6 +222,7 @@ class SourceCapture:
         target = await self.checked_target(store, chain, observation)
         from .c_normal_profile_adapter import DirectPerKeyProfile
         if type(self.native_profile) is DirectPerKeyProfile:
+            runtime = await self.native_profile.collect_runtime(store, config, chain, observation, target)
             # This source primitive is admitted only for the private source cut.
             # Its whole-member/normal money reducer is not installed yet. Never
             # run generic member consumption against missing A/B source fields.
