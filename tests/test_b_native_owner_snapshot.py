@@ -254,6 +254,15 @@ class NativeReplyControls(unittest.TestCase):
         self.assertEqual(result['unrelated_nursery_txids'],[H(70)])
         self.assertEqual(result['publication_inputpoints'],sorted([H(31)+':0',H(32)+':0',H(40)+':0',H(16)+':0']))
         self.assertNotIn('complete',result);self.assertNotIn('qualified',result);self.assertNotIn('ready',result)
+    def test_native_identifier_order_is_preserved_without_display_text_sorting(self):
+        raw,reply,owner=self.proof()
+        reply['urgent_rows'][0]['source_anchors']=['01'+'00'*31+':2','00'*31+'02:10']
+        extra=copy.deepcopy(reply['nursery_inventory'][-1]);extra.update(txid=H(69),wtxid=H(72))
+        reply['nursery_inventory'].append(extra);reply['unrelated_nursery_txids']=[H(70),H(69)]
+        result=self.bind(raw,reply,owner)
+        self.assertEqual(result['urgent_rows'][0]['source_anchors'],reply['urgent_rows'][0]['source_anchors'])
+        self.assertEqual(result['unrelated_nursery_txids'],[H(70),H(69)])
+    def test_duplicate_unrelated_nursery_identity_refuses(self):self.reject(lambda r:r['unrelated_nursery_txids'].append(H(70)))
     def test_unbound_unsigned_old_attempt_cannot_be_omitted(self):self.reject(lambda r:r['funding_rows'].pop())
     def test_current_owner_snapshot_must_equal_all_private_native_projection(self):self.reject(lambda r:r['snapshot'].update(charged_sat=0))
     def test_bool_snapshot_count_is_not_native_integer(self):self.reject(lambda r:r['snapshot'].update(direct_attempt_count=True))
