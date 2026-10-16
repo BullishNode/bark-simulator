@@ -130,7 +130,133 @@ fn verify_native_original(
     }))
 }
 
+/// Authenticate one complete participation's allocation against a literal signed
+/// tree. SQL provenance, original input forfeits and conservation stay external.
+fn verify_round_allocation(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
+    use ark::tree::signed::SignedVtxoTreeSpec;
+    use std::collections::BTreeSet;
+    let fields = value.as_object().ok_or("allocation object required")?;
+    let permitted = ["signed_tree", "anchor_raw", "server_pubkey", "participation_unlock_hash", "outputs"];
+    if fields.len() != permitted.len() || !permitted.iter().all(|key| fields.contains_key(*key)) {
+        return Err("exact signed tree, anchor, server, participation hash and output set required".into());
+    }
+    let raw = decode_hex(value["signed_tree"].as_str().ok_or("signed tree absent")?)?;
+    let signed = SignedVtxoTreeSpec::deserialize(&raw)?;
+    // Bound public construction before building or detecting the hashlock version.
+    // Single-leaf historical trees and conditional leaves need separate qualification.
+    if signed.serialize() != raw || !(2..=4096).contains(&signed.spec.vtxos.len())
+        || signed.spec.global_cosign_pubkeys.is_empty() || signed.spec.global_cosign_pubkeys.len() > 4096
+        || signed.cosign_sigs.len() != signed.spec.nb_internal_nodes()
+        || signed.spec.vtxos.iter().any(|leaf| leaf.vtxo.policy.policy_type().to_string() != "pubkey")
+    {
+        return Err("bounded canonical ordinary signed tree required".into());
+    }
+    let total = signed.spec.vtxos.iter().try_fold(0u64, |total, leaf| {
+        total.checked_add(leaf.vtxo.amount.to_sat())
+    }).ok_or("tree amount overflow")?;
+    if total == 0 || total > 2_100_000_000_000_000 {
+        return Err("tree amount outside bounded Bitcoin money range".into());
+    }
+    let server = value["server_pubkey"].as_str().ok_or("server absent")?;
+    if signed.spec.server_pubkey.to_string() != server {
+        return Err("signed tree server differs".into());
+    }
+    let anchor_raw = decode_hex(value["anchor_raw"].as_str().ok_or("anchor absent")?)?;
+    let anchor: bitcoin::Transaction = bitcoin::consensus::deserialize(&anchor_raw)?;
+    if bitcoin::consensus::serialize(&anchor) != anchor_raw || anchor.compute_txid() != signed.utxo.txid {
+        return Err("signed tree funding identity differs".into());
+    }
+    let signed = signed.with_detected_hashlock_version()?;
+    // Version detection checks only one signature. Verify EVERY internal node.
+    let unsigned = signed.spec.clone().into_unsigned_tree(signed.utxo);
+    unsigned.verify_cosign_sigs(&signed.cosign_sigs)
+        .map_err(|_| "signed tree internal cosignature invalid")?;
+    if anchor.output.get(signed.utxo.vout as usize) != Some(&signed.spec.funding_tx_txout()) {
+        return Err("signed tree funding value or script differs".into());
+    }
+    let hash: UnlockHash = value["participation_unlock_hash"].as_str()
+        .ok_or("participation unlock hash absent")?.parse()?;
+    let matching = signed.spec.vtxos.iter().enumerate()
+        .filter_map(|(index, leaf)| (leaf.unlock_hash == hash).then_some(index)).collect::<Vec<_>>();
+    let outputs = value["outputs"].as_array().ok_or("completed output originals absent")?;
+    if matching.is_empty() || outputs.len() != matching.len() || outputs.len() > 256 {
+        return Err("output set must cover ALL participation leaves within bound".into());
+    }
+    let anchor_point = signed.utxo;
+    let internal_signature_count = signed.cosign_sigs.len();
+    let tree_leaf_count = signed.spec.nb_leaves();
+    let cached = signed.into_cached_tree();
+    let originals = matching.iter().map(|index| {
+        let coin: Vtxo<Full, ServerVtxoPolicy> = cached.build_vtxo(*index).into();
+        (*index, coin)
+    }).collect::<Vec<_>>();
+    let mut seen = BTreeSet::new();
+    let mut allocations = Vec::with_capacity(outputs.len());
+    let mut allocation_sat = 0u64;
+    for output in outputs {
+        let object = output.as_object().ok_or("output original object required")?;
+        let native_mode = object.contains_key("native_vtxo");
+        if object.len() != (if native_mode { 2 } else { 1 })
+            || !object.contains_key("signed_vtxo")
+        {
+            return Err("output permits only completed Full and optional literal native Full".into());
+        }
+        let completed_raw = decode_hex(output["signed_vtxo"].as_str().ok_or("output Full absent")?)?;
+        let completed = Vtxo::<Full, ServerVtxoPolicy>::deserialize(&completed_raw)?;
+        if completed.serialize() != completed_raw || completed.server_pubkey().to_string() != server
+            || completed.chain_anchor() != anchor_point || completed.unlock_hash() != Some(hash)
+            || completed.policy_type().to_string() != "pubkey" || padding_marker(&completed)
+        {
+            return Err("completed output contract differs from participation".into());
+        }
+        completed.validate(&anchor)?;
+        let (index, original) = originals.iter().find(|(_, native)| native.id() == completed.id())
+            .ok_or("output is not a matching signed-tree leaf")?;
+        if !seen.insert(*index) {
+            return Err("duplicate completed output or allocation index".into());
+        }
+        // Existing e217 API compares every known structured signature/preimage.
+        let derived_request = json!({"native_vtxo": original.serialize_hex()});
+        let derived = verify_native_original(&completed, &completed_raw, &anchor, &derived_request)?;
+        let literal_native = if native_mode {
+            Some(verify_native_original(&completed, &completed_raw, &anchor, output)?)
+        } else { None };
+        allocation_sat = allocation_sat.checked_add(completed.amount().to_sat())
+            .ok_or("allocation amount overflow")?;
+        let user = completed.clone().try_into_user_vtxo().map_err(|_| "ordinary user policy required")?;
+        let mut allocation = json!({
+            "leaf_index":index,"id":completed.id().to_string(),"amount_sat":completed.amount().to_sat(),
+            "policy":completed.policy_type().to_string(),"user_policy_hex":user.policy().serialize_hex(),
+            "leaf_spec_sha256":sha256::Hash::hash(&cached.spec.spec.vtxos[*index].serialize()).to_string(),
+            "user_pubkey":completed.policy().user_pubkey().map(|key| key.to_string()),
+            "unlock_hash":hash.to_string(),
+            "completed_vtxo_sha256":sha256::Hash::hash(&completed_raw).to_string(),
+            "tree_native_vtxo_sha256":derived["native_vtxo_sha256"],
+            "tree_completion_relation":derived["native_completion_relation"]
+        });
+        if let Some(native) = literal_native {
+            allocation["literal_native_vtxo_sha256"] = native["native_vtxo_sha256"].clone();
+            allocation["literal_native_completion_relation"] = native["native_completion_relation"].clone();
+        }
+        allocations.push(allocation);
+    }
+    if seen != matching.iter().copied().collect::<BTreeSet<_>>() {
+        return Err("participation leaf coverage incomplete".into());
+    }
+    allocations.sort_by_key(|allocation| allocation["leaf_index"].as_u64());
+    Ok(json!({"schema_version":1,"mode":"round_allocation","sdk_commit":option_env!("GIT_HASH"),
+        "signed_tree_sha256":sha256::Hash::hash(&raw).to_string(),
+        "anchor_raw_sha256":sha256::Hash::hash(&anchor_raw).to_string(),
+        "chain_anchor":anchor_point.to_string(),"server_pubkey":server,
+        "participation_unlock_hash":hash.to_string(),"tree_leaf_count":tree_leaf_count,
+        "verified_internal_signature_count":internal_signature_count,
+        "all_matching_leaf_indices":matching,"allocation_sat":allocation_sat,"allocations":allocations,
+        "all_matching_leaves_verified":true,"client_owner_verified":false,"payment_verified":false,
+        "scope":"supplied ordinary signed-tree exhaustive hash-bound output allocation only; SQL provenance, participation ownership, input forfeits, fees, retirement, confirmation and current backing require separate authenticated proof"}))
+}
+
 fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
+    if value.get("signed_tree").is_some() { return verify_round_allocation(value); }
     let fields = value.as_object().ok_or("public object required")?;
     let native_mode = fields.contains_key("native_vtxo");
     let forfeit_mode = fields.contains_key("forfeit_raw") || fields.contains_key("forfeit_unlock_hash");
@@ -701,4 +827,149 @@ mod tests {
             assert!(verify_contract(&bad).is_err());
         }
     }
+    // Public, unfunded SDK builder. No Core, SQL, ownership or payment credit.
+    fn allocation_fixture() -> Value {
+        use ark::{VtxoPolicy, VtxoRequest};
+        use ark::tree::signed::{LeafVtxoCosignContext, LeafVtxoCosignResponse};
+        use ark::tree::signed::builder::SignedTreeBuilder;
+        use bitcoin::secp256k1::Keypair;
+        fn key(byte: u8) -> Keypair {
+            Keypair::from_secret_key(&ark::SECP, &bitcoin::secp256k1::SecretKey::from_slice(&[byte; 32]).unwrap())
+        }
+        let leaf = key(1); let user = key(2); let server = key(3); let cosign = key(4);
+        let preimage = [7; 32];
+        let requests = [10_000,10_000,20_000,30_000,40_000,50_000].map(|amount| VtxoRequest {
+            amount: Amount::from_sat(amount), policy: VtxoPolicy::new_pubkey(leaf.public_key()),
+        });
+        let builder = SignedTreeBuilder::new(requests.iter().cloned(), user.public_key(), preimage,
+            128u32.into(), server.public_key(), cosign.public_key(), 12u16.into()).unwrap();
+        let funding = Transaction { version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,input:vec![],output:vec![builder.funding_txout()] };
+        let point = OutPoint::new(funding.compute_txid(),0);
+        let builder = builder.set_utxo(point).generate_user_nonces(&user);
+        let response = SignedTreeBuilder::new_for_cosign(requests.iter().cloned(), user.public_key(), preimage,
+            128u32.into(), server.public_key(), cosign.public_key(), 12u16.into(), point,
+            builder.user_pub_nonces().to_vec()).unwrap().server_cosign(&cosign);
+        builder.verify_cosign_response(&response).unwrap();
+        let signed = builder.build_tree(&response,&user).unwrap();
+        let raw_tree = signed.serialize_hex();
+        let tree = signed.into_cached_tree();
+        let outputs = tree.output_vtxos().map(|original| {
+            let mut complete = original.clone();
+            let (context,request) = LeafVtxoCosignContext::new(&complete,&funding,&leaf).unwrap();
+            let response = LeafVtxoCosignResponse::new_cosign(&request,&complete,&funding,&server).unwrap();
+            assert!(context.finalize(&mut complete,response));
+            assert!(complete.provide_unlock_preimage(preimage));
+            complete.validate(&funding).unwrap();
+            json!({"signed_vtxo":complete.serialize_hex(),"native_vtxo":original.serialize_hex()})
+        }).collect::<Vec<_>>();
+        json!({"signed_tree":raw_tree,"anchor_raw":encode(bitcoin::consensus::serialize(&funding)),
+            "server_pubkey":server.public_key().to_string(),
+            "participation_unlock_hash":sha256::Hash::hash(&preimage).to_string(),"outputs":outputs})
+    }
+
+    #[test]
+    fn allocation_public_builder_verifies_all_leaves_with_duplicate_requests_and_reordering() {
+        let mut request = allocation_fixture();
+        let proof = verify_contract(&request).unwrap();
+        assert_eq!(proof["all_matching_leaf_indices"],json!([0,1,2,3,4,5]));
+        assert_eq!(proof["allocations"].as_array().unwrap().len(),6);
+        assert_eq!(proof["allocation_sat"],160_000);
+        assert_eq!(proof["all_matching_leaves_verified"],true);
+        assert_eq!(proof["client_owner_verified"],false);
+        assert_eq!(proof["payment_verified"],false);
+        request["outputs"].as_array_mut().unwrap().reverse();
+        assert_eq!(verify_contract(&request).unwrap(),proof,"allocation is an authenticated set, not caller order");
+    }
+
+    #[test]
+    fn allocation_refuses_omission_duplicate_extra_wrong_hash_and_detached_verdicts() {
+        let request = allocation_fixture();
+        let mut omitted = request.clone(); omitted["outputs"].as_array_mut().unwrap().pop();
+        assert!(verify_contract(&omitted).is_err());
+        let mut duplicate = request.clone(); duplicate["outputs"][1] = duplicate["outputs"][0].clone();
+        assert!(verify_contract(&duplicate).is_err(),"identical amounts are different authenticated leaf IDs");
+        let mut extra = request.clone();let output=extra["outputs"][0].clone();extra["outputs"].as_array_mut().unwrap().push(output);
+        assert!(verify_contract(&extra).is_err());
+        let mut hash = request.clone();hash["participation_unlock_hash"]=json!(sha256::Hash::hash(&[8;32]).to_string());
+        assert!(verify_contract(&hash).is_err());
+        for key in ["all_matching_leaves_verified","client_owner_verified","participation_owned"] {
+            let mut detached=request.clone();detached[key]=json!(true);assert!(verify_contract(&detached).is_err());
+        }
+        let mut detached=request;detached["outputs"][0]["leaf_index"]=json!(0);
+        assert!(verify_contract(&detached).is_err());
+    }
+
+    #[test]
+    fn allocation_refuses_later_bad_cosignature_missing_extra_signature_and_wrong_allocation() {
+        use ark::tree::signed::SignedVtxoTreeSpec;
+        use bitcoin::secp256k1::{Keypair,Message,SecretKey};
+        let request=allocation_fixture();
+        let signed=SignedVtxoTreeSpec::deserialize(&decode_hex(request["signed_tree"].as_str().unwrap()).unwrap()).unwrap();
+        assert!(signed.cosign_sigs.len()>1);
+        let key=Keypair::from_secret_key(&ark::SECP,&SecretKey::from_slice(&[5;32]).unwrap());
+        let unrelated=ark::SECP.sign_schnorr_no_aux_rand(&Message::from_digest([99;32]),&key);
+        let mut bad=signed.clone();bad.cosign_sigs[1]=unrelated;
+        assert!(bad.clone().with_detected_hashlock_version().is_ok(),"version detection alone is insufficient");
+        let mut changed=request.clone();changed["signed_tree"]=json!(bad.serialize_hex());assert!(verify_contract(&changed).is_err());
+        let mut bad=signed.clone();bad.cosign_sigs.pop();
+        changed["signed_tree"]=json!(bad.serialize_hex());assert!(verify_contract(&changed).is_err());
+        let mut bad=signed.clone();bad.cosign_sigs.push(unrelated);
+        changed["signed_tree"]=json!(bad.serialize_hex());assert!(verify_contract(&changed).is_err());
+        let mut bad=signed;bad.spec.vtxos[0].vtxo.amount+=Amount::from_sat(1);
+        changed["signed_tree"]=json!(bad.serialize_hex());assert!(verify_contract(&changed).is_err());
+    }
+
+    #[test]
+    fn allocation_refuses_wrong_anchor_uncompleted_output_and_hidden_corrupt_native_signature() {
+        use bitcoin::secp256k1::{Keypair,Message,SecretKey};
+        let request=allocation_fixture();
+        let mut changed=request.clone();
+        let mut anchor:Transaction=bitcoin::consensus::deserialize(&decode_hex(request["anchor_raw"].as_str().unwrap()).unwrap()).unwrap();
+        anchor.output[0].value+=Amount::from_sat(1);changed["anchor_raw"]=json!(encode(bitcoin::consensus::serialize(&anchor)));
+        assert!(verify_contract(&changed).is_err());
+        changed=request.clone();changed["outputs"][0]["signed_vtxo"]=changed["outputs"][0]["native_vtxo"].clone();
+        assert!(verify_contract(&changed).is_err(),"unsigned/native-assigned output cannot receive signature credit");
+        changed=request;
+        let mut native=Vtxo::<Full,ServerVtxoPolicy>::deserialize(&decode_hex(changed["outputs"][0]["native_vtxo"].as_str().unwrap()).unwrap()).unwrap();
+        let key=Keypair::from_secret_key(&ark::SECP,&SecretKey::from_slice(&[5;32]).unwrap());
+        let unrelated=ark::SECP.sign_schnorr_no_aux_rand(&Message::from_digest([99;32]),&key);
+        assert!(native.provide_unlock_signature(unrelated));
+        assert!(native.transactions().last().unwrap().tx.input[0].witness.is_empty());
+        changed["outputs"][0]["native_vtxo"]=json!(native.serialize_hex());
+        assert!(verify_contract(&changed).is_err(),"preserve the existing hidden partial native signature");
+        let mut changed=allocation_fixture();
+        let mut raw=decode_hex(changed["outputs"][0]["signed_vtxo"].as_str().unwrap()).unwrap();
+        let positions=raw.windows(32).enumerate().filter_map(|(i,b)|(b==[7u8;32]).then_some(i)).collect::<Vec<_>>();
+        assert_eq!(positions.len(),1);raw[positions[0]]^=1;
+        changed["outputs"][0]["native_vtxo"]=json!(encode(raw));
+        assert!(verify_contract(&changed).is_err(),"preserve known native preimage, not only visible witness");
+    }
+
+    #[test]
+    #[ignore = "requires private genuine complete signed-tree and all completed output originals"]
+    fn archived_round_allocation_all_leaves_controls() {
+        use std::os::unix::fs::MetadataExt;
+        let path=std::env::var_os("BARK_SIM_ACTUAL_ROUND_ALLOCATION_REQUEST").expect("genuine signed tree prerequisite required");
+        let before=std::fs::symlink_metadata(&path).unwrap();
+        assert!(before.is_file() && !before.file_type().is_symlink() && before.mode()&0o077==0 && before.nlink()==1 && before.len()<=2*1024*1024);
+        let mut file=std::fs::File::open(&path).unwrap();let opened=file.metadata().unwrap();
+        assert!(before.dev()==opened.dev() && before.ino()==opened.ino() && before.len()==opened.len());
+        let mut raw=Vec::new();file.by_ref().take(2*1024*1024+1).read_to_end(&mut raw).unwrap();
+        let opened_after=file.metadata().unwrap();let after=std::fs::symlink_metadata(&path).unwrap();
+        assert!(raw.len()as u64==before.len() && before.dev()==after.dev() && before.ino()==after.ino()
+            && before.mode()==after.mode() && before.uid()==after.uid() && before.nlink()==after.nlink()
+            && before.len()==after.len() && before.mtime()==after.mtime() && before.mtime_nsec()==after.mtime_nsec()
+            && before.ctime()==after.ctime() && before.ctime_nsec()==after.ctime_nsec()
+            && opened.dev()==opened_after.dev() && opened.ino()==opened_after.ino() && opened.len()==opened_after.len()
+            && opened.mtime()==opened_after.mtime() && opened.mtime_nsec()==opened_after.mtime_nsec()
+            && opened.ctime()==opened_after.ctime() && opened.ctime_nsec()==opened_after.ctime_nsec());
+        let request:Value=serde_json::from_slice(&raw).unwrap();let proof=verify_contract(&request).unwrap();
+        assert_eq!(proof["all_matching_leaves_verified"],true);
+        assert_eq!(proof["allocations"].as_array().unwrap().len(),request["outputs"].as_array().unwrap().len());
+        assert_eq!(proof["client_owner_verified"],false);assert_eq!(proof["payment_verified"],false);
+        let mut omitted=request.clone();omitted["outputs"].as_array_mut().unwrap().pop();assert!(verify_contract(&omitted).is_err());
+        let mut changed=request;changed["all_matching_leaves_verified"]=json!(true);assert!(verify_contract(&changed).is_err());
+    }
+
 }
