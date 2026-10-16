@@ -130,7 +130,9 @@ def collect_money_sources(store,chain,*,financial_pins,boundary_members,native_t
             return
         if identifier in old_costs:
             old=old_costs[identifier]
-            if old.get('kind')!='miner_cost' or old.get('txid')!=tx['txid'] or old.get('amount_msat')!=fee*1000 or old.get('budget')!=budget:raise ValueError('original miner cost conflicts; do not rewrite')
+            if (old.get('kind')!='miner_cost' or old.get('txid')!=tx['txid'] or old.get('amount_msat')!=fee*1000
+                    or old.get('budget')!=budget or old.get('source')!=source or old.get('destination')!='miners'):
+                raise ValueError('original miner cost payer/destination conflicts; do not rewrite')
             if action_id is not None and old.get('action_id')!=action_id:raise ValueError('original miner action conflicts')
             reused_costs.add(identifier);return
         if identifier in costs and costs[identifier]!=record:raise ValueError('same miner carrier has conflicting payer/class/action')

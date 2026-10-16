@@ -65,6 +65,20 @@ class Controls(unittest.TestCase):
  def test_existing_conflicting_cost_never_rewritten(self):
   self.native();v=self.collect();record=v['cost_records'][0];record['amount_msat']=99000;self.store.event('financial_cost_verified',record)
   with self.assertRaisesRegex(ValueError,'conflicts'):self.collect()
+ def test_existing_cost_payer_destination_cannot_be_relabelled_by_reuse(self):
+  self.native();record=self.collect()['cost_records'][0]
+  for field,value in [('source','W'),('source','foreign'),('source',None),('destination','R'),('destination',None)]:
+   with self.subTest(field=field,value=value),tempfile.TemporaryDirectory()as directory:
+    original=Store(pathlib.Path(directory),'wrong-payer',10000)
+    try:
+     original.event('financial_cost_verified',{**record,field:value})
+     before=original.db.execute("SELECT payload FROM event WHERE kind='financial_cost_verified'").fetchone()[0]
+     old=self.store;self.store=original
+     try:
+      with self.assertRaisesRegex(ValueError,'payer/destination'):self.collect()
+     finally:self.store=old
+     self.assertEqual(before,original.db.execute("SELECT payload FROM event WHERE kind='financial_cost_verified'").fetchone()[0])
+    finally:original.close()
  def index(self,raw):
   sha=H(raw);self.store.event('normal_money_declarations_admitted',{'financial_pins':PINS,'declarations':[{'sha256':sha,'source':'owner','destination':'B'}]});seq=self.store.db.execute('SELECT max(sequence) FROM event').fetchone()[0];return sha,{'original_bytes':raw,'declaration_index_sequence':seq}
  def injection(self):return {'schema':'track-a-supplemental-funding-declaration-v1','track':'A','classification':'EXTERNAL_INJECTION','recycled_principal_sat':0,'txid':self.txid,'vout':0,'amount_sat':900,'script_pubkey':'51','recipient_confirmation':False,'batch_fee_sat':999999}

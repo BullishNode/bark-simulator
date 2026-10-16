@@ -49,7 +49,7 @@ class TablesTests(unittest.TestCase):
         self.setUp();self.source['tables']['vtxo']['count']=1
         with self.assertRaisesRegex(ValueError,'coverage'):self.parse()
     def test_unknown_round_pool_conditional_work_holds_without_overwriting(self):
-        for name in ('round','vtxo_pool','htlc_vtxo','nursery_tx','recovery_capital_release'):
+        for name in ('pending_board','round','vtxo_pool','htlc_vtxo','nursery_tx','recovery_capital_release'):
             self.setUp();self.source['tables'][name]={'count':1,'rows':[{'id':'unsupported'}]}
             with self.subTest(name=name),self.assertRaisesRegex(ValueError,'own resolver'):self.parse()
     def test_hash_tamper_duplicate_keys_and_writable_cut_refuse(self):
@@ -80,30 +80,49 @@ class MoneyTests(StoreTests):
             'amount_msat':200000000,'script':'51','original_declaration_sha256':'c'*64,'source':'owner','destination':'bank'}
         self.flow_seq=self.event('treasury_flow_verified',self.flow)
         self.source={'flow_sequences':[self.flow_seq],'cost_sequences':[self.cost_seq],
-            'injection_declaration_hashes':['c'*64]}
+            'injection_declaration_hashes':['c'*64],'financial_pins':PINS,'boundary_id':'test','height':100,'tip_hash':'tip'}
+        self.boundary={'id':'test','pins':PINS}
         class Chain:
             def transaction(inner,txid):return {'txid':txid,'confirmations':1,'fee_sat':1030}
             def tx(inner,txid):return {'txid':txid,'confirmations':1,'vout':[{'n':0,'value':Decimal('.002'),'scriptPubKey':{'hex':'51'}}]}
         self.chain=Chain()
+        self.ownership=patch('simulator.normal_funding_ownership.verify_funding_ownership',return_value={'verified_flow_records':{self.flow['monetary_id']:self.flow}})
+        self.ownership.start();self.addCleanup(self.ownership.stop)
+    def test_historical_or_current_funding_labels_without_actual_rejoin_always_hold(self):
+        for kind in ('injection',):
+            original=self.store.db.execute('SELECT payload FROM event WHERE sequence=?',(self.flow_seq,)).fetchone()[0]
+            with self.subTest(kind=kind),self.assertRaisesRegex(ValueError,'ownership rejoin'):
+                adapter.verified_money(self.store,self.chain,self.source)
+            self.assertEqual(original,self.store.db.execute('SELECT payload FROM event WHERE sequence=?',(self.flow_seq,)).fetchone()[0])
+        proof={'preserved_history_opening':{'historical_cost_sequences':[self.cost_seq],'historical_flow_sequences':[self.flow_seq]}}
+        sequence=self.event('financial_operating_readiness',proof)
+        with self.assertRaisesRegex(ValueError,'ownership rejoin'):
+            adapter.verified_money(self.store,self.chain,self.source,opening={'declaration':{'readiness_sequence':sequence}})
+        with patch('simulator.normal_funding_ownership.verify_funding_ownership',self.ownership.temp_original),self.assertRaises((TypeError,ValueError)):
+            adapter.verified_money(self.store,self.chain,self.source,funding_context={'verified':True})
+        internal={**self.flow,'monetary_id':'internal:detached','kind':'internal_transfer','source':'bank','destination':'client'}
+        sequence=self.event('treasury_flow_verified',internal)
+        with self.assertRaisesRegex(ValueError,'ownership rejoin'):
+            adapter.verified_money(self.store,self.chain,{**self.source,'flow_sequences':[self.flow_seq,sequence]})
     def test_original_sweep_is_once_only_cost_not_another_injection(self):
-        flows,costs=adapter.verified_money(self.store,self.chain,self.source)
+        flows,costs=adapter.verified_money(self.store,self.chain,self.source,funding_context={'qualification_sequence':1,'packages':{}},boundary=self.boundary)
         self.assertEqual(2,len(flows));self.assertEqual(1030000,costs[self.txid]['amount_msat'])
     def test_omitted_original_or_duplicate_monetary_id_refuses(self):
         self.source['cost_sequences']=[]
-        with self.assertRaisesRegex(ValueError,'exhaustive'):adapter.verified_money(self.store,self.chain,self.source)
+        with self.assertRaisesRegex(ValueError,'exhaustive'):adapter.verified_money(self.store,self.chain,self.source,funding_context={'qualification_sequence':1,'packages':{}},boundary=self.boundary)
         self.source['cost_sequences']=[self.cost_seq,self.event('financial_cost_verified',self.cost)]
-        with self.assertRaisesRegex(ValueError,'twice'):adapter.verified_money(self.store,self.chain,self.source)
+        with self.assertRaisesRegex(ValueError,'twice'):adapter.verified_money(self.store,self.chain,self.source,funding_context={'qualification_sequence':1,'packages':{}},boundary=self.boundary)
     def test_service_charge_cannot_replace_actual_external_miner_fee(self):
         self.chain.transaction=lambda txid:{'txid':txid,'confirmations':1,'fee_sat':1360}
-        with self.assertRaisesRegex(ValueError,'miner cost'):adapter.verified_money(self.store,self.chain,self.source)
+        with self.assertRaisesRegex(ValueError,'miner cost'):adapter.verified_money(self.store,self.chain,self.source,funding_context={'qualification_sequence':1,'packages':{}},boundary=self.boundary)
     def test_spent_injection_is_proved_by_original_tx_not_gettxout(self):
         self.chain.call=lambda *a:(_ for _ in ()).throw(AssertionError('not used for historical injection'))
-        flows,_=adapter.verified_money(self.store,self.chain,self.source)
+        flows,_=adapter.verified_money(self.store,self.chain,self.source,funding_context={'qualification_sequence':1,'packages':{}},boundary=self.boundary)
         self.assertEqual(200000000,next(v for v in flows if v['kind']=='injection')['amount_msat'])
     def test_recorded_opening_old_costs_skip_new_edge_without_removing_history(self):
         proof={'preserved_history_opening':{'historical_cost_sequences':[self.cost_seq],'historical_flow_sequences':[self.flow_seq]}}
         seq=self.event('financial_operating_readiness',proof)
-        flows,costs=adapter.verified_money(self.store,self.chain,self.source,opening={'declaration':{'readiness_sequence':seq}})
+        flows,costs=adapter.verified_money(self.store,self.chain,self.source,opening={'declaration':{'readiness_sequence':seq}},funding_context={'qualification_sequence':1,'packages':{}},boundary=self.boundary)
         self.assertEqual([],flows);self.assertEqual(1030000,costs[self.txid]['amount_msat'])
         self.assertEqual(1,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_cost_verified'").fetchone()[0])
     def test_wrong_injection_amount_unconfirmed_or_missing_declaration_refuses(self):
@@ -113,7 +132,7 @@ class MoneyTests(StoreTests):
                 if change=='declaration':self.source['injection_declaration_hashes']=[]
                 elif change=='confirmation':self.chain.tx=lambda txid:{**original(txid),'confirmations':0}
                 else:self.chain.tx=lambda txid:{**original(txid),'vout':[{'n':0,'value':Decimal('.003'),'scriptPubKey':{'hex':'51'}}]}
-                with self.assertRaisesRegex(ValueError,'injection'):adapter.verified_money(self.store,self.chain,self.source)
+                with self.assertRaisesRegex(ValueError,'injection'):adapter.verified_money(self.store,self.chain,self.source,funding_context={'qualification_sequence':1,'packages':{}},boundary=self.boundary)
                 self.source=old;self.chain.tx=original
 
 
@@ -275,7 +294,7 @@ class AdmissionTests(StoreTests):
         self.value={'financial_pins':PINS,'component_sha256':{'adapter':adapter.digest(Path(adapter.__file__).read_bytes()),
             'capture':adapter.module_hash(self.capture),'native_fee':adapter.module_hash(adapter.verify_native_fee_epoch),
             'recovered_backing':adapter.module_hash(adapter.bind_native_claim),
-            'money_sources':adapter.module_hash(adapter.collect_money_sources),'money_join':adapter.module_hash(adapter.journal_money_sources),'financial_components':adapter.module_hash(inspect_components)},
+            'money_sources':adapter.module_hash(adapter.collect_money_sources),'money_join':adapter.module_hash(adapter.journal_money_sources),'deadline':adapter.module_hash(adapter.Deadline),'financial_components':adapter.module_hash(inspect_components)},
             'proof_tool_sha256':{name:tool['sha256'] for name,tool in self.tools.items()},
             'proof_commands_sha256':{name:adapter.digest(canonical(tool['command']).encode()) for name,tool in self.tools.items()}}
     def admit(self):self.collector.admission_sequence=self.event('normal_financial_collector_qualified',self.value)

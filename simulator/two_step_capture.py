@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .final_campaign import _source_event
 from .financial_transition import _current_claims
+from .normal_source_deadline import timeout as source_timeout, check as deadline_check
 from .model import SIGNET_GENESIS, canonical, integer, public_payload, timestamp
 from .treasury import _members
 from .two_step_normal import digest, module_hash, native_tables, native_wallet, private_history_hash, strict_json
@@ -153,7 +154,7 @@ class SourceCapture:
         from .process import json_command, public_command_capture
         request = {'actor_dir':None,'operation':'info','action_id':'normal-info-'+observation['id'],
             'args':{},'maximum_fee_sat':0,'expected_server_pubkey':snapshot['identity']['server_pubkey']}
-        info = await json_command(list(config.driver_command),request,timeout=30,
+        info = await json_command(list(config.driver_command),request,timeout=source_timeout(30),
             **public_command_capture(store,'normal.public_info',request))
         # The native response_fee() deliberately leaves info's fee null. This
         # source-audited no-wallet operation is not a financial fee receipt.
@@ -209,6 +210,7 @@ class SourceCapture:
         # Source projections do not authorize anything. The enclosing normal
         # collector still checks the actual native proofs, Core, costs and cash.
         with store.transaction():
+            deadline_check()
             for name, member in members.items():
                 context = {'member_id':name,'identity':member['identity'],'financial_pins':self.boundary['pins'],
                     'height':observation['height'],'tip_hash':observation['tip_hash'],'observed_at':time.time()}

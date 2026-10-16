@@ -5,6 +5,7 @@ source admission. No observer reply selects code or grants completeness. Origina
 Fulls, witnesses and retained fee files remain private; only hashes and checked
 money projections enter the Store. Unsupported native domains hold dispatch.
 """
+import asyncio
 import hashlib
 import inspect
 import json
@@ -21,6 +22,7 @@ from .final_campaign import _source_event
 from .financial_transition import _current_claims, _superseded_ark_input, history, recorded
 from .model import SIGNET_GENESIS, btc_to_sat, canonical, integer, public_payload, timestamp
 from .normal_native_fee import verify_native_fee_epoch
+from .normal_source_deadline import ACTIVE, Deadline, DeadlineChain, timeout as source_timeout, check as deadline_check
 from .normal_money_sources import collect_money_sources
 from .normal_money_join import journal_money_sources
 from .normal_recovered_backing import bind_native_claim, verify_recovered_backing
@@ -36,7 +38,7 @@ TABLES = frozenset(('vtxo', 'virtual_transaction', 'pending_board', 'fallback_re
     'recovery_source_hold', 'recovery_capital_release', 'recovery_receipt', 'nursery_tx',
     'sweep', 'lightning_node', 'ephemeral_tweak', 'wallet_changeset',
     'fee_allowance_policy', 'fee_allowance_candidate'))
-SUPPORTED = frozenset(('vtxo', 'virtual_transaction', 'pending_board', 'fallback_record',
+SUPPORTED = frozenset(('vtxo', 'virtual_transaction', 'fallback_record',
     'key_link', 'recovery_reserve', 'recovery_source_hold', 'recovery_receipt',
     'wallet_changeset', 'fee_allowance_policy', 'fee_allowance_candidate'))
 
@@ -107,7 +109,7 @@ def run_proof(tool, request):
     if len(encoded) > 2*1024*1024: raise ValueError('private proof input exceeds bound')
     save('request.json', encoded)
     try:
-        reply = subprocess.run(command, input=encoded, capture_output=True, timeout=12)
+        reply = subprocess.run(command, input=encoded, capture_output=True, timeout=source_timeout(12))
     except subprocess.TimeoutExpired as error:
         save('stdout', error.stdout or b''); save('stderr', error.stderr or b'')
         save('terminal.json', canonical({'timed_out':True, 'tool_sha256':tool['sha256']}).encode())
@@ -244,7 +246,7 @@ def verify_fresh_backing(authenticated, tables, chain, *, height, server_pubkey)
     return groups
 
 
-def verified_money(store, chain, source, *, opening=None):
+def verified_money(store, chain, source, *, opening=None, funding_context=None, boundary=None):
     """All recorded flows/costs, checked once each; no historical fee re-debit."""
     sequences = {}
     for kind, field in [('treasury_flow_verified', 'flow_sequences'), ('financial_cost_verified', 'cost_sequences')]:
@@ -256,6 +258,16 @@ def verified_money(store, chain, source, *, opening=None):
         _, original = _source_event(store, opening['declaration']['readiness_sequence'])
         for field, key in [('flow_sequences', 'historical_flow_sequences'), ('cost_sequences', 'historical_cost_sequences')]:
             old.update(original['preserved_history_opening'][key])
+    owned_flows = {}
+    if funding_context is not None:
+        from .normal_funding_ownership import verify_funding_ownership
+        if (not isinstance(funding_context,dict) or set(funding_context) != {'qualification_sequence','packages'}
+                or boundary is None or boundary['id'] != source['boundary_id']
+                or boundary['pins'] != source['financial_pins']):
+            raise ValueError('actual funding join must bind current immutable source boundary')
+        checked = verify_funding_ownership(store, chain, boundary=boundary,
+            height=source['height'], tip_hash=source['tip_hash'], **funding_context)
+        owned_flows = checked['verified_flow_records']
     flows = []; costs = {}; monetary = set()
     for sequence in sorted(sequences['flow_sequences']+sequences['cost_sequences']):
         event, value = _source_event(store, sequence); identifier = value['monetary_id']
@@ -269,6 +281,8 @@ def verified_money(store, chain, source, *, opening=None):
                     or integer(actual['fee_sat'], 'actual miner fee')*1000 != value['amount_msat']):
                 raise ValueError('original external miner cost differs from independent Core')
             costs[value['txid']] = value
+        elif value['kind'] in {'injection','internal_transfer'} and owned_flows.get(identifier) != value:
+            raise ValueError('original funding flow lacks independent qualified ownership rejoin')
         elif value['kind'] == 'injection':
             txid, index = value['outpoint'].rsplit(':', 1); actual = chain.tx(txid)
             rows = [v for v in actual['vout'] if v['n'] == int(index)]
@@ -475,7 +489,8 @@ class Collector:
         hashes = {'adapter':digest(Path(__file__).read_bytes()), 'capture':module_hash(self.capture),
             'financial_components':module_hash(inspect_components),
             'native_fee':module_hash(verify_native_fee_epoch), 'recovered_backing':module_hash(bind_native_claim),
-            'money_sources':module_hash(collect_money_sources), 'money_join':module_hash(journal_money_sources)}
+            'money_sources':module_hash(collect_money_sources), 'money_join':module_hash(journal_money_sources),
+            'deadline':module_hash(Deadline)}
         if (event['kind'] != 'normal_financial_collector_qualified' or value['financial_pins'] != pins
                 or value['component_sha256'] != hashes
                 or value['proof_tool_sha256'] != {name:tool['sha256'] for name,tool in self.tools.items()}
@@ -499,6 +514,17 @@ class Collector:
             boundary, envelope, opening_declaration=declaration)
 
     async def produce(self, store, config, chain, snapshot, observation, boundary, envelope, *, opening=None, opening_declaration=None):
+        deadline = Deadline(observation['started_at']); token = ACTIVE.set(deadline)
+        try:
+            value = await asyncio.wait_for(self._produce(store, config, DeadlineChain(chain, deadline),
+                snapshot, observation, boundary, envelope, opening=opening,
+                opening_declaration=opening_declaration), timeout=deadline.remaining())
+            deadline.remaining()
+            return value
+        finally:
+            ACTIVE.reset(token)
+
+    async def _produce(self, store, config, chain, snapshot, observation, boundary, envelope, *, opening=None, opening_declaration=None):
         store.verify_event_chain()
         if profile(store) != 'two_step_per_key': raise ValueError('A collector cannot qualify another architecture')
         if (observation['financial_pins'] != boundary['pins'] or envelope['pins'] != boundary['pins']
@@ -596,7 +622,7 @@ class Collector:
         limits = {name:fee['ordinary_signed_ceiling_sat_kvb'] for name in PATHS-{'claim','progression'}}
         limits.update({name:min(fee['urgent_child_signed_ceiling_sat_kvb'], fee['urgent_package_signed_ceiling_sat_kvb']) for name in ('claim','progression')})
         if limits != envelope['fee_ceilings_sat_kvb']: raise ValueError('envelope differs from actual signed native path ceilings')
-        flows, costs = verified_money(store, chain, source, opening=opening)
+        flows, costs = verified_money(store, chain, source, opening=opening, boundary=boundary)
         pending_fees, native_txids = native_fee_exposure(tables, fee, chain, costs, store=store,
             zero_fee_carriers=money['zero_fee_carriers'])
         funding = {row['txid'] for row in tables['virtual_transaction'] if row['is_funding'] is True}
@@ -637,10 +663,12 @@ class Collector:
                 'inventory_sequences':captured['inventory_sequences'], 'retained_client_rights':claims,
                 'pending_liabilities':source['pending_liabilities'],
                 'historical_cost_sequences':source['cost_sequences'], 'historical_flow_sequences':source['flow_sequences']}
+        deadline_check()
         public_payload(proof)
         if not 0 <= proof['observed_at']-timestamp(observation['started_at'],'normal observation start') <= 90:
             raise ValueError('full source verification exceeded fresh observation bound')
         with store.transaction():
+            deadline_check()
             store.verify_event_chain()
             if opening is None and history(store) != preserved: raise ValueError('original history changed during opening verification')
             if opening is not None and recorded(store) != opening: raise ValueError('preserved financial opening changed')
@@ -650,4 +678,5 @@ class Collector:
                 from .financial_transition import validate
                 validate(store, {**opening_declaration, 'readiness_sequence':sequence}, boundary,
                     captured['inventory_sequences'], chain, now=proof['observed_at'])
+            deadline_check()
         return sequence

@@ -5,10 +5,12 @@ import json
 import os
 import re
 import signal
+import stat
 import time
 from pathlib import Path
 
 from .chain import ChainReader
+from .normal_source_deadline import ACTIVE, DeadlineChain, timeout as source_timeout
 from .model import SIGNET_GENESIS, btc_to_sat, canonical, integer, timestamp
 from .two_step_normal import digest, native_tables, strict_json
 from .public_wallet_metadata import wallet_metadata
@@ -41,9 +43,46 @@ def private_file(path,maximum):
     if (not path.is_absolute() or path.is_symlink() or not path.is_file()
             or meta.st_mode&0o077 or meta.st_uid!=os.getuid() or not 0<=meta.st_size<=maximum):
         raise ValueError('bounded owned private source original required')
-    raw=path.read_bytes()
-    if len(raw)!=meta.st_size:raise ValueError('private original changed while reading')
+    descriptor=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
+    with os.fdopen(descriptor,'rb') as source:
+        before=os.fstat(source.fileno())
+        identity=lambda value:(value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_mode,value.st_uid)
+        if not stat.S_ISREG(before.st_mode) or identity(before)!=identity(meta):
+            raise ValueError('private original changed before bounded read')
+        raw=source.read(maximum+1)
+        after=os.fstat(source.fileno())
+        if len(raw)>maximum or len(raw)!=meta.st_size or identity(before)!=identity(after):
+            raise ValueError('private original changed while reading')
     return raw
+
+
+def bank_output_ownership(raw,member,chain,row):
+    """Derive one literal bank row from the complete declared public descriptors.
+
+    Historical funding ownership may use this independently of current UTXO
+    availability. Its caller must authenticate the original native bank frame
+    and independently check the actual output bytes, timing and source chain.
+    """
+    descriptors=[entry['desc'] for entry in raw['listdescriptors']['descriptors']]
+    if len(set(descriptors))!=len(descriptors) or set(descriptors)!=set(member['descriptors']):
+        raise ValueError('bank actual native public descriptor membership differs')
+    address=row['address'];details=raw['getaddressinfo'][address]
+    path=details.get('hdkeypath','').split('/')
+    if not path or re.fullmatch('[0-9]+',path[-1]) is None:
+        raise ValueError('bank current native ordinary derivation child missing')
+    child=int(path[-1])
+    if child>=2**31:raise ValueError('ordinary public bank child required')
+    matches=[]
+    for index,descriptor in enumerate(member['descriptors']):
+        actual=chain.call('getdescriptorinfo',descriptor)
+        if actual.get('hasprivatekeys') is not False or actual.get('descriptor')!=descriptor:
+            raise ValueError('bank canonical public descriptor required')
+        if chain.call('deriveaddresses',descriptor,[child,child])==[address]:matches.append(index)
+    if len(matches)!=1 or details.get('scriptPubKey')!=row['scriptPubKey'] or details.get('ismine') is not True:
+        raise ValueError('bank actual output descriptor/derivation ownership differs')
+    return {'outpoint':row['txid']+':'+str(integer(row['vout'],'bank output')),
+        'amount_sat':btc_to_sat(row['amount']),'script':row['scriptPubKey'],
+        'descriptor_index':matches[0],'child_index':child}
 
 
 def bank_projection(raw,member,chain,*,height,tip_hash,records):
@@ -70,27 +109,15 @@ def bank_projection(raw,member,chain,*,height,tip_hash,records):
     for row in raw['listunspent']:
         if type(row.get('confirmations')) is not int or row['confirmations']<1:
             raise ValueError('bank unconfirmed onchain output requires source resolver')
-        address=row['address'];details=raw['getaddressinfo'][address]
-        path=details.get('hdkeypath','').split('/')
-        if not path or re.fullmatch('[0-9]+',path[-1]) is None:
-            raise ValueError('bank current native ordinary derivation child missing')
-        child=int(path[-1]);matches=[]
-        for index,descriptor in enumerate(member['descriptors']):
-            canonical_desc=chain.call('getdescriptorinfo',descriptor)
-            if canonical_desc.get('hasprivatekeys') is not False or canonical_desc.get('descriptor')!=descriptor:
-                raise ValueError('bank canonical public descriptor required')
-            if chain.call('deriveaddresses',descriptor,[child,child])==[address]:matches.append(index)
-        point=row['txid']+':'+str(integer(row['vout'],'bank output'))
-        if (len(matches)!=1 or point in seen or details.get('scriptPubKey')!=row['scriptPubKey']
-                or details.get('ismine') is not True):
-            raise ValueError('bank actual output descriptor/derivation ownership differs')
+        owned=bank_output_ownership(raw,member,chain,row)
+        point=owned['outpoint']
+        if point in seen:raise ValueError('duplicate bank output')
         seen.add(point)
         coin=chain.call('gettxout',row['txid'],row['vout'],False)
         if (coin is None or coin['bestblock']!=tip_hash or coin['confirmations']!=row['confirmations']
                 or coin['scriptPubKey']['hex']!=row['scriptPubKey'] or btc_to_sat(coin['value'])!=btc_to_sat(row['amount'])):
             raise ValueError('bank literal output differs from independent current Core')
-        result['utxos'].append({'outpoint':point,'amount_sat':btc_to_sat(row['amount']),
-            'script':row['scriptPubKey'],'descriptor_index':matches[0],'child_index':child})
+        result['utxos'].append(owned)
     return result
 
 
@@ -129,14 +156,13 @@ class MemberReader:
             return bytes(data)
         stdout=asyncio.create_task(drain(process.stdout,'helper.stdout',4096));stderr=asyncio.create_task(drain(process.stderr,'helper.stderr',65536))
         try:
-            out,err,_=await asyncio.wait_for(asyncio.gather(stdout,stderr,process.wait()),timeout=95)
+            out,err,_=await asyncio.wait_for(asyncio.gather(stdout,stderr,process.wait()),timeout=source_timeout(95))
             terminal['exit']=process.returncode
             if process.returncode:raise ValueError('literal bank/fixture source refused')
         except BaseException as error:
             terminal['error_type']=type(error).__name__
-            if process.returncode is None:
-                try:os.killpg(process.pid,signal.SIGKILL)
-                except ProcessLookupError:pass
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
             await process.wait();await asyncio.gather(stdout,stderr,return_exceptions=True);terminal['exit']=process.returncode
             raise
         finally:save('helper.terminal.json',canonical(terminal).encode())
@@ -168,6 +194,7 @@ class MemberReader:
             return {'sha256':sha}
         chain=ChainReader(cfg['chain_url'],cfg['scoped_core_config'],SIGNET_GENESIS,capture=capture,consumer='normal-current-members')
         chain.credential=ConfigCredential(cfg['scoped_core_config'])
+        if ACTIVE.get() is not None:chain=DeadlineChain(chain,ACTIVE.get())
         prepared_raw=private_file(cfg['prepared_descriptors'],65536)
         if digest(prepared_raw)!=cfg['prepared_descriptors_sha256']:raise ValueError('immutable pure descriptor provenance differs')
         prepared=strict_json(prepared_raw);metadata={}

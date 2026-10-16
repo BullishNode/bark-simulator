@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path, PurePosixPath
 
 from .model import canonical, integer
+from .normal_source_deadline import timeout as source_timeout
 from .two_step_normal import digest, private_history_hash, strict_json
 
 MAX_BYTES = 128*1024*1024
@@ -131,14 +132,13 @@ class TargetTarReader:
         stderr=asyncio.create_task(drain(process.stderr,'stderr',65536))
         try:
             process.stdin.close()
-            sizes=await asyncio.wait_for(asyncio.gather(stdout,stderr,process.wait()),timeout=self.timeout)
+            sizes=await asyncio.wait_for(asyncio.gather(stdout,stderr,process.wait()),timeout=source_timeout(self.timeout))
             terminal.update(exit=process.returncode,stdout_bytes=sizes[0],stderr_bytes=sizes[1])
             if process.returncode:raise ValueError('private source command refused')
         except BaseException as error:
             terminal.update(error_type=type(error).__name__,timed_out=isinstance(error,TimeoutError))
-            if process.returncode is None:
-                try:os.killpg(process.pid,signal.SIGKILL)
-                except ProcessLookupError:pass
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
             await process.wait();await asyncio.gather(stdout,stderr,return_exceptions=True)
             terminal['exit']=process.returncode
             raise

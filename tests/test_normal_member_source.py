@@ -7,6 +7,35 @@ from decimal import Decimal
 from pathlib import Path
 from simulator.normal_member_source import ConfigCredential, bank_projection
 
+class PrivateReadTests(unittest.TestCase):
+    def test_read_uses_bounded_fd_not_unbounded_path_read(self):
+        from unittest.mock import patch
+        from simulator.normal_member_source import private_file
+        with tempfile.TemporaryDirectory()as directory:
+            path=Path(directory)/'original';path.write_bytes(b'abc');path.chmod(0o600)
+            with patch.object(Path,'read_bytes',side_effect=AssertionError('unbounded read')):
+                self.assertEqual(b'abc',private_file(path,3))
+            with self.assertRaises(ValueError):private_file(path,2)
+    def test_actual_growth_during_fd_read_refuses(self):
+        import os
+        from unittest.mock import patch
+        from simulator.normal_member_source import private_file
+        with tempfile.TemporaryDirectory()as directory:
+            path=Path(directory)/'original';path.write_bytes(b'abc');path.chmod(0o600)
+            original=os.fdopen
+            class Reader:
+                def __init__(self,fd,mode):self.stream=original(fd,mode)
+                def __enter__(self):return self
+                def __exit__(self,*args):self.stream.close()
+                def fileno(self):return self.stream.fileno()
+                def read(self,count):
+                    self_count=count
+                    with path.open('ab')as writer:writer.write(b'd')
+                    if self_count!=4:raise AssertionError('read cap differs')
+                    return self.stream.read(count)
+            with patch('simulator.normal_member_source.os.fdopen',Reader),self.assertRaisesRegex(ValueError,'changed while'):
+                private_file(path,3)
+
 class CredentialTests(unittest.TestCase):
     def test_config_fields_stay_local_and_raw_cookie_other_fields_or_public_mode_refuse(self):
         with tempfile.TemporaryDirectory() as directory:
