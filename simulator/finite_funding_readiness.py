@@ -4,6 +4,7 @@ This is deliberately restricted to the empty monetary frontier before funding.
 It does not qualify any Board, transfer, claim, refresh, round or progression.
 The existing Engine and once-only funding adapter retain dispatch authority.
 """
+from . import frontier_source
 import hashlib
 import json
 import stat
@@ -255,14 +256,16 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
     for field in ('source_identity','getwalletinfo','listdescriptors','listunspent','listlockunspent','listsinceblock','getbalances','locked_coins','pending_transactions','pending_parents'):
         if bank[field]!=fresh_bank[field]:raise ValueError('bank changed during initial funding observation')
     request={'kind':'closed_frontier'}
-    database=await json_command(list(config.inventory_command),request,timeout=remaining(25),
-        **public_command_capture(store,'finite_initial.closed_frontier',request))
+    database=(await frontier_source.collect(store,config,pins,timeout=remaining(25))
+        if frontier_source.schema(config)==2 else await json_command(list(config.inventory_command),request,timeout=remaining(25),
+        **public_command_capture(store,'finite_initial.closed_frontier',request)))
+    frontier_source.verify_frame(store,config,database,pins)
     public_payload(database)
     store.event('closed_cohort_original_source',{'source_kind':'closed_frontier','response':database,
         'response_sha256':_digest(database),'financial_pins':pins,'observed_at':time.time()})
     database_sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
     rows=database.get('rows')
-    if (database.get('kind')!='closed_frontier' or database.get('schema_version')!=1 or database.get('fallback_protocol')!=(4 if per_key else 3)
+    if (database.get('kind')!='closed_frontier' or database.get('schema_version')!=frontier_source.schema(config) or database.get('fallback_protocol')!=(4 if per_key else 3)
             or per_key and database.get('architecture_profile')!=DIRECT_PER_KEY
             or database.get('complete') is not False or database.get('qualified') is not False
             or database.get('database_tables_complete') is not True
@@ -365,6 +368,7 @@ def record_initial_funding_readiness(store,config,chain,source_sequence):
     if per_key and (source.get('architecture_profile')!=DIRECT_PER_KEY
             or source.get('c_pilot_id')!=policy['pilot_id'] or source.get('opening_total_sat')!=policy['opening_sat']):
         raise ValueError('original C bounded pilot source required')
+    frontier_source.verify_source(store,config,source,source['financial_pins'])
     _fresh(source['observed_at'],'initial funding');_initial(store,source['financial_pins'])
     limits=envelope(store,config);treasury=boundary(store)
     if (limits['pins']!=source['financial_pins'] or limits['boundary_id']!=source['boundary_id']

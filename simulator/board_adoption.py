@@ -1,4 +1,5 @@
 """One original confirmed Board: cash/backing source and fee-free adoption only."""
+from . import frontier_source
 import json
 import hashlib
 import os
@@ -260,6 +261,7 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
             or cash.get('boundary_id')!=origin['boundary_id'] or cash.get('complete') is not True
             or cash.get('funding_confirmation_sequence')!=origin['funding_confirmation_sequence']
             or set(cash['actors'])!=set(policy['actors'])):raise ValueError('original pre-Board complete cash source required')
+    frontier_source.verify_source(store,config,cash,origin['financial_pins'])
     before=chain.identity();tip=(before['blocks'],before['bestblockhash'])
     if before.get('chain')!='signet' or before.get('initialblockdownload') is not False:raise ValueError('synced independent signet required')
     client_validator(store,config,origin,tip[0]);current,current_sha=_read(current_startup_path)
@@ -298,12 +300,20 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
     check_named_bank(bank,origin['funding_plan']['bank_wallet_name'],observed,tip)
     _,prior=_source_event(store,cash['database_source_sequence'])
     request={'kind':'closed_frontier'}
-    database=await json_command(list(config.inventory_command),request,timeout=25,**public_command_capture(store,'board_adoption.closed_frontier',request))
+    database=(await frontier_source.collect(store,config,origin['financial_pins'],timeout=25)
+        if frontier_source.schema(config)==2 else await json_command(list(config.inventory_command),request,timeout=25,**public_command_capture(store,'board_adoption.closed_frontier',request)))
+    frontier_source.verify_frame(store,config,database,origin['financial_pins'])
     public_payload(database);server=database_validator(database,prior['response'],origin)
     native=client_validator(store,config,origin,tip[0]);history_validator(store,origin)
     ending=chain.identity()
     if (ending.get('initialblockdownload') is not False or (ending['blocks'],ending['bestblockhash'])!=tip or time.monotonic()-started>180):raise ValueError('Board source changed tip or exceeded180s')
     sequences={}
+    database_sequence=None
+    if frontier_source.schema(config)==2:
+        store.event('closed_cohort_original_source',{'source_kind':'closed_frontier','response':database,
+            'response_sha256':hashlib.sha256(canonical(database).encode()).hexdigest(),
+            'financial_pins':origin['financial_pins'],'observed_at':time.time()})
+        database_sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
     with store.transaction():
         for member in cash['members']:
             coins=[{'outpoint':point,'amount_sat':coin['amount_sat'],'script':coin['script'],'descriptor_index':coin['descriptor_index'],'child_index':coin['child_index']}
@@ -318,6 +328,7 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
             'confirmed_scan':scan_provenance,
             'native':native,'mempool':mempool,'physical_assets':physical,'physical_total_sat':physical_total,
             'net_liability_sat':origin['net_liability_sat'],'scope':'six cash wallets plus one signed original Board anchor; liability separate; source observation only'}
+        if database_sequence is not None:source['database_source_sequence']=database_sequence
         public_payload(source);store._event(source_kind,source)
         sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
     return {'source_sequence':sequence,'source':source}
@@ -359,6 +370,7 @@ def _record_backing_readiness(store,config,chain,*,source_sequence,runtime_sourc
     from .treasury import boundary,capture_assets
     event,source=_source_event(store,source_sequence)
     if event['kind']!=source_kind or source.get('complete') is not True:raise ValueError('original complete Board adoption source required')
+    frontier_source.verify_source(store,config,source,source['financial_pins'])
     _fresh(source['observed_at']);origin=_origin(store,chain)
     if origin!=source['origin']:raise ValueError('original Board source changed')
     history_validator(store,origin)

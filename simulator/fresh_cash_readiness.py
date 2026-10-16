@@ -3,6 +3,7 @@
 SDK sync can drive persisted monetary actions. Empty economic state must be
 observed independently; a stale customer BDK graph is never called fresh here.
 """
+from . import frontier_source
 import hashlib
 import json
 import os
@@ -303,8 +304,11 @@ async def collect_fresh_cash_sources(store,config,chain,bank_rpc,*,current_start
         if (btc_to_sat(coin['amount'])!=expected_bank[point]['amount_sat'] or coin['scriptPubKey']!=expected_bank[point]['script']
                 or coin.get('spendable') is not True or coin.get('safe') is not True):raise ValueError('actual bank closing control differs')
     request={'kind':'closed_frontier'}
-    database=await json_command(list(config.inventory_command),request,timeout=25,
-        **public_command_capture(store,'fresh_cash.closed_frontier',request))
+    database=(await frontier_source.collect(store,config,plan['pins'],timeout=25)
+        if frontier_source.schema(config)==2 else await json_command(list(config.inventory_command),request,timeout=25,
+        **public_command_capture(store,'fresh_cash.closed_frontier',request)))
+    frontier_source.verify_frame(store,config,database,plan['pins'])
+    frontier_source.verify_source(store,config,initial,plan['pins'])
     public_payload(database)
     _,initial_db=_source_event(store,initial['database_source_sequence'])
     if (database.get('kind')!='closed_frontier' or database.get('schema_version')!=initial_db['response'].get('schema_version')
@@ -395,6 +399,8 @@ def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_sou
         raise ValueError('original exact fresh-cash source required')
     _fresh(source['observed_at'])
     plan,initial,funded,transaction,funding_sequence=_confirmed_funding(store,chain)
+    frontier_source.verify_source(store,config,source,plan['pins'])
+    frontier_source.verify_source(store,config,initial,plan['pins'])
     _phase_history(store,plan['pins'],source['actors'])
     if (source['financial_pins']!=plan['pins'] or source['boundary_id']!=plan['boundary_id']
             or source['funding_confirmation_sequence']!=funding_sequence or source['members']!=initial['members']):

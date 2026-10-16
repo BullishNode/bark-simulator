@@ -4,6 +4,7 @@ Zero assets is a bootstrap prerequisite only. It is neither a treasury inventory
 nor permission to fund or dispatch. The bootstrap owner validates the fresh-root,
 sole-writer, exact artifact/configuration contract before calling this verifier.
 """
+from . import frontier_source
 import hashlib
 import json
 import time
@@ -79,8 +80,11 @@ async def collect_closed_source_frames(store, config, chain, *, wallet_actions, 
     sequences={}
     for kind in ('closed_frontier','financial_readiness'):
         request={'kind':kind}
-        reply=await json_command(list(config.inventory_command),request,timeout=25,
-            **public_command_capture(store,'closed_cohort.'+kind,request))
+        reply=(await frontier_source.collect(store,config,store.financial_context(),timeout=25)
+            if kind=='closed_frontier' and frontier_source.schema(config)==2 else
+            await json_command(list(config.inventory_command),request,timeout=25,
+            **public_command_capture(store,'closed_cohort.'+kind,request)))
+        if kind=='closed_frontier':frontier_source.verify_frame(store,config,reply,store.financial_context())
         public_payload(reply)
         if reply.get('kind')!=kind or reply.get('complete') is not False or reply.get('qualified') is not False:
             raise ValueError('fixed source contract differs; no readiness inferred')

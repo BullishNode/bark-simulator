@@ -3,6 +3,7 @@
 The caller owns the ordinary Engine lease. This is not a dispatcher. Preparation
 uncertainty is parked permanently; only retained signed bytes may be broadcast.
 """
+from . import frontier_source
 import hashlib
 import json
 import time
@@ -66,6 +67,7 @@ def _validate(store, value, chain):
             or bank_source['source_identity']['wallet_name'] != value['bank_wallet_name']
             or sorted(bank_source['source_identity']['descriptors']) != sorted(bank['descriptors'])):
         raise ValueError('original independently verified finite bank source differs')
+    frontier_source.verify_source(store,None,source,value['pins'])
     recipients = value['recipients']
     if (not isinstance(recipients, list) or len(recipients) != len(amounts)
             or {r['member_id'] for r in recipients} != set(amounts)
@@ -128,6 +130,8 @@ def _admit(store, config, snapshot, value, chain):
             or proof.get('finite_initial_source_sequence') != value['finite_initial_source_sequence']
             or proof.get('funding_plan_sha256') != _digest(value['recipients'])):
         raise ValueError('original funding-only admission differs from immutable finite plan')
+    _, original_source = _source_event(store,value['finite_initial_source_sequence'])
+    frontier_source.verify_source(store,config,original_source,value['pins'])
     tip = chain.identity()
     if (tip.get('initialblockdownload') is not False or tip.get('chain') != 'signet'
             or (tip['blocks'], tip['bestblockhash']) != (snapshot['height'], snapshot['tip_hash'])):

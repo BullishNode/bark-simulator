@@ -3,6 +3,7 @@
 This does not account for a resulting Ark tree. Any existing Board attempt holds
 this producer. The pinned client enforces a TOTAL fee ceiling, not a rate cap.
 """
+from . import frontier_source
 import hashlib
 import json
 import re
@@ -212,6 +213,8 @@ def record_first_board_readiness(store,config,chain,*,cash_readiness_sequence,cu
     if (source_event['kind']!='finite_fresh_cash_sources_verified' or source.get('financial_pins')!=plan['pins']
             or source.get('boundary_id')!=plan['boundary_id'] or source.get('funding_confirmation_sequence')!=funding_sequence):
         raise ValueError('original confirmed cash source differs')
+    frontier_source.verify_source(store,config,source,plan['pins'])
+    frontier_source.verify_source(store,config,initial,plan['pins'])
     _fresh(source['observed_at'])
     observations=verify_synced_cash_snapshots(store,source)
     assets=capture_assets(store,source['inventory_sequences'],chain);limits=envelope(store,config)
