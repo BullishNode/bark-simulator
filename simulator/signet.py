@@ -53,7 +53,9 @@ def command(operation: str, args: dict, config: dict) -> list[str]:
     expected = {"board": {"amount_sat"}, "send": {"destination", "amount_sat"},
                 "raw_vtxo": {"coin_id"}, "onchain_drain": {"destination"},
                 "restore": {"source_actor", "birthday_height"}}.get(operation, set())
-    if operation == "create" and set(args) == {"wallet_profile"}:
+    if operation in {"create", "restore"} and "wallet_profile" in args:
+        if set(args) != expected | {"wallet_profile"}:
+            raise ValueError("unexpected operation arguments")
         profile = args["wallet_profile"]
         if not isinstance(profile, dict) or set(profile) != {
                 "vtxo_refresh_expiry_threshold", "vtxo_exit_margin"}:
@@ -66,7 +68,12 @@ def command(operation: str, args: dict, config: dict) -> list[str]:
         # Native create accepts an existing config.toml only WITHOUT config
         # flags. Campaign writes the complete pinned configuration after the
         # durable intent, before starting this genuine native command.
-        return ["create", "--signet"]
+        result = ["create", "--signet"]
+        if operation == "restore":
+            if not isinstance(args["source_actor"], str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", args["source_actor"]):
+                raise ValueError("original recovery actor required")
+            result += ["--birthday-height", str(integer(args["birthday_height"], "recovery birthday"))]
+        return result
     if set(args) != expected:
         raise ValueError("unexpected operation arguments")
     if "amount_sat" in args:
@@ -330,7 +337,7 @@ class Campaign:
             source = recovery_source(self, args["source_actor"])
             native_args += ["--mnemonic-file", str(source)]
         profile_pin = self.db.execute("""SELECT json_extract(reply,'$.wallet_config_sha256')
-            FROM action WHERE actor=? AND operation='create' AND state='acknowledged'
+            FROM action WHERE actor=? AND operation IN ('create','restore') AND state='acknowledged'
             AND json_extract(reply,'$.wallet_config_sha256') IS NOT NULL LIMIT 1""", (actor,)).fetchone()
         if profile_pin:
             wallet_config = path / "config.toml"
@@ -373,7 +380,7 @@ class Campaign:
             raise
         try:
             path.parent.mkdir(mode=0o700, exist_ok=True)
-            wallet_profile = args.get("wallet_profile") if operation == "create" else None
+            wallet_profile = args.get("wallet_profile") if operation in {"create", "restore"} else None
             if wallet_profile is not None:
                 # A short lifecycle must never inherit the native testnet
                 # 12-block exit margin or overwrite an existing wallet.
@@ -543,6 +550,10 @@ def main():
     s02_discover = commands.add_parser("s02-discover-payouts")
     s02_discover.add_argument("actor")
     s02_discover.add_argument("--maximum-transactions", type=int, default=128)
+    s02_step = commands.add_parser("s02-step")
+    s02_step.add_argument("--board-sat", type=int, required=True)
+    s02_step.add_argument("--maximum-control-fee-sat", type=int, required=True)
+    s02_step.add_argument("--recovery-destination", required=True)
     s02_recovery = commands.add_parser("s02-check-recovery")
     for field in ("actor", "restored_actor", "spend_intent", "payout_observation_id", "expected_destination"):
         s02_recovery.add_argument(field)
@@ -580,6 +591,11 @@ def main():
         elif args.command == "s02-discover-payouts":
             from .signet_discovery import discover_payouts
             progress = discover_payouts(campaign, args.actor, args.maximum_transactions)
+        elif args.command == "s02-step":
+            from .signet_s02_case import S02
+            progress = S02(campaign, board_sat=args.board_sat,
+                           maximum_control_fee_sat=args.maximum_control_fee_sat,
+                           recovery_destination=args.recovery_destination).advance()
         elif args.command == "s02-check-recovery":
             from .signet_s02 import check_recovery
             progress = check_recovery(campaign, args.actor, args.restored_actor, args.spend_intent,

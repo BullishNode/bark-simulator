@@ -350,3 +350,39 @@ admission remain outside our control.
 
 This profile covers ordinary fallback only. Its short lifetime cannot qualify
 normal Lightning HTLC durations, mainnet exit safety or production timing.
+
+The narrow sequential campaign uses fixed actor names `absent`, `control` and
+`restored`, in a new private campaign directory. First run:
+
+```
+python -m simulator.signet --state PRIVATE_DIR --config PRIVATE_CONFIG \
+  s02-step --board-sat 30000 --maximum-control-fee-sat 1000 \
+  --recovery-destination OWNED_SIGNET_ADDRESS
+```
+
+The destination is an actual owned consolidation address. Parameters cannot
+change within this campaign. This creates two genuine configured native wallets,
+captures authenticated payout records and funding addresses, and waits for the
+coordinator's external allocation. Record each actual confirmed funding output
+with `record-funding absent TXID VOUT` or `record-funding control TXID VOUT`.
+Repeat the same `s02-step`: both board requests are journaled once before waiting
+for native settlement. The command then stops at `READY_FOR_EXPLICIT_ABSENCE`,
+reporting the settled snapshot and registration intent IDs. It starts no absence.
+
+After the coordinator has checked the real deployed payout path and its funded
+watchman, invoke the existing `s02-begin-absence absent SNAPSHOT_INTENT
+REGISTRATION_INTENT` using those actual IDs. Subsequent identical `s02-step`
+invocations maintain only the active control, resume independent public-block
+discovery, and wait for every frozen coin to have a canonically verified payout.
+Only then do they create the separate original-seed-only restored wallet. The
+restored wallet uses the same explicit 4/2 native configuration, whose hash is
+pinned before later opens; no database is copied and no payout transaction IDs
+are fed to its discovery. Its native UTXO view must independently find every
+confirmed payout before one journaled drain is sent to the declared destination.
+
+The same step never repeats that drain while waiting for confirmation. Completion
+requires exact payout-input consumption, every original frozen coin covered,
+and the independently checked active control. A new public block triggers at
+most one active-control `maintain` intent; incomplete or unknown native actions
+hold further work. The controller tests use stub native and Core responses;
+publishing this sequence does not constitute an actual Signet fallback result.
