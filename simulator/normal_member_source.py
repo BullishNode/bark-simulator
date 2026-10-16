@@ -217,13 +217,14 @@ class MemberReader:
             pending_board_proof_sha256=cfg.get('pending_board_proof_sha256'),
             ordinary_pool_source_sha256=cfg.get('ordinary_pool',{}).get('classifier_sha256'))
         roots={}
-        from .financial_transition import _current_claims
-        for claim in _current_claims(self.store):
-            proof=json.loads(self.store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(claim['coin_id'],)).fetchone()['proof'])
+        originals=self.store.db.execute('SELECT id,proof FROM owned_coin ORDER BY id').fetchall()
+        if len(originals)>10000:raise ValueError('bounded complete original backing roots required')
+        for claim in originals:
+            proof=json.loads(claim['proof'])
             point=proof['chain_anchor'];row=next((row for row in tables['vtxo'] if row['vtxo_id']==point),None)
             if row is None:raise ValueError('native original backing root missing')
             if row['onchain_spent_txid'] is not None:continue
-            txid,index=point.rsplit(':',1);coin=chain.call('gettxout',txid,int(index),False)
+            txid,index=point.rsplit(':',1);coin=chain.call('gettxout',txid,int(index),True)
             if coin is None or coin['bestblock']!=observation['tip_hash']:raise ValueError('current original backing source unavailable')
             roots[point]={'amount_sat':btc_to_sat(coin['value']),'script':coin['scriptPubKey']['hex']}
         if cfg.get('ordinary_pool')is not None:

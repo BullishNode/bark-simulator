@@ -113,16 +113,25 @@ class SourceCapture:
     exact non-target member frames. Readers return raw records, never Store
     sequences. The normal collector independently re-verifies every money join.
     """
-    def __init__(self, target_reader, member_reader, admission_sequence, boundary, configuration, dependencies=None):
+    def __init__(self, target_reader, member_reader, admission_sequence, boundary, configuration, dependencies=None, lineage_tools=None):
         self.target_reader = target_reader; self.member_reader = member_reader
         self.admission_sequence = admission_sequence; self.boundary = boundary
         self.configuration = configuration; self.dependencies = dependencies or {}
+        self.lineage_tools = lineage_tools
         if set(self.dependencies)&{'target_reader','member_reader'}:raise ValueError('reader dependency identity cannot be overridden')
 
     def admission(self, store, observation):
         event, value = _source_event(store, self.admission_sequence)
         dependencies = {'target_reader':module_hash(self.target_reader),'member_reader':module_hash(self.member_reader),
             **{name:module_hash(function) for name,function in self.dependencies.items()}}
+        if value.get('ordinary_lineage') is not None:
+            from .normal_lineage_join import authenticate_frontier
+            from .normal_lineage import bind_coin
+            dependencies.update(ordinary_lineage=module_hash(authenticate_frontier),typed_lineage=module_hash(bind_coin))
+            if (self.lineage_tools is None
+                    or value.get('proof_tool_sha256') != {name:tool['sha256'] for name,tool in self.lineage_tools.items()}
+                    or value.get('proof_commands_sha256') != {name:digest(canonical(tool['command']).encode()) for name,tool in self.lineage_tools.items()}):
+                raise ValueError('typed lineage tools differ from source admission')
         target_instance=self.target_reader.__self__;member_instance=self.member_reader.__self__
         actual_readers={'target':{'command':list(target_instance.command),
             'evidence_directory':str(target_instance.evidence_directory),'timeout':target_instance.timeout},
@@ -199,6 +208,14 @@ class SourceCapture:
         tables = native_tables(target['raw_sql'],target['manifest']['original_sha256']['native_sql'],
             pending_board_proof_sha256=admission.get('proof_tool_sha256',{}).get('pending'),
             ordinary_pool_source_sha256=admission.get('ordinary_pool',{}).get('classifier_sha256'))
+        lineage_context = None
+        if admission.get('ordinary_lineage') is not None:
+            from .normal_lineage_join import authenticate_frontier
+            lineage_context = authenticate_frontier(store,tables,self.lineage_tools,
+                server_pubkey=runtime['identity']['server_pubkey'],genesis=SIGNET_GENESIS,
+                native_source_sha256=target['manifest']['original_sha256']['native_sql'],observation_id=observation['id'],
+                configuration=admission['ordinary_lineage'])
+        current_claims = _current_claims(store) if lineage_context is None else lineage_context['claims']
         from .normal_pool import source_originals, POOL_AUX
         ordinary_pool_originals=None
         if admission.get('ordinary_pool')is not None:
@@ -263,7 +280,7 @@ class SourceCapture:
                     frame = strict_json(additional['members'][name]['raw_original'])
                     if frame['source_kind'] != 'native_signed_ordinary_backing':
                         raise ValueError('Ark member needs actual signed backing source')
-                    claims = _current_claims(store); root_points = set()
+                    claims = current_claims; root_points = set()
                     inside = {name}
                     for claim in claims:
                         owned = store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(claim['coin_id'],)).fetchone()
@@ -310,7 +327,7 @@ class SourceCapture:
                 sources[name] = event('treasury_native_inventory_source',body)
                 hashes[name] = digest(canonical(body).encode())
                 inventories[name] = event('treasury_inventory', {**context,'complete':True,'utxos':utxos,'channels':channels})
-            for claim in _current_claims(store):
+            for claim in current_claims:
                 proof = json.loads(store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(claim['coin_id'],)).fetchone()['proof'])
                 borrowers = [name for name,member in members.items() if member['kind']=='ark_backing' and member['identity']==proof['server_pubkey']]
                 if len(borrowers)!=1:raise ValueError('one declared borrower required for each retained right')
@@ -332,6 +349,9 @@ class SourceCapture:
             if ordinary_pool_originals is not None:
                 frame['ordinary_pool_configuration']=admission['ordinary_pool']
                 frame['ordinary_pool_original_sha256']={key:digest(raw)for key,raw in ordinary_pool_originals.items()}
+            if lineage_context is not None:
+                from .normal_lineage_join import public_frontier
+                frame['ordinary_lineage']=public_frontier(lineage_context)
             frame['actual_public_server_info'] = info['data']
             source_sequence = event('normal_financial_source',frame)
         return {'source_sequence':source_sequence,'inventory_sequences':inventories,
