@@ -626,7 +626,7 @@ class Collector:
             raise ValueError('authenticated original source buffer differs')
         if self.native_profile is None:
             facts, extra_fields = self._a_native_facts(store, chain, boundary, envelope, captured,
-                source_event, source, originals, admitted, opening, now)
+                source_event, source, originals, admitted, opening, now, observation=observation)
         else:
             extra_fields = {}
             facts = self.native_profile.reduce(store, config, chain, boundary, envelope,
@@ -674,7 +674,7 @@ class Collector:
             deadline_check()
         return sequence
 
-    def _a_native_facts(self, store, chain, boundary, envelope, captured, source_event, source, originals, admitted, opening, now):
+    def _a_native_facts(self, store, chain, boundary, envelope, captured, source_event, source, originals, admitted, opening, now, *, observation):
         tables = native_tables(originals['native_sql'], source['original_sha256']['native_sql'],
             pending_board_proof_sha256=admitted['proof_tool_sha256'].get('pending'),
             ordinary_pool_source_sha256=admitted.get('ordinary_pool',{}).get('classifier_sha256'))
