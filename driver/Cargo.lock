@@ -360,6 +360,7 @@ dependencies = [
  "log",
  "parking_lot",
  "rand 0.10.3",
+ "reqwest",
  "rmp-serde",
  "rusqlite",
  "serde",
