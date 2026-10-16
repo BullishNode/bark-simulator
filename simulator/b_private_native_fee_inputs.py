@@ -9,7 +9,9 @@ public traces/logs or a generic public RPC operation.
 from .b_native_owner_snapshot import owner_snapshot,need
 from .two_step_normal import digest,strict_json
 
-MAX_ORIGINAL_BYTES=16*1024*1024
+# Existing native16MiB signed packages become32MiB hex before SQL/ledger.
+# Match the frozen native64MiB whole request, within TargetTarReader128MiB.
+MAX_ORIGINAL_BYTES=64*1024*1024
 AUXILIARY={'b_native_fee_originals':'b-native-fee-originals.json',
            'b_native_fee_snapshot':'b-native-fee-snapshot.json'}
 DATABASE_FIELDS={'native_funding_fee_intent','native_funding_fee_input',
