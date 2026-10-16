@@ -24,7 +24,7 @@ from tests.test_final_campaign import PINS
 JOIN_SOURCE=os.environ.get('C_SHARED_MONEY_JOIN_SOURCE')
 JOIN_SPEC=importlib.util.find_spec('simulator.normal_money_join')
 JOIN=pathlib.Path(JOIN_SOURCE or JOIN_SPEC.origin)if JOIN_SOURCE or JOIN_SPEC else None
-JOIN_SHA='c6575f46c7a0b752605f1b1023602a2152730d4dbed3f43fce25cc161a299521'
+JOIN_SHA='41ce415ba8ff0a76cdca3a0b5222a01d5bdff9132fe5d979a6ffbba3c4834540'
 TIP='b'*64;KEY='02'+'1'*64
 
 def encoded(value):return json.dumps(value,separators=(',',':'),ensure_ascii=False).encode()
@@ -169,3 +169,12 @@ class CNativeFeeSources(unittest.TestCase):
     def test_RPC_display_order_cannot_substitute_for_native_identity_header(self):
         self.cut['identity_hex']=encoded({'version':1,'genesis':SIGNET_GENESIS,'server_pubkey':KEY}).hex()
         with self.assertRaisesRegex(ValueError,'network/server identity'):self.collect()
+
+    def test_existing_flow_ID_cannot_be_imported_as_C_miner_cost(self):
+        value=self.collect()
+        self.store.event('treasury_flow_verified',{'monetary_id':'miner:'+self.txid,'kind':'injection','financial_pins':PINS,'amount_msat':100000})
+        before=self.store.db.execute('SELECT count(*) FROM event').fetchone()[0]
+        with self.assertRaises(ValueError):self.join(value)
+        self.assertEqual(before,self.store.db.execute('SELECT count(*) FROM event').fetchone()[0])
+        self.assertEqual(0,self.store.db.execute("SELECT count(*)FROM event WHERE kind='financial_cost_verified'").fetchone()[0])
+        self.store.verify_event_chain()
