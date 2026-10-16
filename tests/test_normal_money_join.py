@@ -46,7 +46,7 @@ class MoneyJournalJoinTests(unittest.TestCase):
         self.join(self.result([self.cost], [self.flow]))
         self.assertEqual(1, self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_cost_verified'").fetchone()[0])
         self.assertEqual(1, self.store.db.execute("SELECT count(*) FROM event WHERE kind='treasury_flow_verified'").fetchone()[0])
-        self.assertEqual(0, self.store.db.execute("SELECT count(*) FROM event WHERE kind='normal_financial_readiness_verified'").fetchone()[0])
+        self.assertEqual(0, self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
         self.store.verify_event_chain()
 
     def test_new_cost_cannot_reuse_existing_flow_id(self):
