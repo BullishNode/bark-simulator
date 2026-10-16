@@ -139,7 +139,7 @@ class FinalEpochEvidenceTests(unittest.TestCase):
 
     def external(self, at=103):
         from tests.controlled_peer_fixture import external_send
-        sequence=external_send(self,at)
+        sequence=external_send(self,at,router_fee_msat=0) # Clock fixture has no routing expense.
         return self.credit('external_lightning','external',sequence)
 
     def test_each_rail_and_exact_live_pins_required(self):

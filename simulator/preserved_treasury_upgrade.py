@@ -195,6 +195,8 @@ def record_upgrade(store, config, chain, declaration, *, source_verifier=None):
     retirements, original flows, added preexisting assets and final runtime.
     Missing verifier or actual source coverage refuses before the overlay.
     """
+    from .cln_router_cost import require_routing_reconciliation
+    require_routing_reconciliation(store)
     if not callable(source_verifier):
         raise ValueError('admitted exhaustive normal-source verifier required')
     _require_leases(store, config)
@@ -296,15 +298,16 @@ def record_upgrade(store, config, chain, declaration, *, source_verifier=None):
     if closing['total_msat'] > limits['capital_exposure_msat']:
         raise ValueError('actual expanded treasury exceeds declared capital exposure')
     costs = []; flows = []; seen = set()
-    from .financial_transition import _original_miner_cost
+    from .financial_transition import _original_cost
     for row in store.db.execute("SELECT sequence FROM event WHERE kind='financial_cost_verified' ORDER BY sequence"):
-        event, cost = _original_miner_cost(store, row[0])
+        event, cost = _original_cost(store, row[0])
         if cost.get('financial_pins') != old_boundary['pins'] or cost.get('budget') not in {'ordinary', 'urgent'}:
             raise ValueError('original cost financial lineage differs')
-        tx = chain.transaction(cost['txid'])
-        if (tx.get('txid') != cost['txid'] or tx.get('confirmations', 0) < 1
-                or tx['fee_sat'] * 1000 != cost['amount_msat']):
-            raise ValueError('original miner cost differs from independent confirmed chain')
+        if cost.get('kind') != 'router_cost':
+            tx = chain.transaction(cost['txid'])
+            if (tx.get('txid') != cost['txid'] or tx.get('confirmations', 0) < 1
+                    or tx['fee_sat'] * 1000 != cost['amount_msat']):
+                raise ValueError('original miner cost differs from independent confirmed chain')
         identity = _cost_key(cost)
         if identity in seen:
             raise ValueError('same original miner cost counted twice')
@@ -315,8 +318,11 @@ def record_upgrade(store, config, chain, declaration, *, source_verifier=None):
         costs.append({'sequence': event['sequence'], 'hash': event['hash'], 'budget': cost['budget'],
                       'payer': payer,
                       'amount_msat': integer(cost['amount_msat'], 'retained actual miner fee')})
-        flows.append({'id': 'miner:' + cost['txid'], 'kind': 'miner_cost', 'source': payer,
-                      'destination': 'outside-bitcoin-miners', 'amount_msat': cost['amount_msat']})
+        if cost.get('kind') == 'router_cost' and payer != cost['source']:
+            raise ValueError('retained router payer cannot be reassigned by upgrade')
+        flows.append({'id': cost['monetary_id'], 'kind': cost['kind'], 'source': payer,
+                      'destination': cost['destination'] if cost['kind']=='router_cost' else 'outside-bitcoin-miners',
+                      'amount_msat': cost['amount_msat']})
     references = set(proof['source_sequences']) | set(proof['inventory_sequences'].values()) | member_sources | {runtime['sequence']}
     for sequence in proof['flow_sequences']:
         event, flow = _source_event(store, sequence)

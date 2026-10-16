@@ -29,6 +29,8 @@ def _tip(chain, config):
 
 def validate_collection(store, snapshot, *, now=None):
     """A source-qualified producer result must belong to this fresh collection."""
+    from .cln_router_cost import require_routing_readiness
+    require_routing_readiness(store)
     now = time.time() if now is None else now
     event, collected = _source_event(store, snapshot.get('financial_collection_sequence'))
     proof_event, proof = _source_event(store, snapshot.get('operating_readiness_sequence'))
