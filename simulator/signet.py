@@ -540,6 +540,9 @@ def main():
     s02_payout.add_argument("txid")
     s02_payout.add_argument("index", type=int)
     s02_payout.add_argument("coin_ids", nargs="+")
+    s02_discover = commands.add_parser("s02-discover-payouts")
+    s02_discover.add_argument("actor")
+    s02_discover.add_argument("--maximum-transactions", type=int, default=128)
     s02_recovery = commands.add_parser("s02-check-recovery")
     for field in ("actor", "restored_actor", "spend_intent", "payout_observation_id", "expected_destination"):
         s02_recovery.add_argument(field)
@@ -574,6 +577,9 @@ def main():
         elif args.command == "s02-check-payout":
             from .signet_s02 import observe_payout
             progress = observe_payout(campaign, args.actor, args.txid, args.index, args.coin_ids)
+        elif args.command == "s02-discover-payouts":
+            from .signet_discovery import discover_payouts
+            progress = discover_payouts(campaign, args.actor, args.maximum_transactions)
         elif args.command == "s02-check-recovery":
             from .signet_s02 import check_recovery
             progress = check_recovery(campaign, args.actor, args.restored_actor, args.spend_intent,

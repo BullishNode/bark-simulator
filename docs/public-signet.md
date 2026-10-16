@@ -237,6 +237,24 @@ expiry can pay without waiting for an unresolved tree. Each failed or incomplete
 observation remains in the report. This does not claim that watchman funding,
 fee-child subsidy, or every ownership class has been qualified.
 
+The controller can discover candidates independently from public blocks, without
+being given payout transaction IDs or opening the absent wallet:
+
+```
+python -m simulator.signet --state PRIVATE_DIR --config PRIVATE_CONFIG \
+  s02-discover-payouts ACTOR --maximum-transactions 128
+```
+
+This resumes bounded batches from the frozen cohort's first expiry. It obtains
+only public transaction IDs through Core `getblock` verbosity 1, then checks
+transactions paying the cached registered script with the existing signed-path
+and exact-value checks. A deposit to that script cannot qualify as a payout.
+The cursor checks canonical block hashes and rewinds after a reorg; a changed
+tip during a batch leaves the previous cursor in place. Generic block capture
+contains only the block hash, height and transaction IDs, with no block witness
+bytes. Candidate discovery stays incomplete until actual phrase-only recovery,
+confirmed payout spending and active-control reconciliation have also passed.
+
 Recovery uses a distinct wallet directory created from the original recovery
 phrase only, never a copied database. Native `onchain_utxos` and `onchain_drain`
 operations use the existing CLI. Beginning absence retains an owner-only bounded
