@@ -234,3 +234,32 @@ def verify_source(store, config, source, pins, *, _depth=0):
             if event['kind'] != kind:
                 raise ValueError('retained frontier ancestor kind differs')
             verify_source(store, config, parent, pins, _depth=_depth + 1)
+
+
+def verify_readiness(store, config, proof, pins):
+    """Effective admission replays original sources; old readiness is no v2 alias."""
+    if schema(config) != 2:
+        return
+    if proof.get('financial_pins') != pins:
+        raise ValueError('schema2 operating financial context differs')
+    if 'board_adoption_scope' in proof:
+        sequence=proof['board_adoption_scope'].get('source_sequence')
+        kind='original_board_adoption_sources_verified'; activity='board_backing'
+    elif 'ordinary_arkoor_scope' in proof:
+        sequence=proof['ordinary_arkoor_scope'].get('source_sequence')
+        kind='ordinary_arkoor_sources_verified'; activity='board_backing'
+    elif 'finite_fresh_cash_source_sequence' in proof:
+        sequence=proof['finite_fresh_cash_source_sequence']
+        kind='finite_fresh_cash_sources_verified'; activity='finite_fresh_cash'
+    elif 'finite_initial_source_sequence' in proof:
+        sequence=proof['finite_initial_source_sequence']
+        kind='finite_initial_funding_sources_verified'; activity='finite_initial_funding'
+    else:
+        raise ValueError('schema2 operating readiness lacks original source reference')
+    event,source=_source_event(store,sequence)
+    if (event['kind'] != kind or source.get('financial_pins') != pins
+            or any(source.get(key) != proof.get(key) for key in ('boundary_id','height','tip_hash'))):
+        raise ValueError('schema2 operating original source context differs')
+    verify_source(store,config,source,pins)
+    from .owned_mempool import verify_source as verify_owned_source
+    verify_owned_source(store,source,activity,fresh=True)

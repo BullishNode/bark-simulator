@@ -149,6 +149,9 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
     if pending(store):raise ValueError('bootstrap independent zero-asset proofs missing')
     from . import exploratory
     if exploratory.scope(store) is not None:
+        from .frontier_source import schema
+        if schema(config)==2:
+            raise ValueError('schema2 cannot use legacy exploratory source admission')
         return exploratory.preflight(store,config,snapshot,operation=operation,amount_sat=amount_sat,
             maximum_fee_sat=maximum_fee_sat,now=now,reserved_action_id=reserved_action_id)
     declaration=envelope(store,config);now=time.time() if now is None else now
@@ -164,6 +167,8 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
             or proof.get('height')!=snapshot.get('height') or proof.get('complete') is not True
             or not 0<=now-proof.get('observed_at',-1)<=90):
         raise ValueError('actual fresh operating readiness not verified')
+    from .frontier_source import verify_readiness
+    verify_readiness(store,config,proof,declaration['pins'])
     if 'operation_scope' in proof:
         allowed=proof['operation_scope']
         if (not isinstance(allowed,list) or not allowed or len(allowed)>128
