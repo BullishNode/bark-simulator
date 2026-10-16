@@ -144,6 +144,8 @@ def verify_pending_boards(store, tables, authenticated, chain, tool, *,
             backing='authenticated recovered source hold; customer rights remain unpaid'
         covered_claims.update(related)
         resolved.append({'root_outpoint':root,'registered_coin_id':identifier,'original_board_action':action['id'],
+            'original_board_actor':action['actor_id'],'funded_amount_sat':fee['funded_amount_sat'],
+            'service_charge_sat':fee['service_charge_sat'],'mining_fee_sat':fee['mining_fee_sat'],
             'amount_sat':registered['amount'],'current_claim_ids':sorted(related),'lineage':lineage,'backing':backing,
             'native_tool_sha256':tool['sha256'],'native_request_sha256':digest(encoded),'native_response_sha256':digest(raw),
             **flags,'customer_payment_credit_sat':0})
@@ -154,3 +156,59 @@ def verify_pending_boards(store, tables, authenticated, chain, tool, *,
     store.verify_event_chain()
     return {'resolved_registered_boards':resolved,'additional_liabilities':[],
         'customer_payment_credit_sat':0,'scope':'Matched retained unsigned registrations only; current rights already counted exactly once. Unregistered, unmatched or paid-settlement-only cases hold.'}
+
+
+def join_board_service_allocations(resolution, money, authenticated, members, *, server_pubkey, native_source_sha256):
+    """Join locally proved Board obligations to independently priced charges.
+
+    Call only after verify_pending_boards and collect_money_sources on the same
+    authenticated cut. This attributes retained principal and internal service
+    charges; it creates no flow, cost, receipt, asset or customer payment.
+    """
+    if re.fullmatch('[0-9a-f]{64}',native_source_sha256 or '') is None:
+        raise ValueError('Board allocation needs the original native source hash')
+    borrowers=[name for name,row in members.items() if row['kind']=='ark_backing'
+        and row['role']=='operator' and row['identity']==server_pubkey]
+    if len(borrowers)!=1:raise ValueError('one declared Board operator borrower required')
+    boards=resolution['resolved_registered_boards'];services=money['client_service_charges']
+    if (not isinstance(boards,list) or not isinstance(services,list) or len(boards)>1000 or len(services)>1000
+            or resolution['additional_liabilities'] or resolution['customer_payment_credit_sat']!=0):
+        raise ValueError('unresolved Board allocation or payment cannot be omitted')
+    claims={row['coin_id']:row for row in authenticated}
+    if len(claims)!=len(authenticated):raise ValueError('duplicate authenticated Board claim')
+    charges={row['action_id']:row for row in services}
+    if len(charges)!=len(services):raise ValueError('duplicate internal Board service charge')
+    seen_actions=set();seen_roots=set();seen_claims=set();allocations=[]
+    for board in boards:
+        action=board['original_board_action'];root=board['root_outpoint'];actor=board['original_board_actor']
+        if action in seen_actions or root in seen_roots:raise ValueError('Board service allocation repeated')
+        seen_actions.add(action);seen_roots.add(root)
+        if actor not in members or members[actor]['kind']!='wallet' or members[actor]['role']!='customer':
+            raise ValueError('Board service payer is not its declared customer')
+        principal=integer(board['amount_sat'],'retained Board principal',1)
+        service=integer(board['service_charge_sat'],'internal Board service charge')
+        gross=integer(board['funded_amount_sat'],'original gross Board backing',1)
+        integer(board['mining_fee_sat'],'independent Board miner cost')
+        if gross!=principal+service:raise ValueError('Board gross backing does not conserve principal and service')
+        expected={'action_id':action,'txid':root.rsplit(':',1)[0],'coin_id':board['registered_coin_id'],
+            'amount_msat':service*1000,'scope':'internal customer-to-operator charge; never miner expense'}
+        if charges.get(action)!=expected:raise ValueError('original priced Board service attribution differs')
+        ids=board['current_claim_ids']
+        if (not isinstance(ids,list) or not ids or len(set(ids))!=len(ids) or seen_claims.intersection(ids)
+                or set(ids)-set(claims) or sum(integer(claims[name]['amount_sat'],'current Board claim',1) for name in ids)!=principal):
+            raise ValueError('Board allocation lacks exact conserved unpaid claim membership')
+        for name in ids:
+            if claims[name]['chain_anchor']!=root or claims[name]['server_pubkey']!=server_pubkey:
+                raise ValueError('Board allocation claim belongs to another backing or server')
+        seen_claims.update(ids)
+        allocations.append({'original_board_action':action,'original_customer_member':actor,
+            'operator_borrower':borrowers[0],'root_outpoint':root,'registered_coin_id':board['registered_coin_id'],
+            'current_claim_ids':sorted(ids),'gross_backing_sat':gross,'unpaid_principal_sat':principal,
+            'internal_service_charge_sat':service,'native_request_sha256':board['native_request_sha256'],
+            'native_response_sha256':board['native_response_sha256']})
+    if set(charges)!=seen_actions:raise ValueError('original Board service charge has no authenticated retained obligation')
+    return {'allocations':allocations,'gross_backing_sat':sum(row['gross_backing_sat']for row in allocations),
+        'unpaid_principal_sat':sum(row['unpaid_principal_sat']for row in allocations),
+        'internal_service_charge_sat':sum(row['internal_service_charge_sat']for row in allocations),
+        'native_source_sha256':native_source_sha256,
+        'scope':'Internal Board allocation only; gross backing, unpaid principal and service are not additional assets, external income or customer payment. Original miner expenses and R+F remain separately reconciled.'}

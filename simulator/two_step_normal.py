@@ -22,7 +22,7 @@ from .final_campaign import _source_event
 from .financial_transition import _current_claims, _superseded_ark_input, history, recorded
 from .model import SIGNET_GENESIS, btc_to_sat, canonical, integer, public_payload, timestamp
 from .normal_native_fee import verify_native_fee_epoch
-from .normal_pending_board import verify_pending_boards
+from .normal_pending_board import verify_pending_boards, join_board_service_allocations
 from .normal_pool import authenticate_pool, join_pool_finance, POOL_TABLES
 from .normal_source_deadline import ACTIVE, Deadline, DeadlineChain, timeout as source_timeout, check as deadline_check
 from .normal_money_sources import collect_money_sources
@@ -814,6 +814,8 @@ class Collector:
             native_source_sha256=source['original_sha256']['native_sql'],
             native_member_ids={'rounds':source['rounds_member_id'], 'watchman':source['watchman_member_id']},
             height=source['height'], tip_hash=source['tip_hash'], funding_intents=())
+        board_allocations = join_board_service_allocations(pending_resolution,money,authenticated,members,
+            server_pubkey=source['identity']['server_pubkey'],native_source_sha256=source['original_sha256']['native_sql'])
         source_event, source = journal_money_sources(store, money, source_event, source,
             helper_sha256=module_hash(collect_money_sources))
         limits = {name:fee['ordinary_signed_ceiling_sat_kvb'] for name in PATHS-{'claim','progression'}}
@@ -846,5 +848,6 @@ class Collector:
         if available < sum(max(0,envelope['fee_budgets_msat'][key]-used[key]) for key in used):
             raise ValueError('actual unreserved fee cash does not back remaining outer budgets')
         return (assets, claims, fee, limits, pending_fees, recovered, fresh_backing, edge, available, source_event, source), {
-            'pending_board_resolution':pending_resolution, 'ordinary_pool_resolution':pool_checked,
+            'pending_board_resolution':pending_resolution, 'board_service_allocations':board_allocations,
+            'ordinary_pool_resolution':pool_checked,
             'ordinary_lineage':source.get('ordinary_lineage')}
