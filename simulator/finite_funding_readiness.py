@@ -32,6 +32,9 @@ MAX_RATE_SAT_KVB=20000
 
 def _policy(store):
     if profile(store)==DIRECT_PER_KEY:
+        from .c_cohort import cohort_profile, prospective_funding_policy, seal
+        if cohort_profile(store) is not None and seal(store).get('opening_kind') == 'unfunded_initial12':
+            return prospective_funding_policy(store)
         from .c_pilot import funding_policy
         return funding_policy(store)
     return {'customers':CUSTOMERS,'opening_sat':OPENING_SAT,'principal_sat':PRINCIPAL_SAT,
@@ -59,8 +62,10 @@ def _c_records_links(store, customer_data, pins):
                 'sig':raw[-64:].hex(),'recovery_index':int.from_bytes(raw[35:39],'little')})
         from .c_pilot import verify_public_key_rows
         verify_public_key_rows(store,actor,origins,initial=True)
-    if len({r['mailbox_pk'] for r in records})!=2 or len({r['spk'] for r in records})!=2 or len({l['user_pubkey'] for l in links})!=102:
-        raise ValueError('two distinct C identities and 102 original unique links required')
+    count=len(customer_data)
+    if (count not in (2,12) or len({r['mailbox_pk'] for r in records})!=count
+            or len({r['spk'] for r in records})!=count or len({l['user_pubkey'] for l in links})!=51*count):
+        raise ValueError('exact declared distinct C identities and 51 original unique links each required')
     return sorted(records,key=lambda r:r['mailbox_pk']),sorted(links,key=lambda r:r['user_pubkey'])
 
 
@@ -84,10 +89,21 @@ def _record(binding):
 
 
 def _initial(store,pins):
-    require_only_verified_creates(store,pins)
+    policy=_policy(store)
+    if policy.get('opening_kind')=='unfunded_initial12':
+        from .c_cohort import initial_identity_sources
+        identities=initial_identity_sources(store)
+        if identities['financial_pins']!=pins:
+            raise ValueError('initial12 original identity pins differ')
+        expected={row['create_action_id']:actor for actor,row in identities['sources'].items()}
+        actual={row['id']:row['actor_id'] for row in store.db.execute('SELECT id,actor_id FROM action')}
+        if actual!=expected:
+            raise ValueError('only exact original12 create actions may precede funding')
+    else:
+        require_only_verified_creates(store,pins)
     if store.db.execute("SELECT 1 FROM event WHERE kind IN ('fixture_funding_intent','fixture_funding_prepared','fixture_funding_broadcast_intent','closed_cohort_funding_intent','closed_cohort_funding_prepared','closed_cohort_funding_broadcast_intent','financial_cost_verified') LIMIT 1").fetchone():
         raise ValueError('initial-only source refuses any funding or paid history')
-    if store.db.execute("SELECT 1 FROM action WHERE operation!='create' OR state!='completed' OR actual_fee_sat!=0 OR fee_reservation_sat!=0 LIMIT 1").fetchone():
+    if store.db.execute("SELECT 1 FROM action WHERE operation!='create' OR state!='completed' OR actual_fee_sat IS NOT 0 OR fee_reservation_sat IS NOT 0 LIMIT 1").fetchone():
         raise ValueError('only the original zero-fee creates may precede initial funding')
 
 
@@ -102,7 +118,7 @@ def _empty_owner(frame,owner,tip):
 
 
 async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_source_sequence,current_startup_path,boundary_id):
-    """Read actual sources and emit six verified members/inventories, without funding.
+    """Read every declared member/inventory from actual sources, without funding.
 
     Root must validate the exact startup capture first. The named bank collector
     is refreshed after expensive independent scans. No supplied complete labels
@@ -114,7 +130,15 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
         value=min(limit,180-(time.monotonic()-started))
         if value<=0:raise ValueError('initial funding source deadline exceeded')
         return value
-    proof=declaration(store)
+    identity_sources=None
+    if per_key and policy.get('opening_kind')=='unfunded_initial12':
+        from .c_cohort import initial_identity_sources
+        identity_sources=initial_identity_sources(store)
+        proof={'declaration':{'actors':identity_sources['actors'],'pins':identity_sources['financial_pins'],
+                             'wallet_root':identity_sources['wallet_root']},
+               'filesystem':identity_sources['filesystem']}
+    else:
+        proof=declaration(store)
     if proof is None or set(proof['declaration']['actors'])!=customers:
         raise ValueError('exact fresh three-customer bootstrap required')
     pins=proof['declaration']['pins'];_initial(store,pins)
@@ -170,16 +194,20 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
         wallet_specs[owner]=_empty_owner(current.get(field,{}).get(owner),owner,tip)
     customer_data={};customer_sequences={}
     for actor in sorted(customers):
-        rows=store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_zero_assets_verified' AND json_extract(payload,'$.actor')=?",(actor,)).fetchall()
-        if len(rows)!=1:raise ValueError('unique original customer bootstrap proof required')
-        _,zero=_source_event(store,rows[0][0]);_,native=_source_event(store,zero['driver_response_sequence'])
+        if identity_sources is None:
+            rows=store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_zero_assets_verified' AND json_extract(payload,'$.actor')=?",(actor,)).fetchall()
+            if len(rows)!=1:raise ValueError('unique original customer bootstrap proof required')
+            zero_sequence=rows[0][0]
+        else:
+            zero_sequence=identity_sources['sources'][actor]['zero_source_sequence']
+        _,zero=_source_event(store,zero_sequence);_,native=_source_event(store,zero['driver_response_sequence'])
         data=native['response']['data'];frame=data['onchain_inventory'];descriptors=frame.get('descriptors')
         if (frame.get('complete') is not True or frame.get('network')!='signet' or not isinstance(descriptors,list)
                 or len(descriptors)!=1 or descriptors[0].get('keychain')!='external'
                 or type(descriptors[0].get('last_revealed_index')) is not int or not 0<=descriptors[0]['last_revealed_index']<=1
                 or any(frame.get(field)!=[] for field in ('utxos','pending_transactions','pending_parents','unavailable_parent_txids'))):
             raise ValueError('original fresh native customer descriptor and empty graph required')
-        customer_data[actor]=data;customer_sequences[actor]=rows[0][0]
+        customer_data[actor]=data;customer_sequences[actor]=zero_sequence
         wallet_specs[actor]={'descriptors':[descriptors[0]['descriptor']],'ranges':[20],'funding_address':data['funding_address']}
     addresses={};scripts={};scans=[]
     for member_id,spec in wallet_specs.items():
@@ -277,7 +305,18 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             descriptor_index=0;child=spec['recipient_index'];address,script=addresses[(member_id,0,child)]
         recipients.append({'member_id':member_id,'role':'customer' if member_id in customers else 'operator',
             'address':address,'script':script,'amount_sat':amount,'descriptor_index':descriptor_index,'child_index':child})
-    members=[];inventory_sequences={}
+    from .c_fee_geometry import expand_recipients, declaration as funding_geometry
+    recipients = expand_recipients(store, recipients, addresses)
+    geometry = funding_geometry(store)
+    members=[];inventory_sequences={};member_refresh_sequences={}
+    retained_members=None
+    if per_key and store.get_meta('conserved_treasury_boundary') is not None:
+        from .treasury import boundary
+        original_boundary=boundary(store)
+        if (original_boundary['id']!=boundary_id or original_boundary['pins']!=pins
+                or {m['id'] for m in original_boundary['members']}!=set(wallet_specs)):
+            raise ValueError('fresh initial member set differs from immutable treasury')
+        retained_members={m['id']:m for m in original_boundary['members']}
     with store.transaction():
         store._event('finite_initial_funding_core_inventory',{'height':tip[0],'tip_hash':tip[1],
             'scans':scan_observations,'fee_estimate_target':6,'fee_estimate':normalized(estimate),
@@ -295,7 +334,19 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
                 'runtime_source_sequence':runtime_source_sequence,'bank_source_sequence':refreshed_bank_sequence,
                 'customer_source_sequences':customer_sequences})
             sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
-            members.append({**member,'verification_sequence':sequence})
+            member_refresh_sequences[member_id]=sequence
+            if retained_members is None:
+                members.append({**member,'verification_sequence':sequence})
+            else:
+                retained=retained_members[member_id]
+                original_event,original_member=_source_event(store,retained['verification_sequence'])
+                if (original_event['kind']!='treasury_member_verified'
+                        or original_member.get('member')!=member
+                        or original_member.get('financial_pins')!=pins
+                        or original_member.get('genesis')!=SIGNET_GENESIS
+                        or {k:v for k,v in retained.items() if k!='verification_sequence'}!=member):
+                    raise ValueError('fresh independently derived member differs from retained origin')
+                members.append(retained)
             store._event('treasury_inventory',{'member_id':member_id,'identity':identity,'financial_pins':pins,
                 'height':tip[0],'tip_hash':tip[1],'complete':True,'utxos':inventories[member_id],
                 'scope':'complete initial confirmed descriptor footprint and no pending assets; fresh sole-writer cohort only'})
@@ -311,10 +362,13 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             'funding_plan_sha256':_digest(recipients),'principal_sat':policy['principal_sat'],
             'maximum_funding_fee_sat':policy['maximum_fee_sat'],'maximum_fee_rate_sat_kvb':policy['maximum_rate_sat_kvb'],
             'estimated_fee_rate_sat_kvb':rate,'inventory_sequences':inventory_sequences,'members':members,
+            'member_revalidation_sequences':member_refresh_sequences,
             'descriptor_ranges':scans,'ordinary_fee_holds_sat':{'funding':10000,'three_boards':12000,'three_normal_expiry_carriers':30000},
             'urgent_fee_reserve_sat':policy['urgent_budget_sat'],'operation_scope':['funding'],
             'scope':'only initial funding of six fully enumerated owned wallets; all monetary database rows absent; no subsequent wallet operation admission'}
         if per_key:
+            if geometry is not None:
+                source['watchman_funding_geometry_sequence'] = geometry['source_sequence']
             from .c_escrow import transition as escrow_transition
             escrow=escrow_transition(store)
             if escrow is not None:
@@ -327,7 +381,7 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
                 fee_signer_member=policy['fee_signer_member'],
                 actual_daemon_fee_liquidity_msat=0,urgent_isolation_qualified=False,
                 ordinary_fee_holds_sat={'funding':1000,'one_board':1000},
-                scope='C initial Core-bank funding only: exact 25000-sat sender and 100000-sat watchman outputs; recipient/rounds zero; actual signer liquidity must be independently observed after confirmation; urgent separation/C11 and full qualification open')
+                scope=('C initial Core-bank funding only: twelve authenticated customers at25000 sat each and watchman100000; rounds zero; current signer liquidity and full qualification remain separate' if policy.get('opening_kind')=='unfunded_initial12' else 'C initial Core-bank funding only: exact 25000-sat sender and 100000-sat watchman outputs; recipient/rounds zero; actual signer liquidity must be independently observed after confirmation; urgent separation/C11 and full qualification open'))
         public_payload(source);store._event('finite_initial_funding_sources_verified',source)
         sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]
     return {'source_sequence':sequence,'source':source,
@@ -335,7 +389,7 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             'excluded':[]},'inventory_sequences':inventory_sequences}
 
 
-def record_initial_funding_readiness(store,config,chain,source_sequence):
+def record_initial_funding_readiness(store,config,chain,source_sequence,*,source_observation=None):
     """After the ordinary boundary/envelope declarations, admit funding alone."""
     from .operating_limits import envelope,fee_totals
     from .treasury import boundary,capture_assets
@@ -382,6 +436,15 @@ def record_initial_funding_readiness(store,config,chain,source_sequence):
         operator_fee_grants_sat=policy['operator_fee_grants_sat'],
         fee_signer_member='bank',actual_daemon_fee_liquidity_msat=0,
         urgent_isolation_qualified=False,
-        scope='C once-only Core-bank batch: sender25000/watchman100000; postfunding Board requires true confirmed/trusted watchman liquidity; urgent separation/C11 and full qualification open')
+        scope=('C once-only initial12 Core-bank batch: twelve customers25000 each/watchman100000; current signer liquidity and full qualification remain separate' if policy.get('opening_kind')=='unfunded_initial12' else 'C once-only Core-bank batch: sender25000/watchman100000; postfunding Board requires true confirmed/trusted watchman liquidity; urgent separation/C11 and full qualification open'))
+    if per_key and store.get_meta('finite_initial_funding_plan') is not None:
+        from .finite_funding import _plan, verify_initial_revalidation
+        original_plan=_plan(store)
+        verify_initial_revalidation(store,original_plan,source_sequence)
+        receipt.update(original_finite_initial_source_sequence=original_plan['finite_initial_source_sequence'],
+                       original_bank_source_sequence=original_plan['bank_source_sequence'])
+    if source_observation is not None:
+        from .c_normal_source import bind_source_observation
+        bind_source_observation(store,receipt,source,source_observation)
     store.event('financial_operating_readiness',receipt)
     return {'operating_readiness_sequence':store.db.execute('SELECT max(sequence) FROM event').fetchone()[0],**receipt}

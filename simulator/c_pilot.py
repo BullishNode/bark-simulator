@@ -106,11 +106,20 @@ def board_policy(store=None):
         'grants':{actor:50000 for actor in actors},'opening_sat':665454,'urgent_budget_sat':15000}
 
 
-def retained_links(store):
+def retained_links(store,*,actors=None):
     """Exact original native prefix/proof union; server rows cannot bless extras."""
     from .per_key import initial_origins,retained_origins,binding_matches,proof_matches
     pilot=declaration(store);result={}
-    for actor in sorted(CUSTOMERS):
+    if actors is None:actors=sorted(CUSTOMERS)
+    if (not isinstance(actors,(list,tuple)) or not actors
+            or any(not isinstance(actor,str) for actor in actors) or len(set(actors))!=len(actors)):
+        raise ValueError('exact declared C retained-key actors required')
+    if set(actors)!=CUSTOMERS:
+        from .c_cohort import prospective_funding_policy
+        policy=prospective_funding_policy(store)
+        if policy.get('opening_kind')!='unfunded_initial12' or set(actors)!=policy['customers']:
+            raise ValueError('retained-key actors differ from authenticated C cohort')
+    for actor in sorted(actors):
         creates=0;origins=None;binding=None
         rows=store.db.execute("SELECT a.id,a.operation,a.result,e.sequence FROM action a JOIN event e ON e.kind='driver_response' AND json_extract(e.payload,'$.action_id')=a.id WHERE a.actor_id=? AND a.state='completed' AND a.operation IN ('create','sync') ORDER BY e.sequence",(actor,)).fetchall()
         for row in rows:
@@ -155,7 +164,11 @@ def verify_public_key_rows(store,actor,origins,*,initial=False):
     from pathlib import Path
     from .identity_bootstrap import declaration as bootstrap,_root,_sole_writer
     original=bootstrap(store)
-    if original is None or actor not in CUSTOMERS:raise ValueError('original C customer context required')
+    if actor not in CUSTOMERS:
+        from .c_cohort import enrollment_for_actor
+        current=enrollment_for_actor(store,actor)
+        original=({'declaration':current['declaration'],'filesystem':current['filesystem']} if current else None)
+    if original is None:raise ValueError('original C customer context required')
     value=original['declaration'];_sole_writer(value['wallet_root'])
     if _root(value['wallet_root'])!=original['filesystem']:raise ValueError('original C wallet root identity changed')
     path=Path(value['wallet_root'])/actor/'db.sqlite'

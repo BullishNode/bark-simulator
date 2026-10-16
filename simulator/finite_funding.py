@@ -24,6 +24,9 @@ AMOUNTS = {'rounds': 100000, 'watchman': 75000,
 
 def funding_policy(store):
     if profile(store) == DIRECT_PER_KEY:
+        from .c_cohort import cohort_profile, prospective_funding_policy, seal
+        if cohort_profile(store) is not None and seal(store).get('opening_kind') == 'unfunded_initial12':
+            return prospective_funding_policy(store)
         from .c_pilot import funding_policy as c_policy
         return c_policy(store)
     return {'amounts': AMOUNTS, 'principal_sat': 325000, 'maximum_fee_sat': 10000,
@@ -71,17 +74,18 @@ def _validate(store, value, chain):
     from .owned_mempool import verify_source as verify_owned_source
     verify_owned_source(store,source,'finite_initial_funding')
     recipients = value['recipients']
-    if (not isinstance(recipients, list) or len(recipients) != len(amounts)
-            or {r['member_id'] for r in recipients} != set(amounts)
-            or len({r['address'] for r in recipients}) != len(amounts) or len({r['script'] for r in recipients}) != len(amounts)
-            or recipients != source.get('funding_recipients')):
+    from .c_fee_geometry import validate_recipients
+    geometry = validate_recipients(store, recipients, amounts)
+    if recipients != source.get('funding_recipients'):
         raise ValueError('exact original source recipients required')
+    if geometry is not None and source.get('watchman_funding_geometry_sequence') != geometry['source_sequence']:
+        raise ValueError('original immutable Watch geometry source required')
     for row in recipients:
         if set(row) != {'role','member_id','address','script','amount_sat','descriptor_index','child_index'}:
             raise ValueError('complete derived finite recipient required')
         member = members[row['member_id']]
         role = 'customer' if row['member_id'].startswith('actor-') else 'operator'
-        if member['kind'] != 'wallet' or member['role'] != role or row['role'] != role or row['amount_sat'] != amounts[row['member_id']]:
+        if member['kind'] != 'wallet' or member['role'] != role or row['role'] != role:
             raise ValueError('finite recipient membership/role/principal differs')
         index = integer(row['descriptor_index'], 'funding descriptor index')
         child = integer(row['child_index'], 'funding child index')
@@ -125,13 +129,53 @@ def _plan(store):
     return original['declaration']
 
 
+def verify_initial_revalidation(store, value, current_sequence):
+    """Bind a new full source observation to the original immutable plan.
+
+    This does not refresh an old event or alter the retained bank/source refs.
+    Both independently collected sources must describe the same opening, owning
+    member descriptors and exact physical recipient plan. Freshness and current
+    chain/assets are separately enforced by the real readiness producer.
+    """
+    old_event, original=_source_event(store,value['finite_initial_source_sequence'])
+    new_event, current=_source_event(store,current_sequence)
+    if old_event['kind']!='finite_initial_funding_sources_verified' or new_event['kind']!=old_event['kind']:
+        raise ValueError('original and fresh full initial sources required')
+    fields=('financial_pins','boundary_id','genesis','bank_member_id','bank_wallet_name',
+            'opening_total_sat','opening_liabilities_sat','funding_recipients','funding_plan_sha256',
+            'principal_sat','maximum_funding_fee_sat','maximum_fee_rate_sat_kvb','members',
+            'descriptor_ranges','operation_scope','architecture_profile','c_pilot_id',
+            'client_principal_sat','operator_fee_grants_sat','fee_signer_member',
+            'watchman_funding_geometry_sequence','escrow_opening_transition_sequence')
+    if (profile(store)!=DIRECT_PER_KEY or any(original.get(k)!=current.get(k) for k in fields)
+            or original.get('bank_source_sequence')!=value['bank_source_sequence']
+            or original.get('financial_pins')!=value['pins']
+            or original.get('boundary_id')!=value['boundary_id']
+            or current.get('funding_recipients')!=value['recipients']
+            or current.get('funding_plan_sha256')!=_digest(value['recipients'])):
+        raise ValueError('fresh initial source changes the immutable financial plan or ownership')
+    return current
+
+
 def _admit(store, config, snapshot, value, chain):
     if store.get_meta('paused'): raise ValueError('campaign paused; no finite funding')
-    _, proof = _source_event(store, snapshot['operating_readiness_sequence'])
-    if (proof.get('operation_scope') != ['funding'] or proof.get('bank_source_sequence') != value['bank_source_sequence']
-            or proof.get('finite_initial_source_sequence') != value['finite_initial_source_sequence']
+    proof_event, proof = _source_event(store, snapshot['operating_readiness_sequence'])
+    if (proof_event['kind']!='financial_operating_readiness' or proof.get('operation_scope') != ['funding']
             or proof.get('funding_plan_sha256') != _digest(value['recipients'])):
         raise ValueError('original funding-only admission differs from immutable finite plan')
+    if (proof.get('bank_source_sequence'),proof.get('finite_initial_source_sequence'))!=(value['bank_source_sequence'],value['finite_initial_source_sequence']):
+        if (profile(store)!=DIRECT_PER_KEY
+                or proof.get('original_finite_initial_source_sequence')!=value['finite_initial_source_sequence']
+                or proof.get('original_bank_source_sequence')!=value['bank_source_sequence']):
+            raise ValueError('fresh funding observation must retain the original plan source refs')
+        fresh=verify_initial_revalidation(store,value,proof.get('finite_initial_source_sequence'))
+        if (fresh['bank_source_sequence']!=proof.get('bank_source_sequence')
+                or fresh['financial_pins']!=value['pins']
+                or (fresh['height'],fresh['tip_hash'])!=(snapshot['height'],snapshot['tip_hash'])):
+            raise ValueError('fresh funding source differs from actual admitted tip/bank')
+        frontier_source.verify_source(store,config,fresh,value['pins'])
+        from .owned_mempool import verify_source as verify_owned_source
+        verify_owned_source(store,fresh,'finite_initial_funding',fresh=True)
     _, original_source = _source_event(store,value['finite_initial_source_sequence'])
     frontier_source.verify_source(store,config,original_source,value['pins'])
     tip = chain.identity()
