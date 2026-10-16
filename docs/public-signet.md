@@ -296,3 +296,39 @@ restore must start after its payout has confirmed. A later reorg can therefore
 make the current reconciliation incomplete even if historical observations
 passed; both results remain visible. S02 PASS covers this declared cohort and
 lifecycle, not every production scenario or any amount of qualified wall time.
+
+
+### Preparing a short ordinary lifecycle
+
+Use a new cohort and new source/binary/server-configuration pins. The running
+long-lifetime S01 is preserved. A candidate server profile is lifetime 12 blocks,
+exit delta 3 and required board confirmations 3. It still needs actual server
+configuration validation, a checked native payout worker and confirmed usable
+watchman funding before deployment or absence.
+
+The native Signet wallet defaults to a 12-block refresh threshold and 12-block
+exit margin. Keeping that exit margin with a 12-block lifetime starts a pending
+board's emergency exit immediately (`bark/src/actions/board.rs`); registration
+acknowledgement cannot establish this profile works. A candidate wallet uses
+refresh threshold 4 and exit margin 2:
+
+```json
+{"wallet_profile":{"vtxo_refresh_expiry_threshold":4,"vtxo_exit_margin":2}}
+```
+
+Pass that object as the `create` operation's arguments for a fresh actor. The
+controller journals it before writing an owner-only native `config.toml`, pins
+its exact hash in the acknowledgement, and invokes genuine `create --signet`
+without conflicting configuration flags. It never overwrites a wallet directory.
+No product CLI flags or readiness APIs are invented. The existing unconfigured
+`create` path keeps its production-timing defaults.
+
+The server's standard watchman sweep interval is two hours. A short campaign
+must explicitly record its shorter operational interval, reaction interval and
+progress grace alongside actual block heights; shortening wallet lifetimes
+alone does not shorten that scheduler. Active control must genuinely refresh
+and confirm before its original expiry. Public Signet block spacing and mining
+admission remain outside our control.
+
+This profile covers ordinary fallback only. Its short lifetime cannot qualify
+normal Lightning HTLC durations, mainnet exit safety or production timing.

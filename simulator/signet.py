@@ -53,6 +53,20 @@ def command(operation: str, args: dict, config: dict) -> list[str]:
     expected = {"board": {"amount_sat"}, "send": {"destination", "amount_sat"},
                 "raw_vtxo": {"coin_id"}, "onchain_drain": {"destination"},
                 "restore": {"source_actor", "birthday_height"}}.get(operation, set())
+    if operation == "create" and set(args) == {"wallet_profile"}:
+        profile = args["wallet_profile"]
+        if not isinstance(profile, dict) or set(profile) != {
+                "vtxo_refresh_expiry_threshold", "vtxo_exit_margin"}:
+            raise ValueError("explicit wallet refresh threshold and exit margin required")
+        for key, value in profile.items():
+            if integer(value, key, 1) > 65535:
+                raise ValueError("wallet block delta exceeds native range")
+        if profile["vtxo_refresh_expiry_threshold"] <= profile["vtxo_exit_margin"]:
+            raise ValueError("wallet refresh threshold must precede the exit margin")
+        # Native create accepts an existing config.toml only WITHOUT config
+        # flags. Campaign writes the complete pinned configuration after the
+        # durable intent, before starting this genuine native command.
+        return ["create", "--signet"]
     if set(args) != expected:
         raise ValueError("unexpected operation arguments")
     if "amount_sat" in args:
@@ -350,6 +364,25 @@ class Campaign:
             raise
         try:
             path.parent.mkdir(mode=0o700, exist_ok=True)
+            wallet_profile = args.get("wallet_profile") if operation == "create" else None
+            if wallet_profile is not None:
+                # A short lifecycle must never inherit the native testnet
+                # 12-block exit margin or overwrite an existing wallet.
+                path.mkdir(mode=0o700)
+                values = {"server_address": self.config["ark_url"],
+                          "bitcoind_address": self.config["core_url"],
+                          "bitcoind_cookiefile": self.config["core_credential"],
+                          **wallet_profile}
+                with open(path / "config.toml", "x", opener=lambda p, f: os.open(p, f, 0o600)) as out:
+                    for key, value in values.items():
+                        out.write(f"{key} = {json.dumps(value)}\n")
+                    out.flush()
+                    os.fsync(out.fileno())
+                directory_fd = os.open(path, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
             # Do not inherit BARK_DATADIR / daemon endpoints / RPC passwords.
             environment = {key: value for key, value in os.environ.items()
                            if not key.startswith("BARK_")}
@@ -371,6 +404,9 @@ class Campaign:
                                 (f"NativeExit:{result.returncode}", intent))
                 raise ValueError("native_nonzero_exit")
             reply = project_reply(operation, raw)
+            if wallet_profile is not None:
+                reply.update({"wallet_profile": wallet_profile,
+                              "wallet_config_sha256": digest(path / "config.toml")})
             public_payload(reply)
             self.db.execute("UPDATE action SET state='acknowledged',reply=?,updated=? WHERE id=?",
                             (canonical(reply), time.time(), intent))

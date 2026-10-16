@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -178,6 +179,48 @@ class SignetTests(unittest.TestCase):
             command("send", {"destination": "bitcoin:tb1qqqq", "amount_sat": 1}, self.config)
         with self.assertRaises(ValueError):
             command("create", {"force": True}, self.config)
+
+    def test_short_profile_is_durable_and_explicit_before_native_create(self):
+        profile = {"vtxo_refresh_expiry_threshold": 4, "vtxo_exit_margin": 2}
+        def native(argv, **kwargs):
+            path = self.campaign.actor_path("short-control") / "config.toml"
+            values = tomllib.loads(path.read_text())
+            self.assertEqual(values, {"server_address": self.config["ark_url"],
+                                     "bitcoind_address": self.config["core_url"],
+                                     "bitcoind_cookiefile": self.config["core_credential"], **profile})
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(argv[-2:], ["create", "--signet"])
+            self.assertNotIn("--ark", argv)
+            observer = sqlite3.connect(self.root / "campaign" / "signet.sqlite")
+            self.assertEqual(observer.execute("SELECT state FROM action").fetchone()[0], "dispatched")
+            observer.close()
+            return subprocess.CompletedProcess(argv, 0)
+        with patch("simulator.signet.subprocess.run", side_effect=native):
+            row = self.campaign.execute("short-create", "short-control", "create", {"wallet_profile": profile})
+        self.assertEqual(row["state"], "acknowledged")
+        self.assertEqual(json.loads(row["reply"])["wallet_profile"], profile)
+        with patch("simulator.signet.subprocess.run") as run:
+            self.campaign.execute("short-create", "short-control", "create", {"wallet_profile": profile})
+        run.assert_not_called()
+
+    def test_short_profile_never_overwrites_an_existing_wallet(self):
+        path = self.campaign.actor_path("alice")
+        path.mkdir(parents=True)
+        (path / "config.toml").write_text("existing protected wallet")
+        with patch("simulator.signet.subprocess.run") as run:
+            row = self.campaign.execute("short-create", "alice", "create", {"wallet_profile": {
+                "vtxo_refresh_expiry_threshold": 4, "vtxo_exit_margin": 2}})
+        self.assertEqual(row["state"], "unknown")
+        self.assertEqual((path / "config.toml").read_text(), "existing protected wallet")
+        run.assert_not_called()
+
+    def test_short_profile_rejects_missing_unsafe_and_unbounded_parameters(self):
+        for profile in [{"vtxo_exit_margin": 2},
+                        {"vtxo_refresh_expiry_threshold": 2, "vtxo_exit_margin": 4},
+                        {"vtxo_refresh_expiry_threshold": 4, "vtxo_exit_margin": True},
+                        {"vtxo_refresh_expiry_threshold": 65536, "vtxo_exit_margin": 2}]:
+            with self.subTest(profile=profile), self.assertRaises(ValueError):
+                command("create", {"wallet_profile": profile}, self.config)
 
     def test_process_identity_does_not_mistake_reopening_an_object_for_restart(self):
         first = self.campaign.controller_id
