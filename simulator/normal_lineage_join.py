@@ -6,8 +6,113 @@ from . import normal_lineage as lineage
 from .bundle_audit import decode_transaction
 
 
-SOURCE_SHA256 = '785a676138113c7b90a588556e020e4185eda82e7195a2bd56299319fe97fcd1'
+SOURCE_SHA256 = 'f20f7b9e6251855fd3fae542d2022c1db34456732c4d4f72c10819c26cb1e8a8'
 CONFIGURATION = {'schema_version': 1, 'scope': 'arkoor_only', 'source_sha256': SOURCE_SHA256}
+ROUND_CONFIGURATION = {**CONFIGURATION, 'scope': 'ordinary_completed_rounds'}
+
+
+def round_executor(store, tools, sequence, *, native_source_sha256, observation_id):
+    """Resolve immutable admission, then execute the existing pinned pure tool.
+
+    A callback cannot select an executable or supply its own execution verdict.
+    Exact source/nonce/SDK/argv/tool bindings come from the checked event and
+    the installed command, and all private request/response bytes are retained
+    by run_proof. This function never creates an admission event.
+    """
+    from .final_campaign import _source_event
+    from .model import canonical
+    from .two_step_normal import module_hash, run_proof
+    import re
+    if (type(sequence) is not int or sequence < 1 or not isinstance(observation_id, str)
+            or re.fullmatch('[0-9a-f]{32}', observation_id) is None):
+        raise ValueError('round proof requires exact admission and observation identity')
+    lineage.hash_id(native_source_sha256)
+    store.verify_event_chain()
+    event, admitted = _source_event(store, sequence)
+    tool = tools['policy']
+    command_hash = hashlib.sha256(canonical(tool['command']).encode()).hexdigest()
+    expected_components = {'ordinary_lineage': module_hash(authenticate_frontier),
+        'typed_lineage': module_hash(lineage.bind_coin)}
+    if (not isinstance(tool['command'], list) or len(tool['command']) != 1
+            or event['kind'] != 'normal_financial_collector_qualified'
+            or admitted.get('ordinary_lineage') != ROUND_CONFIGURATION
+            or type(admitted.get('ordinary_lineage', {}).get('schema_version')) is not int
+            or admitted.get('financial_pins', {}).get('sdk_commit') != lineage.NATIVE_COMPLETION_SDK
+            or admitted.get('proof_tool_sha256', {}).get('policy') != tool['sha256']
+            or admitted.get('proof_commands_sha256', {}).get('policy') != command_hash
+            or any(admitted.get('component_sha256', {}).get(key) != value
+                or admitted.get('capture_dependencies_sha256', {}).get(key) != value
+                for key, value in expected_components.items())):
+        raise ValueError('completed round tool/source/SDK admission differs')
+    pins = {'tool_sha256': tool['sha256'], 'commands_sha256': command_hash,
+        'admission_sha256': event['hash'], 'sdk_commit': lineage.NATIVE_COMPLETION_SDK,
+        'source_observation_id': observation_id, 'source_sha256': native_source_sha256,
+        'qualification_scope': 'admitted_native'}
+    for key in ('tool_sha256', 'commands_sha256', 'admission_sha256', 'source_sha256'):
+        lineage.hash_id(pins[key])
+
+    def execute(request, *, expected):
+        if expected != pins or expected['qualification_scope'] != 'admitted_native':
+            raise ValueError('round execution cannot replace admission/source/nonce')
+        current, body = _source_event(store, sequence)
+        if current['hash'] != event['hash'] or body != admitted:
+            raise ValueError('round original admission changed before execution')
+        sent, received = run_proof(tool, request)
+        store.verify_event_chain()
+        return sent, received, dict(pins)
+
+    return execute, pins
+
+
+def require_round_evidence(value, tables, native_source_sha256):
+    """Rejoin completed proof hashes to this SQL cut, never an export flag.
+
+    Callers use the locally recomputed authenticate_frontier result. The same
+    original tree/anchor, ALL participation membership and EVERY original
+    forfeit execution must survive the handoff to a different reducer.
+    """
+    from .bundle_audit import decode_transaction
+    if (not isinstance(value, dict) or value.get('native_source_sha256') != native_source_sha256
+            or not isinstance(value.get('round_proof_evidence'), list)):
+        raise ValueError('round allocations require a separate authenticated resolver')
+    rounds = {row['funding_txid']: row for row in tables['round']}
+    if len(rounds) != len(tables['round']):
+        raise ValueError('duplicate native round funding')
+    parts = {(row['round_id'], row['unlock_hash']): row for row in tables['round_participation']}
+    if len(parts) != len(tables['round_participation']):
+        raise ValueError('duplicate native participation identity')
+    seen = set()
+    for record in value['round_proof_evidence']:
+        tree = record['native_tree_originals']; binding = tree['execution_binding']
+        key = (tree['round_funding_txid'], tree['participation_unlock_hash'])
+        if (key not in parts or key in seen or key[0] not in rounds
+                or binding['qualification_scope'] != 'admitted_native'
+                or binding['sdk_commit'] != lineage.NATIVE_COMPLETION_SDK
+                or binding['source_sha256'] != native_source_sha256
+                or binding['source_observation_id'] != value['source_observation_id']):
+            raise ValueError('round proof source/nonce/SDK/participation differs')
+        seen.add(key); row = rounds[key[0]]
+        raw_tree = lineage.original_hex(row.get('signed_tree_hex'))
+        raw_anchor = lineage.original_hex(row['funding_tx_hex'])
+        if (type(row.get('signed_tree_bytes')) is not int or len(raw_tree) != row['signed_tree_bytes']
+                or tree['signed_tree_sha256'] != lineage.sha(raw_tree)
+                or tree['anchor_raw_sha256'] != lineage.sha(raw_anchor)
+                or decode_transaction(raw_anchor.hex())['txid'] != key[0]):
+            raise ValueError('round proof lost exact original tree/funding source')
+        for name in ('request_sha256', 'response_sha256'):
+            lineage.hash_id(tree[name])
+        part = parts[key]
+        inputs = [entry['vtxo_id'] for entry in tables['round_part_input'] if entry['participation_id'] == part['id']]
+        proofs = record['native_forfeit_originals']
+        if sorted(entry['input_id'] for entry in proofs) != sorted(inputs) or len(set(inputs)) != len(inputs):
+            raise ValueError('round proof lost an original participation input')
+        for proof in proofs:
+            if proof['execution_binding'] != binding:
+                raise ValueError('round forfeit and tree admission/source differ')
+            lineage.hash_id(proof['request_sha256']); lineage.hash_id(proof['response_sha256'])
+    if seen != set(parts) or {key[0] for key in seen} != set(rounds):
+        raise ValueError('unmatched native round/participation remains an obligation')
+    return value['round_proof_evidence']
 
 
 def original_claims(store):
@@ -19,7 +124,8 @@ def original_claims(store):
 
 
 def authenticate_frontier(store, tables, tools, *, server_pubkey, genesis,
-                          native_source_sha256, observation_id, configuration):
+                          native_source_sha256, observation_id, configuration,
+                          admission_sequence=None):
     """Execute admitted tools on original Fulls, then reconcile exact original edges.
 
     The caller has already authenticated this nonce's SQL bytes and admission.
@@ -27,14 +133,23 @@ def authenticate_frontier(store, tables, tools, *, server_pubkey, genesis,
     """
     import re
     if (not isinstance(configuration, dict) or type(configuration.get('schema_version')) is not int
-            or configuration != CONFIGURATION
+            or configuration not in (CONFIGURATION, ROUND_CONFIGURATION)
             or hashlib.sha256(Path(lineage.__file__).read_bytes()).hexdigest() != SOURCE_SHA256
             or not isinstance(observation_id, str) or re.fullmatch('[0-9a-f]{32}', observation_id) is None):
         raise ValueError('admitted typed lineage source/observation differs')
     lineage.hash_id(native_source_sha256)
-    # Forfeit validity alone cannot establish exhaustive signed-tree allocation.
-    if any(tables[name] for name in ('round', 'round_participation', 'round_part_input', 'round_part_output')):
-        raise ValueError('round lineage requires exhaustive signed-tree allocation and completed Full originals')
+    round_tables = ('round', 'round_participation', 'round_part_input', 'round_part_output')
+    has_rounds = any(tables[name] for name in round_tables)
+    executor = pins = None
+    if has_rounds:
+        if configuration != ROUND_CONFIGURATION or type(admission_sequence) is not int:
+            raise ValueError('round lineage requires exhaustive signed-tree allocation and completed Full originals')
+        for row in tables['round']:
+            raw = lineage.original_hex(row.get('signed_tree_hex'))
+            if type(row.get('signed_tree_bytes')) is not int or len(raw) != row['signed_tree_bytes']:
+                raise ValueError('exact same-cut signed tree body/length required')
+        executor, pins = round_executor(store, tools, admission_sequence,
+            native_source_sha256=native_source_sha256, observation_id=observation_id)
     originals = original_claims(store)
     if not originals:
         actions = store.db.execute("SELECT 1 FROM action WHERE state='completed' AND operation IN ('board','send_arkoor','refresh','refresh_delegated','refresh_scheduled') LIMIT 1").fetchone()
@@ -44,9 +159,23 @@ def authenticate_frontier(store, tables, tools, *, server_pubkey, genesis,
             'native_source_sha256': native_source_sha256, 'source_observation_id': observation_id,
             'claims': [], 'authenticated_coins': {}}
     coins = lineage.authenticate_owned_originals(store, tables, tools, genesis=genesis, server_pubkey=server_pubkey)
-    origins, edges = lineage.edges_from_store(store, tables, coins, decode_transaction=decode_transaction)
-    if any(edge['kind'] != 'arkoor' for edge in edges):
+    origins, edges = lineage.edges_from_store(store, tables, coins, decode_transaction=decode_transaction,
+        round_proof_executor=executor, tree_proof_executor=executor, tree_proof_pins=pins)
+    if any(edge['kind'] != 'arkoor' for edge in edges) and not has_rounds:
         raise ValueError('round retirement lacks exhaustive signed-tree proof')
+    if has_rounds:
+        covered = {edge['native_tree_originals']['round_funding_txid']
+            for edge in edges if edge['kind'] == 'refresh'}
+        if covered != {row['funding_txid'] for row in tables['round']}:
+            raise ValueError('native round has no complete original client/forfeit/allocation join')
+        participation_keys = [(row['round_id'], row['unlock_hash'])
+            for row in tables['round_participation']]
+        completed_keys = [(edge['native_tree_originals']['round_funding_txid'],
+            edge['native_tree_originals']['participation_unlock_hash'])
+            for edge in edges if edge['kind'] == 'refresh']
+        if (len(set(participation_keys)) != len(participation_keys)
+                or sorted(completed_keys) != sorted(participation_keys)):
+            raise ValueError('every native participation needs its original completed allocation join')
     result = lineage.reduce_lineage(coins, origins, edges, native_source_sha256=native_source_sha256)
     claims = []
     rows = {row['vtxo_id']: row for row in tables['vtxo']}
@@ -61,17 +190,27 @@ def authenticate_frontier(store, tables, tools, *, server_pubkey, genesis,
         claims.append({'coin_id': identifier, 'actor': coins[identifier]['actor'], 'amount_sat': owned['amount_sat'],
             'signed_hash': owned['signed_hash'], 'state': state['state'], 'observation_action_id': state['action_id']})
     store.verify_event_chain()
-    return {**result, 'claims': claims, 'authenticated_coins': coins, 'source_observation_id': observation_id}
+    value = {**result, 'claims': claims, 'authenticated_coins': coins, 'source_observation_id': observation_id}
+    if has_rounds:
+        value['round_proof_evidence'] = [{'action_id': edge['action_id'],
+            'native_forfeit_originals': edge['native_forfeit_originals'],
+            'native_tree_originals': edge['native_tree_originals']}
+            for edge in edges if edge['kind'] == 'refresh']
+        require_round_evidence(value, tables, native_source_sha256)
+    return value
 
 
 def public_frontier(value):
     """Hash-only native execution evidence, never original signed bytes."""
     fields = ('native_request_sha256', 'native_response_sha256', 'native_full_sha256',
         'native_policy_request_sha256', 'native_policy_response_sha256')
-    return {**{key: value[key] for key in ('current_claim_ids', 'consumed_claim_ids', 'obligation_groups',
+    result = {**{key: value[key] for key in ('current_claim_ids', 'consumed_claim_ids', 'obligation_groups',
         'native_source_sha256', 'source_observation_id')},
         'coin_proof_hashes': {identifier: {key: coin[key] for key in fields}
             for identifier, coin in value['authenticated_coins'].items()}}
+    if 'round_proof_evidence' in value:
+        result['round_proof_evidence'] = value['round_proof_evidence']
+    return result
 
 
 def board_descendants(value, identifier, claims, native):
@@ -134,7 +273,9 @@ def opening_claims(store, proof, readiness_sequence, pins):
     expected = {'ordinary_lineage': module_hash(authenticate_frontier), 'typed_lineage': module_hash(bind_coin),
         'adapter': module_hash(Collector.produce), 'capture': module_hash(SourceCapture.collect)}
     if (admission_event['kind'] != 'normal_financial_collector_qualified'
-            or admitted.get('financial_pins') != pins or admitted.get('ordinary_lineage') != CONFIGURATION
+            or admitted.get('financial_pins') != pins
+            or admitted.get('ordinary_lineage') not in (CONFIGURATION, ROUND_CONFIGURATION)
+            or type(admitted.get('ordinary_lineage', {}).get('schema_version')) is not int
             or any(admitted.get('component_sha256', {}).get(name) != digest for name, digest in expected.items())
             or any(admitted.get('capture_dependencies_sha256', {}).get(name) != expected[name]
                 for name in ('ordinary_lineage', 'typed_lineage'))

@@ -59,7 +59,8 @@ def strict_json(raw, *, decimals=False):
     return json.loads(raw, object_pairs_hook=unique, parse_float=Decimal if decimals else float)
 
 
-def native_tables(raw, expected_sha256, *, pending_board_proof_sha256=None, ordinary_pool_source_sha256=None):
+def native_tables(raw, expected_sha256, *, pending_board_proof_sha256=None, ordinary_pool_source_sha256=None,
+                  ordinary_lineage_configuration=None):
     """Exact bounded RR table cut; a missing table never means zero liabilities."""
     if not isinstance(raw, bytes) or len(raw) > 16*1024*1024 or digest(raw) != expected_sha256:
         raise ValueError('original private SQL hash or aggregate byte bound differs')
@@ -90,6 +91,15 @@ def native_tables(raw, expected_sha256, *, pending_board_proof_sha256=None, ordi
         if ordinary_pool_source_sha256!=CLASSIFIER_SHA256:
             raise ValueError('qualified ordinary classifier hash required for transport framing')
         supported = supported | POOL_TABLES
+    if ordinary_lineage_configuration is not None:
+        from .normal_lineage_join import CONFIGURATION, ROUND_CONFIGURATION
+        if (not isinstance(ordinary_lineage_configuration, dict)
+                or type(ordinary_lineage_configuration.get('schema_version')) is not int
+                or ordinary_lineage_configuration not in (CONFIGURATION, ROUND_CONFIGURATION)):
+            raise ValueError('exact installed ordinary lineage framing required')
+        if ordinary_lineage_configuration == ROUND_CONFIGURATION:
+            from .normal_pool import ROUND_TABLES
+            supported = supported | ROUND_TABLES
     if any(tables[name] for name in TABLES-supported):
         raise ValueError('native conditional/round/pool/pending domain needs its own resolver')
     return tables
@@ -715,14 +725,15 @@ class Collector:
     def _a_native_facts(self, store, chain, boundary, envelope, captured, source_event, source, originals, admitted, opening, now, *, observation):
         tables = native_tables(originals['native_sql'], source['original_sha256']['native_sql'],
             pending_board_proof_sha256=admitted['proof_tool_sha256'].get('pending'),
-            ordinary_pool_source_sha256=admitted.get('ordinary_pool',{}).get('classifier_sha256'))
+            ordinary_pool_source_sha256=admitted.get('ordinary_pool',{}).get('classifier_sha256'),
+            ordinary_lineage_configuration=admitted.get('ordinary_lineage'))
         lineage_context = None
         if admitted.get('ordinary_lineage') is not None:
             from .normal_lineage_join import authenticate_frontier, public_frontier
             lineage_context = authenticate_frontier(store,tables,self.tools,
                 server_pubkey=source['identity']['server_pubkey'],genesis=SIGNET_GENESIS,
                 native_source_sha256=source['original_sha256']['native_sql'],observation_id=observation['id'],
-                configuration=admitted['ordinary_lineage'])
+                configuration=admitted['ordinary_lineage'],admission_sequence=self.admission_sequence)
             if source.get('ordinary_lineage') != public_frontier(lineage_context):
                 raise ValueError('source and independent collector typed frontier differ')
         elif source.get('ordinary_lineage') is not None:
@@ -756,7 +767,7 @@ class Collector:
                 current.append({**claim,'chain_anchor':original['chain_anchor']})
             pool_checked=authenticate_pool(tables,originals['native_sql'],pool_originals,originals['core'],chain,self.tools['policy'],
                 configuration=ordinary,server_pubkey=source['identity']['server_pubkey'],height=source['height'],
-                tip_hash=source['tip_hash'],customer_claims=current)
+                tip_hash=source['tip_hash'],customer_claims=current,lineage_context=lineage_context)
         elif any(tables[name]for name in POOL_TABLES-{'sweep'}):
             raise ValueError('ordinary pool original sources unavailable')
         claims, authenticated = authenticate_claims(store, tables, self.tools, source['identity']['server_pubkey'],

@@ -68,6 +68,18 @@ class OpeningLineageTests(unittest.TestCase):
         self.assertEqual(self.value['claims'],result['retained_client_rights'])
         self.assertEqual(3,len(result['pending_liabilities']));self.assertEqual(before,transition.history(self.store))
         self.assertIsNone(self.store.get_meta('preserved_financial_opening'));self.store.verify_event_chain()
+    def test_completed_round_profile_can_admit_initial_arkoor_opening_without_round_credit(self):
+        # The profile must be selected before the first opening; otherwise a
+        # subsequent genuine refresh could never reach its admitted resolver.
+        admitted=copy.deepcopy(self.admission);admitted['ordinary_lineage']=join.ROUND_CONFIGURATION
+        self.store.event('normal_financial_collector_qualified',admitted)
+        self.source['lineage_admission_sequence']=self.base.seq();self.emit()
+        before=transition.history(self.store)
+        with patch('simulator.financial_transition._current_claims',side_effect=AssertionError('legacy fallback')):
+            result=self.base.validate()
+        self.assertEqual(self.value['claims'],result['retained_client_rights'])
+        self.assertNotIn('round_proof_evidence',self.frontier)
+        self.assertEqual(before,transition.history(self.store))
     def test_detached_frontier_nonce_sql_or_source_event_refuses(self):
         original=copy.deepcopy(self.base.readiness)
         for change in [{'source_event_hash':'0'*64},{'source_observation':{**self.context,'id':'9'*32}},
