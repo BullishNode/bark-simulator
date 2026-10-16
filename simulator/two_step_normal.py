@@ -571,9 +571,14 @@ class Collector:
                 or value['component_sha256'] != hashes
                 or value['proof_tool_sha256'] != {name:tool['sha256'] for name,tool in self.tools.items()}
                 or value['proof_commands_sha256'] != {name:digest(canonical(tool['command']).encode()) for name,tool in self.tools.items()}
-                or set(self.tools) not in ({'policy', 'binding'}, {'policy', 'binding', 'pending'})):
+                or not self._proof_tools(admitted=value)):
             raise ValueError('installed source collector/tool qualification differs')
         return value
+
+    def _proof_tools(self, *, admitted):
+        if self.native_profile is not None and hasattr(self.native_profile, 'validate_proof_tools'):
+            return self.native_profile.validate_proof_tools(self.tools, admitted)
+        return set(self.tools) in ({'policy', 'binding'}, {'policy', 'binding', 'pending'})
 
     async def __call__(self, store, config, chain, snapshot, observation):
         from .treasury import boundary

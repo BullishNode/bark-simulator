@@ -228,6 +228,11 @@ class SourceCapture:
             # Its whole-member/normal money reducer is not installed yet. Never
             # run generic member consumption against missing A/B source fields.
             raise ValueError('C checked cut requires actual full-normal member/runtime/fee composition')
+        from .b_final_native_profile import FinalNativeDirectProfile
+        if type(self.native_profile) is FinalNativeDirectProfile:
+            # The exact fixed B native verifier runs before any inventory/event
+            # append. Its private inputs/reply remain in capture originals.
+            target = self.native_profile.prepare_target(target, admission, observation, self.lineage_tools)
         # No parallel bank/Core/CLN calls before the owning TARGET cut completes.
         if self.native_profile is None:
             additional = await self.member_reader(json.loads(canonical(observation)), members, target)

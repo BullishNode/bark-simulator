@@ -16,7 +16,7 @@ def build_collector(store, *, admission_sequence, boundary, capture_configuratio
     native = None
     if architecture_profile is not None:
         from .b_continuing_profile import continuing_profile
-        native = continuing_profile(store, architecture_profile)
+        native = continuing_profile(store, architecture_profile, native_fee_tool=tools.get('native_fee'))
     target=TargetTarReader(target_configuration['command'],target_configuration['evidence_directory'],
         timeout=target_configuration['timeout'])
     member=MemberReader(member_configuration,store, native_profile=native)
