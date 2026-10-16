@@ -189,8 +189,8 @@ class PrivateInputControls(unittest.TestCase):
     def test_missing_native_input_or_resolution_domain_is_refused(self):
         t,r,o=self.inputs()
         def edit(v):
-            lines=v['sql_raw'].splitlines();db=json.loads(lines[3]);del db['native_funding_fee_input']
-            lines[3]=json.dumps(db);v['sql_raw']='\n'.join(lines)+'\n'
+            lines=v['sql_raw'].splitlines();db=json.loads(lines[4]);del db['native_funding_fee_input']
+            lines[4]=json.dumps(db);v['sql_raw']='\n'.join(lines)+'\n'
         self.mutate_originals(t,edit)
         with self.assertRaisesRegex(EvidenceGap,'SQL domains'):self.prepare(t,r,o)
     def test_two_transactions_cannot_be_relabelled_one_cut(self):
