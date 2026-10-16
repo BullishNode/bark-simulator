@@ -24,7 +24,7 @@ PUBLIC_SIGNET_CHALLENGE = (
     "210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae"
 )
 OBSERVATIONS = {"vtxos", "sync_vtxos", "balance"}
-OPERATIONS = OBSERVATIONS | {"create", "address", "onchain_address", "board", "send", "refresh"}
+OPERATIONS = OBSERVATIONS | {"create", "address", "onchain_address", "board", "send", "refresh", "raw_vtxo"}
 
 
 def digest(path: Path) -> str:
@@ -50,7 +50,8 @@ def command(operation: str, args: dict, config: dict) -> list[str]:
     """Map typed intents to the real bfbe6b7c3 bark CLI; never execute a shell."""
     if operation not in OPERATIONS:
         raise ValueError("unsupported native operation")
-    expected = {"board": {"amount_sat"}, "send": {"destination", "amount_sat"}}.get(operation, set())
+    expected = {"board": {"amount_sat"}, "send": {"destination", "amount_sat"},
+                "raw_vtxo": {"coin_id"}}.get(operation, set())
     if set(args) != expected:
         raise ValueError("unexpected operation arguments")
     if "amount_sat" in args:
@@ -64,6 +65,10 @@ def command(operation: str, args: dict, config: dict) -> list[str]:
         return [operation, *(["--all"] if operation == "vtxos" else []), "--no-sync"]
     if operation == "onchain_address":
         return ["onchain", "address"]
+    if operation == "raw_vtxo":
+        if not re.fullmatch(r"[0-9a-f]{64}:[0-9]+", args["coin_id"]):
+            raise ValueError("native coin ID required")
+        return ["raw-vtxo", args["coin_id"]]
     if operation == "board":
         return ["board", f'{args["amount_sat"]} sat']
     if operation == "send":
@@ -87,6 +92,13 @@ def project_reply(operation: str, raw: bytes):
         if not re.fullmatch(r"tark1[0-9a-z]+", address):
             raise ValueError("unexpected Ark address output")
         return {"address": address}
+    if operation == "raw_vtxo":
+        text = raw.decode().strip()
+        if not text or not re.fullmatch(r"(?:[0-9a-f]{2})+", text):
+            raise ValueError("native serialized VTXO required")
+        serialized = bytes.fromhex(text)
+        return {"serialized_sha256": hashlib.sha256(serialized).hexdigest(),
+                "serialized_bytes": len(serialized)}
     if operation in {"create", "send", "refresh"}:
         # send intentionally emits no machine receipt at bfbe6b7c3. A zero exit
         # is only acknowledgement, never payment completion.

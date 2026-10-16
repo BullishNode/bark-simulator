@@ -62,7 +62,8 @@ class S01Tests(unittest.TestCase):
         self.campaign.core = CampaignCore()
         self.sent = False
         self.calls = []
-        with patch("simulator.signet.subprocess.run", side_effect=self.native):
+        with patch("simulator.signet.subprocess.run", side_effect=self.native), patch(
+                "simulator.signet_proof.verify_coin", return_value={"status": "UNAVAILABLE"}):
             scenario = S01(self.campaign, board_sat=10000, transfer_sat=5000, maximum_fee_sat=100)
             self.assertEqual(scenario.advance()["stage"], "WAITING_FOR_OWNER_ALLOCATED_FUNDING")
             self.assertNotIn(("sender", "board"), self.calls)

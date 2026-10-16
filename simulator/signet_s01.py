@@ -79,6 +79,19 @@ class S01:
                                 "snapshots": names, "case_verdict": "INCOMPLETE"}
         return replies, names, None
 
+    def _proofs(self, check):
+        from .signet_proof import verify_coin
+        proofs = []
+        for snapshot_name in (check["snapshots"][1], check["snapshots"][3]):
+            snapshot = self.campaign.db.execute("SELECT actor,reply FROM action WHERE id=?", (snapshot_name,)).fetchone()
+            for coin in json.loads(snapshot["reply"]):
+                if coin["state"] == "spendable":
+                    proofs.append(verify_coin(self.campaign, snapshot["actor"], coin))
+        return {"case": "S01", "stage": "NATIVE_TRANSFER_OBSERVED", "evidence": check,
+                "signature_proofs": proofs,
+                "signature_path_verification": "PASS" if proofs and all(p["status"] == "PASS" for p in proofs)
+                else "INCOMPLETE"}
+
     def advance(self) -> dict:
         campaign = self.campaign
         chain = network_identity(campaign.core)
@@ -130,7 +143,7 @@ class S01:
         previous_check = (campaign.db.execute("SELECT payload FROM result WHERE id=?", (completed[0],)).fetchone()
                           if completed else None)
         if previous_check:
-            return {"case": "S01", "stage": "NATIVE_TRANSFER_OBSERVED", "evidence": json.loads(previous_check[0])}
+            return self._proofs(json.loads(previous_check[0]))
         _, after, wait = self._snapshot_pair("s01-after")
         if wait:
             return wait
@@ -141,5 +154,5 @@ class S01:
                                        names[1], after[1], self.params["maximum_fee_sat"])
         if check.get("arithmetic") == "PASS" and check.get("backing") == "PASS":
             campaign.db.execute("INSERT INTO meta VALUES ('s01_observed',?)", (check_id,))
-            return {"case": "S01", "stage": "NATIVE_TRANSFER_OBSERVED", "evidence": check}
+            return self._proofs(check)
         return {"case": "S01", "stage": "RECONCILIATION_REQUIRED", "evidence": check}

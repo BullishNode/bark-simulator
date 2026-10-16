@@ -84,7 +84,7 @@ the campaign runbook must first establish that no other wallet actor exists.
 Verification of this milestone:
 
 ```sh
-python3 -m unittest tests.test_signet tests.test_signet_checks tests.test_signet_s01 -v
+python3 -m unittest tests.test_signet tests.test_signet_checks tests.test_signet_s01 tests.test_signet_proof -v
 ```
 
 These are local journal/fault tests with a stubbed process and Core. They verify
@@ -162,3 +162,22 @@ stop at `RECONCILIATION_REQUIRED` and are not repeated.
 Core backing match. It still reports the exact signature-verification coverage;
 native signed-path verification is being connected through the product's own
 `dev vtxo verify` command. There is no global qualified-time gate.
+
+The verifier transport now invokes `bark dev vtxo verify SERIALIZED_VTXO
+RAW_FUNDING_TRANSACTION` without `--datadir`, so this verification itself opens
+no wallet. It uses the same pinned executable, requires the exact returned coin
+fields and anchor ID to match the snapshot, and independently checks that Core
+reports the funding anchor confirmed and unspent at a consistent public-Signet
+tip. The raw funding transaction comes from Core, not from the product's payout
+resolver. Core must be able to serve that transaction (normally with `txindex`).
+
+`raw-vtxo` receipts are captured from active actors before abandonment; only their
+digest and size enter the public reply. A cached signature proof can be checked
+later without opening the absent wallet. Wrong fields, a different anchor,
+changed raw artifacts, a changed executable or native signature rejection never
+become a passing proof. Unavailable observations remain in history and can be
+retried separately; the monetary action is never repeated.
+
+The supervisor tests stub this native command. Availability and cryptographic
+correctness of the product command require its own compiled tests and actual
+campaign receipts; this source integration does not claim those are finished.
