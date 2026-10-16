@@ -166,10 +166,20 @@ class SourceCapture:
             from .normal_lineage_join import authenticate_frontier
             from .normal_lineage import bind_coin
             dependencies.update(ordinary_lineage=module_hash(authenticate_frontier),typed_lineage=module_hash(bind_coin))
+            from .normal_lineage_join import ROUND_CONFIGURATION
+            if (value['ordinary_lineage'] == ROUND_CONFIGURATION
+                    and self.member_reader.__self__.configuration.get('ordinary_lineage') != ROUND_CONFIGURATION):
+                raise ValueError('current member round framing must bind the same lineage admission')
             if (self.lineage_tools is None
                     or value.get('proof_tool_sha256') != {name:tool['sha256'] for name,tool in self.lineage_tools.items()}
                     or value.get('proof_commands_sha256') != {name:digest(canonical(tool['command']).encode()) for name,tool in self.lineage_tools.items()}):
                 raise ValueError('typed lineage tools differ from source admission')
+            credential_sha256 = member_configuration.get('proof_credential_sha256')
+            if value['ordinary_lineage'] == ROUND_CONFIGURATION or credential_sha256 is not None:
+                from .normal_member_source import private_file
+                command = self.lineage_tools['binding']['command']
+                if len(command) != 4 or digest(private_file(command[2], 1024)) != credential_sha256:
+                    raise ValueError('current binding credential differs from source admission')
         target_instance=self.target_reader.__self__
         actual_readers={'target':{'command':list(target_instance.command),
             'evidence_directory':str(target_instance.evidence_directory),'timeout':target_instance.timeout},
@@ -294,13 +304,14 @@ class SourceCapture:
                 raise ValueError('actual active runtime/policy/schema/source identity differs')
             tables = native_tables(target['raw_sql'],target['manifest']['original_sha256']['native_sql'],
                 pending_board_proof_sha256=admission.get('proof_tool_sha256',{}).get('pending'),
-                ordinary_pool_source_sha256=admission.get('ordinary_pool',{}).get('classifier_sha256'))
+                ordinary_pool_source_sha256=admission.get('ordinary_pool',{}).get('classifier_sha256'),
+                ordinary_lineage_configuration=admission.get('ordinary_lineage'))
             if admission.get('ordinary_lineage') is not None:
                 from .normal_lineage_join import authenticate_frontier
                 lineage_context = authenticate_frontier(store,tables,self.lineage_tools,
                     server_pubkey=runtime['identity']['server_pubkey'],genesis=SIGNET_GENESIS,
                     native_source_sha256=target['manifest']['original_sha256']['native_sql'],observation_id=observation['id'],
-                    configuration=admission['ordinary_lineage'])
+                    configuration=admission['ordinary_lineage'],admission_sequence=self.admission_sequence)
             current_claims = _current_claims(store) if lineage_context is None else lineage_context['claims']
             from .normal_pool import source_originals, POOL_AUX
             ordinary_pool_originals=None

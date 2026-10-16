@@ -157,7 +157,11 @@ def plan_ordinary(tables,decode,server_pubkey,epoch_id):
  privacy_fields(tables)
  for name in CONDITIONAL:need(not tables[name]['rows'] and tables[name]['count']==0,'conditional source domain remains unqualified')
  for name,fields in NEW_FIELDS.items():
-  for row in tables[name]['rows']:need(set(row)==fields,'ordinary source row partial or unknown columns')
+  for row in tables[name]['rows']:
+   expected=fields|{'signed_tree_hex'}if name=='round'and'signed_tree_hex'in row else fields
+   need(set(row)==expected,'ordinary source row partial or unknown columns')
+   if name=='round'and'signed_tree_hex'in row:
+    raw=hexbytes(row['signed_tree_hex']);need(type(row['signed_tree_bytes'])is int and 0<len(raw)==row['signed_tree_bytes'],'round original tree bytes differ')
  coins={}
  for row in tables['vtxo']['rows']:
   need(set(row)==VTXO_FIELDS,'ordinary VTXO source row partial');ident=row['vtxo_id'];point(ident);need(ident not in coins,'duplicate ordinary VTXO');hexbytes(row['signed_vtxo_hex']);policy(row['policy_hex'],row['policy_type']);need(row['server_pubkey']==server_pubkey,'ordinary VTXO server differs');integer(row['amount'],0);integer(row['expiry']);point(row['anchor_point']);txid(row['vtxo_txid'])

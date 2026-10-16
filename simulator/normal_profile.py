@@ -2,6 +2,7 @@
 import hashlib
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .architecture import TWO_STEP, profile as campaign_profile
 from .final_campaign import _pins, _source_event, epoch
@@ -104,8 +105,23 @@ def collector_from_profile(config,store):
             or set(value['tools'])!={'policy','binding','pending'}):
         raise ValueError('actual admitted schema2 pending/Full/per-key tool set required')
     for name,tool in value['tools'].items():
-        if set(tool)!={'command','sha256','evidence_directory'}or not isinstance(tool['command'],list)or len(tool['command'])!=1:
-            raise ValueError('one fixed admitted pure proof executable required')
+        if (set(tool)!={'command','sha256','evidence_directory'}or not isinstance(tool['command'],list)
+                or len(tool['command'])!=(4 if name=='binding'else 1)
+                or any(not isinstance(argument,str)or not argument for argument in tool['command'])):
+            raise ValueError('fixed policy/pending executable or exact binding Core/auth/server argv required')
+        if name=='binding':
+            command=tool['command'];url=urlsplit(command[1]);credential=Path(command[2])
+            if (tuple(command)!=tuple(config.proof_command)
+                    or command[1]!=member_configuration.get('chain_url')
+                    or command[3]!=config.expected_server_pubkey
+                    or url.scheme!='http'or url.hostname not in {'127.0.0.1','::1'}
+                    or url.port is None or not 1<=url.port<=65535 or url.path not in {'','/'}
+                    or url.username is not None or url.password is not None or url.query or url.fragment
+                    or not credential.is_absolute()or credential!=Path(os.path.abspath(credential))
+                    or any(parent.is_symlink()for parent in (credential,*credential.parents))
+                    or credential==config.wallet_root or config.wallet_root in credential.parents
+                    or digest(private_file(credential,1024))!=member_configuration.get('proof_credential_sha256')):
+                raise ValueError('binding must use exact scoped local Core credential/server configuration')
         binary=Path(tool['command'][0]);evidence=Path(tool['evidence_directory'])
         if (not binary.is_absolute()or binary.is_symlink()or not binary.is_file()or not os.access(binary,os.X_OK)
                 or binary.stat().st_size>128*1024*1024 or not evidence.is_absolute()

@@ -91,13 +91,18 @@ class ProfileTests(unittest.TestCase):
         for name in ['policy','binding','pending']:
             binary=self.root/name;binary.write_bytes(('synthetic not executable '+name).encode());binary.chmod(0o700);evidence=self.root/(name+'-evidence');evidence.mkdir(mode=0o700)
             tools[name]={'command':[str(binary)],'sha256':digest(binary.read_bytes()),'evidence_directory':str(evidence)}
+        credential=self.root/'public-fixture-reader.credential';credential.write_bytes(b'public-fixture-user:public-fixture-password\n');credential.chmod(0o600)
+        chain_url='http://127.0.0.1:18443'
+        tools['binding']['command'] += [chain_url,str(credential),self.config.expected_server_pubkey]
+        self.config.proof_command=tuple(tools['binding']['command'])
         directories={name:self.root/name for name in ['target-source','member-source','helper-source']}
         for directory in directories.values():directory.mkdir(mode=0o700)
         self.value={'schema_version':1,'architecture_profile':TWO_STEP,'financial_pins':self.pins,'admission_sequence':self.sequence,
             'boundary_sha256':digest(canonical(self.boundary).encode()),'envelope_sha256':digest(canonical(self.envelope).encode()),
             'opening_sha256':digest(canonical(self.opening).encode()),'funding_plan_sha256':digest(canonical(self.funding).encode()),'target_epoch_id':'deployed-fixture',
             'capture_configuration':{'actor_member_ids':mapping},'target_configuration':{'evidence_directory':str(directories['target-source'])},
-            'member_configuration':{'actor_member_ids':mapping,'wallet_root':str(self.wallet),'evidence_root':str(directories['member-source']),'helper_evidence_root':str(directories['helper-source'])},
+            'member_configuration':{'actor_member_ids':mapping,'wallet_root':str(self.wallet),'evidence_root':str(directories['member-source']),'helper_evidence_root':str(directories['helper-source']),
+                'chain_url':chain_url,'proof_credential_sha256':digest(credential.read_bytes())},
             'tools':tools,'funding_configuration':{'synthetic_reader_contract_only':True}}
         self.path=self.root/'installed-profile.json';self.config.normal_source_profile=self.path;self.save()
         outer=self
@@ -122,6 +127,20 @@ class ProfileTests(unittest.TestCase):
     def test_explicit_profile_wires_only_static_factory_without_events_or_native_calls(self):
         count=self.store.db.execute('SELECT count(*)FROM event').fetchone()[0]
         self.assertIs(self.collector,self.load());self.assertEqual(count,self.store.db.execute('SELECT count(*)FROM event').fetchone()[0])
+    def test_actual_binding_four_argument_contract_rejects_missing_foreign_or_changed_authority(self):
+        original=copy.deepcopy(self.value)
+        for change in ('missing','server','url','credential','hash'):
+            self.value=copy.deepcopy(original);command=self.value['tools']['binding']['command']
+            if change=='missing':del command[1:]
+            elif change=='server':command[3]='02'+'e'*64
+            elif change=='url':command[1]='http://192.0.2.1:18443'
+            elif change=='credential':command[2]=str(self.wallet/'cookie')
+            else:self.value['member_configuration']['proof_credential_sha256']='e'*64
+            self.save()
+            with self.subTest(change=change),self.assertRaises(ValueError):self.load()
+        self.value=original;self.save()
+        credential=Path(self.value['tools']['binding']['command'][2]);credential.write_bytes(b'changed public fixture authority')
+        with self.assertRaises(ValueError):self.load()
     def test_missing_opening_epoch_or_changed_budget_hash_remains_hold(self):
         old=self.opening;self.opening=None
         with self.assertRaisesRegex(ValueError,'admitted opening'):self.load()
