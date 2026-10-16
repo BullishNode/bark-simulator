@@ -5,6 +5,7 @@ configuration hashes. They perform bounded read-only transports and retain raw
 originals privately. Neither an observer response nor a file's complete flag can
 choose a reader, alter membership, or grant financial readiness.
 """
+import inspect
 import json
 import os
 import re
@@ -127,6 +128,22 @@ class SourceCapture:
         actual_readers={'target':{'command':list(target_instance.command),
             'evidence_directory':str(target_instance.evidence_directory),'timeout':target_instance.timeout},
             'member':member_instance.configuration}
+        # Defaults retain the original A admission shape. Trusted alternative
+        # decoding and request input require their own explicit admission; no
+        # package, observation or saved flag can select either behavior.
+        if target_instance.request_stdin:
+            actual_readers['target']['request_stdin']=True
+        if target_instance.loader is not None:
+            loader=target_instance.loader
+            # A code hash cannot authenticate hidden callback state. Contextual
+            # checks belong in the separately admitted capture configuration.
+            if (not inspect.isfunction(loader) or loader.__closure__ is not None
+                    or loader.__defaults__ is not None or loader.__kwdefaults__ is not None
+                    or loader.__qualname__!=loader.__name__ or not loader.__name__.isidentifier()
+                    or getattr(inspect.getmodule(loader),loader.__name__,None) is not loader):
+                raise ValueError('stateless module-level private source loader required')
+            actual_readers['target']['loader']={'module':loader.__module__,
+                'qualified_name':loader.__qualname__,'source_sha256':module_hash(loader)}
         if (event['kind'] != 'normal_financial_collector_qualified'
                 or value['reader_configuration_sha256'] != digest(canonical(actual_readers).encode())
                 or value['financial_pins'] != observation['financial_pins']
