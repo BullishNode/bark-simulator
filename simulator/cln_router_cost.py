@@ -125,7 +125,7 @@ def _admission(store, sequence, pins):
             or not isinstance(cfg['command'],list) or not cfg['command']
             or any(not isinstance(v,str) or not v for v in cfg['command'])
             or not Path(cfg['command'][0]).is_absolute()
-            or type(cfg['timeout']) not in (int,float) or not 0 < cfg['timeout'] <= 25):
+            or type(cfg['timeout']) not in (int,float) or not 0 < cfg['timeout'] <= 40):
         raise EvidenceGap('fixed admitted private read-only router transport required')
     root = Path(cfg['evidence_directory'])
     if (not root.is_absolute() or any(p.is_symlink() for p in (root,*root.parents))

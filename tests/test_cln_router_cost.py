@@ -119,7 +119,24 @@ class RouterSourceTests(unittest.IsolatedAsyncioTestCase):
         reader=object.__new__(FixedClnRpc)
         for pipe in ('stdout','stderr'):
             program='import sys;sys.'+pipe+'.write("x"*300000);sys.'+pipe+'.flush()'
-            with self.assertRaises(ValueError):await reader._run([sys.executable,'-c',program])
+            with self.assertRaises(ValueError):await asyncio.wait_for(reader._run([sys.executable,'-c',program]),timeout=3)
+
+    async def test_fixed_cli_cancellation_reaps_its_actual_process(self):
+        import os
+        from simulator.cln_router_source import FixedClnRpc
+        reader=object.__new__(FixedClnRpc);pid_path=self.root/'synthetic-child.pid'
+        program='import os,time;from pathlib import Path;Path('+repr(str(pid_path))+').write_text(str(os.getpid()));time.sleep(600)'
+        task=asyncio.create_task(reader._run([sys.executable,'-c',program]))
+        try:
+            async with asyncio.timeout(2):
+                while not pid_path.exists():await asyncio.sleep(0.01)
+            pid=int(pid_path.read_text());task.cancel()
+            with self.assertRaises(asyncio.CancelledError):await asyncio.wait_for(task,timeout=3)
+            with self.assertRaises(ProcessLookupError):os.kill(pid,0)
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task,return_exceptions=True)
 
     async def test_sync_replay_exactly_equals_frozen_async_replay(self):
         expected=await parts.replay(self.original['private_originals'],alias='operator',payment_hash=self.h,node_ids=NODES,

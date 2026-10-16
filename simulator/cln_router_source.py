@@ -50,33 +50,50 @@ class FixedClnRpc:
                 raise ValueError('actual local lightning-cli binary differs from source qualification')
 
     async def _run(self, argv):
-        """Bound both PRIVATE pipes while reading and reap this process only."""
+        """Reject pipe overflow promptly, keep draining privately, then reap.
+
+        A failed drain must not leave asyncio's paused StreamReader preventing
+        process.wait from completing after kill. Overflow signals the owner;
+        both drainers keep discarding until the killed child's actual EOF.
+        """
         from .c_cln_payment_parts import MAX_REPLY
         process=await asyncio.create_subprocess_exec(*argv,stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE,start_new_session=True)
+        overflow=asyncio.get_running_loop().create_future()
         async def drain(stream,maximum,retain):
             raw=bytearray();size=0
             while True:
                 chunk=await stream.read(65536)
                 if not chunk:break
                 size+=len(chunk)
-                if size>maximum:raise ValueError('private native CLI reply exceeded stream bound')
+                if size>maximum:
+                    if not overflow.done():overflow.set_result(True)
+                    continue  # No bytes above the bound retained or accepted.
                 if retain:raw.extend(chunk)
             return bytes(raw)
         stdout=asyncio.create_task(drain(process.stdout,MAX_REPLY,True))
         stderr=asyncio.create_task(drain(process.stderr,65536,False))
+        completed=asyncio.gather(stdout,stderr,process.wait())
         success=False
         try:
-            out,_,_=await asyncio.wait_for(asyncio.gather(stdout,stderr,process.wait()),timeout=25)
+            done,_=await asyncio.wait((completed,overflow),timeout=20,return_when=asyncio.FIRST_COMPLETED)
+            if overflow in done:raise ValueError('private native CLI reply exceeded stream bound')
+            if completed not in done:raise TimeoutError('private native CLI read exceeded deadline')
+            out,_,_=completed.result()
             if process.returncode!=0:raise ValueError('actual local CLN read refused')
             success=True
             return out
         finally:
+            overflow.cancel()
             if not success:
                 try:os.killpg(process.pid,signal.SIGKILL)
                 except ProcessLookupError:pass
-            await process.wait()
-            await asyncio.gather(stdout,stderr,return_exceptions=True)
+            try:
+                await asyncio.wait_for(asyncio.shield(completed),timeout=5)
+            except BaseException:
+                completed.cancel()
+                await asyncio.gather(completed,return_exceptions=True)
+                raise
 
     async def read(self, alias, method, params):
         if alias!=self.cfg['node_alias']:raise ValueError('selected payer belongs to another fixed source host')
