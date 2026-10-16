@@ -6,10 +6,13 @@ journal is changed. A separate financial verifier authenticates retained version
 actual fees and whole-input urgent reserve from independent sources.
 """
 import hashlib
+import contextvars
 import json
 import os
 from pathlib import Path
 import re
+import selectors
+import signal
 import stat
 import subprocess
 import time
@@ -24,7 +27,16 @@ LOAD_GATES = {
     'server/src/watchman/daemon.rs': '5a00827d1e1787c857c7f9b80159815ead915ffd7b3f33e2e4c2ab52059d64e6',
     'server/src/watchman/expiry_runtime.rs': '12a4fc64a0925c97642ba3ffaebeb2df9067f9881f9428009a8f9dd1d2608b46',
 }
+MAX_CAPTURE_NS = 60*10**9
+_CAPTURE_END = contextvars.ContextVar('b_runtime_capture_end', default=None)
 BUDGET_FILES = ('ordinary-fee-policy.json', 'ordinary-fee-opening.json', 'ordinary-fee-budget')
+
+
+def _require_time(reserve=0):
+    end = _CAPTURE_END.get()
+    if end is not None and time.monotonic()+reserve >= end:
+        raise ValueError('aggregate runtime capture deadline exceeded')
+    return end
 
 
 def digest(value):
@@ -86,9 +98,22 @@ def _path(value):
     return value
 
 
-def _file(path, maximum, prefix=None):
+def history_txids(raw, prefix):
+    if (type(raw) is not bytes or len(raw) > 650000 or len(raw) % 65
+            or type(prefix) is not int or not 0 <= prefix <= len(raw) or prefix % 65):
+        raise ValueError('canonical bounded native history/prefix required')
+    rows = [raw[n:n+65] for n in range(0, len(raw), 65)]
+    if any(re.fullmatch(b'[0-9a-f]{64}\\n', row) is None for row in rows):
+        raise ValueError('canonical native transaction history required')
+    txids = [row[:-1].decode('ascii') for row in rows]
+    if len(set(txids)) != len(txids): raise ValueError('duplicate native history transaction')
+    return txids
+
+
+def _file(path, maximum, prefix=None, *, public_history=False):
     """No-follow metadata/digest read; raw private contents never returned."""
     path = Path(_path(str(path)))
+    _require_time()
     directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         for part in path.parts[1:-1]:
@@ -99,11 +124,13 @@ def _file(path, maximum, prefix=None):
             first = os.fstat(fd)
             if not stat.S_ISREG(first.st_mode) or first.st_size > maximum:
                 raise ValueError('runtime source type/size bound')
-            full = hashlib.sha256(); head = hashlib.sha256(); count = 0
+            full = hashlib.sha256(); head = hashlib.sha256(); count = 0; records = bytearray()
             while block := os.read(fd, 65536):
+                _require_time()
                 if count + len(block) > maximum:
                     raise ValueError('runtime source growth bound')
                 full.update(block)
+                if public_history: records.extend(block)
                 if prefix is not None and count < prefix:
                     head.update(block[:prefix-count])
                 count += len(block)
@@ -116,17 +143,123 @@ def _file(path, maximum, prefix=None):
             if prefix is not None:
                 if not 0 <= prefix <= count: raise ValueError('history prefix outside actual history')
                 result.update(prefix_bytes=prefix, prefix_sha256=head.hexdigest())
+            if public_history: result['txids'] = history_txids(bytes(records), prefix)
             return result
         finally: os.close(fd)
     finally: os.close(directory)
 
 
-def _run(argv, maximum=2*1024*1024):
-    value = subprocess.run(argv, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                           timeout=8, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'})
-    if len(value.stdout) > maximum or len(value.stderr) > 65536:
-        raise ValueError('readonly runtime command response bound')
-    return value.stdout
+def _process_identity(pid):
+    fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+    return {'pid': pid, 'ppid': int(fields[1]), 'session': int(fields[3]),
+            'start_ticks': int(fields[19]), 'state': fields[0]}
+
+
+def _signal_owned(original, sig):
+    """Signal one verified PID through pidfd; never a name or process group."""
+    try:
+        fd = os.pidfd_open(original['pid'])
+        try:
+            current = _process_identity(original['pid'])
+            if any(current[key] != original[key] for key in ('pid', 'session', 'start_ticks')):
+                raise ValueError('owned command PID identity changed')
+            signal.pidfd_send_signal(fd, sig)
+        finally:
+            os.close(fd)
+    except ProcessLookupError:
+        pass
+    except FileNotFoundError:
+        pass
+
+
+def _command_descendants(root):
+    rows = {}
+    for path in Path('/proc').iterdir():
+        if not path.name.isdecimal(): continue
+        try: rows[int(path.name)] = _process_identity(int(path.name))
+        except (FileNotFoundError, ProcessLookupError): continue
+    # The fresh session belongs to the exact Popen leader. It also retains
+    # provenance for already orphaned helpers after their parent exits. Each
+    # signal still verifies PID/startticks through pidfd individually.
+    owned = {root['pid']: root}
+    owned.update({pid: row for pid, row in rows.items()
+                  if row['session'] == root['session'] and row['start_ticks'] >= root['start_ticks']})
+    while True:
+        added = {pid: row for pid, row in rows.items() if pid not in owned and row['ppid'] in owned
+                 and row['session'] == root['session'] and row['start_ticks'] >= root['start_ticks']}
+        if not added: return owned
+        owned.update(added)
+
+
+def _stop_command(process, root, end):
+    # Freeze the exact leader first, then its discovered descendants, so cleanup
+    # cannot race a new helper launch. Daemon-owned Dockerexec is NOT a child.
+    _signal_owned(root, signal.SIGSTOP)
+    owned = {root['pid']: root}
+    for _ in range(3):
+        found = _command_descendants(root)
+        new = {pid: row for pid, row in found.items() if pid not in owned}
+        for row in new.values(): _signal_owned(row, signal.SIGSTOP)
+        owned.update(new)
+        if not new: break
+    for pid, row in owned.items():
+        if pid != root['pid']: _signal_owned(row, signal.SIGKILL)
+    _signal_owned(root, signal.SIGKILL)
+    process.wait(timeout=max(.001, end-time.monotonic()))
+    # The direct Popen child is reaped above. Orphaned descendants are reaped by
+    # init, not falsely claimed as waitpid children of this producer.
+    while True:
+        alive = []
+        for pid, row in owned.items():
+            try:
+                current = _process_identity(pid)
+                if (current['session'], current['start_ticks']) == (row['session'], row['start_ticks']) and current['state'] != 'Z':
+                    alive.append(pid)
+            except (FileNotFoundError, ProcessLookupError): pass
+        if not alive: break
+        if time.monotonic() >= end: raise ValueError('owned command descendant cleanup incomplete')
+        time.sleep(.005)
+
+
+def _run(argv, maximum=2*1024*1024, *, timeout=8):
+    if type(maximum) is not int or not 0 < maximum <= 2*1024*1024 or not 0 < timeout <= 8:
+        raise ValueError('readonly command resource bounds')
+    if not hasattr(os, 'pidfd_open') or not hasattr(signal, 'pidfd_send_signal'):
+        raise ValueError('verified owned PID cleanup unavailable')
+    shared = _require_time()
+    end = min(time.monotonic()+timeout, shared) if shared is not None else time.monotonic()+timeout
+    if end-time.monotonic() < .01: raise ValueError('aggregate runtime capture deadline exceeded')
+    work_end = end-min(.75, (end-time.monotonic())/2)
+    process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'}, bufsize=0)
+    root = _process_identity(process.pid)
+    if root['session'] != process.pid: raise ValueError('isolated owned command identity required')
+    output = bytearray(); errors = bytearray(); selector = selectors.DefaultSelector()
+    try:
+        for pipe, name in ((process.stdout, 'out'), (process.stderr, 'err')):
+            os.set_blocking(pipe.fileno(), False); selector.register(pipe, selectors.EVENT_READ, name)
+        while selector.get_map():
+            remaining = work_end-time.monotonic()
+            if remaining <= 0: raise ValueError('readonly command deadline exceeded')
+            ready = selector.select(remaining)
+            if not ready: raise ValueError('readonly command deadline exceeded')
+            for key, _ in ready:
+                try: block = os.read(key.fd, 65536)
+                except BlockingIOError: continue
+                if not block:
+                    selector.unregister(key.fileobj); continue
+                target, limit = (output, maximum) if key.data == 'out' else (errors, 65536)
+                if len(target)+len(block) > limit:
+                    raise ValueError('readonly runtime command response bound')
+                target.extend(block)
+        try: code = process.wait(timeout=max(.001, work_end-time.monotonic()))
+        except subprocess.TimeoutExpired: raise ValueError('readonly command deadline exceeded') from None
+        if code: raise subprocess.CalledProcessError(code, argv)
+        return bytes(output)
+    finally:
+        selector.close()
+        _stop_command(process, root, end)
+        process.stdout.close(); process.stderr.close()
 
 
 def _inspect(container):
@@ -143,14 +276,16 @@ def _helper(expected):
 
 
 def _budget(expected, helper):
+    _require_time(5)  # Existing fixed source_mount has its own4s RPC timeout.
     directory, binding = helper.source_mount()
     if str(directory.parent) != expected['data_mount']['source']:
         raise ValueError('native budget source outside declared owning mount')
     first = helper.read_directory(directory)
     files = {name: _file(directory/name, helper.LIMITS[name]) for name in BUDGET_FILES}
-    history = _file(directory/'history', 128*1024*1024, first['history_prefix_bytes'])
+    history = _file(directory/'history', 650000, first['history_prefix_bytes'], public_history=True)
     receipt = _file(expected['accounting_receipt_path'], 2*1024*1024)
     last = helper.read_directory(directory)
+    _require_time(5)
     if first != last or helper.source_mount() != (directory, binding):
         raise ValueError('budget bytes/mount changed during capture')
     expected_hashes = (first['policy_sha256'], first['opening_sha256'], first['budget_file_sha256'])
@@ -191,6 +326,7 @@ def _lock(pid, budget_file):
     names = os.listdir(f'/proc/{pid}/fd')
     if len(names) > 4096: raise ValueError('watchman descriptor bound')
     for name in names:
+        _require_time()
         if not name.isdecimal(): continue
         try:
             info = os.stat(f'/proc/{pid}/fd/{name}')
@@ -220,7 +356,10 @@ def _daemon(expected, name):
     # /proc/PID/exe is intentionally a kernel symlink; hash the opened running
     # image, not a named file in the container that can have been replaced.
     with open(f'/proc/{pid}/exe', 'rb') as stream:
-        binary = hashlib.file_digest(stream, 'sha256').hexdigest()
+        hashed = hashlib.sha256()
+        while block := stream.read(1024*1024):
+            _require_time(); hashed.update(block)
+        binary = hashed.hexdigest()
     command = Path(f'/proc/{pid}/cmdline').read_bytes().rstrip(b'\0').decode().split('\0')
     environ = Path(f'/proc/{pid}/environ').read_bytes()
     if len(environ) > 131072: raise ValueError('process environment bound')
@@ -252,6 +391,10 @@ def verify(expected, checkpoint, observation, *, now_ns=None):
         raise ValueError('original before-start release checkpoint required')
     if not 0 <= now_ns-observation['completed_at_ns'] <= 90*10**9 or observation['started_at_ns'] > observation['completed_at_ns']:
         raise ValueError('fresh bounded runtime observation required')
+    elapsed = observation.get('elapsed_ns')
+    if (type(elapsed) is not int or not 0 <= elapsed <= MAX_CAPTURE_NS
+            or not 0 <= observation['completed_at_ns']-observation['started_at_ns'] <= MAX_CAPTURE_NS):
+        raise ValueError('bounded actual runtime capture duration required')
     before = observation['before']; after = observation['after']
     if before != after or set(before) != set(SERVICES):
         raise ValueError('same actual paired process/config before and after admin required')
@@ -298,9 +441,9 @@ def verify(expected, checkpoint, observation, *, now_ns=None):
     return result
 
 
-def capture(expected, checkpoint):
+def _capture(expected, checkpoint):
     """Privileged fixed-owned readonly capture; caller retains privately, no append."""
-    _expected(expected); started = time.time_ns(); helper = _helper(expected)
+    _expected(expected); started = time.time_ns(); monotonic = time.monotonic_ns(); helper = _helper(expected)
     before = {name: _daemon(expected, name) for name in SERVICES}
     budget = _budget(expected, helper); lock = _lock(before['watchmand']['pid'], budget['files']['ordinary-fee-budget'])
     responses = {}
@@ -318,8 +461,17 @@ def capture(expected, checkpoint):
     observation = {'started_at_ns': started, 'completed_at_ns': time.time_ns(), 'before': before, 'after': after,
                    'native_budget': budget, 'native_budget_after': after_budget, 'budget_lock': lock,
                    'budget_lock_after': after_lock, 'admin_responses': responses,
-                   'canonical_schema_sha256': schemas[0], 'canonical_schema_repeat_sha256': schemas[1]}
+                   'canonical_schema_sha256': schemas[0], 'canonical_schema_repeat_sha256': schemas[1],
+                   'elapsed_ns': time.monotonic_ns()-monotonic}
     return observation, verify(expected, checkpoint, observation)
+
+
+def capture(expected, checkpoint):
+    token = _CAPTURE_END.set(time.monotonic()+MAX_CAPTURE_NS/10**9)
+    try:
+        return _capture(expected, checkpoint)
+    finally:
+        _CAPTURE_END.reset(token)
 
 
 def capture_protected(expected_path, checkpoint_path):
