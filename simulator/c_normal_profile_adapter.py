@@ -121,6 +121,7 @@ class DirectPerKeyProfile:
         if (type(self) is not DirectPerKeyProfile
                 or set(self.__dict__) != {'target','runtime','owning','cln','members'}
                 or type(self.target) is not CheckedTargetReader
+                or set(self.target.__dict__) != {'reader','adapter','configuration','qualification_sequence'}
                 or type(self.runtime) is not RuntimeSource
                 or set(self.runtime.__dict__) != {'configuration','qualification_sequence'}
                 or type(self.owning) is not OwningBinding or type(self.cln) is not ClnBinding
