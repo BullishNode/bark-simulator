@@ -133,6 +133,34 @@ class PendingTests(unittest.TestCase):
             else:root['oor_spent_txid']=edge
             with self.subTest(edge=edge),self.assertRaisesRegex(ValueError,'exact pending registered exit edge'):
                 verify_fresh_backing(self.claims,self.tables,self.chain,height=100,server_pubkey=self.server,pending_tool=self.tool)
+    def test_current_ark_descendant_joins_original_board_edge_and_exact_lineage(self):
+        from simulator.two_step_normal import verify_fresh_backing
+        spend='e'*64;child='f'*64+':0'
+        original=self.tables['vtxo'][0]
+        original.update(spend_state='spent',oor_spent_txid=spend)
+        self.tables['vtxo'][1]['oor_spent_txid']=self.proof['anchor_spender_txid']
+        self.tables['vtxo'].append({**original,'vtxo_id':child,'signed_vtxo_hex':'02',
+            'spend_state':'spendable','oor_spent_txid':None})
+        self.claims=[{'coin_id':child,'amount_sat':670,'chain_anchor':self.root,
+            'anchor_raw_sha256':hashlib.sha256(self.raw).hexdigest()}]
+        self.store.db.execute('INSERT INTO owned_coin VALUES (?,?,?,?,?,?)',
+            (child,self.key,670,'digest','02',canonical({'id':child})))
+        call=self.chain.call
+        def current(method,*args):
+            if method=='gettxout':return {'bestblock':self.tip,'confirmations':3,
+                'value':'0.00001','scriptPubKey':{'hex':'51'}}
+            return call(method,*args)
+        self.chain.call=current
+        self.fresh=verify_fresh_backing(self.claims,self.tables,self.chain,
+            height=100,server_pubkey=self.server,pending_tool=self.tool)
+        self.assertEqual('01',self.native_mock.call_args.args[1]['registered_vtxo'])
+        with patch('simulator.financial_transition._superseded_ark_input',return_value=True), \
+                patch('simulator.campaign._receipt_origin',return_value={'branch_txid':spend}):
+            self.assertEqual([child],self.verify()['resolved_registered_boards'][0]['current_claim_ids'])
+        with patch('simulator.financial_transition._superseded_ark_input',return_value=True), \
+                patch('simulator.campaign._receipt_origin',return_value={'branch_txid':'a'*64}):
+            with self.assertRaisesRegex(ValueError,'signed Ark lineage'):self.verify()
+
     def test_mempool_spent_fresh_root_holds_even_when_confirmed_view_reports_unspent(self):
         from simulator.two_step_normal import verify_fresh_backing
         self.claims[0]['anchor_raw_sha256']=hashlib.sha256(self.raw).hexdigest()

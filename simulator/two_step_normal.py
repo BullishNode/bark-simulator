@@ -247,13 +247,21 @@ def verify_fresh_backing(authenticated, tables, chain, *, height, server_pubkey,
             # Native Board reserves its one signed exit before registration.
             # Only the independently proved pending/registered Board edge is
             # compatible with an unspent funding root; arbitrary OOR spends hold.
-            pending = [row for row in tables.get('pending_board',[]) if row['id']==point and row['vtxo_id']==claim['coin_id']]
+            # Registration names the original Board, whereas an authenticated
+            # current Ark descendant has its own ID. Prove the original edge;
+            # verify_pending_boards separately rejoins every current descendant
+            # to that original intent and exact signed supersession below.
+            pending = [row for row in tables.get('pending_board',[]) if row['id']==point]
             funding = [row for row in tables['virtual_transaction'] if row['txid']==point.split(':')[0] and row['is_funding']is True]
+            registered = rows.get(pending[0]['vtxo_id']) if len(pending)==1 else None
             if (len(pending)!=1 or len(funding)!=1
-                    or pending[0]['expiry']!=leaf['expiry'] or root['expiry']!=leaf['expiry']):
+                    or registered is None or registered['anchor_point']!=point
+                    or registered['policy_type']!='pubkey' or registered['server_pubkey']!=server_pubkey
+                    or pending[0]['expiry']!=registered['expiry'] or registered['expiry']!=leaf['expiry']
+                    or root['expiry']!=leaf['expiry']):
                 raise ValueError('fresh Board root lacks exact pending registered exit edge')
             from .normal_pending_board import prove_registered_board
-            _,_,contract,_,_=prove_registered_board(pending[0],leaf,funding[0],pending_tool,server_pubkey)
+            _,_,contract,_,_=prove_registered_board(pending[0],registered,funding[0],pending_tool,server_pubkey)
             if root['oor_spent_txid']!=contract['anchor_spender_txid']:
                 raise ValueError('fresh Board root lacks exact pending registered exit edge')
         txid, index = point.rsplit(':', 1); coin = chain.call('gettxout', txid, int(index), True)
