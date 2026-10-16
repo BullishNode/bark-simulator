@@ -6,20 +6,14 @@ identity/hash/relation admission and refusal propagation at the Python boundary.
 """
 import copy
 import hashlib
-import importlib.util
 import json
-import os
 from pathlib import Path
-import sys
 import unittest
 from unittest.mock import patch
 
+from simulator import normal_lineage as m
+
 ROOT = Path(__file__).resolve().parents[1]
-BASE = Path(os.environ.get('LINEAGE_BASE_SOURCE', str(ROOT)))
-sys.path.insert(0, str(BASE))
-spec = importlib.util.spec_from_file_location('lineage_completion_candidate', ROOT/'simulator/normal_lineage.py')
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
 KEY = '02'+'11'*32
 GENESIS = 'aa'*32
 COIN = '11'*32+':0'
@@ -72,6 +66,11 @@ def bind(f, **overrides):
 
 
 class CompletionBoundaryControls(unittest.TestCase):
+    def test_imports_are_actual_current_checkout_modules(self):
+        from simulator import two_step_normal, unknown_outcomes
+        for module,name in [(m,'normal_lineage'),(two_step_normal,'two_step_normal'),(unknown_outcomes,'unknown_outcomes')]:
+            self.assertEqual(Path(module.__file__).resolve(),ROOT/'simulator'/(name+'.py'))
+
     def test_software_partial_pair_binds_both_literals_without_money_verdict(self):
         result = bind(fixture())
         self.assertEqual(result['native_full_sha256'], m.sha(NATIVE))

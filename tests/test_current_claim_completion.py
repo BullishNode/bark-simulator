@@ -6,26 +6,15 @@ transaction so the existing decoder is exercised without any Core/RPC call.
 from pathlib import Path
 import copy
 import hashlib
-import importlib.util
 import json
 import sqlite3
-import sys
 import unittest
 from unittest.mock import patch
 
+from simulator import normal_recovered_backing as helper
+from simulator import two_step_normal as m
+
 ROOT = Path(__file__).resolve().parents[1]
-BASE = ROOT
-sys.path.insert(0, str(BASE))
-
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-helper = load('simulator.normal_recovered_backing', ROOT/'simulator/normal_recovered_backing.py')
-m = load('simulator.claim_completion_candidate', ROOT/'simulator/two_step_normal.py')
 from simulator.bundle_audit import decode_transaction
 KEY = '02'+'11'*32
 NATIVE = b'public software partial; not Vtxo'.hex()
@@ -95,6 +84,11 @@ def run(f, *, mutation=None, context=True, **arguments):
 
 
 class CurrentClaimCompletionControls(unittest.TestCase):
+    def test_imports_are_current_checkout_and_same_claim_helper(self):
+        self.assertEqual(Path(m.__file__).resolve(),ROOT/'simulator/two_step_normal.py')
+        self.assertEqual(Path(helper.__file__).resolve(),ROOT/'simulator/normal_recovered_backing.py')
+        self.assertIs(m.bind_native_claim,helper.bind_native_claim)
+
     def test_same_literal_pair_executes_under_existing_current_claim_route(self):
         f=fixture();before=f['store'].db.total_changes
         (claims,verified),calls=run(f)
