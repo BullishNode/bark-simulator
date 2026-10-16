@@ -96,6 +96,15 @@ def verify_coin(campaign, actor: str, coin: dict, *, expected_address: str | Non
                 raise ValueError("verified signed coin differs from native wallet observation")
             if network_identity(campaign.core) != chain:
                 raise ValueError("chain changed during signature observation")
+            if "path_outpoints" in verified:
+                path = verified["path_outpoints"]
+                if (not isinstance(path, list) or not path or len(path) > 10000
+                        or any(not isinstance(point, str) or not re.fullmatch(r"[0-9a-f]{64}:[0-9]+", point)
+                               for point in path)
+                        or len(path) != len(set(path))
+                        or path[0] != coin["chain_anchor"] or path[-1] != coin["id"]):
+                    raise ValueError("native signed path does not bind the coin and backing")
+                result["path_outpoints"] = path
             result.update({"status": "PASS", "verified_coin": {key: coin[key] for key in fields},
                            "chain": chain, "anchor_confirmations": output["confirmations"]})
     except Exception as error:

@@ -202,3 +202,57 @@ intents. It invokes upstream's one-shot `wallet.maintenance()`, using the wallet
 actual refresh policy; it is not a fabricated scheduler or a forced refresh of
 every coin. Such maintenance is a monetary operation and cannot overlap an
 isolated transfer checkpoint. An absent actor is never maintained.
+
+S02 freezes an actual cohort, then checks chain outcomes independently. Keep S01
+wallets active under the initial long-lifetime profile. Begin absence only after
+the coordinator has deployed and checked the real allocation and payout path
+(W5–W7); upstream-only reclamation is not the emergency payout implementation.
+A deliberately shorter lifetime is a separate declared campaign configuration,
+with real expiry heights recorded. Normal active-wallet maintenance continues
+for the control cohort. An expired coin may still refresh before the server's
+allocation decision; expiry height alone does not prove that decision happened.
+
+```
+python -m simulator.signet --state PRIVATE_DIR --config PRIVATE_CONFIG \
+  s02-begin-absence ACTOR SNAPSHOT_INTENT REGISTRATION_INTENT
+python -m simulator.signet --state PRIVATE_DIR --config PRIVATE_CONFIG \
+  s02-check-payout ACTOR OBSERVED_TXID VOUT COIN_ID [COIN_ID ...]
+```
+
+The first command captures signed native receipts and their verified path
+outpoints before permanently fencing the original wallet from every native open.
+It requires a current spendable cohort and the authenticated public registration.
+Its short transaction rejects changes after the selected snapshot. The supervisor
+must be the sole owner of these wallet directories; separately started daemons
+must already be stopped. Cached observations remain readable without reopening.
+
+The second command accepts a candidate transaction ID from operation logs or a
+public script observation. It independently reads Core: current public-Signet
+chain, canonical confirmation at/after expiry, registered payout script, exact
+sum of allocated coins minus 1,000 sat, one output to that script, version-3
+zero-fee parent, previously confirmed inputs, and one actual signed path input
+per allocated coin. A matching deposit to the same address is insufficient.
+Different expiry heights are separate allocations. Ready subsets at the same
+expiry can pay without waiting for an unresolved tree. Each failed or incomplete
+observation remains in the report. This does not claim that watchman funding,
+fee-child subsidy, or every ownership class has been qualified.
+
+Recovery uses a distinct wallet directory created from the original recovery
+phrase only, never a copied database. Native `onchain_utxos` and `onchain_drain`
+operations use the existing CLI. Secure native phrase-file restore plumbing is
+still a product dependency; no fake restore receipt is created by this runner.
+Once the real restore and drain are journaled:
+
+```
+python -m simulator.signet --state PRIVATE_DIR --config PRIVATE_CONFIG \
+  s02-check-recovery ACTOR RESTORED_ACTOR DRAIN_INTENT \
+  PAYOUT_OBSERVATION_ID EXPECTED_SIGNET_DESTINATION
+```
+
+Core must show the confirmed drain consuming the exact fallback payout outpoint.
+Old boarding change is listed separately and cannot satisfy fallback recovery.
+The checker rechecks the payout's canonical presence before crediting recovery;
+its earlier passing observation alone cannot survive a reorg. These commands
+report individual payout/recovery evidence and leave S02 incomplete until the
+complete frozen cohort and active control have been reconciled. No elapsed
+campaign time or restored total balance substitutes for those outcomes.

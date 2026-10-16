@@ -24,7 +24,7 @@ PUBLIC_SIGNET_CHALLENGE = (
     "210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae"
 )
 OBSERVATIONS = {"vtxos", "sync_vtxos", "balance", "ark_info"}
-OPERATIONS = OBSERVATIONS | {"create", "address", "onchain_address", "board", "send", "refresh", "maintain", "raw_vtxo", "fallback_record"}
+OPERATIONS = OBSERVATIONS | {"create", "address", "onchain_address", "onchain_utxos", "onchain_drain", "board", "send", "refresh", "maintain", "raw_vtxo", "fallback_record"}
 
 
 def digest(path: Path) -> str:
@@ -51,7 +51,7 @@ def command(operation: str, args: dict, config: dict) -> list[str]:
     if operation not in OPERATIONS:
         raise ValueError("unsupported native operation")
     expected = {"board": {"amount_sat"}, "send": {"destination", "amount_sat"},
-                "raw_vtxo": {"coin_id"}}.get(operation, set())
+                "raw_vtxo": {"coin_id"}, "onchain_drain": {"destination"}}.get(operation, set())
     if set(args) != expected:
         raise ValueError("unexpected operation arguments")
     if "amount_sat" in args:
@@ -67,6 +67,12 @@ def command(operation: str, args: dict, config: dict) -> list[str]:
         return [operation, *(["--all"] if operation == "vtxos" else []), "--no-sync"]
     if operation == "onchain_address":
         return ["onchain", "address"]
+    if operation == "onchain_utxos":
+        return ["onchain", "utxos"]
+    if operation == "onchain_drain":
+        if not isinstance(args["destination"], str) or not re.fullmatch(r"tb1[0-9a-z]+", args["destination"]):
+            raise ValueError("native testnet onchain destination required")
+        return ["onchain", "drain", args["destination"]]
     if operation == "fallback_record":
         return ["dev", "fallback-record"]
     if operation == "raw_vtxo":
@@ -108,6 +114,25 @@ def project_reply(operation: str, raw: bytes):
         # is only acknowledgement, never payment completion.
         return {"native_exit_zero": True, "completion": "requires_reconciliation"}
     value = json.loads(raw)
+    if operation == "onchain_drain":
+        if not re.fullmatch(r"[0-9a-f]{64}", value["txid"]):
+            raise ValueError("native recovery transaction ID required")
+        return {"txid": value["txid"], "completion": "requires_confirmation_and_input_check"}
+    if operation == "onchain_utxos":
+        if not isinstance(value, list):
+            raise ValueError("native onchain UTXO list required")
+        result, seen = [], set()
+        for utxo in value:
+            point = utxo["outpoint"]
+            if not re.fullmatch(r"[0-9a-f]{64}:[0-9]+", point) or point in seen:
+                raise ValueError("distinct native onchain outpoints required")
+            seen.add(point)
+            height = utxo["confirmation_height"]
+            if height is not None:
+                integer(height, "confirmation height")
+            result.append({"outpoint": point, "amount_sat": integer(utxo["amount_sat"], "UTXO amount", 1),
+                           "confirmation_height": height})
+        return result
     if operation == "fallback_record":
         result = {key: value[key] for key in ("network", "mailbox_pk", "payout_address", "record_hex", "record")}
         if (result["network"] != "signet"
@@ -445,6 +470,18 @@ def main():
     s01.add_argument("--board-sat", type=int, required=True)
     s01.add_argument("--transfer-sat", type=int, required=True)
     s01.add_argument("--maximum-fee-sat", type=int, required=True)
+    s02_absence = commands.add_parser("s02-begin-absence")
+    s02_absence.add_argument("actor")
+    s02_absence.add_argument("snapshot_intent")
+    s02_absence.add_argument("registration_intent")
+    s02_payout = commands.add_parser("s02-check-payout")
+    s02_payout.add_argument("actor")
+    s02_payout.add_argument("txid")
+    s02_payout.add_argument("index", type=int)
+    s02_payout.add_argument("coin_ids", nargs="+")
+    s02_recovery = commands.add_parser("s02-check-recovery")
+    for field in ("actor", "restored_actor", "spend_intent", "payout_observation_id", "expected_destination"):
+        s02_recovery.add_argument(field)
     args = parser.parse_args()
     campaign = Campaign(args.state, json.loads(args.config.read_text()))
     try:
@@ -463,6 +500,16 @@ def main():
             from .signet_s01 import S01
             progress = S01(campaign, board_sat=args.board_sat, transfer_sat=args.transfer_sat,
                            maximum_fee_sat=args.maximum_fee_sat).advance()
+        elif args.command == "s02-begin-absence":
+            from .signet_s02 import begin_absence
+            progress = begin_absence(campaign, args.actor, args.snapshot_intent, args.registration_intent)
+        elif args.command == "s02-check-payout":
+            from .signet_s02 import observe_payout
+            progress = observe_payout(campaign, args.actor, args.txid, args.index, args.coin_ids)
+        elif args.command == "s02-check-recovery":
+            from .signet_s02 import check_recovery
+            progress = check_recovery(campaign, args.actor, args.restored_actor, args.spend_intent,
+                                      args.payout_observation_id, args.expected_destination)
         report = campaign.report()
         if progress is not None:
             report["progress"] = progress

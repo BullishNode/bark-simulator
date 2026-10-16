@@ -91,6 +91,13 @@ class ProofTests(unittest.TestCase):
             result = verify_coin(self.campaign, "alice", self.coin(), expected_address="tark1abcdef")
         self.assertEqual(result["status"], "PASS")
 
+    def test_invalid_native_path_never_retains_a_passing_status(self):
+        self.campaign.core = ProofCore()
+        self.override, self.exit_code = {"path_outpoints": ["f" * 64 + ":0"]}, 0
+        with patch("subprocess.run", side_effect=self.native):
+            result = verify_coin(self.campaign, "alice", self.coin())
+        self.assertNotEqual(result["status"], "PASS")
+
 
 if __name__ == "__main__":
     unittest.main()
