@@ -102,14 +102,29 @@ class S01:
     def advance(self) -> dict:
         campaign = self.campaign
         chain = network_identity(campaign.core)
+        funding_addresses = {}
         for actor in ("sender", "receiver"):
-            for operation in ("create", "onchain_address"):
-                _, wait = self._native(f"s01-{actor}-{operation}", actor, operation)
+            for operation in ("create", "onchain_address", "fallback_record"):
+                reply, wait = self._native(f"s01-{actor}-{operation}", actor, operation)
                 if wait:
                     return wait
+                if operation == "onchain_address":
+                    funding_addresses[actor] = reply["address"]
+                elif operation == "fallback_record":
+                    address_info = campaign.core.call("validateaddress", reply["payout_address"])
+                    if (address_info.get("isvalid") is not True
+                            or address_info.get("scriptPubKey") != reply["record"]["spk"]
+                            or reply["payout_address"] == funding_addresses[actor]):
+                        raise ValueError("native fallback destination does not match its reserved payout script")
         address, wait = self._native("s01-receiver-address", "receiver", "address")
         if wait:
             return wait
+        target, wait = self._native("s01-target-info", "sender", "ark_info")
+        if wait:
+            return wait
+        if self.params["board_sat"] < target["min_board_amount_sat"]:
+            return {"case": "S01", "stage": "BOARD_AMOUNT_BELOW_SERVER_MINIMUM", "target": target,
+                    "board_sat": self.params["board_sat"], "case_verdict": "INCOMPLETE"}
         funding = [json.loads(row[0]) for row in campaign.db.execute(
             "SELECT payload FROM result WHERE json_extract(payload,'$.kind')='external_funding'")]
         funded = {actor: sum(row["amount_sat"] for row in funding if row["actor"] == actor)
@@ -117,6 +132,7 @@ class S01:
         if any(amount <= self.params["board_sat"] for amount in funded.values()):
             return {"case": "S01", "stage": "WAITING_FOR_OWNER_ALLOCATED_FUNDING",
                     "height": chain["height"], "funding_sat": funded,
+                    "funding_addresses": funding_addresses,
                     "board_sat": self.params["board_sat"],
                     "note": "Each native funding address needs confirmed board value plus miner-fee headroom.",
                     "case_verdict": "INCOMPLETE"}
@@ -135,6 +151,8 @@ class S01:
         if before is None:
             coins, names, wait = self._snapshot_pair("s01-before")
             if wait:
+                wait.update({"height": chain["height"], "target": target,
+                             "dependency": "native board settlement at its real backing confirmation height"})
                 return wait
             if any(sum(c["amount_sat"] for c in snapshot if c["state"] == "spendable") < boarded[actor]
                    for actor, snapshot in zip(("sender", "receiver"), coins)):

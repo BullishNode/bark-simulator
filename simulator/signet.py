@@ -23,8 +23,8 @@ PUBLIC_SIGNET_CHALLENGE = (
     "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430"
     "210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae"
 )
-OBSERVATIONS = {"vtxos", "sync_vtxos", "balance"}
-OPERATIONS = OBSERVATIONS | {"create", "address", "onchain_address", "board", "send", "refresh", "maintain", "raw_vtxo"}
+OBSERVATIONS = {"vtxos", "sync_vtxos", "balance", "ark_info"}
+OPERATIONS = OBSERVATIONS | {"create", "address", "onchain_address", "board", "send", "refresh", "maintain", "raw_vtxo", "fallback_record"}
 
 
 def digest(path: Path) -> str:
@@ -61,10 +61,14 @@ def command(operation: str, args: dict, config: dict) -> list[str]:
                 config["core_url"], "--bitcoind-cookie", config["core_credential"]]
     if operation == "sync_vtxos":
         return ["vtxos", "--all"]
+    if operation == "ark_info":
+        return ["ark-info"]
     if operation in OBSERVATIONS:
         return [operation, *(["--all"] if operation == "vtxos" else []), "--no-sync"]
     if operation == "onchain_address":
         return ["onchain", "address"]
+    if operation == "fallback_record":
+        return ["dev", "fallback-record"]
     if operation == "raw_vtxo":
         if not re.fullmatch(r"[0-9a-f]{64}:[0-9]+", args["coin_id"]):
             raise ValueError("native coin ID required")
@@ -104,6 +108,31 @@ def project_reply(operation: str, raw: bytes):
         # is only acknowledgement, never payment completion.
         return {"native_exit_zero": True, "completion": "requires_reconciliation"}
     value = json.loads(raw)
+    if operation == "fallback_record":
+        result = {key: value[key] for key in ("network", "mailbox_pk", "payout_address", "record_hex", "record")}
+        if (result["network"] != "signet"
+                or not re.fullmatch(r"0[23][0-9a-f]{64}", result["mailbox_pk"])
+                or not re.fullmatch(r"tb1q[0-9a-z]+", result["payout_address"])
+                or not re.fullmatch(r"(?:[0-9a-f]{2})+", result["record_hex"])):
+            raise ValueError("native Signet public registration required")
+        record = result["record"]
+        result["record"] = {key: record[key] for key in (
+            "spk", "account_xpub", "mailbox_signature", "account_signature")}
+        if not re.fullmatch(r"0014[0-9a-f]{40}", record["spk"]) or not record["account_xpub"].startswith("tpub"):
+            raise ValueError("native BIP84 payout script and testnet account required")
+        for field in ("mailbox_signature", "account_signature"):
+            if not re.fullmatch(r"[0-9a-f]{128}", record[field]):
+                raise ValueError("public registration signature required")
+        return result
+    if operation == "ark_info":
+        keys = ("network", "server_pubkey", "required_board_confirmations", "vtxo_lifetime",
+                "vtxo_exit_delta", "htlc_send_expiry_delta", "htlc_expiry_delta", "min_board_amount_sat")
+        result = {key: value[key] for key in keys}
+        if result["network"] != "signet" or not re.fullmatch(r"0[23][0-9a-f]{64}", result["server_pubkey"]):
+            raise ValueError("native server Signet identity required")
+        for key in keys[2:]:
+            integer(result[key], key)
+        return result
     if operation in {"vtxos", "sync_vtxos"}:
         if not isinstance(value, list):
             raise ValueError("VTXO list required")

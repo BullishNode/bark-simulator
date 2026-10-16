@@ -35,8 +35,19 @@ class S01Tests(unittest.TestCase):
         result = b""
         if operation == "address":
             result = b"tark1abcdef"
+        elif operation == "ark-info":
+            result = json.dumps({"network": "signet", "server_pubkey": "02" + "f" * 64,
+                                 "required_board_confirmations": 3, "vtxo_lifetime": 24,
+                                 "vtxo_exit_delta": 6, "htlc_send_expiry_delta": 258,
+                                 "htlc_expiry_delta": 40, "min_board_amount_sat": 5000}).encode()
         elif operation == "onchain":
             result = json.dumps({"address": "tb1q" + actor}).encode()
+        elif operation == "dev":
+            result = json.dumps({"network": "signet", "mailbox_pk": "02" + "a" * 64,
+                                 "payout_address": "tb1qpayout" + actor, "record_hex": "00",
+                                 "record": {"spk": "0014" + "0" * 40, "account_xpub": "tpubtestfixture",
+                                            "mailbox_signature": "a" * 128,
+                                            "account_signature": "b" * 128}}).encode()
         elif operation == "board":
             result = json.dumps({"funding_tx": {"txid": ("a" if actor == "sender" else "b") * 64},
                                  "vtxos": [], "amount_sat": 9900, "movement_id": 1}).encode()

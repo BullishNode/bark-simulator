@@ -132,7 +132,13 @@ python3 -m simulator.signet --state /private/campaign --config /private/run.json
 ```
 
 The first call creates fresh sender/receiver wallets and obtains their native
-funding addresses and receiver Ark address. It stops at
+funding addresses, authenticated fallback records and receiver Ark address.
+Fallback records come from the normal wallet-opening `dev fallback-record`
+command while the actor is active. Core independently checks the payout address
+against its recorded script, and the reserved payout address must differ from
+the normal funding address. The actual native server identity, board minimum,
+confirmation requirement and expiry parameters are captured through `ark-info`.
+The controller stops at
 `WAITING_FOR_OWNER_ALLOCATED_FUNDING`; it never withdraws from the offline
 treasury or calls a faucet. The coordinator then sends a declared allocation to
 each native onchain address, recording confirmed output receipts:
