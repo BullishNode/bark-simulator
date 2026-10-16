@@ -75,13 +75,15 @@ def _trace_position(store):
         connection.close()
 
 
-def _run(command, private, expected, trace_store):
+def _run(command, private, expected, trace_store, *, inherited_session=False):
     """Fixed caller command only; internal argument exists for pure fault tests.
 
     Every pipe is nonblocking and every select/wait uses the same absolute
     deadline. Process status is obtained after EOF, never accepted from JSON.
     No complete frame escapes before the producer is reaped successfully.
     """
+    if type(inherited_session) is not bool:
+        raise ValueError('explicit fixed worker session mode required')
     c = contract()
     expected = c.expected_contract(expected)
     f = c.adapter().frontier()
@@ -97,7 +99,7 @@ def _run(command, private, expected, trace_store):
     if time.monotonic() >= deadline:
         raise ValueError('initial trace read exceeded admission deadline')
     child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, start_new_session=True, bufsize=0)
+                             stderr=subprocess.PIPE, start_new_session=not inherited_session, bufsize=0)
     selector = selectors.DefaultSelector()
     diagnostic_bytes = 0
     successful = False
@@ -189,7 +191,7 @@ def _run(command, private, expected, trace_store):
         # Kill the owned session on failure even when its leader has exited.
         if not successful or child.poll() is None:
             try:
-                os.killpg(child.pid, signal.SIGKILL)
+                (child.kill() if inherited_session else os.killpg(child.pid, signal.SIGKILL))
             except ProcessLookupError:
                 pass
             child.wait(timeout=5)

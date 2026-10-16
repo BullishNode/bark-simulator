@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "origin": {
-    "packet_manifest_sha256": "4bf6060026040153a7a14a676a186108a2f16ffd12b56bed41f7c9e29b130b52",
-    "scope": "Frozen public observer sources and synthetic stream helpers for tests only; no installed authority or financial readiness."
+    "packet_manifest_sha256": "a9535d799183121158fa11ed32714f45e936705d84efeb0476fec12fa197c667",
+    "scope": "Frozen public V7 process-owned observer sources and synthetic stream helpers for tests only; no installed authority or financial readiness.",
+    "previous_packet_manifest_sha256": "4bf6060026040153a7a14a676a186108a2f16ffd12b56bed41f7c9e29b130b52"
   },
   "files": {
-    "adapter_v3.py": "8f3bdabf931e9188e00d9023da5c0389b9da9f2901530f734796bb76d00728c2",
-    "controller_wrapper.py": "2149f877fccae18e7137ec7c93bd2c132ceec07bf8f9ea1f869d8cde8479a195",
+    "adapter_v3.py": "043f9d874f019a462fcf11224feb0051618b4584521157d93e24dee7f0b54dfd",
+    "controller_wrapper.py": "54546ca643b2cc1dcfa16edfdfea8a3fcf28da8efd4381f14b1131a34e090ffd",
     "dbapi_adapter.py": "5262ce15f749005bf89322786e9c0dc339173467dcd803c4f0564d0f43053e69",
     "frontier_stream.py": "44db50364d15034e70accfd85df91d94666fdb7165a8692b0fab9f4e9eb352d9",
     "frontier_v2_contract.py": "91890edd02af0a6b70b47c3abeb4aaa62009d85088ee2bea1c97536b56b24ecb",

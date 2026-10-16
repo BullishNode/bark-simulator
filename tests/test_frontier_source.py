@@ -157,6 +157,14 @@ class OriginalTraceConsumerControls(unittest.TestCase):
         self.bootstrap=mock.patch.object(f,'_bootstrap',return_value=(self.controller,self.binding,'synthetic-binding'))
         self.bootstrap.start();self.addCleanup(self.bootstrap.stop)
         same=mock.patch.object(f,'_same_binding');same.start();self.addCleanup(same.stop)
+        # These provenance tests deliberately exercise the existing real replay
+        # primitive in-process. Separate lifecycle controls execute actual fresh
+        # workers, blocking SQLite and descendant cleanup.
+        def replay(request):
+            f._context(self.controller,self.binding,self.config,self.pins)
+            return self.controller.verify(request['frame'],self.store.trace)
+        boundary=mock.patch.object(f,'_run_sync',side_effect=replay)
+        boundary.start();self.addCleanup(boundary.stop)
         self.event_source={'source_kind':'closed_frontier','response':self.frame,
             'response_sha256':hashlib.sha256(canonical(self.frame).encode()).hexdigest(),
             'financial_pins':self.pins,'observed_at':1}

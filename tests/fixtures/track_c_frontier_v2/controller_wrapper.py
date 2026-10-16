@@ -8,7 +8,7 @@ import wiring_contract as w
 
 CONTROLLER_BINDING = Path('/etc/track-c/frontier-v2-controller.json')
 OBSERVER_WRAPPER = Path('/opt/track-c/bin/observer-v2')
-ADAPTER_SHA256 = '8f3bdabf931e9188e00d9023da5c0389b9da9f2901530f734796bb76d00728c2'
+ADAPTER_SHA256 = '043f9d874f019a462fcf11224feb0051618b4584521157d93e24dee7f0b54dfd'
 
 
 def adapter():
@@ -46,14 +46,14 @@ def protected_binding():
     return expected
 
 
-def collect(trace_store):
+def collect(trace_store, *, inherited_session=False):
     """No caller-selected SQL, command, host, expected claims or proof callbacks."""
     expected = protected_binding()
     # Existing exact deployment SSH transport belongs inside the root-installed
     # wrapper. Its path is fixed here and its actual bytes independently pinned.
     # Only the original public fixed request enters stdin, never PG credentials.
     return adapter()._run([str(OBSERVER_WRAPPER)], w.contract().request(expected),
-                          expected, trace_store)
+                          expected, trace_store, inherited_session=inherited_session)
 
 
 def verify(frame, trace_store):
