@@ -40,7 +40,7 @@ def retained_ordinary_versions(store,chain,database,rights,*,scripts,tip):
         try:tx,raw=chain.transaction(txid),chain.tx(txid)
         except Exception as error:raise EvidenceGap('B retained ordinary versions: missing current Core version '+txid)from error
         body=decode_transaction(raw['hex'],public_body=True)
-        _need(txid==body['txid']==tx.get('txid') and body['outputs']==tx['outputs']
+        _need(not any(body['input_script_sig_sizes']) and txid==body['txid']==tx.get('txid') and body['outputs']==tx['outputs']
             and [i['outpoint']for i in body['inputs']]==[i['outpoint']for i in tx['inputs']]
             and body['weight']==raw.get('weight') and body['vsize']==raw.get('vsize')
             and integer(tx['fee_sat'],'actual candidate fee')==carrier['miner_fee_sat']
