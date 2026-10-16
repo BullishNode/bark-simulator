@@ -81,3 +81,21 @@ def prepare_native_fee_request(target,runtime,*,expected_product_commit,expected
             'policy_sha256':partition['policy_sha256'],'opening_sha256':partition['opening_sha256'],
             'journal_sha256':partition['journal_sha256'],'database_sha256':digest(database_raw)},
         'originals':originals}
+
+
+def verify_native_fee_sources(target,runtime,*,tool,expected_product_commit,expected_tool_commit,observation):
+    """Execute the ACTUAL admitted native helper, then bind its safe result.
+
+    This fixed B callback has no supplied-reply shortcut. Existing collector
+    source admission authenticates this module/tool configuration first. Actual
+    protected producer/query/runtime custody is separately mandatory. Returning
+    a native row proof does not activate financial paths or retire liabilities.
+    """
+    from .two_step_normal import run_native_fee_source_proof
+    from .b_native_fee_reply import bind_native_fee_reply
+    need(tool.get('sdk_commit')==expected_tool_commit,'source-admitted actual proof tool differs')
+    request=prepare_native_fee_request(target,runtime,expected_product_commit=expected_product_commit,
+        expected_tool_commit=expected_tool_commit,observation=observation)
+    request_raw,reply_raw=run_native_fee_source_proof(tool,request)
+    snapshot=target['auxiliary_originals'][AUXILIARY['b_native_fee_snapshot']]
+    return bind_native_fee_reply(request_raw,reply_raw,snapshot,expected_tool_commit=expected_tool_commit)
