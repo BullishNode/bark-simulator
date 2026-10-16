@@ -107,6 +107,33 @@ class DirectPerKeyProfile:
             members.check()
         self.members = members
 
+    def source_configuration(self):
+        """Exact C constructor data for existing shared source admission.
+
+        No A/B MemberReader runs on C. These are the actual fixed sources
+        invoked by capture, each still requiring its own installed qualifier.
+        A partial profile may check a target primitive but cannot admit capture.
+        """
+        from .c_normal_runtime_source import RuntimeSource
+        from .c_normal_owning_join import OwningBinding
+        from .c_normal_cln_join import ClnBinding
+        from .c_normal_member_join import MemberBinding
+        if (type(self) is not DirectPerKeyProfile
+                or set(self.__dict__) != {'target','runtime','owning','cln','members'}
+                or type(self.target) is not CheckedTargetReader
+                or type(self.runtime) is not RuntimeSource
+                or set(self.runtime.__dict__) != {'configuration','qualification_sequence'}
+                or type(self.owning) is not OwningBinding or type(self.cln) is not ClnBinding
+                or type(self.members) is not MemberBinding
+                or set(self.owning.__dict__) != {'reader','qualification_sequence'}
+                or set(self.cln.__dict__) != {'reader','member_ids','context_sha256','qualification_sequence'}
+                or set(self.members.__dict__) != {'wallet_root','actor_member_ids','bank','qualification_sequence'}):
+            raise EvidenceGap('all fixed actual C source constructors required before capture')
+        return {'kind':'fixed_c_normal_sources',
+            'runtime':{'configuration':copy.deepcopy(self.runtime.configuration),
+                'qualification_sequence':self.runtime.qualification_sequence},
+            'owning':self.owning.check(),'cln':self.cln.check(),'members':self.members.check()}
+
     def component_hashes(self):
         result = {'c_profile':digest(Path(__file__).read_bytes()),
             'c_target':module_hash(CheckedTargetReader.check_transport),
