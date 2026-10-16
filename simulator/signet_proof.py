@@ -21,12 +21,12 @@ def verify_coin(campaign, actor: str, coin: dict) -> dict:
     previous = campaign.db.execute("""SELECT payload FROM result WHERE id LIKE ?
         AND json_extract(payload,'$.status') IN ('PASS','FAILED') ORDER BY observed DESC LIMIT 1""",
                                    (proof_prefix + "-%",)).fetchone()
+    cached = None
     if previous:
         cached = json.loads(previous[0])
         if cached["status"] == "PASS" and any(cached["verified_coin"][field] != coin[field]
                                               for field in cached["verified_coin"]):
             raise ValueError("cached signed coin differs from current observation")
-        return cached
     attempt = campaign.db.execute("SELECT count(*) FROM result WHERE id LIKE ?", (proof_prefix + "-%",)).fetchone()[0]
     proof_id = f"{proof_prefix}-{attempt}"
     # This operation opens only the declared active wallet. If the raw receipt
@@ -47,6 +47,8 @@ def verify_coin(campaign, actor: str, coin: dict) -> dict:
     if (hashlib.sha256(bytes.fromhex(serialized)).hexdigest() != declared["serialized_sha256"]
             or len(bytes.fromhex(serialized)) != declared["serialized_bytes"]):
         raise ValueError("serialized coin does not match original public receipt")
+    if cached is not None:
+        return cached
     result = {"kind": "vtxo_signature_proof", "actor": actor, "coin_id": coin["id"],
               "raw_intent": raw_intent, "binary_sha256": campaign.config["binary_sha256"],
               "source_commit": campaign.config["source_commit"], "status": "UNAVAILABLE"}

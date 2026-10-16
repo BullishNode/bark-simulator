@@ -86,7 +86,11 @@ class S01:
             snapshot = self.campaign.db.execute("SELECT actor,reply FROM action WHERE id=?", (snapshot_name,)).fetchone()
             for coin in json.loads(snapshot["reply"]):
                 if coin["state"] == "spendable":
-                    proofs.append(verify_coin(self.campaign, snapshot["actor"], coin))
+                    try:
+                        proofs.append(verify_coin(self.campaign, snapshot["actor"], coin))
+                    except ValueError as error:
+                        proofs.append({"coin_id": coin["id"], "status": "UNAVAILABLE",
+                                       "diagnostic": type(error).__name__})
         return {"case": "S01", "stage": "NATIVE_TRANSFER_OBSERVED", "evidence": check,
                 "signature_proofs": proofs,
                 "signature_path_verification": "PASS" if proofs and all(p["status"] == "PASS" for p in proofs)
