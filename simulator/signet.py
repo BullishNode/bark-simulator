@@ -222,6 +222,16 @@ class Campaign:
         path = self.actor_path(actor)
         native_args = command(operation, args, self.config)
         public_payload(args)
+        previous = self.db.execute("SELECT * FROM action WHERE id=?", (intent,)).fetchone()
+        if previous:
+            if (previous["actor"], previous["operation"], previous["arguments"]) != (actor, operation, canonical(args)):
+                raise ValueError("intent ID reused with different action")
+            return dict(previous)
+        # Potentially slow file hashing and Core reads happen before the short
+        # SQLite write transaction. Actor exclusion is rechecked atomically below.
+        if digest(Path(self.config["binary"])) != self.config["binary_sha256"]:
+            raise ValueError("native executable hash changed")
+        chain = network_identity(self.core)
         self.db.execute("BEGIN IMMEDIATE")
         try:
             previous = self.db.execute("SELECT * FROM action WHERE id=?", (intent,)).fetchone()
@@ -235,9 +245,6 @@ class Campaign:
                 raise ValueError("absent actor: no native wallet process may open it")
             if self.db.execute("SELECT 1 FROM action WHERE actor=? AND state IN ('dispatched','unknown')", (actor,)).fetchone():
                 raise ValueError("actor has an in-flight or unknown action; reconcile first")
-            if digest(Path(self.config["binary"])) != self.config["binary_sha256"]:
-                raise ValueError("native executable hash changed")
-            chain = network_identity(self.core)
             now = time.time()
             self.db.execute("INSERT INTO action VALUES (?,?,?,?,?,?,?,?,?,?)", (
                 intent, actor, operation, canonical(args), "dispatched", now, now,
