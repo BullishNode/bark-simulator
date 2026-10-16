@@ -126,6 +126,17 @@ class NormalFinancialTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError,'chain changed'):await self.call(race)
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='normal_financial_source_collected'").fetchone()[0])
 
+    async def test_final_independent_tip_read_counts_toward_whole_collection_deadline(self):
+        clock=[time.time()];identity=self.chain.identity;calls=[0]
+        def advancing_identity():
+            calls[0]+=1
+            if calls[0]==2:clock[0]+=91
+            return identity()
+        with patch('simulator.normal_financial.time.time',side_effect=lambda:clock[0]), \
+                patch.object(self.chain,'identity',side_effect=advancing_identity):
+            with self.assertRaisesRegex(ValueError,'deadline'):
+                await self.call()
+        self.assertEqual(0,self.store.db.execute("SELECT count(*)FROM event WHERE kind='normal_financial_source_collected'").fetchone()[0])
     async def test_real_quote_above_quiet_ceiling_keeps_separate_urgent_preflight(self):
         async def spike(*args):return await self.producer(*args,estimated_fee_rate_sat_kvb=3000)
         snapshot=await self.call(spike)
