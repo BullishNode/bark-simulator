@@ -17,6 +17,9 @@ def private_loader(path, *, producer_exit):
 def other_private_loader(path, *, producer_exit):
     return path,producer_exit()
 
+def default_private_loader(path, *, producer_exit=None):
+    return path,producer_exit
+
 class AdmissionTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.store=Store(Path(self.tmp.name),'reader-admission',10000)
@@ -50,6 +53,17 @@ class AdmissionTests(unittest.TestCase):
         self.target.request_stdin=False;self.target.loader=private_loader
         with self.assertRaisesRegex(ValueError,'qualification'):
             self.capture.admission(self.store,{'financial_pins':PINS})
+    def test_hidden_loader_state_is_not_admitted_by_a_source_hash(self):
+        state={'expected':'not in admitted configuration'}
+        def closed_loader(path, *, producer_exit):
+            return state,path,producer_exit()
+        class BoundLoader:
+            def load(self,path,*,producer_exit):
+                return state,path,producer_exit()
+        for loader in (closed_loader,BoundLoader().load,default_private_loader,lambda path,**kw:path):
+            self.target.loader=loader
+            with self.subTest(loader=loader),self.assertRaisesRegex(ValueError,'stateless module-level'):
+                self.capture.admission(self.store,{'financial_pins':PINS})
     def test_admitted_loader_and_request_input_are_bound_to_name_source_and_mode(self):
         self.target.request_stdin=True;self.target.loader=private_loader
         target={'command':list(self.target.command),'evidence_directory':str(self.target.evidence_directory),
