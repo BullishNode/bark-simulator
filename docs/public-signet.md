@@ -273,3 +273,26 @@ its earlier passing observation alone cannot survive a reorg. These commands
 report individual payout/recovery evidence and leave S02 incomplete until the
 complete frozen cohort and active control have been reconciled. No elapsed
 campaign time or restored total balance substitutes for those outcomes.
+
+The active control has its own original snapshot, acknowledged `maintain` or
+`refresh` actions, and a later snapshot. `s02-check-control` requires every
+original coin to be spent, replacement coins still unexpired beyond the original
+expiry, verified native signatures and current confirmed backing, and exact
+cohort conservation within the declared fee bound. Additional sends/boards or
+later maintenance require a new checkpoint; they cannot silently enter its sum.
+
+```
+python -m simulator.signet --state PRIVATE_DIR --config PRIVATE_CONFIG \
+  s02-check-control CONTROL_ACTOR BEFORE_INTENT AFTER_INTENT --maximum-fee-sat BOUND
+python -m simulator.signet --state PRIVATE_DIR --config PRIVATE_CONFIG \
+  s02-reconcile ABSENT_ACTOR CONTROL_OBSERVATION_ID
+```
+
+Reconciliation rereads the current canonical chain for every payout and recovery
+spend. It reports pending frozen coin IDs and real expiry heights. Only complete
+non-overlapping coverage of the original cohort, confirmed spends consuming each
+actual payout, and a freshly rechecked active control produce S02 PASS. The
+restore must start after its payout has confirmed. A later reorg can therefore
+make the current reconciliation incomplete even if historical observations
+passed; both results remain visible. S02 PASS covers this declared cohort and
+lifecycle, not every production scenario or any amount of qualified wall time.

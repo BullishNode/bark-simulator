@@ -498,6 +498,13 @@ def main():
     s02_recovery = commands.add_parser("s02-check-recovery")
     for field in ("actor", "restored_actor", "spend_intent", "payout_observation_id", "expected_destination"):
         s02_recovery.add_argument(field)
+    s02_control = commands.add_parser("s02-check-control")
+    for field in ("actor", "before_intent", "after_intent"):
+        s02_control.add_argument(field)
+    s02_control.add_argument("--maximum-fee-sat", type=int, required=True)
+    s02_finish = commands.add_parser("s02-reconcile")
+    s02_finish.add_argument("actor")
+    s02_finish.add_argument("control_observation_id")
     args = parser.parse_args()
     campaign = Campaign(args.state, json.loads(args.config.read_text()))
     try:
@@ -526,6 +533,13 @@ def main():
             from .signet_s02 import check_recovery
             progress = check_recovery(campaign, args.actor, args.restored_actor, args.spend_intent,
                                       args.payout_observation_id, args.expected_destination)
+        elif args.command == "s02-check-control":
+            from .signet_s02 import check_control
+            progress = check_control(campaign, args.actor, args.before_intent, args.after_intent,
+                                     args.maximum_fee_sat)
+        elif args.command == "s02-reconcile":
+            from .signet_s02 import reconcile
+            progress = reconcile(campaign, args.actor, args.control_observation_id)
         report = campaign.report()
         if progress is not None:
             report["progress"] = progress

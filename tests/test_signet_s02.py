@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from simulator.model import canonical
-from simulator.signet_s02 import begin_absence, observe_payout, check_recovery, _backup_recovery_source
+from simulator.signet_s02 import begin_absence, observe_payout, check_recovery, check_control, reconcile, _backup_recovery_source
 from tests import test_signet
 
 
@@ -56,7 +56,7 @@ class S02Tests(unittest.TestCase):
     def receipt(self, intent, operation, reply, args=None, actor="absent", created=1):
         self.campaign.db.execute("INSERT INTO action VALUES (?,?,?,?,?,?,?,?,?,?)", (
             intent, actor, operation, canonical(args or {}), "acknowledged", created, created,
-            None, canonical(reply), None))
+            canonical({"height": self.campaign.core.info["blocks"]}), canonical(reply), None))
 
     def source(self):
         path = self.campaign.actor_path("absent")
@@ -179,6 +179,39 @@ class S02Tests(unittest.TestCase):
         bad = check_recovery(self.campaign, "absent", "restored", "drain", "s02-payout-absent-0", "tb1qrecovered")
         self.assertNotEqual(bad["recovery_check"], "PASS")
         self.assertIn("actual fallback payout", bad["reason"])
+
+    def test_complete_lifecycle_needs_all_payouts_and_refreshed_control_and_rechecks_reorg(self):
+        frozen, _ = self.payout()
+        self.receipt("restore", "restore", {}, {"source_actor": "absent"}, actor="restored")
+        self.receipt("drain", "onchain_drain", {"txid": RECOVERY}, {"destination": "tb1qrecovered"}, actor="restored")
+        original = {**frozen["coins"][0], "id": "f" * 64 + ":0"}
+        replacement = {**original, "id": "0" * 64 + ":0", "expiry_height": 220, "amount_sat": 9900}
+        self.receipt("control-before", "sync_vtxos", [original], actor="control", created=1)
+        self.receipt("maintenance", "maintain", {}, actor="control", created=2)
+        self.receipt("control-after", "sync_vtxos", [{**original, "state": "spent"}, replacement], actor="control", created=3)
+        with patch("simulator.signet_s02.verify_coin", return_value={"status": "PASS"}):
+            control = check_control(self.campaign, "control", "control-before", "control-after", 100)
+            self.assertEqual(control["control_check"], "PASS")
+            pending = reconcile(self.campaign, "absent", "s02-control-control-0")
+            self.assertEqual(pending["pending_coin_ids"], [original["id"].replace("f", "e")])
+            self.assertEqual(pending["case_verdict"], "INCOMPLETE")
+            check_recovery(self.campaign, "absent", "restored", "drain", "s02-payout-absent-0", "tb1qrecovered")
+            complete = reconcile(self.campaign, "absent", "s02-control-control-0")
+            self.assertEqual(complete["case_verdict"], "PASS")
+            self.assertEqual(complete["confirmed_recovered_payout_sat"], 9000)
+            self.campaign.core.transactions[RECOVERY]["confirmations"] = 0
+            undone = reconcile(self.campaign, "absent", "s02-control-control-0")
+            self.assertEqual(undone["case_verdict"], "INCOMPLETE")
+            self.assertEqual(undone["confirmed_recovered_payout_sat"], 0)
+
+    def test_expired_or_unrefreshed_control_cannot_satisfy_lifecycle(self):
+        frozen = self.freeze()
+        original = frozen["coins"][0]
+        self.receipt("control-before", "sync_vtxos", [original], actor="control", created=1)
+        self.receipt("maintenance", "maintain", {}, actor="control", created=2)
+        self.receipt("control-after", "sync_vtxos", [original], actor="control", created=3)
+        result = check_control(self.campaign, "control", "control-before", "control-after", 100)
+        self.assertNotEqual(result["control_check"], "PASS")
 
 
 if __name__ == "__main__":

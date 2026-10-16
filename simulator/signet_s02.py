@@ -221,6 +221,7 @@ def check_recovery(campaign, actor: str, restored_actor: str, spend_intent: str,
             or not action or action["actor"] != restored_actor or action["operation"] != "onchain_drain"
             or action["state"] != "acknowledged" or not restore
             or json.loads(restore["arguments"]).get("source_actor") != actor
+            or action["created"] < restore["updated"]
             or json.loads(action["arguments"]).get("destination") != expected_destination):
         raise ValueError("original payout and separate native recovery/drain receipts required")
     result = {"kind": "S02_recovery_observation", "actor": actor, "restored_actor": restored_actor,
@@ -229,7 +230,9 @@ def check_recovery(campaign, actor: str, restored_actor: str, spend_intent: str,
     try:
         chain = network_identity(campaign.core)
         payout_txid, index = payout["outpoint"].split(":")
-        payout_tx, _ = _confirmed_transaction(campaign, payout_txid, chain)
+        payout_tx, payout_height = _confirmed_transaction(campaign, payout_txid, chain)
+        if not restore["chain"] or json.loads(restore["chain"])["height"] < payout_height:
+            raise ValueError("separate recovery wallet must be restored after the payout confirms")
         original = next(out for out in payout_tx["vout"] if out["n"] == int(index))
         if original["scriptPubKey"]["hex"] != frozen["registration"]["record"]["spk"] or btc_to_sat(original["value"]) != payout["amount_sat"]:
             raise ValueError("payout changed since its earlier observation")
@@ -263,3 +266,121 @@ def check_recovery(campaign, actor: str, restored_actor: str, spend_intent: str,
     except ValueError as error:
         result["reason"] = str(error)
     return _save(campaign, "s02-recovery-" + actor, result)
+
+
+def check_control(campaign, actor: str, before_intent: str, after_intent: str,
+                  maximum_fee_sat: int) -> dict:
+    """Observe a real active-wallet refresh across the original expiry height."""
+    integer(maximum_fee_sat, "maximum control fee")
+    rows = []
+    for intent in (before_intent, after_intent):
+        row = campaign.db.execute("SELECT * FROM action WHERE id=?", (intent,)).fetchone()
+        if not row or row["actor"] != actor or row["operation"] not in {"vtxos", "sync_vtxos"} or row["state"] != "acknowledged":
+            raise ValueError("original active control snapshots required")
+        rows.append(row)
+    before, after = rows
+    if before["updated"] >= after["created"]:
+        raise ValueError("ordered active control snapshots required")
+    if campaign.db.execute("SELECT 1 FROM actor WHERE id=? AND absent=1", (actor,)).fetchone():
+        raise ValueError("control wallet must remain active")
+    maintenance = campaign.db.execute("""SELECT id FROM action WHERE actor=? AND state='acknowledged'
+        AND operation IN ('refresh','maintain') AND created>? AND updated<?""",
+                                      (actor, before["updated"], after["created"])).fetchall()
+    other = campaign.db.execute("""SELECT 1 FROM action WHERE actor=? AND created>? AND id!=?
+        AND operation IN ('create','restore','board','send','refresh','maintain')
+        AND (operation NOT IN ('refresh','maintain') OR created>=? OR state!='acknowledged')""",
+                                (actor, before["updated"], after_intent, after["created"])).fetchone()
+    unresolved = campaign.db.execute("SELECT 1 FROM action WHERE actor=? AND state IN ('dispatched','unknown')", (actor,)).fetchone()
+    if not maintenance or other or unresolved:
+        raise ValueError("control checkpoint needs isolated acknowledged maintenance and no later mutation")
+    result = {"kind": "S02_control_observation", "actor": actor, "before_intent": before_intent,
+              "after_intent": after_intent, "maximum_fee_sat": maximum_fee_sat,
+              "control_check": "INCOMPLETE", "case_verdict": "INCOMPLETE"}
+    try:
+        original = [coin for coin in json.loads(before["reply"]) if coin["state"] == "spendable"]
+        latest = json.loads(after["reply"])
+        current = [coin for coin in latest if coin["state"] == "spendable"]
+        if not original or not current or any(coin["state"] not in {"spendable", "spent"} for coin in latest):
+            raise ValueError("control must have settled original and replacement coins")
+        chain = network_identity(campaign.core)
+        earliest = min(coin["expiry_height"] for coin in original)
+        if chain["height"] < earliest:
+            raise ValueError("original control expiry height has not occurred")
+        by_id = {coin["id"]: coin for coin in latest}
+        if any(by_id.get(coin["id"], {}).get("state") != "spent" for coin in original):
+            raise ValueError("control has not refreshed every original coin")
+        if any(coin["expiry_height"] <= chain["height"] for coin in current):
+            raise ValueError("control replacement coin has already expired")
+        opening = sum(coin["amount_sat"] for coin in original)
+        closing = sum(coin["amount_sat"] for coin in current)
+        fee = opening - closing
+        if not 0 <= fee <= maximum_fee_sat:
+            raise ValueError("unexplained control value change or fee above bound")
+        proofs = [verify_coin(campaign, actor, coin) for coin in current]
+        if any(proof.get("status") != "PASS" for proof in proofs):
+            raise ValueError("control replacement signed receipts not verified")
+        from .signet_checks import confirmed_backing
+        backing = confirmed_backing(campaign.core, [current])
+        if network_identity(campaign.core) != chain:
+            raise ValueError("chain changed during control observation")
+        result.update({"control_check": "PASS", "chain": chain, "maintenance_intents": [row[0] for row in maintenance],
+                       "opening_sat": opening, "current_sat": closing, "observed_fee_sat": fee,
+                       "original_expiry_height": earliest, "signature_proofs": proofs, "backing": backing})
+    except ValueError as error:
+        result["reason"] = str(error)
+    return _save(campaign, "s02-control-" + actor, result)
+
+
+def reconcile(campaign, actor: str, control_observation_id: str) -> dict:
+    """Recheck present chain evidence before issuing this narrow case verdict."""
+    frozen = _freeze(campaign, actor)
+    row = campaign.db.execute("SELECT payload FROM result WHERE id=?", (control_observation_id,)).fetchone()
+    control = json.loads(row[0]) if row else {}
+    if control.get("kind") != "S02_control_observation" or control.get("actor") == actor:
+        raise ValueError("separate active control observation required")
+    initial_chain = network_identity(campaign.core)
+    control_now = check_control(campaign, control["actor"], control["before_intent"],
+                                control["after_intent"], control["maximum_fee_sat"])
+    candidates = [json.loads(row[0]) for row in campaign.db.execute("""SELECT payload FROM result
+        WHERE json_extract(payload,'$.kind')='S02_recovery_observation'
+          AND json_extract(payload,'$.actor')=? AND json_extract(payload,'$.recovery_check')='PASS'
+        ORDER BY observed""", (actor,)).fetchall()]
+    covered, payouts, reasons = set(), set(), []
+    recovered = 0
+    for recovery in candidates:
+        payout = json.loads(campaign.db.execute("SELECT payload FROM result WHERE id=?", (recovery["payout_observation"],)).fetchone()[0])
+        if payout["outpoint"] in payouts:
+            continue
+        txid, index = payout["outpoint"].split(":")
+        current = observe_payout(campaign, actor, txid, int(index), payout["coin_ids"])
+        if current["payout_check"] != "PASS":
+            reasons.append({"outpoint": payout["outpoint"], "reason": "payout no longer verified on current chain"})
+            continue
+        spend = campaign.db.execute("SELECT arguments FROM action WHERE id=?", (recovery["spend_intent"],)).fetchone()
+        destination = json.loads(spend[0])["destination"]
+        current_recovery = check_recovery(campaign, actor, recovery["restored_actor"], recovery["spend_intent"],
+                                          recovery["payout_observation"], destination)
+        if current_recovery["recovery_check"] != "PASS":
+            reasons.append({"outpoint": payout["outpoint"], "reason": "confirmed payout spend no longer verified"})
+            continue
+        if covered.intersection(payout["coin_ids"]):
+            raise ValueError("two payout allocations overlap the same frozen coin")
+        covered.update(payout["coin_ids"])
+        payouts.add(payout["outpoint"])
+        recovered += payout["amount_sat"]
+    known = {coin["id"] for coin in frozen["coins"]}
+    chain = network_identity(campaign.core)
+    if chain != initial_chain:
+        reasons.append({"reason": "chain changed during lifecycle reconciliation; recheck required"})
+    result = {"kind": "S02_reconciliation", "case": "S02", "actor": actor, "chain": chain,
+              "case_verdict": "INCOMPLETE", "stage": "WAITING_FOR_REAL_LIFECYCLE",
+              "pending_coin_ids": sorted(known - covered), "recovered_coin_ids": sorted(covered),
+              "confirmed_recovered_payout_sat": recovered, "confirmed_payout_outpoints": sorted(payouts),
+              "expiry_heights": sorted({coin["expiry_height"] for coin in frozen["coins"]}),
+              "active_control": control_now, "rechecks": reasons}
+    if covered == known and control_now["control_check"] == "PASS" and not reasons:
+        if control_now["original_expiry_height"] > min(coin["expiry_height"] for coin in frozen["coins"]):
+            raise ValueError("control did not span the abandoned cohort's first expiry")
+        result.update({"kind": "case_result", "case_verdict": "PASS", "stage": "COMPLETE",
+                       "scope": "This frozen absent-wallet cohort reached real expiry, canonical signed-path payouts, separate phrase-only restore and confirmed payout spends; active control refreshed. Other production cases remain separate."})
+    return _save(campaign, "s02-reconcile-" + actor, result)
