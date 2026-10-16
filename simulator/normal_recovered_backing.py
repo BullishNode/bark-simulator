@@ -11,7 +11,7 @@ from decimal import Decimal
 from .bundle_audit import decode_transaction
 
 MAX = 2_100_000_000_000_000
-NATIVE_COMPLETION_SDK = 'e217792fe4d9d9cbade5f54464123941e253a37d'
+NATIVE_COMPLETION_SDK = 'cccc3f5747ad11b07b4742df1a25fb7b3ebe29c9'
 
 def _check(condition, message):
     if not condition: raise ValueError(message)

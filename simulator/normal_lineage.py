@@ -14,9 +14,10 @@ from collections import Counter
 
 MAX_COINS = 10000
 MAX_SAT = 2_100_000_000_000_000
-# Supplied-byte native completion mode is qualified against this exact SDK.
-# Executable/source/command admission remains the caller's separate obligation.
-NATIVE_COMPLETION_SDK = 'e217792fe4d9d9cbade5f54464123941e253a37d'
+# Exact selected proof-source SDK pin; this constant does not qualify a tool.
+# Executable/source/command qualification and admission remain mandatory.
+# Prior e217 helper receipts remain separate from this cccc source successor.
+NATIVE_COMPLETION_SDK = 'cccc3f5747ad11b07b4742df1a25fb7b3ebe29c9'
 
 
 def need(value, message):

@@ -145,6 +145,19 @@ class CompletionBoundaryControls(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'anchor/SDK'):
             bind(fixture(), policy_sdk_commit='ab'*20)
 
+    def test_selected_source_sdk_is_exact_and_shared_with_current_claim_helper(self):
+        from simulator import normal_recovered_backing
+        self.assertEqual(m.NATIVE_COMPLETION_SDK, 'cccc3f5747ad11b07b4742df1a25fb7b3ebe29c9')
+        self.assertEqual(m.NATIVE_COMPLETION_SDK, normal_recovered_backing.NATIVE_COMPLETION_SDK)
+
+    def test_old_e217_paired_stdout_cannot_be_relabelled_as_current_sdk(self):
+        old_sdk = 'e217792fe4d9d9cbade5f54464123941e253a37d'
+        f = fixture(); f[5]['sdk_commit'] = old_sdk
+        with self.assertRaisesRegex(ValueError, 'completion proof differs'):
+            bind(f)
+        with self.assertRaisesRegex(ValueError, 'anchor/SDK'):
+            bind(fixture(), policy_sdk_commit=old_sdk)
+
     def test_relation_cannot_claim_equality_or_generic_witness_completion(self):
         for equal, relation in [(False, 'exact_full_equality'), (False, 'bare_equal'),
                                 (False, 'witness_stripped'), (True, 'final_hark_leaf_completion')]:

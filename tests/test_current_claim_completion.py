@@ -164,6 +164,14 @@ class CurrentClaimCompletionControls(unittest.TestCase):
             with self.subTest(field=field),self.assertRaisesRegex(ValueError,'native-completion proof differs'):
                 run(f,context=False)
 
+    def test_missing_or_old_paired_sdk_stdout_has_no_current_claim_credit(self):
+        for sdk in (None, 'e217792fe4d9d9cbade5f54464123941e253a37d', 'ab'*20):
+            f=fixture()
+            if sdk is None: f['contract'].pop('sdk_commit')
+            else: f['contract']['sdk_commit']=sdk
+            with self.subTest(sdk=sdk),self.assertRaisesRegex(ValueError,'native-completion proof differs'):
+                run(f,context=False)
+
     def test_invalid_client_signed_path_still_refuses(self):
         for field in ('signed_path_valid','chain_contract_verified'):
             f=fixture();f['contract'][field]=False

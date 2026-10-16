@@ -6,7 +6,7 @@ from . import normal_lineage as lineage
 from .bundle_audit import decode_transaction
 
 
-SOURCE_SHA256 = 'c911161934c665a7034dee29cbcf84fd1a4ca5cf92a5797d36e8d874309b2b3e'
+SOURCE_SHA256 = '785a676138113c7b90a588556e020e4185eda82e7195a2bd56299319fe97fcd1'
 CONFIGURATION = {'schema_version': 1, 'scope': 'arkoor_only', 'source_sha256': SOURCE_SHA256}
 
 
