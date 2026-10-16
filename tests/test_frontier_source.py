@@ -4,7 +4,6 @@ import copy
 import hashlib
 import importlib.util
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -111,9 +110,14 @@ class OriginalTraceConsumerControls(unittest.TestCase):
     """
     @classmethod
     def setUpClass(cls):
-        packet=os.environ.get('TRACK_C_FRONTIER_TEST_PACKET')
-        if not packet:raise unittest.SkipTest('explicit frozen protected packet required for real-trace controls')
-        cls.packet=Path(packet)
+        cls.packet=Path(__file__).with_name('fixtures')/'track_c_frontier_v2'
+        manifest=json.loads((cls.packet/'manifest.json').read_text())
+        expected=set(f.SOURCE_FILES)|{'test_frontier_stream.py','test_frontier_v2_contract.py'}
+        if (manifest.get('schema_version')!=1 or set(manifest.get('files',{}))!=expected):
+            raise ValueError('complete frozen frontier test packet required')
+        for name,digest in manifest['files'].items():
+            if hashlib.sha256((cls.packet/name).read_bytes()).hexdigest()!=digest:
+                raise ValueError('frozen frontier test packet differs: '+name)
         spec=importlib.util.spec_from_file_location('frontier_fixture',cls.packet/'test_frontier_v2_contract.py')
         sys.path.insert(0,str(cls.packet))
         try:

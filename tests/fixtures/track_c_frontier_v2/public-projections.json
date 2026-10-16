@@ -1,0 +1,255 @@
+{
+  "source": "infrastructure/native-observer-45d57a2/public_observer.py",
+  "source_sha256": "ba175b21e55f2b630d0ea2146c977bb2ba7149376ab6f57952b9f2e6b2c0f73f",
+  "projection_scope": "exact current claimant_sql(closed=True) fixed public columns, no private blobs or source_evidence",
+  "tables": {
+    "coins": {
+      "table": "vtxo",
+      "order_by": "vtxo_id",
+      "columns": "vtxo_id,amount,expiry,spend_state,policy_type,encode(policy,'hex') AS policy,anchor_point,vtxo_txid,oor_spent_txid,spent_in_round,offboarded_in,frontier_at,confirmed_height,onchain_spent_height,onchain_spent_txid",
+      "fields": [
+        "vtxo_id",
+        "amount",
+        "expiry",
+        "spend_state",
+        "policy_type",
+        "policy",
+        "anchor_point",
+        "vtxo_txid",
+        "oor_spent_txid",
+        "spent_in_round",
+        "offboarded_in",
+        "frontier_at",
+        "confirmed_height",
+        "onchain_spent_height",
+        "onchain_spent_txid"
+      ]
+    },
+    "pending_boards": {
+      "table": "pending_board",
+      "order_by": "vtxo_id",
+      "columns": "vtxo_id,expiry",
+      "fields": [
+        "vtxo_id",
+        "expiry"
+      ]
+    },
+    "links": {
+      "table": "key_link",
+      "order_by": "user_pubkey",
+      "columns": "encode(user_pubkey,'hex') AS user_pubkey,encode(mailbox_pk,'hex') AS mailbox_pk,encode(sig,'hex') AS sig,recovery_index",
+      "fields": [
+        "user_pubkey",
+        "mailbox_pk",
+        "sig",
+        "recovery_index"
+      ]
+    },
+    "records": {
+      "table": "fallback_record",
+      "order_by": "mailbox_pk",
+      "columns": "encode(mailbox_pk,'hex') AS mailbox_pk,encode(spk,'hex') AS spk,encode(mailbox_sig,'hex') AS mailbox_sig",
+      "fields": [
+        "mailbox_pk",
+        "spk",
+        "mailbox_sig"
+      ]
+    },
+    "pool": {
+      "table": "vtxo_pool",
+      "order_by": "id",
+      "columns": "id,vtxo_id,expiry_height,amount",
+      "fields": [
+        "id",
+        "vtxo_id",
+        "expiry_height",
+        "amount"
+      ]
+    },
+    "lightning_nodes": {
+      "table": "lightning_node",
+      "order_by": "id",
+      "columns": "id,encode(pubkey,'hex') AS pubkey",
+      "fields": [
+        "id",
+        "pubkey"
+      ]
+    },
+    "htlcs": {
+      "table": "htlc_vtxo h",
+      "order_by": "h.id",
+      "columns": "h.id,h.payment_hash,h.htlc_expiry,h.direction,h.offchain_resolution,h.chain_resolution,h.chain_resolution_height,EXISTS (SELECT 1 FROM htlc_settlement s WHERE s.payment_hash=h.payment_hash) AS collection_recorded",
+      "fields": [
+        "id",
+        "payment_hash",
+        "htlc_expiry",
+        "direction",
+        "offchain_resolution",
+        "chain_resolution",
+        "chain_resolution_height",
+        "collection_recorded"
+      ]
+    },
+    "receives": {
+      "table": "lightning_htlc_subscription s",
+      "order_by": "s.id",
+      "columns": "s.id,s.lightning_node_id,s.payment_hash,s.status,s.lowest_incoming_htlc_expiry,s.accepted_at,s.final_amount_msat,s.receiver_mailbox_id",
+      "fields": [
+        "id",
+        "lightning_node_id",
+        "payment_hash",
+        "status",
+        "lowest_incoming_htlc_expiry",
+        "accepted_at",
+        "final_amount_msat",
+        "receiver_mailbox_id"
+      ]
+    },
+    "payments": {
+      "table": "lightning_payment_attempt p",
+      "order_by": "p.id",
+      "columns": "p.id,p.lightning_node_id,p.payment_hash,p.status,p.amount_msat,p.final_amount_msat,p.sender_mailbox_id,p.lightning_htlc_subscription_id,p.block_height,p.user_fee_sat,p.invoice_expires_at",
+      "fields": [
+        "id",
+        "lightning_node_id",
+        "payment_hash",
+        "status",
+        "amount_msat",
+        "final_amount_msat",
+        "sender_mailbox_id",
+        "lightning_htlc_subscription_id",
+        "block_height",
+        "user_fee_sat",
+        "invoice_expires_at"
+      ]
+    },
+    "participations": {
+      "table": "public.track_c_observer_round_participation p",
+      "order_by": "p.id",
+      "columns": "p.id,p.round_id,p.created_at,p.forfeited_at,p.scheduled_height,p.unlock_available",
+      "fields": [
+        "id",
+        "round_id",
+        "created_at",
+        "forfeited_at",
+        "scheduled_height",
+        "unlock_available"
+      ]
+    },
+    "participation_inputs": {
+      "table": "public.track_c_observer_round_part_input i",
+      "order_by": "i.participation_id,i.vtxo_id",
+      "columns": "i.participation_id,i.vtxo_id,i.forfeit_signed",
+      "fields": [
+        "participation_id",
+        "vtxo_id",
+        "forfeit_signed"
+      ]
+    },
+    "participation_outputs": {
+      "table": "round_part_output o",
+      "order_by": "o.participation_id,o.policy,o.amount",
+      "columns": "o.participation_id,encode(o.policy,'hex') AS policy,o.amount,o.unblinded_mailbox_id",
+      "fields": [
+        "participation_id",
+        "policy",
+        "amount",
+        "unblinded_mailbox_id"
+      ]
+    },
+    "journal_allocations": {
+      "table": "expiry_allocation",
+      "order_by": "id",
+      "columns": "id,freeze_set,encode(owner_pubkey,'hex') AS owner_pubkey,encode(spk,'hex') AS spk,disposition,gross_sat,fee_sat,payout_sat,forfeited_sat,source,retirement_ids,frozen_at",
+      "fields": [
+        "disposition",
+        "fee_sat",
+        "forfeited_sat",
+        "freeze_set",
+        "frozen_at",
+        "gross_sat",
+        "id",
+        "owner_pubkey",
+        "payout_sat",
+        "retirement_ids",
+        "source",
+        "spk"
+      ]
+    },
+    "journal_carriers": {
+      "table": "expiry_carrier",
+      "order_by": "generation",
+      "columns": "txid,generation,backing_ids,fee_inputs,miner_fee_sat,funding_subsidy_sat,created_at,confirmed_height,confirmed_block",
+      "fields": [
+        "backing_ids",
+        "confirmed_block",
+        "confirmed_height",
+        "created_at",
+        "fee_inputs",
+        "funding_subsidy_sat",
+        "generation",
+        "miner_fee_sat",
+        "txid"
+      ]
+    },
+    "journal_mappings": {
+      "table": "expiry_carrier_allocation",
+      "order_by": "txid,allocation_id",
+      "columns": "txid,allocation_id,vout",
+      "fields": [
+        "allocation_id",
+        "txid",
+        "vout"
+      ]
+    },
+    "journal_records": {
+      "table": "fallback_record",
+      "order_by": "mailbox_pk",
+      "columns": "encode(mailbox_pk,'hex') AS mailbox_pk,encode(spk,'hex') AS spk,encode(mailbox_sig,'hex') AS mailbox_sig",
+      "fields": [
+        "mailbox_pk",
+        "mailbox_sig",
+        "spk"
+      ]
+    },
+    "journal_links": {
+      "table": "key_link",
+      "order_by": "user_pubkey",
+      "columns": "encode(user_pubkey,'hex') AS user_pubkey,encode(mailbox_pk,'hex') AS mailbox_pk,encode(sig,'hex') AS sig,recovery_index",
+      "fields": [
+        "mailbox_pk",
+        "recovery_index",
+        "sig",
+        "user_pubkey"
+      ]
+    },
+    "nursery": {
+      "table": "nursery_tx",
+      "order_by": "id",
+      "columns": "id,txid,confirm_target_height,confirmed_at_height,abandoned_at,created_at,updated_at,kind",
+      "fields": [
+        "id",
+        "txid",
+        "confirm_target_height",
+        "confirmed_at_height",
+        "abandoned_at",
+        "created_at",
+        "updated_at",
+        "kind"
+      ]
+    },
+    "rounds": {
+      "table": "public.round",
+      "order_by": "id",
+      "columns": "id,seq,funding_txid,expiry,swept_at,created_at",
+      "fields": [
+        "id",
+        "seq",
+        "funding_txid",
+        "expiry",
+        "swept_at",
+        "created_at"
+      ]
+    }
+  }
+}
