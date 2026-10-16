@@ -256,6 +256,8 @@ class NativeReplyControls(unittest.TestCase):
         self.assertNotIn('complete',result);self.assertNotIn('qualified',result);self.assertNotIn('ready',result)
     def test_unbound_unsigned_old_attempt_cannot_be_omitted(self):self.reject(lambda r:r['funding_rows'].pop())
     def test_current_owner_snapshot_must_equal_all_private_native_projection(self):self.reject(lambda r:r['snapshot'].update(charged_sat=0))
+    def test_bool_snapshot_count_is_not_native_integer(self):self.reject(lambda r:r['snapshot'].update(direct_attempt_count=True))
+    def test_float_resolution_height_is_not_native_integer(self):self.reject(lambda r:r['resolutions'][0].update(block_height=100.0))
     def test_wrong_actual_tool_source(self):self.reject(lambda r:r.update(sdk_commit='3'*40))
     def test_wrong_request_original_hash(self):self.reject(lambda r:r.update(input_sha256=H(33)))
     def test_changed_private_original_hash(self):self.reject(lambda r:r['original_sha256'].update(journal_raw=H(33)))

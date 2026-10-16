@@ -9,6 +9,7 @@ proof remains separate; no input release, payment or readiness is asserted.
 import re
 from .b_native_owner_snapshot import need,number,hashed,rows
 from .two_step_normal import digest,strict_json
+from .model import canonical
 
 MAX_REPLY=16*1024*1024
 MAX_REQUEST=64*1024*1024
@@ -72,10 +73,10 @@ def bind_native_fee_reply(request_raw,reply_raw,owner_snapshot_raw,*,expected_to
         'exact native fee proof schema required')
     need(reply['sdk_commit']==request['sdk_commit']==expected_tool_commit
         and reply['input_sha256']==digest(request_raw)
-        and reply['source_observation']==request['source_observation'],'actual native tool/input/context differs')
+        and canonical(reply['source_observation'])==canonical(request['source_observation']),'actual native tool/input/context differs')
     need(reply['original_sha256']=={k:digest(v.encode())for k,v in request['originals'].items()},
          'actual original native file/SQL hashes differ')
-    need(reply['snapshot']=={k:v for k,v in owner.items()if k not in {'journal_device','journal_inode'}},
+    need(canonical(reply['snapshot'])==canonical({k:v for k,v in owner.items()if k not in {'journal_device','journal_inode'}}),
          'native private SQL/journal projection differs from current owning snapshot')
     funding={r['index']:r for r in owner['funding']};got=set();keys=set();selected=set()
     for row in rows(reply['funding_rows'],'safe native funding row bound'):
@@ -85,7 +86,8 @@ def bind_native_fee_reply(request_raw,reply_raw,owner_snapshot_raw,*,expected_to
         key=hashed(row['attempt_key'],'native attempt key');need(key not in keys,'duplicate native attempt key');keys.add(key)
         for field in ('family_sha256','unsigned_body_sha256','prevouts_sha256','reservation_native_sha256'):hashed(row[field],field)
         public=funding[i]
-        need(all(row[k]==public[k]for k in ('purpose','family_sha256','generation','unsigned_body_sha256','prevouts_sha256','ceiling_sat')),
+        fields=('purpose','family_sha256','generation','unsigned_body_sha256','prevouts_sha256','ceiling_sat')
+        need(canonical({k:row[k]for k in fields})==canonical({k:public[k]for k in fields}),
              'native funding original identity differs')
         family=row['family'];tag='Round'if row['purpose']=='round'else'Pool'
         need(type(family) is dict and set(family)=={tag} and type(family[tag]) is dict,'safe native family differs')
@@ -112,6 +114,7 @@ def bind_native_fee_reply(request_raw,reply_raw,owner_snapshot_raw,*,expected_to
     for row in rows(reply['urgent_rows'],'safe native urgent row bound'):
         need(type(row) is dict and set(row)==URGENT,'exact safe urgent proof fields required')
         i=number(row['index'],'native urgent index',minimum=1,maximum=10000)
+        number(row['ceiling_sat'],'native urgent ceiling',minimum=1);number(row['fee_sat'],'native urgent fee')
         need(i in urgent and i not in got,'unexpected/duplicate urgent publication');got.add(i);public=urgent[i]
         need(row['ceiling_sat']==public['ceiling_sat'] and row['policy_sha256']==owner['policy_sha256']
             and row['journal_binding_sha256']==public['source_binding_sha256']
@@ -131,7 +134,7 @@ def bind_native_fee_reply(request_raw,reply_raw,owner_snapshot_raw,*,expected_to
                   'native exact urgent retained package differs')
     need(all(r['source_binding_sha256'] is None or i in got for i,r in urgent.items()),
          'signed urgent journal lost original SQL publication')
-    need(reply['resolutions']==owner['resolutions'],'native resolution SQL coverage differs')
+    need(canonical(reply['resolutions'])==canonical(owner['resolutions']),'native resolution SQL coverage differs')
     inventory={}
     for row in rows(reply['nursery_inventory'],'safe complete nursery bound'):
         need(type(row) is dict and set(row)==NURSERY,'safe nursery projection fields differ')
