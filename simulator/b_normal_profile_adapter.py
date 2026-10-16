@@ -24,7 +24,8 @@ def initial_profile(store, requested):
 
 def require_profile(value):
     from .b_continuing_profile import ContinuingDirectProfile
-    if type(value) not in (InitialDirectProfile,ContinuingDirectProfile):
+    from .b_final_native_profile import FinalNativeDirectProfile
+    if type(value) not in (InitialDirectProfile,ContinuingDirectProfile,FinalNativeDirectProfile):
         raise EvidenceGap('fixed installed B initial profile required; arbitrary reducers refused')
 
 
@@ -96,6 +97,9 @@ class InitialDirectProfile:
     def money_projection(self,store,chain,old_boundary,boundary,context):
         return initial.historical_money(store,chain,old_boundary,boundary,
             context['scripts'],context['direct']['groups'])
+
+    def loaded_fee_policy(self,runtime,*,network):
+        return loaded_native_fee_policy(runtime,network=network)
 
     def fee_projection(self,runtime,*,context,**kwargs):
         return initial.InitialTerminalProfile().fee_projection(runtime,**kwargs)
@@ -248,6 +252,12 @@ class InitialDirectProfile:
         return {'raw_runtime':target['raw_runtime'],'raw_watchman_inventory':target['raw_watchman_inventory'],
                 'b_public_context':additional['b_public_context']}
 
+    def replay_target(self,captured,originals,source):
+        return {'raw_sql':originals['native_sql'],'raw_runtime':captured['raw_runtime'],
+            'raw_watchman_inventory':captured['raw_watchman_inventory'],
+            'raw_rounds_inventory':originals['rounds_inventory'],
+            'manifest':{'original_sha256':{'native_sql':source['original_sha256']['native_sql']}}}
+
     def reduce(self, store, config, chain, boundary, envelope, captured, source_event, source,
                originals, admitted, opening, now):
         """B native facts only; shared deadline/admission/assets/final writer stay shared."""
@@ -257,10 +267,7 @@ class InitialDirectProfile:
         from .final_campaign import _source_event
         # Native semantics are independently replayed from the SAME original
         # target/runtime/watchman/public scan buffers admitted by the capture.
-        target={'raw_sql':originals['native_sql'],'raw_runtime':captured['raw_runtime'],
-            'raw_watchman_inventory':captured['raw_watchman_inventory'],
-            'raw_rounds_inventory':originals['rounds_inventory'],
-            'manifest':{'original_sha256':{'native_sql':source['original_sha256']['native_sql']}}}
+        target=self.replay_target(captured,originals,source)
         context=captured['b_public_context'];additional={'b_public_context':context,
             'manifest':{'b_public_context_sha256':source['b_public_context_sha256']}}
         _,_,native_context=self.decode(store,config,chain,{'identity':source['identity']},
@@ -292,7 +299,7 @@ class InitialDirectProfile:
         public_policy=runtime.get('public_configuration')
         _require(public_policy is not None and public_policy == admitted['b_public_configuration'],
                  'actual protected loaded public fee-policy source unavailable/different')
-        limits=loaded_native_fee_policy(runtime,network=config.network)['fee_ceilings_sat_kvb']
+        limits=self.loaded_fee_policy(runtime,network=config.network)['fee_ceilings_sat_kvb']
         _require(limits == envelope['fee_ceilings_sat_kvb'], 'envelope differs from actual supported fee paths')
         _require(opening is not None and 'b_upgrade' in opening,
             'strict preserved treasury upgrade required; no A first-opening alias')

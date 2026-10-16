@@ -39,10 +39,24 @@ def retained_ceiling_exposure(runtime,partition,versions,maximum,max_rate_sat_kw
     emitted. Every retained version consumes one conservative full reservation;
     absent/failed attempts keep consuming theirs even without a history txid.
     """
+    return retained_direct_exposure(runtime['native_budget']['history']['txids'],
+        history_prefix_bytes=runtime['native_budget']['disk_budget']['history_prefix_bytes'],
+        ordinary_attempts=partition['ordinary_attempts'],ordinary_reserved_sat=partition['ordinary_reserved_sat'],
+        versions=versions,maximum=maximum,max_rate_sat_kwu=max_rate_sat_kwu)
+
+
+def retained_direct_exposure(history,*,history_prefix_bytes,ordinary_attempts,
+        ordinary_reserved_sat,versions,maximum,max_rate_sat_kwu):
+    """Existing retained-version rule with caller-authenticated typed sources.
+
+    This parses no journal. Original legacy policy and final native proof paths
+    supply their independently authenticated complete decimal reservation rows.
+    """
     rate=integer(max_rate_sat_kwu,'actual loaded direct rate ceiling',1)
-    rows=partition['ordinary_attempts'];history=runtime['native_budget']['history']['txids']
-    prefix=runtime['native_budget']['disk_budget']['history_prefix_bytes']//65
-    following=history[prefix:]
+    prefix=integer(history_prefix_bytes,'actual native prefix bytes')
+    if prefix%65 or prefix>65*len(history):
+        raise EvidenceGap('B continuing ordinary: exact canonical prefix boundary required')
+    rows=ordinary_attempts;following=history[prefix//65:]
     if (any(row['ceiling_sat']!=maximum for row in rows)or len(following)>len(rows)
             or set(history)!=set(versions['versions'])):
         raise EvidenceGap('B continuing ordinary: complete retained set/whole prepare ceilings differ')
@@ -59,6 +73,6 @@ def retained_ceiling_exposure(runtime,partition,versions,maximum,max_rate_sat_kw
         if state not in {'mempool','confirmed','replaced'}:
             raise EvidenceGap('B continuing ordinary: unknown retained current disposition')
         if state=='confirmed':confirmed+=fee
-    reserved=partition['ordinary_reserved_sat']
+    reserved=ordinary_reserved_sat
     if confirmed>reserved:raise EvidenceGap('B continuing ordinary: confirmed fees exceed native reservations')
     return (reserved-confirmed)*1000

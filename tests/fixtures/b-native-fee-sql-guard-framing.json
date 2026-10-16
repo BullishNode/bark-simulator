@@ -1,0 +1,6 @@
+{
+  "scope": "Actual psql command-tag framing with synthetic data rows; no native, current-state or money qualification",
+  "actual_query_sha256": "feb68c864e96fa1ee31ee7558a14fc11ac9fd2ceb35b036abc9664348c2fc133",
+  "actual_stdout_sha256": "6191a7265082d331bfb444392ee47ab2497fd6d9356c437ebf1c333b4f271627",
+  "stdout": "BEGIN\nSET\nDO\n{\"kind\":\"synthetic-whole-frontier\"}\n{\"native_funding_fee_intent\":[],\"native_funding_fee_input\":[],\"native_funding_fee_resolution\":[],\"nursery_tx\":[]}\nCOMMIT\n"
+}

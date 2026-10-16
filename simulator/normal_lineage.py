@@ -114,7 +114,8 @@ def bind_coin(owned, native, request_raw, response_raw, *, genesis, server_pubke
     result = {'id': ident, 'actor': owned['actor'], 'pubkey': key, 'amount_sat': owned['amount_sat'],
         'chain_anchor': proof['chain_anchor'], 'path': path,
         'native_request_sha256': sha(request_raw), 'native_response_sha256': sha(response_raw),
-        'native_full_sha256': sha(native_raw), 'completed_full_sha256': sha(completed_raw)}
+        'native_full_sha256': sha(native_raw), 'completed_full_sha256': sha(completed_raw),
+        'completed_vtxo_hex': owned['signed_vtxo']}
     if policy_request_raw is None and policy_response_raw is None and anchor_raw is None and policy_sdk_commit is None:
         need(native_raw == completed_raw, 'different native Full requires executed strict completion proof')
         return result
@@ -235,14 +236,202 @@ def arkoor_edge(action_id, input_ids, output_ids, recipient_ids, coins, native, 
         'service_fee_sat': 0, 'evidence_sha256': hash_id(evidence_sha256), 'branches': branches}
 
 
+TREE_PIN_FIELDS = {'tool_sha256','commands_sha256','admission_sha256','sdk_commit',
+                   'source_observation_id','source_sha256','qualification_scope'}
+
+
+def original_hex(value):
+    need(isinstance(value,str) and 0 < len(value) <= 2*1024*1024 and len(value)%2 == 0
+        and re.fullmatch('[0-9a-f]+',value), 'bounded canonical original hex required')
+    return bytes.fromhex(value)
+
+
+def execute_tree_proof(request, executor, pins):
+    """Pinned callback transport, not a substitute for actual source admission.
+
+    executor(request, expected=pins) returns exact (request bytes, response bytes,
+    actual execution binding). The caller authenticates the admission event,
+    binary/argv/source/nonce before invoking. Software stub scope is propagated
+    and never becomes actual native/crypto/financial qualification here.
+    """
+    need(callable(executor) and isinstance(pins,dict) and set(pins)==TREE_PIN_FIELDS,
+        'pinned native tree/forfeit callback unavailable')
+    for key in ('tool_sha256','commands_sha256','admission_sha256','source_sha256'):
+        hash_id(pins[key])
+    need(isinstance(pins['sdk_commit'],str) and re.fullmatch('[0-9a-f]{40}',pins['sdk_commit']), 'exact SDK pin required')
+    need(isinstance(pins['source_observation_id'],str) and re.fullmatch('[0-9a-f]{32}',pins['source_observation_id']), 'source observation nonce required')
+    need(pins['qualification_scope'] in {'admitted_native','software_stub_no_native_credit'}, 'unknown proof qualification scope')
+    packet=executor(request,expected=dict(pins))
+    need(isinstance(packet,tuple) and len(packet)==3, 'original execution buffers and binding required')
+    sent,received,binding=packet
+    need(isinstance(binding,dict) and binding==pins, 'actual tool/command/admission/source binding differs')
+    need(strict(sent)==request, 'executed tree/forfeit request differs')
+    proof=strict(received)
+    need(isinstance(proof,dict) and type(proof.get('schema_version')) is int and proof['schema_version']==1 and proof.get('sdk_commit')==pins['sdk_commit'], 'executed proof SDK/schema differs')
+    return proof,{'request_sha256':sha(sent),'response_sha256':sha(received),'execution_binding':dict(pins)}
+
+
+def tree_context(round_row,part,decode_transaction):
+    tree=original_hex(round_row.get('signed_tree_hex'))
+    anchor=original_hex(round_row.get('funding_tx_hex'))
+    funding=hash_id(part['round_id']);hash_id(part['unlock_hash'])
+    need(round_row['funding_txid']==funding and decode_transaction(anchor.hex())['txid']==funding,
+        'original signed tree round/funding identity differs')
+    return {'signed_tree':tree.hex(),'anchor_raw':anchor.hex(),'server_pubkey':part['expected_server_pubkey'],
+            'participation_unlock_hash':part['unlock_hash']}
+
+
+def tree_response_context(proof,request,mode):
+    need(proof.get('mode')==mode and proof.get('server_pubkey')==request['server_pubkey']
+        and proof.get('participation_unlock_hash')==request['participation_unlock_hash']
+        and proof.get('signed_tree_sha256')==sha(original_hex(request['signed_tree']))
+        and proof.get('anchor_raw_sha256')==sha(original_hex(request['anchor_raw'])),
+        'authenticated tree mode/original context differs')
+    anchor=point(proof.get('chain_anchor'))
+    need(type(proof.get('tree_leaf_count')) is int and 2 <= proof['tree_leaf_count'] <= 4096
+        and type(proof.get('verified_internal_signature_count')) is int
+        and 0 < proof['verified_internal_signature_count'] < proof['tree_leaf_count'], 'native tree signature/count bounds differ')
+    for key in ('client_owner_verified','payment_verified'):
+        need(proof.get(key) is False, 'tree proof must not grant owner/payment verdict')
+    return anchor
+
+
+def proof_indices(proof,key,allocations):
+    values=proof.get(key)
+    need(isinstance(values,list) and 0 < len(values) <= 256 and all(type(x) is int and 0 <= x < proof['tree_leaf_count'] for x in values)
+        and len(values)==len(set(values))
+        and values==sorted(values), 'ALL native tree leaf indices required')
+    need(isinstance(allocations,list) and len(allocations)==len(values) and all(isinstance(x,dict)for x in allocations), 'all tree allocations required')
+    need([x.get('leaf_index')for x in allocations]==values, 'allocation leaf indices differ')
+    return values
+
+
+def allocation_terms(allocation):
+    need(isinstance(allocation,list) and 0 < len(allocation) <= 256, 'all original participation requests required')
+    terms=[]
+    for row in allocation:
+        policy=row['policy_hex']
+        need(isinstance(policy,str) and re.fullmatch('00[0-9a-f]{66}',policy), 'nonordinary original request')
+        terms.append((policy,amount(row['amount'])))
+    return Counter(terms)
+
+
+def completed_tree_allocation(round_row,part,outputs,coins,native,allocation,decode_transaction,executor,pins):
+    need(set(outputs)<=set(native),'completed native output missing')
+    servers={native[x]['server_pubkey']for x in outputs};need(len(servers)==1,'foreign completed output server')
+    part={**part,'expected_server_pubkey':servers.pop()}
+    request=tree_context(round_row,part,decode_transaction)
+    request['outputs']=[]
+    for ident in sorted(outputs):
+        raw=original_hex(coins[ident].get('completed_vtxo_hex'))
+        native_raw=original_hex(native[ident]['signed_vtxo_hex'])
+        need(sha(raw)==coins[ident]['completed_full_sha256'] and sha(native_raw)==coins[ident]['native_full_sha256'],
+            'completed/native output originals differ from admitted owned proof')
+        need(native[ident]['server_pubkey']==request['server_pubkey'], 'foreign completed output server')
+        request['outputs'].append({'signed_vtxo':raw.hex(),'native_vtxo':native_raw.hex()})
+    proof,evidence=execute_tree_proof(request,executor,pins)
+    anchor=tree_response_context(proof,request,'round_allocation')
+    need(anchor[0]==part['round_id'] and all(coins[x]['chain_anchor']==proof['chain_anchor']for x in outputs), 'complete tree native anchor differs')
+    leaves=proof.get('allocations');indexes=proof_indices(proof,'all_matching_leaf_indices',leaves)
+    need(proof.get('all_matching_leaves_verified') is True and 'pending_allocations' not in proof,
+        'completed tree allocation proof required')
+    need({x.get('id')for x in leaves}==set(outputs) and len(leaves)==len(outputs), 'tree allocation extra/missing/duplicate output')
+    terms=[];total=0
+    for leaf in leaves:
+        ident=leaf['id'];coin=coins[ident];raw=original_hex(coin.get('completed_vtxo_hex'))
+        native_raw=original_hex(native[ident]['signed_vtxo_hex'])
+        need(amount(leaf.get('amount_sat'))==amount(coin['amount_sat']) and leaf.get('policy')=='pubkey'
+            and leaf.get('user_pubkey')==coin['pubkey'] and leaf.get('user_policy_hex')=='00'+coin['pubkey']
+            and leaf.get('unlock_hash')==part['unlock_hash'] and leaf.get('completed_vtxo_sha256')==sha(raw),
+            'signed tree allocation identity/policy/amount differs')
+        for name in ('leaf_spec_sha256','tree_native_vtxo_sha256'):hash_id(leaf.get(name))
+        need(leaf.get('tree_completion_relation') in {'exact_full_equality','final_hark_leaf_completion'}
+            and leaf.get('literal_native_vtxo_sha256')==sha(native_raw)
+            and leaf.get('literal_native_completion_relation') in {'exact_full_equality','final_hark_leaf_completion'},
+            'native structured completed leaf relation missing')
+        terms.append((leaf['user_policy_hex'],leaf['amount_sat']));total+=leaf['amount_sat']
+    need(Counter(terms)==allocation_terms(allocation) and type(proof.get('allocation_sat')) is int and proof['allocation_sat']==total,
+        'ALL signed tree leaves differ from original allocation/amount sum')
+    return {**evidence,'signed_tree_sha256':proof['signed_tree_sha256'],'anchor_raw_sha256':proof['anchor_raw_sha256'],
+            'all_matching_leaf_indices':indexes,'completed_output_ids':sorted(outputs),'allocation_sat':total,
+            'round_funding_txid':part['round_id'],'chain_anchor':proof['chain_anchor'],
+            'participation_unlock_hash':part['unlock_hash'],
+            'round_mining_cost_verified_here':False}
+
+
+def pending_refresh_entitlement(action_id,input_ids,coins,tables,*,actor,committed_fee_sat,evidence_sha256,
+                                decode_transaction,tree_proof_executor=None,tree_proof_pins=None):
+    """Pending membership is a reference on the original obligation, not an edge.
+
+    Caller authenticates original action/participation/fee/owner source. No
+    original input is retired and no new principal or paid fee is credited.
+    """
+    inputs=ids(input_ids);hash_id(evidence_sha256)
+    need(set(inputs)<=set(coins) and all(coins[x]['actor']==actor for x in inputs),'pending original owner missing')
+    need(type(committed_fee_sat) is int and 0 <= committed_fee_sat <= MAX_SAT,'original pending fee term required')
+    native={x['vtxo_id']:x for x in tables['vtxo']}
+    need(len(native)==len(tables['vtxo']) and set(inputs)<=set(native),'pending original native inputs missing/duplicate')
+    for ident in inputs:
+        need(sha(original_hex(native[ident]['signed_vtxo_hex']))==coins[ident]['native_full_sha256'], 'pending input original differs')
+    matches=[]
+    for part in tables['round_participation']:
+        rows=[x for x in tables['round_part_input']if x['participation_id']==part['id']]
+        if {x['vtxo_id']for x in rows}==set(inputs):
+            need(len(rows)==len(inputs),'duplicate pending participation input');matches.append(part)
+    need(len(matches)==1,'unique original pending participation required')
+    part=matches[0];allocation=[x for x in tables['round_part_output']if x['participation_id']==part['id']]
+    expected=allocation_terms(allocation);gross=sum(coins[x]['amount_sat']for x in inputs)
+    allocated=sum(a*n for (_,a),n in expected.items())
+    need(gross==allocated+committed_fee_sat,'pending original allocation/fee does not conserve')
+    rounds=[x for x in tables['round']if x['funding_txid']==part['round_id']]
+    need(len(rounds)==1,'pending original signed round missing/ambiguous')
+    servers={native[x]['server_pubkey']for x in inputs};need(len(servers)==1,'pending foreign input server')
+    part={**part,'expected_server_pubkey':servers.pop()}
+    request={'mode':'pending_entitlement',**tree_context(rounds[0],part,decode_transaction)}
+    proof,evidence=execute_tree_proof(request,tree_proof_executor,tree_proof_pins)
+    anchor=tree_response_context(proof,request,'pending_entitlement')
+    need(anchor[0]==part['round_id'] and proof.get('pending_allocation_membership_verified') is True
+        and 'allocations' not in proof and 'all_matching_leaves_verified' not in proof,'pending-only membership proof required')
+    for key in ('signed_leaf_verified','current_spendability_verified','retirement_verified'):
+        need(proof.get(key) is False,'pending proof escalated completion/retirement/availability')
+    need(proof.get('original_sha256')=={'signed_tree':proof['signed_tree_sha256'],'anchor_raw':proof['anchor_raw_sha256']},'pending complete original hash set differs')
+    leaves=proof.get('pending_allocations');indexes=proof_indices(proof,'all_matching_pending_leaf_indices',leaves)
+    terms=[];seen=set()
+    for leaf in leaves:
+        ident=leaf.get('id');point(ident);need(ident not in seen,'duplicate pending allocation id');seen.add(ident)
+        policy=leaf.get('user_policy_hex');need(isinstance(policy,str) and re.fullmatch('00[0-9a-f]{66}',policy),'pending ordinary policy missing')
+        need(leaf.get('policy')=='pubkey' and leaf.get('user_pubkey')==policy[2:]
+            and leaf.get('unlock_hash')==part['unlock_hash'] and leaf.get('chain_anchor')==proof['chain_anchor']
+            and leaf.get('unsigned_path_verified') is True,'pending native contract differs')
+        for key in ('signed_leaf_verified','current_spendability_verified','client_owner_verified','retirement_verified','payment_verified'):
+            need(leaf.get(key) is False,'pending leaf escalated verdict')
+        hash_id(leaf.get('tree_native_vtxo_sha256'));hash_id(leaf.get('leaf_spec_sha256'))
+        path=leaf.get('derived_native_path');need(isinstance(path,list) and 0 < len(path) <= 256,'pending native path missing')
+        for step in path:
+            hash_id(step['txid']);hash_id(step['transaction_sha256'])
+            need(type(step['output_index']) is int and 0 <= step['output_index'] < 2**32,'pending native path index invalid')
+        need(path[-1]['txid']+':'+str(path[-1]['output_index'])==ident,'pending path terminal differs')
+        terms.append((policy,amount(leaf['amount_sat'])))
+    need(Counter(terms)==expected and type(proof.get('pending_entitlement_sat')) is int and proof['pending_entitlement_sat']==allocated,'ALL pending leaves differ from original allocation')
+    return {'action_id':action_id,'kind':'pending_entitlement','preserved_obligation_input_ids':list(inputs),
+        'pending_entitlement_ids':sorted(seen),'original_principal_sat':gross,'pending_allocation_sat':allocated,
+        'original_committed_service_fee_sat':committed_fee_sat,'additional_principal_sat':0,'retired_claim_ids':[],
+        'transfer_sat':0,'paid_sat':0,'owner_verified':False,'current_spendability_verified':False,
+        'signed_leaf_verified':False,'evidence_sha256':evidence_sha256,'native_tree_originals':evidence,
+        'all_matching_pending_leaf_indices':indexes,'proof_qualification_scope':tree_proof_pins['qualification_scope'],
+        'scope':'Pending reference on existing obligation only; no completed edge, extra liability, fee payment, retirement or cash credit'}
+
+
 def refresh_edge(action_id, input_ids, output_ids, coins, tables, *, actor,
                  committed_fee_sat, evidence_sha256, decode_transaction,
-                 round_proof_executor=None):
+                 round_proof_executor=None, tree_proof_executor=None, tree_proof_pins=None):
     """Exact native participation joins; no retirement on forfeited_at alone.
 
     round_proof_executor must actually execute an admitted native
     original-forfeit verifier on the supplied private original packet. No such
     executor is claimed qualified by this proposal. Missing support is HOLD.
+    Both callbacks use execute_tree_proof pinned-original transport contract;
+    actual admission/execution remains the calling collector responsibility.
     """
     inputs, outputs = ids(input_ids), ids(output_ids)
     need(set(inputs+outputs) <= set(coins), 'signed refresh coin missing')
@@ -278,6 +467,8 @@ def refresh_edge(action_id, input_ids, output_ids, coins, tables, *, actor,
     need(all(coins[x].get('unlock_hash') == part['unlock_hash']
         and coins[x].get('native_policy_response_sha256') is not None for x in outputs),
         'authenticated Full leaf unlock hash/participation differs')
+    need(set(inputs+outputs)<=set(native) and len({native[x]['server_pubkey']for x in inputs+outputs})==1,
+        'refresh crosses native server identity')
     forfeits = []
     for row in rows:
         raw = row['signed_forfeit_tx_hex']
@@ -295,25 +486,40 @@ def refresh_edge(action_id, input_ids, output_ids, coins, tables, *, actor,
     for item in forfeits:
         ident = item['input_id']; row = native[ident]; anchor = virtual.get(point(coins[ident]['chain_anchor'])[0])
         need(anchor is not None and anchor['is_funding'] is True, 'forfeit original Full anchor missing')
-        request = {'signed_vtxo':row['signed_vtxo_hex'],'anchor_raw':anchor['signed_transaction_hex'],
+        request = {'signed_vtxo':coins[ident].get('completed_vtxo_hex'),'native_vtxo':row['signed_vtxo_hex'],
+            'anchor_raw':anchor['signed_transaction_hex'],
             'server_pubkey':row['server_pubkey'],'forfeit_raw':item['signed_transaction_hex'],
             'forfeit_unlock_hash':part['unlock_hash']}
-        request_raw, response_raw = round_proof_executor(request)
-        need(strict(request_raw) == request, 'executed forfeit original request differs')
-        proof = strict(response_raw); tx = decode_transaction(item['signed_transaction_hex'])
+        need(sha(original_hex(row['signed_vtxo_hex']))==coins[ident]['native_full_sha256']
+            and sha(original_hex(request['signed_vtxo']))==coins[ident]['completed_full_sha256'],
+            'original completed/native input differs from admitted owned proof')
+        proof,execution = execute_tree_proof(request,round_proof_executor,tree_proof_pins)
+        tx = decode_transaction(item['signed_transaction_hex'])
         need(proof.get('signed_path_valid') is True and proof.get('chain_contract_verified') is True
             and proof.get('forfeit_signature_valid') is True and proof.get('id') == ident
+            and proof.get('native_vtxo_sha256') == coins[ident]['native_full_sha256']
+            and proof.get('completed_vtxo_sha256') == coins[ident]['completed_full_sha256']
+            and proof.get('native_completion_relation') == coins[ident]['native_completion_relation']
+            and proof.get('native_owner_verified') is False and proof.get('payment_verified') is False
+            and proof.get('chain_anchor')==coins[ident]['chain_anchor'] and proof.get('server_pubkey')==row['server_pubkey']
+            and proof.get('policy')=='pubkey' and proof.get('amount_sat')==amount(coins[ident]['amount_sat'])
+            and proof.get('candidate_user_pubkey')==coins[ident]['pubkey'] and proof.get('tree_padding') is False
+            and proof.get('client_owner_verified') is False
             and proof.get('forfeit_input_coin_id') == ident and proof.get('forfeit_txid') == tx['txid']
             and proof.get('forfeit_unlock_hash') == part['unlock_hash']
             and proof.get('forfeit_raw_sha256') == sha(bytes.fromhex(item['signed_transaction_hex'])),
             'native original forfeit proof differs')
-        proof_hashes.append({'input_id':ident,'request_sha256':sha(request_raw),'response_sha256':sha(response_raw)})
+        proof_hashes.append({'input_id':ident,**execution})
+    tree_evidence=completed_tree_allocation(round_row,part,outputs,coins,native,allocation,
+        decode_transaction,tree_proof_executor,tree_proof_pins)
     return {'action_id': action_id, 'kind': 'refresh', 'inputs': inputs, 'outputs': outputs,
         'service_fee_sat': committed_fee_sat, 'evidence_sha256': hash_id(evidence_sha256),
-        'native_forfeit_originals':proof_hashes,'participation_unlock_hash':part['unlock_hash']}
+        'native_forfeit_originals':proof_hashes,'participation_unlock_hash':part['unlock_hash'],
+        'native_tree_originals':tree_evidence,'proof_qualification_scope':tree_proof_pins['qualification_scope']}
 
 
-def edges_from_store(store, tables, coins, *, decode_transaction, round_proof_executor=None):
+def edges_from_store(store, tables, coins, *, decode_transaction, round_proof_executor=None,
+                     tree_proof_executor=None,tree_proof_pins=None):
     """Read actual existing Store/native schemas; no supplied transition flags.
 
     `coins` must be complete bind_coin results from admitted Full-mode execution.
@@ -387,7 +593,8 @@ def edges_from_store(store, tables, coins, *, decode_transaction, round_proof_ex
             evidence = sha(canonical({'terminal':event,'fee':fee,'original_fee_event':original}).encode())
             edges.append(refresh_edge(action['id'],fee['input_coin_ids'],fee['output_coin_ids'],coins,tables,
                 actor=action['actor_id'],committed_fee_sat=fee['actual_fee_sat'],evidence_sha256=evidence,
-                decode_transaction=decode_transaction,round_proof_executor=round_proof_executor))
+                decode_transaction=decode_transaction,round_proof_executor=round_proof_executor,
+                tree_proof_executor=tree_proof_executor,tree_proof_pins=tree_proof_pins))
     ids(originals); store.verify_event_chain()
     return originals, edges
 

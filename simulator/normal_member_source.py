@@ -221,7 +221,8 @@ class MemberReader:
             # are resolved later by actual native proof + recovery-hold validation.
             tables=native_tables(target['raw_sql'],target['manifest']['original_sha256']['native_sql'],
                 pending_board_proof_sha256=cfg.get('pending_board_proof_sha256'),
-                ordinary_pool_source_sha256=cfg.get('ordinary_pool',{}).get('classifier_sha256'))
+                ordinary_pool_source_sha256=cfg.get('ordinary_pool',{}).get('classifier_sha256'),
+                ordinary_lineage_configuration=cfg.get('ordinary_lineage'))
             roots={}
             owned_originals=self.store.db.execute('SELECT id,proof FROM owned_coin ORDER BY id').fetchall()
             if len(owned_originals)>10000:raise ValueError('bounded complete original backing roots required')

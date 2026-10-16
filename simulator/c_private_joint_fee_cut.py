@@ -131,7 +131,7 @@ def assemble(pg,identity,sizes):
 def _identity(st):return (st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns,st.st_mode,st.st_uid,st.st_nlink)
 
 
-def _sibling(suffix,expected):
+def _sibling(suffix,expected,*,budget):
     """Only exact D-derived siblings, including original protected absence."""
     history=fee.HISTORY_ROOT
     path=history.with_name(history.name+suffix)
@@ -163,8 +163,14 @@ def _sibling(suffix,expected):
                 if (not stat.S_ISREG(before.st_mode) or before.st_uid!=expected['uid'] or before.st_nlink!=1
                         or stat.S_IMODE(before.st_mode)!=0o600 or not 0<=before.st_size<=limit or(before.st_size==0 and not(suffix=='.ordinary-native-round-rights'and name=='history'))):
                     raise ValueError('actual native witness owner0600 regular bounded file required')
-                raw=stream.read(limit+1);after=os.fstat(stream.fileno())
+                counted=suffix!='.ordinary-native-opening'and name.endswith('.json')and name!='identity.json'
+                if (budget['bytes']+before.st_size>MAX_WITNESS_BYTES
+                        or budget['files']+int(counted)>MAX_FILES):
+                    raise ValueError('whole witness bounds exceeded before read')
+                remaining=MAX_WITNESS_BYTES-budget['bytes']
+                raw=stream.read(min(limit,remaining)+1);after=os.fstat(stream.fileno())
             if _identity(before)!=_identity(after) or len(raw)!=before.st_size:raise ValueError('native witness changed during read')
+            budget['bytes']+=len(raw);budget['files']+=int(counted)
             size+=len(raw)
             if size>MAX_WITNESS_BYTES:raise ValueError('native witness combined bound exceeded')
             files[name]={'raw':raw,'identity':_identity(before),'sha256':fee.digest(raw)}
@@ -175,7 +181,10 @@ def _sibling(suffix,expected):
 
 
 def _files(expected):
-    result={name:_sibling(suffix,expected) for name,suffix in (
+    # Share the unchanged whole-source quota across namespaces before buffering
+    # each original, rather than only checking their combined size afterwards.
+    budget={'bytes':0,'files':0}
+    result={name:_sibling(suffix,expected,budget=budget) for name,suffix in (
         ('publications','.ordinary-native-publications'),('opening','.ordinary-native-opening'),('round_rights','.ordinary-native-round-rights'))}
     _witness_files(result,expected)
     return result
