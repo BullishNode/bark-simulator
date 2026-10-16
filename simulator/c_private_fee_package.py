@@ -70,6 +70,10 @@ def load_target_tar(path,*,expected_package_sha256,expected_source_sha256,expect
     caller still captures/replays original lines with the existing TraceStore.
     """
     _sha(expected_package_sha256);_sha(expected_source_sha256);_sha(expected_policy_sha256)
+    if(binding.get('network')!='signet'or binding.get('genesis')!=capture.SIGNET_GENESIS
+            or binding.get('server_pubkey')!=expected_server_pubkey
+            or binding.get('schema_sha256')!=capture._pins(expected_financial_pins)['schema_sha256']):
+        raise ValueError('native identity/financial pins differ from exact public source binding')
     path=Path(path)
     if not path.is_absolute()or any(p.is_symlink()for p in [path,*path.parents]):raise ValueError('private package absolute protected path required')
     if path.parent.stat().st_uid!=os.getuid()or path.parent.stat().st_mode&0o077:raise ValueError('owned0700 private package parent required')

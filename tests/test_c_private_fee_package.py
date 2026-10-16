@@ -88,3 +88,8 @@ class PrivatePackage(unittest.TestCase):
         self.assertEqual(canonical({'unicode':'é','boolean':True,'nested':[1,2]}),capture.canonical({'nested':[1,2],'unicode':'é','boolean':True}))
         self.assertEqual(_pins(self.x.observation['financial_pins']),capture._pins(self.x.observation['financial_pins']))
         self.assertEqual(self.x.observation['financial_pins'],self.load()['manifest']['financial_pins'])
+
+    def test_native_and_public_server_or_schema_binding_cannot_diverge(self):
+        for field,value in [('server_pubkey','03'+'f'*64),('schema_sha256','f'*64)]:
+            with self.subTest(field=field),self.assertRaisesRegex(ValueError,'source binding'):
+                self.load(binding={**self.x.binding,field:value})

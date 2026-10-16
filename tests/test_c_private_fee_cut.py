@@ -73,7 +73,7 @@ class PrivateFeeCapture(unittest.TestCase):
         self.fixture=fee_fixtures.CNativeFeeSources();self.fixture.setUp();self.addCleanup(self.fixture.doCleanups)
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name);self.history=self.root/'history';self.history.mkdir(mode=0o700)
         self.expected=c._history_identity(self.history.stat());self.fixed=adapter();self.f=self.fixed.frontier()
-        self.binding={'observer_sha256':'1'*64,'schema_sha256':'2'*64,'deployment_sha256':'3'*64,'genesis':SIGNET_GENESIS,'server_pubkey':'02'+'5'*64,'network':'signet','database':'trackc'}
+        self.binding={'observer_sha256':'1'*64,'schema_sha256':'5'*64,'deployment_sha256':'3'*64,'genesis':SIGNET_GENESIS,'server_pubkey':fee_fixtures.KEY,'network':'signet','database':'trackc'}
         self.limits={'max_total_rows':6000,'max_total_bytes':8*1024*1024,'max_page_rows':127,'max_page_bytes':256*1024,'max_pages':100,'deadline_ms':20000,'statement_timeout_ms':4000}
         self.observation={'id':'a'*32,'architecture_profile':'direct_per_key','started_at':time.time(),'financial_pins':self.fixture.body['financial_pins']if hasattr(self.fixture,'body')else __import__('tests.test_final_campaign',fromlist=['PINS']).PINS,'height':100,'tip_hash':'b'*64}
         self.chain={'genesis':SIGNET_GENESIS,'height':100,'tip_hash':'b'*64,'ibd':False}
