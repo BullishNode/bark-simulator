@@ -17,19 +17,20 @@ ROLE = 'trackcbodyobserver'
 # can overlap; that does not change the declared source's native type.
 SOURCE_ENCODINGS = {'coins':'ServerVtxoFull','pending_boards':'VtxoFull','pool':'VtxoFull'}
 ADDITIONAL_SELECT_COLUMNS = {
-    'public.vtxo':['vtxo'],
+    'public.vtxo':['vtxo','id','lightning_htlc_subscription_id'],
     'public.pending_board':['id','vtxo'],
     'public.vtxo_pool':['vtxo','spent_at'],
     'public.vtxo_pool_retirement':['vtxo_id','pool_input_id'],
+    'public.lightning_payment_attempt_htlc_vtxo':['lightning_payment_attempt_id','vtxo_id'],
 }
 # SQL is compiled entirely from this immutable literal map, never a request,
 # database row or observed config. All retained pool rows are included, spent or
 # unspent; absence is never used as operator-capital proof.
 SOURCES = {
  'coins':('public.vtxo','vtxo_id',
- "vtxo_id,amount,expiry,spend_state,policy_type,encode(policy,'hex') AS policy,anchor_point,vtxo_txid,oor_spent_txid,spent_in_round,offboarded_in,frontier_at,confirmed_height,onchain_spent_height,onchain_spent_txid", ''),
- 'pending_boards':('public.pending_board','vtxo_id','vtxo_id,expiry',",'anchor_point',id"),
- 'pool':('public.vtxo_pool','id','id,vtxo_id,expiry_height,amount',",'spent_at',spent_at::text"),
+ "vtxo_id,amount,expiry,spend_state,policy_type,encode(policy,'hex') AS policy,anchor_point,vtxo_txid,oor_spent_txid,spent_in_round,offboarded_in,frontier_at,confirmed_height,onchain_spent_height,onchain_spent_txid", ",'native_id',b.id,'lightning_htlc_subscription_id',b.lightning_htlc_subscription_id"),
+ 'pending_boards':('public.pending_board','vtxo_id','vtxo_id,expiry',",'anchor_point',b.id"),
+ 'pool':('public.vtxo_pool','id','id,vtxo_id,expiry_height,amount',",'spent_at',b.spent_at::text"),
 }
 
 def _sql():
@@ -40,9 +41,12 @@ def _sql():
           "'%s_max',COALESCE((SELECT max(octet_length(vtxo)) FROM %s),0)"%(name,table),
           "'%s_null',(SELECT count(*) FROM %s WHERE vtxo IS NULL OR octet_length(vtxo)=0)"%(name,table)])
         body.append("'%s',COALESCE((SELECT jsonb_agg(jsonb_build_object('metadata',row_to_json(m),'source_encoding','%s','body_hex',encode(vtxo,'hex')%s) ORDER BY %s) FROM %s b CROSS JOIN LATERAL (SELECT %s) m),'[]'::jsonb)"%(name,SOURCE_ENCODINGS[name],extra,'b.'+order,table,columns))
-    pre.extend(["'pool_retirements',(SELECT count(*) FROM public.vtxo_pool_retirement)",
+    pre.extend(["'payment_links',(SELECT count(*) FROM public.lightning_payment_attempt_htlc_vtxo)",
+      "'payment_links_bytes',COALESCE((SELECT sum(octet_length(vtxo_id)+128) FROM public.lightning_payment_attempt_htlc_vtxo),0)",
+      "'pool_retirements',(SELECT count(*) FROM public.vtxo_pool_retirement)",
       "'pool_retirements_bytes',COALESCE((SELECT sum(octet_length(vtxo_id)+octet_length(pool_input_id)+128) FROM public.vtxo_pool_retirement),0)"])
     body.append("'pool_retirements',COALESCE((SELECT jsonb_agg(jsonb_build_object('vtxo_id',vtxo_id,'pool_input_id',pool_input_id) ORDER BY vtxo_id) FROM public.vtxo_pool_retirement),'[]'::jsonb)")
+    body.append("'payment_links',COALESCE((SELECT jsonb_agg(jsonb_build_object('lightning_payment_attempt_id',lightning_payment_attempt_id,'vtxo_id',vtxo_id) ORDER BY lightning_payment_attempt_id,vtxo_id) FROM public.lightning_payment_attempt_htlc_vtxo),'[]'::jsonb)")
     identity="'snapshot',pg_current_snapshot()::text,'backend_pid',pg_backend_pid(),'database',current_database(),'role',current_user,'read_only',current_setting('transaction_read_only'),'isolation',current_setting('transaction_isolation')"
     return ('SELECT jsonb_build_object('+','.join(pre)+')',
             'SELECT jsonb_build_object('+identity+','+','.join(body)+')')
@@ -52,26 +56,26 @@ PREFLIGHT_SQL, PRIVATE_SQL = _sql()
 
 def _preflight(value):
     identity={'role':ROLE,'database':'trackc','read_only':'on','isolation':'repeatable read'}
-    expected={'pool_retirements','pool_retirements_bytes',*identity}
+    expected={'pool_retirements','pool_retirements_bytes','payment_links','payment_links_bytes',*identity}
     for name in SOURCES:expected.update([name,name+'_bytes',name+'_max',name+'_null'])
     if (not isinstance(value,dict)or set(value)!=expected
             or any(value[k]!=v for k,v in identity.items())
             or any(type(v)is not int or v<0 for k,v in value.items()if k not in identity)
-            or sum(value[n]for n in [*SOURCES,'pool_retirements'])>MAX_ROWS
-            or sum(value[n+'_bytes']for n in [*SOURCES,'pool_retirements'])>MAX_BYTES
+            or sum(value[n]for n in [*SOURCES,'pool_retirements','payment_links'])>MAX_ROWS
+            or sum(value[n+'_bytes']for n in [*SOURCES,'pool_retirements','payment_links'])>MAX_BYTES
             or any(value[n+'_max']>MAX_BODY_BYTES or value[n+'_null'] for n in SOURCES)):
         raise ValueError('native body preflight exceeds fixed source bounds')
 
 
 def _assemble(pg,header,public_rows,preflight):
-    fields={'snapshot','backend_pid','database','role','read_only','isolation',*SOURCES,'pool_retirements'}
+    fields={'snapshot','backend_pid','database','role','read_only','isolation',*SOURCES,'pool_retirements','payment_links'}
     if (not isinstance(pg,dict)or set(pg)!=fields or pg['role']!=ROLE
             or pg['database']!='trackc' or pg['read_only']!='on' or pg['isolation']!='repeatable read'
             or type(pg['backend_pid'])is not int or pg['backend_pid']<=0
             or any(pg[k]!=header['identity'][k]for k in ['snapshot','backend_pid','database','read_only','isolation'])):
         raise ValueError('native body actual same-RR identity differs')
     for name in SOURCES:
-        rows=pg[name];extras={'pending_boards':{'anchor_point'},'pool':{'spent_at'}}.get(name,set())
+        rows=pg[name];extras={'coins':{'native_id','lightning_htlc_subscription_id'},'pending_boards':{'anchor_point'},'pool':{'spent_at'}}.get(name,set())
         if not isinstance(rows,list)or len(rows)!=preflight[name]:raise ValueError('native body count differs from preflight')
         metadata=[];keys=[]
         for row in rows:
@@ -85,6 +89,24 @@ def _assemble(pg,header,public_rows,preflight):
             if name=='pool'and row['spent_at']is not None and not isinstance(row['spent_at'],str):raise ValueError('native pool spent state malformed')
         if any(k is None for k in keys)or len(set(keys))!=len(keys):raise ValueError('native body source membership duplicate')
         if metadata!=public_rows[name]:raise ValueError('native body/public19 exact membership or metadata differs')
+    native_ids=[];subscriptions={v['id']for v in public_rows['receives']}
+    for row in pg['coins']:
+        ident=row['native_id'];subscription=row['lightning_htlc_subscription_id']
+        if type(ident)is not int or ident<=0 or(subscription is not None and(type(subscription)is not int or subscription<=0 or subscription not in subscriptions)):
+            raise ValueError('native internal/grant association missing or malformed')
+        native_ids.append(ident)
+    if len(set(native_ids))!=len(native_ids)or any(type(v['id'])is not int or v['id']<=0 or v['id']not in native_ids for v in public_rows['htlcs']):
+        raise ValueError('native HTLC/internal identity membership differs')
+    rows=pg['payment_links'];payments={v['id']for v in public_rows['payments']};registered={v['metadata']['vtxo_id']for v in pg['coins']}
+    if not isinstance(rows,list)or len(rows)!=preflight['payment_links']:raise ValueError('payment link count differs')
+    keys=[]
+    for row in rows:
+        if(not isinstance(row,dict)or set(row)!={'lightning_payment_attempt_id','vtxo_id'}
+                or type(row['lightning_payment_attempt_id'])is not int or row['lightning_payment_attempt_id']<=0
+                or row['lightning_payment_attempt_id']not in payments or row['vtxo_id']not in registered):
+            raise ValueError('native payment/current-coin association missing')
+        keys.append((row['lightning_payment_attempt_id'],row['vtxo_id']))
+    if keys!=sorted(set(keys)):raise ValueError('payment link ordering or uniqueness differs')
     rows=pg['pool_retirements']
     if not isinstance(rows,list)or len(rows)!=preflight['pool_retirements']:raise ValueError('retirement count differs')
     registered={v['metadata']['vtxo_id']for v in pg['coins']}

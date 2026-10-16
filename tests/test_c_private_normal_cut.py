@@ -39,8 +39,8 @@ class CombinedNativeCut(unittest.TestCase):
         old=self.fixture.pg(charged);fees=old.private;fees['role']=c.body.ROLE
         if charged:
             self.x.rows=old.rows
-            for row in self.x.rows['coins']:
-                self.x.pg['coins'].append({'metadata':copy.deepcopy(row),'source_encoding':'ServerVtxoFull','body_hex':'00aa'})
+            for index,row in enumerate(self.x.rows['coins'],1):
+                self.x.pg['coins'].append({'metadata':copy.deepcopy(row),'source_encoding':'ServerVtxoFull','body_hex':'00aa','native_id':index,'lightning_htlc_subscription_id':None})
         return CombinedPG(self.x.f,self.x.rows,self.x.pg,fees)
     def capture(self,raw):
         x=self.fixture

@@ -14,7 +14,7 @@ class BodyPG(fixtures.RawPG):
     def __init__(self,f,rows,private):
         super().__init__(f,copy.deepcopy(rows),copy.deepcopy(private));self.body_calls=0
         self.size={'role':c.ROLE,'database':'trackc','read_only':'on','isolation':'repeatable read',
-          'pool_retirements':len(private['pool_retirements']),'pool_retirements_bytes':0}
+          'pool_retirements':len(private['pool_retirements']),'pool_retirements_bytes':0,'payment_links':len(private['payment_links']),'payment_links_bytes':0}
         for name in c.SOURCES:
             values=private[name]
             self.size.update({name:len(values),name+'_bytes':sum(len(v['body_hex'])+512 for v in values),
@@ -43,13 +43,13 @@ class PrivateNativeBodyCut(unittest.TestCase):
         self.fixture=fixtures.PrivateFeeCapture();self.fixture.setUp();self.addCleanup(self.fixture.doCleanups)
         self.f=self.fixture.f;self.rows={name:[]for name in self.f.projections()}
         self.pg={'snapshot':'synthetic-fixed-RR','backend_pid':123,'database':'trackc','role':c.ROLE,
-          'read_only':'on','isolation':'repeatable read','coins':[],'pending_boards':[],'pool':[],'pool_retirements':[]}
+          'read_only':'on','isolation':'repeatable read','coins':[],'pending_boards':[],'pool':[],'pool_retirements':[],'payment_links':[]}
     def populated(self):
         for n in (1,2):
             metadata={k:None for k in self.f.projections()['coins']['fields']}
             metadata.update(vtxo_id=str(n)*64+':0',amount=1000,expiry=200,spend_state='spent'if n==1 else'pool',policy_type='pubkey',policy='00'+'02'+'a'*64)
             self.rows['coins'].append(metadata)
-            self.pg['coins'].append({'metadata':copy.deepcopy(metadata),'source_encoding':'ServerVtxoFull','body_hex':'00aa'})
+            self.pg['coins'].append({'metadata':copy.deepcopy(metadata),'source_encoding':'ServerVtxoFull','body_hex':'00aa','native_id':n,'lightning_htlc_subscription_id':None})
         p={'vtxo_id':'3'*64+':0','expiry':200};self.rows['pending_boards']=[p]
         self.pg['pending_boards']=[{'metadata':copy.deepcopy(p),'anchor_point':'4'*64+':0','source_encoding':'VtxoFull','body_hex':'00bb'}]
         p={'id':1,'vtxo_id':'1'*64+':0','expiry_height':200,'amount':1000};self.rows['pool']=[p]
@@ -113,8 +113,27 @@ class PrivateNativeBodyCut(unittest.TestCase):
         with self.assertRaises(ValueError):self.capture(raw)
         values=iter([dict(self.fixture.chain),{**self.fixture.chain,'height':101}])
         with self.assertRaisesRegex(ValueError,'chain/deadline'):self.capture(chain=lambda:next(values))
+    def test_numeric_grant_and_HTLC_ids_distinct_from_text_VtxoId(self):
+        self.populated()
+        for name,ident in [('receives',21),('payments',11),('htlcs',1)]:
+            row={k:None for k in self.f.projections()[name]['fields']};row['id']=ident
+            self.rows[name]=[row]
+        self.pg['coins'][0]['lightning_htlc_subscription_id']=21
+        self.pg['payment_links']=[{'lightning_payment_attempt_id':11,'vtxo_id':self.pg['coins'][0]['metadata']['vtxo_id']}]
+        captured=self.capture();private=c.common._json(captured['private_pg'])
+        self.assertEqual(1,private['coins'][0]['native_id']);self.assertEqual(21,private['coins'][0]['lightning_htlc_subscription_id'])
+        for mutate in [lambda p:p['coins'][0].update(native_id=True),lambda p:p['coins'][0].update(native_id=p['coins'][1]['native_id']),
+          lambda p:p['coins'][0].update(lightning_htlc_subscription_id=999),
+          lambda p:p['payment_links'][0].update(lightning_payment_attempt_id=999),
+          lambda p:p['payment_links'][0].update(vtxo_id='1'),
+          lambda p:p['payment_links'].append(copy.deepcopy(p['payment_links'][0]))]:
+            raw=BodyPG(self.f,self.rows,self.pg);mutate(raw.private)
+            with self.assertRaises(ValueError):self.capture(raw)
+        raw=BodyPG(self.f,self.rows,self.pg);raw.rows['htlcs'][0]['id']=True
+        with self.assertRaisesRegex(ValueError,'HTLC/internal'):self.capture(raw)
+
     def test_fixed_grants_and_queries_have_no_dedicated_secret_column_or_request_sql(self):
-        self.assertEqual({'public.vtxo':['vtxo'],'public.pending_board':['id','vtxo'],'public.vtxo_pool':['vtxo','spent_at'],'public.vtxo_pool_retirement':['vtxo_id','pool_input_id']},c.ADDITIONAL_SELECT_COLUMNS)
+        self.assertEqual({'public.vtxo':['vtxo','id','lightning_htlc_subscription_id'],'public.pending_board':['id','vtxo'],'public.vtxo_pool':['vtxo','spent_at'],'public.vtxo_pool_retirement':['vtxo_id','pool_input_id'],'public.lightning_payment_attempt_htlc_vtxo':['lightning_payment_attempt_id','vtxo_id']},c.ADDITIONAL_SELECT_COLUMNS)
         for sql in (c.PREFLIGHT_SQL,c.PRIVATE_SQL):
             self.assertNotIn('preimage',sql);self.assertNotIn('seed',sql);self.assertNotIn('SELECT *',sql)
         self.assertIn('ORDER BY b.vtxo_id',c.PRIVATE_SQL)
