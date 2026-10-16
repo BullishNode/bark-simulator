@@ -30,6 +30,9 @@ def retained_ordinary_versions(store,chain,database,rights,*,scripts,tip):
     ChainReader's existing private/public projection boundary.
     """
     _tip(chain,tip);_,journal=_whole_journal(database)
+    operator_scripts={script for script,owner in scripts.items()if owner['member_id']in {'rounds','watchman'}}
+    retained={row[0]for row in store.db.execute('SELECT script FROM operator_script')}
+    _need(retained<=operator_scripts,'retained operator script lacks current complete descriptor ownership')
     confirmed={g['result']['freeze_set']:g for g in rights['groups']}
     rows=journal['rows'];versions={};states={};checked={};selected=set();matching=set(scripts)
     for carrier in rows['carriers']:
@@ -54,6 +57,8 @@ def retained_ordinary_versions(store,chain,database,rights,*,scripts,tip):
             result=direct.check_pending_candidate(store,journal,freeze,txid,tx)
             state='replaced'if winner is not None and set(result['physical_inputs'])&set(winner['result']['physical_inputs'])else 'mempool'
         checked[txid]=result;versions[txid]=tx;states[txid]=state
+        _need(all(i['script_pubkey']in operator_scripts for i in carrier['fee_inputs']),
+            'selected fee input lacks current owning operator descriptor '+txid)
         selected.update(i['outpoint']for i in carrier['fee_inputs'])
         matching.update(i['script']for i in tx['inputs'])
     _need(len(matching)<=2000,'complete matching script bound')
