@@ -119,3 +119,73 @@ class SnapshotControls(unittest.TestCase):
     def test_resolution_orphan_holds(self):
         s,r=fixture();p=run(s,r);p['resolutions'][0]['block_hash']=H(22);c=Chain()
         with self.assertRaisesRegex(EvidenceGap,'not canonical'):current_resolution_anchors(p,c,tip=c.tip)
+
+
+class PrivateInputControls(unittest.TestCase):
+    """Synthetic original binding only; no actual SQL/native/capture qualification."""
+    def inputs(self):
+        s,r=fixture();originals={'policy_raw':'private policy fixture','opening_raw':'private opening fixture',
+            'journal_raw':'private signed package fixture'}
+        for role,snapshot_field,name in [('policy_raw','policy_sha256','ordinary-fee-policy.json'),
+                ('opening_raw','opening_sha256','ordinary-fee-opening.json'),
+                ('journal_raw','journal_sha256','ordinary-fee-budget')]:
+            sha=digest(originals[role].encode());s[snapshot_field]=sha;r['native_budget']['files'][name]['sha256']=sha
+            r['native_budget']['files'][name]['bytes']=len(originals[role].encode())
+            if role=='journal_raw':s['journal_bytes']=len(originals[role].encode())
+        s['policy']['opening_sha256']=s['opening_sha256']
+        for service in ('captaind','watchmand'):
+            row=r['public_configuration'][service]
+            policy=row['ordinary_fee_policy']if service=='captaind'else row['direct_expiry']['ordinary_fee_policy']
+            policy['opening_sha256']=s['opening_sha256']
+        whole=b'{"kind":"synthetic-whole-frontier"}'
+        database={'native_funding_fee_intent':[],'native_funding_fee_input':[],
+            'native_funding_fee_resolution':[],'nursery_tx':[]}
+        originals['sql_raw']='BEGIN\nSET\n'+whole.decode()+'\n'+json.dumps(database)+'\nCOMMIT\n'
+        files={'b-native-fee-originals.json':json.dumps(originals).encode(),
+            'b-native-fee-snapshot.json':json.dumps(s).encode()}
+        target={'raw_sql':whole,'auxiliary_originals':files,
+            'manifest':{'original_sha256':{'native_sql':digest(whole)},
+                'auxiliary_originals':{'b_native_fee_originals':'b-native-fee-originals.json',
+                    'b_native_fee_snapshot':'b-native-fee-snapshot.json'},
+                'files':{name:{'sha256':digest(raw),'size_bytes':len(raw)}for name,raw in files.items()}}}
+        return target,r,{'id':'1'*32,'height':101,'tip_hash':H(30)}
+    def prepare(self,t,r,o):
+        from simulator.b_private_native_fee_inputs import prepare_native_fee_request
+        return prepare_native_fee_request(t,r,expected_product_commit=PIN,observation=o)
+    def mutate_originals(self,t,edit):
+        name='b-native-fee-originals.json';value=json.loads(t['auxiliary_originals'][name]);edit(value)
+        raw=json.dumps(value).encode();t['auxiliary_originals'][name]=raw
+        t['manifest']['files'][name]={'sha256':digest(raw),'size_bytes':len(raw)}
+    def test_exact_private_bytes_and_all_domains_go_to_native_not_public_trace(self):
+        t,r,o=self.inputs();request=self.prepare(t,r,o)
+        self.assertEqual(request['originals']['journal_raw'],'private signed package fixture')
+        self.assertEqual(request['expected']['database_sha256'],digest(request['originals']['database_raw'].encode()))
+        self.assertEqual(request['source_observation'],o)
+        # Deliberately synthetic empty DB contradicts snapshotfunding: preparation
+        # must NOT claim native row equality; actual native verifier must refuse.
+        self.assertNotIn('complete',request);self.assertNotIn('qualified',request)
+    def test_missing_private_auxiliary_never_becomes_empty_source(self):
+        t,r,o=self.inputs();del t['auxiliary_originals']['b-native-fee-originals.json']
+        with self.assertRaises(EvidenceGap):self.prepare(t,r,o)
+    def test_changed_auxiliary_hash_is_rejected(self):
+        t,r,o=self.inputs();t['auxiliary_originals']['b-native-fee-originals.json']+=b' '
+        with self.assertRaises(EvidenceGap):self.prepare(t,r,o)
+    def test_private_signed_package_must_equal_current_flock_bytes(self):
+        t,r,o=self.inputs();self.mutate_originals(t,lambda v:v.update(journal_raw='changed package'))
+        with self.assertRaisesRegex(EvidenceGap,'owning file'):self.prepare(t,r,o)
+    def test_separately_captured_whole_frontier_is_refused(self):
+        t,r,o=self.inputs();self.mutate_originals(t,lambda v:v.update(sql_raw=v['sql_raw'].replace('synthetic-whole-frontier','different-frontier')))
+        with self.assertRaisesRegex(EvidenceGap,'whole B frontier'):self.prepare(t,r,o)
+    def test_missing_native_input_or_resolution_domain_is_refused(self):
+        t,r,o=self.inputs()
+        def edit(v):
+            lines=v['sql_raw'].splitlines();db=json.loads(lines[3]);del db['native_funding_fee_input']
+            lines[3]=json.dumps(db);v['sql_raw']='\n'.join(lines)+'\n'
+        self.mutate_originals(t,edit)
+        with self.assertRaisesRegex(EvidenceGap,'SQL domains'):self.prepare(t,r,o)
+    def test_two_transactions_cannot_be_relabelled_one_cut(self):
+        t,r,o=self.inputs();self.mutate_originals(t,lambda v:v.update(sql_raw=v['sql_raw'].replace('\n{"native_funding','\nCOMMIT\nBEGIN\n{"native_funding')))
+        with self.assertRaisesRegex(EvidenceGap,'transaction framing'):self.prepare(t,r,o)
+    def test_bad_source_nonce_is_refused(self):
+        t,r,o=self.inputs();o['id']='not-a-source-nonce'
+        with self.assertRaisesRegex(EvidenceGap,'source observation'):self.prepare(t,r,o)
