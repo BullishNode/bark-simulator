@@ -184,6 +184,13 @@ def collect_money_sources(store,chain,*,financial_pins,boundary_members,native_t
         services.append({'action_id':action['id'],'txid':tx['txid'],'coin_id':charge['coin_id'],'amount_msat':charge['service_charge_sat']*1000,'scope':'internal customer-to-operator charge; never miner expense'})
         add_cost(tx,'ordinary',action['actor_id'],{'kind':'client_board','action_id':action['id'],'proposal_sha256':_hash(proposal_rows[0][0].encode())},action['id'])
     core.stable();store.verify_event_chain()
-    return {'cost_records':[costs[k]for k in sorted(costs)],'flow_records':[flows[k]for k in sorted(flows)],
+    from .cln_router_cost import collect_cost_records
+    routing=collect_cost_records(store,financial_pins)
+    for cost in routing['cost_records']:
+        if cost['monetary_id'] in costs:raise ValueError('miner/router monetary identity collision')
+        costs[cost['monetary_id']]=cost
+    reused_costs.update(routing['reused_cost_ids'])
+    return {'zero_fee_router_payments':routing['zero_fee_router_payments'],
+        'cost_records':[costs[k]for k in sorted(costs)],'flow_records':[flows[k]for k in sorted(flows)],
         'zero_fee_carriers':zeros,'pending_carriers':pending,'client_service_charges':services,'reused_cost_ids':sorted(reused_costs),'reused_flow_ids':sorted(reused_flows),
         'evidence_hashes':{'native_source_sha256':native_source_sha256,'independent_Core_raw_sha256':core.hashes,'carrier_sources':evidence}}

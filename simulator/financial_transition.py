@@ -144,6 +144,16 @@ def _current_claims(store):
     return claims
 
 
+def _original_cost(store, sequence):
+    """Retained routing records replay their own old source, never current pins."""
+    event, cost = _source_event(store, sequence)
+    if cost.get('kind') == 'router_cost':
+        from .cln_router_cost import verify_cost
+        verify_cost(store, cost)
+        return event, cost
+    return _original_miner_cost(store, sequence)
+
+
 def _original_miner_cost(store, sequence):
     """Decode retained source representations without mutating the old event.
 
@@ -229,7 +239,12 @@ def validate(store, opening, boundary_declaration, inventory_sequences, chain, *
             raise ValueError('pending liability original source differs')
     costs = set();cost_actions=set();cost_txids=set();client_costs=[]
     for sequence in reconciliation['historical_cost_sequences']:
-        event, cost = _original_miner_cost(store, sequence)
+        event, cost = _original_cost(store, sequence)
+        if cost.get('kind') == 'router_cost':
+            if event['kind'] != 'financial_cost_verified' or cost['monetary_id'] in costs:
+                raise ValueError('unique retained original router cost required')
+            costs.add(cost['monetary_id'])
+            continue
         if (event['kind'] != 'financial_cost_verified' or cost.get('monetary_id') in costs
                 or cost.get('kind')!='miner_cost' or cost.get('txid') in cost_txids
                 or cost.get('monetary_id')!='miner:'+str(cost.get('txid'))):
@@ -272,7 +287,7 @@ def validate(store, opening, boundary_declaration, inventory_sequences, chain, *
             'retained_client_rights': reconciliation['retained_client_rights'],
             'pending_liabilities': reconciliation['pending_liabilities'],
             'historical_client_costs':client_costs,
-            'historical_miner_cost_msat':sum(_source_event(store,v)[1]['amount_msat'] for v in reconciliation['historical_cost_sequences'])}
+            'historical_miner_cost_msat':sum(_source_event(store,v)[1]['amount_msat'] for v in reconciliation['historical_cost_sequences'] if _source_event(store,v)[1].get('kind')!='router_cost')}
 
 
 def recorded(store):

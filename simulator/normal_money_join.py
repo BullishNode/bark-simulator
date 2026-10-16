@@ -33,8 +33,12 @@ def journal_money_sources(store,result,source_event,source,*,helper_sha256):
             else:
                 if identifier in all_ids or body.get('financial_pins')!=source['financial_pins']:
                     raise ValueError('new monetary record identity/pins differ')
-                if field=='cost_records' and (body.get('kind')!='miner_cost' or identifier!='miner:'+body['txid'] or body.get('budget') not in {'ordinary','urgent'}):
-                    raise ValueError('confirmed positive miner-cost source required')
+                if field=='cost_records':
+                    if body.get('kind')=='router_cost':
+                        from .cln_router_cost import verify_cost
+                        verify_cost(store,body)  # Actual expense is recorded independently of spend permission.
+                    elif (body.get('kind')!='miner_cost' or identifier!='miner:'+body['txid'] or body.get('budget') not in {'ordinary','urgent'}):
+                        raise ValueError('confirmed positive miner-cost source required')
                 if field=='flow_records' and body.get('kind') not in {'injection','internal_transfer'}:
                     raise ValueError('unresolved external receipt/payment needs its own verifier')
             supplied[field][identifier]=body
@@ -56,6 +60,7 @@ def journal_money_sources(store,result,source_event,source,*,helper_sha256):
         joined={**source,**sequences,'original_source_sequence':parent['sequence'],'original_source_hash':parent['hash'],
             'money_helper_sha256':helper_sha256,'money_evidence_hashes':result['evidence_hashes'],
             'zero_fee_carriers':result['zero_fee_carriers'],'pending_money_carriers':result['pending_carriers'],
+            'zero_fee_router_payments':result.get('zero_fee_router_payments',[]),
             'client_service_charges':result.get('client_service_charges',[])}
         public_payload(joined);store._event('normal_financial_source_cost_join',joined)
         sequence=store.db.execute('SELECT max(sequence) FROM event').fetchone()[0]

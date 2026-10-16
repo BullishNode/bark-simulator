@@ -25,7 +25,7 @@ def membership(f):
     with patch('simulator.store.time.time',return_value=99.0):
         f.store.event('treasury_boundary_declared',declaration)
 
-def sources(f,at,direction):
+def sources(f,at,direction,*,router_fee_msat=3):
     refs={}
     payer,recipient=('operator','fixture_peer') if direction=='send' else ('fixture_peer','operator')
     digest=hashlib.sha256(INVOICE.encode()).hexdigest()
@@ -35,14 +35,14 @@ def sources(f,at,direction):
         fact={'schema_version':1,'node_alias':alias,'node_pubkey':NODES[alias],'network':'signet','node_version':'synthetic',
               'query_started_at':at,'query_completed_at':at,'selection':'exact_hash_without_pagination',
               'payment_hash':HASH,'pay':None,'invoice':None}
-        if alias==payer:fact['pay']={**row,'state':'complete','amount_msat':1_000_000,'amount_sent_msat':1_000_003,'number_of_parts':1}
+        if alias==payer:fact['pay']={**row,'state':'complete','amount_msat':1_000_000,'amount_sent_msat':1_000_000+router_fee_msat,'number_of_parts':1}
         else:fact['invoice']={**row,'state':'paid','amount_received_msat':1_000_000}
         with patch('simulator.store.time.time',return_value=float(at)):
             f.store.event('controlled_peer_payment_source',{'action_id':'external','fact':fact,'financial_pins':PINS})
         refs[('operator' if alias=='operator' else 'peer')+'_source_sequence']=f.store.db.execute('SELECT MAX(sequence) FROM event').fetchone()[0]
     return refs
 
-def external_send(f,at=103,*,emit=True):
+def external_send(f,at=103,*,emit=True,router_fee_msat=3):
     membership(f)
     data={'payment_hash':HASH,'payment_status_verified':True,'payment_state':'succeeded','committed_fee_sat':0}
     f.action('external','pay_invoice',at=at,data=data,args={'invoice':INVOICE,'amount_sat':1000})
@@ -61,12 +61,12 @@ def external_send(f,at=103,*,emit=True):
         'success_preimage_hash_valid':True,'read_only':True,'actual_fee_sat':0}}})
     refs={'action_id':'external','payment_hash':HASH,'direction':'send','financial_pins':PINS,
           'native_result_source_sequence':result,'native_fee_source_sequence':fee,'native_proposal_source_sequence':proposal,'native_outcome_source_sequence':outcome,
-          **sources(f,at,'send')}
+          **sources(f,at,'send',router_fee_msat=router_fee_msat)}
     action=f.store.db.execute("SELECT * FROM action WHERE id='external'").fetchone()
     proof={**refs,**_derive_external(f.store,action,refs)}
     return f.event('controlled_peer_payment_verified',proof) if emit else proof
 
-def external_receive(f,at=103,*,emit=True):
+def external_receive(f,at=103,*,emit=True,router_fee_msat=3):
     membership(f)
     f.action('external','invoice',at=at,data={'payment_hash':HASH,'invoice':INVOICE,'estimated_claim_fee_sat':0},args={'amount_sat':1000})
     result=f.event('action_result',{'action_id':'external','state':'completed','result':{'data':{'payment_hash':HASH,'invoice':INVOICE,'estimated_claim_fee_sat':0}}})
@@ -81,7 +81,7 @@ def external_receive(f,at=103,*,emit=True):
     f.store.db.execute("UPDATE action SET actual_fee_sat=0 WHERE id='claim'")
     f.event('action_result',{'action_id':'claim','state':'completed','result':{'data':claim_data}})
     refs={'action_id':'external','payment_hash':HASH,'direction':'receive','financial_pins':PINS,
-          'native_result_source_sequence':result,'native_fee_source_sequence':fee,'claim_action_id':'claim',**sources(f,at,'receive')}
+          'native_result_source_sequence':result,'native_fee_source_sequence':fee,'claim_action_id':'claim',**sources(f,at,'receive',router_fee_msat=router_fee_msat)}
     action=f.store.db.execute("SELECT * FROM action WHERE id='external'").fetchone()
     proof={**refs,**_derive_external(f.store,action,refs)}
     return f.event('controlled_peer_payment_verified',proof) if emit else proof

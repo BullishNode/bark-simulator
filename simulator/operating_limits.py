@@ -159,6 +159,8 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
     """Reject stale, underfunded or unaffordable dispatch; return a declared hold."""
     from .identity_bootstrap import pending
     if pending(store):raise ValueError('bootstrap independent zero-asset proofs missing')
+    from .cln_router_cost import require_routing_readiness
+    require_routing_readiness(store)
     from . import exploratory
     if exploratory.scope(store) is not None:
         from .frontier_source import schema

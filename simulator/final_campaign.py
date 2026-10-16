@@ -223,6 +223,11 @@ def record_traffic(store, rail, action_id, source_sequence, observed_pins):
 
 
 def traffic_ready(store, now, observed_pins):
+    from .cln_router_cost import require_routing_readiness
+    try:
+        require_routing_readiness(store)
+    except (ValueError, KeyError):
+        return False
     if not pins_match(store,observed_pins):
         return False
     declaration = epoch(store)
