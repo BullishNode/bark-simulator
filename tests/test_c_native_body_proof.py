@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 from simulator import c_native_body_proof as c
@@ -20,8 +21,15 @@ class NativeBodyProof(unittest.TestCase):
         self.x.x.pg['coins']=[{'metadata':copy.deepcopy(metadata),'native_id':1,'lightning_htlc_subscription_id':None,'source_encoding':'ServerVtxoFull','body_hex':'00aa'}]
         self.result=self.x.capture(self.x.pg());self.path=self.f.root/'proof-body.tar';self.loaded=self.x.load(self.result,self.path)
         self.row=self.loaded['private_pg']['coins'][0]
-        self.tool={'sha256':'c'*64,'command':['/synthetic/unexecuted-native-full-proof'],'evidence_directory':'/synthetic/private'}
-        self.identity={'source_commit':c.PROOF_SOURCE,'sdk_actual_GIT_HASH':'9'*40,'sdk_component_commit':self.f.observation['financial_pins']['sdk_commit'],'binary_sha256':'c'*64,'runtime_manifest_sha256':'d'*64}
+        self.runtime=self.f.root/'runtime';self.runtime.mkdir(mode=0o700);(self.runtime/'lib').mkdir(mode=0o700)
+        components={}
+        for name,mode in {'launch':0o500,'native-full-proof':0o500,'source-identity.json':0o600,'lib/libc.so.6':0o400,'lib/ld-linux-x86-64.so.2':0o500,'lib/libgcc_s.so.1':0o400}.items():
+            raw=(json.dumps({'source':c.PROOF_SOURCE,'SDK_actual_source':'9'*40,'actual_GIT_HASH':'9'*40,'SDK_component':self.f.observation['financial_pins']['sdk_commit']}).encode()if name=='source-identity.json'else('SYNTHETIC-UNEXECUTED-'+name).encode());path=self.runtime/name;path.write_bytes(raw);path.chmod(mode)
+            components[name]={'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest(),'mode':oct(mode)}
+        self.tool={'sha256':components['launch']['sha256'],'command':[str(self.runtime/'launch')],'evidence_directory':str(self.f.root)}
+        self.identity={'source_commit':c.PROOF_SOURCE,'sdk_actual_GIT_HASH':'9'*40,'sdk_component_commit':self.f.observation['financial_pins']['sdk_commit'],
+          'binary_sha256':components['native-full-proof']['sha256'],'launcher_sha256':components['launch']['sha256'],
+          'runtime_manifest_sha256':'d'*64,'component_inventory':components,'python_sha256':hashlib.sha256(Path('/usr/bin/python3').resolve().read_bytes()).hexdigest()}
         self.request={'schema_version':1,'kind':'native-full-path-request','source_encoding':'ServerVtxoFull','body_hex':'00aa','funding_transaction_hex':self.funding.hex(),'expected_server_pubkey':fee_fixture.KEY}
         sha=lambda raw:hashlib.sha256(raw).hexdigest()
         self.proof={'schema_version':1,'kind':'native-full-path-proof','source_encoding':'ServerVtxoFull','sdk_commit':'9'*40,
@@ -82,3 +90,16 @@ class NativeBodyProof(unittest.TestCase):
         execute.assert_not_called()
         self.tool['command'].pop();identity={**self.identity,'sdk_component_commit':'8'*40}
         with self.assertRaises(ValueError):self.collect(tool_identity=identity)
+
+    def test_launcher_is_command_hash_and_all_six_runtime_components_are_bound(self):
+        self.collect()
+        self.tool['sha256']=self.identity['binary_sha256']
+        with self.assertRaises(ValueError):self.collect()
+        self.tool['sha256']=self.identity['launcher_sha256']
+        for name in self.identity['component_inventory']:
+            path=self.runtime/name;original=path.read_bytes();mode=path.stat().st_mode&0o777
+            path.chmod(0o600);path.write_bytes(b'changed');path.chmod(mode)
+            with self.subTest(name=name),self.assertRaises(ValueError):self.collect()
+            path.chmod(0o600);path.write_bytes(original);path.chmod(mode)
+        self.identity['python_sha256']='e'*64
+        with self.assertRaisesRegex(ValueError,'Python'):self.collect()
