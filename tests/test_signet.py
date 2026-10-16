@@ -99,6 +99,39 @@ class SignetTests(unittest.TestCase):
         self.assertEqual(self.campaign.report()["case_verdict"], "NOT_EVALUATED")
         self.assertEqual(json.loads(row["reply"])["completion"], "requires_reconciliation")
 
+    def test_acknowledged_address_survives_restart_without_reissuing_it(self):
+        def native(argv, **kwargs):
+            kwargs["stdout"].write(b"tark1abcdef\n")
+            return subprocess.CompletedProcess(argv, 0)
+        with patch("simulator.signet.subprocess.run", side_effect=native):
+            self.campaign.execute("address-1", "alice", "address", {})
+        self.campaign.close()
+        self.campaign = Campaign(self.root / "campaign", self.config)
+        with patch("simulator.signet.subprocess.run") as replay:
+            row = self.campaign.execute("address-1", "alice", "address", {})
+        replay.assert_not_called()
+        self.assertEqual(json.loads(row["reply"]), {"address": "tark1abcdef"})
+
+    def test_actor_cannot_be_abandoned_while_native_process_is_dispatched(self):
+        def native(argv, **kwargs):
+            with self.assertRaisesRegex(ValueError, "cannot declare absent"):
+                self.campaign.abandon("alice")
+            return subprocess.CompletedProcess(argv, 0)
+        with patch("simulator.signet.subprocess.run", side_effect=native):
+            row = self.campaign.execute("create-1", "alice", "create", {})
+        self.assertEqual(row["state"], "acknowledged")
+
+    def test_controller_death_after_dispatch_does_not_replay(self):
+        with patch("simulator.signet.subprocess.run", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.campaign.execute("create-1", "alice", "create", {})
+        self.campaign.close()
+        self.campaign = Campaign(self.root / "campaign", self.config)
+        with patch("simulator.signet.subprocess.run") as replay:
+            row = self.campaign.execute("create-1", "alice", "create", {})
+        replay.assert_not_called()
+        self.assertEqual(row["state"], "dispatched")
+
     def test_wallet_coin_projection_discards_unknown_fields(self):
         coin = {"id": "a" * 64 + ":0", "amount_sat": 5000, "user_pubkey": "02" + "b" * 64,
                 "chain_anchor": "c" * 64 + ":1", "expiry_height": 150,

@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
+import tempfile
 import time
 
 from .chain import ChainReader
@@ -228,13 +229,18 @@ class Campaign:
             # Do not inherit BARK_DATADIR / daemon endpoints / RPC passwords.
             environment = {key: value for key, value in os.environ.items()
                            if not key.startswith("BARK_")}
-            result = subprocess.run([
-                self.config["binary"], "--quiet", "--no-logfile", "--datadir", str(path), *native_args,
-            ], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                env=environment, timeout=timeout, check=False)
+            # Use an anonymous private file, rather than accumulating unbounded
+            # stdout in memory or retaining raw potential secrets on disk.
+            with tempfile.TemporaryFile(dir=self.root) as output:
+                result = subprocess.run([
+                    self.config["binary"], "--quiet", "--no-logfile", "--datadir", str(path), *native_args,
+                ], stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.DEVNULL,
+                    env=environment, timeout=timeout, check=False)
+                output.seek(0)
+                raw = output.read(4 * 1024 * 1024 + 1)
             if result.returncode:
                 raise ValueError("native_nonzero_exit")
-            reply = project_reply(operation, result.stdout)
+            reply = project_reply(operation, raw)
             public_payload(reply)
             self.db.execute("UPDATE action SET state='acknowledged',reply=?,updated=? WHERE id=?",
                             (canonical(reply), time.time(), intent))
@@ -247,9 +253,17 @@ class Campaign:
 
     def abandon(self, actor: str):
         self.actor_path(actor)
-        with self.db:
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            if self.db.execute("SELECT 1 FROM action WHERE actor=? AND state IN ('dispatched','unknown')", (actor,)).fetchone():
+                raise ValueError("actor has an in-flight or unknown action; cannot declare absent")
             self.db.execute("INSERT OR IGNORE INTO actor(id) VALUES (?)", (actor,))
             self.db.execute("UPDATE actor SET absent=1 WHERE id=?", (actor,))
+            self.db.execute("COMMIT")
+        except BaseException:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
 
     def check_transfer(self, check_id: str, intent: str, sender_before: str, sender_after: str,
                        receiver_before: str, receiver_after: str, maximum_fee_sat: int):
