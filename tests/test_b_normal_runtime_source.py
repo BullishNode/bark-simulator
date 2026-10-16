@@ -275,3 +275,84 @@ class OwnedPidTests(unittest.TestCase):
     def test_bounded_successful_command_keeps_exact_output(self):
         import sys
         self.assertEqual(runtime._run([sys.executable,'-c',"print('owned',end='')"]),b'owned')
+
+
+class CaptureCleanupRegressionTests(unittest.TestCase):
+    def run_tracked(self, body):
+        import subprocess
+        original = subprocess.Popen; created = []
+        def track(*args, **kwargs):
+            process = original(*args, **kwargs); created.append(process); return process
+        with patch.object(runtime.subprocess, 'Popen', side_effect=track):
+            body()
+        self.assertEqual(len(created), 1)
+        process = created[0]
+        self.assertIsNotNone(process.returncode)
+        self.assertTrue(process.stdout.closed); self.assertTrue(process.stderr.closed)
+        with self.assertRaises(ChildProcessError): os.waitpid(process.pid, os.WNOHANG)
+
+    def test_identity_setup_exception_reaps_direct_child(self):
+        import sys
+        def body():
+            with patch.object(runtime, '_process_identity', side_effect=ValueError('identity setup failed')):
+                with self.assertRaisesRegex(ValueError, 'identity setup'):
+                    runtime._run([sys.executable, '-c', 'import time; time.sleep(10)'])
+        self.run_tracked(body)
+
+    def test_selector_setup_exception_still_cleans_command(self):
+        import sys
+        def body():
+            with patch.object(runtime.selectors, 'DefaultSelector', side_effect=ValueError('selector setup failed')):
+                with self.assertRaisesRegex(ValueError, 'selector setup'):
+                    runtime._run([sys.executable, '-c', 'import time; time.sleep(10)'])
+        self.run_tracked(body)
+
+    def test_cleanup_exception_does_not_skip_pipe_closes(self):
+        import sys
+        original = runtime._stop_command
+        def stop(*args):
+            original(*args)
+            raise ValueError('cleanup receipt failed')
+        def body():
+            with patch.object(runtime, '_stop_command', side_effect=stop):
+                with self.assertRaisesRegex(ValueError, 'cleanup receipt'):
+                    runtime._run([sys.executable, '-c', 'pass'])
+        self.run_tracked(body)
+
+    def test_discovery_failure_still_reaps_direct_child(self):
+        import sys
+        def body():
+            with patch.object(runtime, '_command_descendants', side_effect=ValueError('discovery bound')):
+                with self.assertRaisesRegex(ValueError, 'discovery bound'):
+                    runtime._run([sys.executable, '-c', 'pass'])
+        self.run_tracked(body)
+
+    def test_process_discovery_checks_deadline_and_entry_bound(self):
+        import time
+        root = runtime._process_identity(os.getpid())
+        with self.assertRaisesRegex(ValueError, 'discovery bound'):
+            runtime._command_descendants(root, end=time.monotonic()-1)
+        with patch.object(runtime, 'MAX_PROCESS_ENTRIES', 0):
+            with self.assertRaisesRegex(ValueError, 'discovery bound'):
+                runtime._command_descendants(root, end=time.monotonic()+1)
+
+    def test_process_metadata_reads_only_limit_plus_one(self):
+        import io
+        class Source(io.BytesIO):
+            def read(self, size=-1):
+                self.requested = size
+                return super().read(size)
+        stream = Source(b'x'*20)
+        with patch('builtins.open', return_value=stream):
+            with self.assertRaisesRegex(ValueError, 'bounded process metadata'):
+                runtime._proc_bytes('/owned/test', 8)
+        self.assertEqual(stream.requested, 9)
+
+    def test_running_executable_digest_checks_size_before_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'owned-elf'; path.write_bytes(b'12345678')
+            with patch.object(runtime, 'MAX_EXECUTABLE_BYTES', 8):
+                self.assertEqual(runtime._executable_digest(path), runtime.digest(b'12345678'))
+                path.write_bytes(b'123456789')
+                with self.assertRaisesRegex(ValueError, 'executable size'):
+                    runtime._executable_digest(path)

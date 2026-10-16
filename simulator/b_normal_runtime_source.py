@@ -28,6 +28,8 @@ LOAD_GATES = {
     'server/src/watchman/expiry_runtime.rs': '12a4fc64a0925c97642ba3ffaebeb2df9067f9881f9428009a8f9dd1d2608b46',
 }
 MAX_CAPTURE_NS = 60*10**9
+MAX_PROCESS_ENTRIES = 16384
+MAX_EXECUTABLE_BYTES = 256*1024*1024
 _CAPTURE_END = contextvars.ContextVar('b_runtime_capture_end', default=None)
 BUDGET_FILES = ('ordinary-fee-policy.json', 'ordinary-fee-opening.json', 'ordinary-fee-budget')
 
@@ -172,9 +174,11 @@ def _signal_owned(original, sig):
         pass
 
 
-def _command_descendants(root):
+def _command_descendants(root, *, end):
     rows = {}
-    for path in Path('/proc').iterdir():
+    for count, path in enumerate(Path('/proc').iterdir(), 1):
+        if time.monotonic() >= end or count > MAX_PROCESS_ENTRIES:
+            raise ValueError('owned process discovery bound exceeded')
         if not path.name.isdecimal(): continue
         try: rows[int(path.name)] = _process_identity(int(path.name))
         except (FileNotFoundError, ProcessLookupError): continue
@@ -196,16 +200,22 @@ def _stop_command(process, root, end):
     # cannot race a new helper launch. Daemon-owned Dockerexec is NOT a child.
     _signal_owned(root, signal.SIGSTOP)
     owned = {root['pid']: root}
-    for _ in range(3):
-        found = _command_descendants(root)
-        new = {pid: row for pid, row in found.items() if pid not in owned}
-        for row in new.values(): _signal_owned(row, signal.SIGSTOP)
-        owned.update(new)
-        if not new: break
-    for pid, row in owned.items():
-        if pid != root['pid']: _signal_owned(row, signal.SIGKILL)
-    _signal_owned(root, signal.SIGKILL)
-    process.wait(timeout=max(.001, end-time.monotonic()))
+    try:
+        for _ in range(3):
+            found = _command_descendants(root, end=end)
+            new = {pid: row for pid, row in found.items() if pid not in owned}
+            owned.update(new)
+            for row in new.values(): _signal_owned(row, signal.SIGSTOP)
+            if not new: break
+    finally:
+        # Discovery can itself fail or exhaust its bound. Always terminate and
+        # reap the direct command and every descendant already identified.
+        try:
+            for pid, row in owned.items():
+                if pid != root['pid']: _signal_owned(row, signal.SIGKILL)
+        finally:
+            _signal_owned(root, signal.SIGKILL)
+            process.wait(timeout=max(.001, end-time.monotonic()))
     # The direct Popen child is reaped above. Orphaned descendants are reaped by
     # init, not falsely claimed as waitpid children of this producer.
     while True:
@@ -232,10 +242,14 @@ def _run(argv, maximum=2*1024*1024, *, timeout=8):
     work_end = end-min(.75, (end-time.monotonic())/2)
     process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         start_new_session=True, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'}, bufsize=0)
-    root = _process_identity(process.pid)
-    if root['session'] != process.pid: raise ValueError('isolated owned command identity required')
-    output = bytearray(); errors = bytearray(); selector = selectors.DefaultSelector()
+    root = None; owned_fd = None; selector = None
     try:
+        owned_fd = os.pidfd_open(process.pid)
+        observed = _process_identity(process.pid)
+        if observed['session'] != process.pid:
+            raise ValueError('isolated owned command identity required')
+        root = observed
+        output = bytearray(); errors = bytearray(); selector = selectors.DefaultSelector()
         for pipe, name in ((process.stdout, 'out'), (process.stderr, 'err')):
             os.set_blocking(pipe.fileno(), False); selector.register(pipe, selectors.EVENT_READ, name)
         while selector.get_map():
@@ -257,9 +271,22 @@ def _run(argv, maximum=2*1024*1024, *, timeout=8):
         if code: raise subprocess.CalledProcessError(code, argv)
         return bytes(output)
     finally:
-        selector.close()
-        _stop_command(process, root, end)
-        process.stdout.close(); process.stderr.close()
+        try:
+            if root is not None:
+                _stop_command(process, root, end)
+            else:
+                # A setup failure must still reap the exact direct Popen child.
+                # Before wait(), it cannot have been reaped and reused here.
+                if owned_fd is not None:
+                    try: signal.pidfd_send_signal(owned_fd, signal.SIGKILL)
+                    except ProcessLookupError: pass
+                else:
+                    process.kill()
+                process.wait(timeout=max(.001, end-time.monotonic()))
+        finally:
+            if selector is not None: selector.close()
+            process.stdout.close(); process.stderr.close()
+            if owned_fd is not None: os.close(owned_fd)
 
 
 def _inspect(container):
@@ -340,6 +367,29 @@ def _lock(pid, budget_file):
     return candidates[0]
 
 
+def _proc_bytes(path, maximum):
+    _require_time()
+    with open(path, 'rb') as stream:
+        raw = stream.read(maximum+1)
+    _require_time()
+    if len(raw) > maximum:
+        raise ValueError('bounded process metadata required')
+    return raw
+
+
+def _executable_digest(path):
+    with open(path, 'rb') as stream:
+        size = os.fstat(stream.fileno()).st_size
+        if not 0 < size <= MAX_EXECUTABLE_BYTES:
+            raise ValueError('running executable size bound')
+        hashed = hashlib.sha256(); count = 0
+        while block := stream.read(1024*1024):
+            _require_time(); count += len(block)
+            if count > MAX_EXECUTABLE_BYTES: raise ValueError('running executable growth bound')
+            hashed.update(block)
+        return hashed.hexdigest()
+
+
 def _daemon(expected, name):
     container = expected['containers'][name]; value = _inspect(container)
     state = value['State']; pid = state['Pid']; paths = expected['config_paths'][name]
@@ -355,14 +405,9 @@ def _daemon(expected, name):
     config = _file(paths['host'], 2*1024*1024)
     # /proc/PID/exe is intentionally a kernel symlink; hash the opened running
     # image, not a named file in the container that can have been replaced.
-    with open(f'/proc/{pid}/exe', 'rb') as stream:
-        hashed = hashlib.sha256()
-        while block := stream.read(1024*1024):
-            _require_time(); hashed.update(block)
-        binary = hashed.hexdigest()
-    command = Path(f'/proc/{pid}/cmdline').read_bytes().rstrip(b'\0').decode().split('\0')
-    environ = Path(f'/proc/{pid}/environ').read_bytes()
-    if len(environ) > 131072: raise ValueError('process environment bound')
+    binary = _executable_digest(f'/proc/{pid}/exe')
+    command = _proc_bytes(f'/proc/{pid}/cmdline', 131072).rstrip(b'\0').decode().split('\0')
+    environ = _proc_bytes(f'/proc/{pid}/environ', 131072)
     entries = environ.rstrip(b'\0').decode().split('\0'); env = dict(x.split('=', 1) for x in entries)
     relevant = {k: v for k, v in env.items() if k.upper().startswith(('CAPTAIND_', 'WATCHMAND_', 'BARK_SERVER_'))}
     if any(k not in ('CAPTAIND_LOG', 'WATCHMAND_LOG') or v != 'info' for k, v in relevant.items()):
