@@ -15,7 +15,8 @@ def ordinary_fee_facts(runtime,*,versions,costs,groups,accounting_receipt_sha256
         raise EvidenceGap('B continuing ordinary: urgent private publication/input proof unavailable')
     policy=loaded_native_fee_policy(runtime,network='signet')
     maximum=runtime['public_configuration']['watchmand']['direct_expiry']['max_miner_fee_sat']
-    pending=retained_ceiling_exposure(runtime,partition,versions,maximum)
+    pending=retained_ceiling_exposure(runtime,partition,versions,maximum,
+        runtime['public_configuration']['watchmand']['fee_estimator_max_sat_kwu'])
     budget=native.require_native_budget_join(runtime,server_pubkey=server_pubkey,costs=costs,
         groups=groups,accounting_receipt_sha256=accounting_receipt_sha256,
         opening_cost_sequences=COST_SEQUENCES,retained_versions=versions['versions'])
@@ -30,7 +31,7 @@ def ordinary_fee_facts(runtime,*,versions,costs,groups,accounting_receipt_sha256
         'pending_native_fee_exposure_msat':{'ordinary':pending,'urgent':0},'loaded_policy':policy}
 
 
-def retained_ceiling_exposure(runtime,partition,versions,maximum):
+def retained_ceiling_exposure(runtime,partition,versions,maximum,max_rate_sat_kwu):
     """Source-ordered uniform whole ceilings; failed/unpublished holds remain.
 
     Native5a reserves the loaded maximum before every direct preparation. The
@@ -38,6 +39,7 @@ def retained_ceiling_exposure(runtime,partition,versions,maximum):
     emitted. Every retained version consumes one conservative full reservation;
     absent/failed attempts keep consuming theirs even without a history txid.
     """
+    rate=integer(max_rate_sat_kwu,'actual loaded direct rate ceiling',1)
     rows=partition['ordinary_attempts'];history=runtime['native_budget']['history']['txids']
     prefix=runtime['native_budget']['disk_budget']['history_prefix_bytes']//65
     following=history[prefix:]
@@ -48,6 +50,11 @@ def retained_ceiling_exposure(runtime,partition,versions,maximum):
     for txid in following:
         tx=versions['versions'][txid];fee=integer(tx['fee_sat'],'retained miner fee')
         if fee>maximum:raise EvidenceGap('B continuing ordinary: retained version exceeds exact prepare ceiling')
+        weight=integer(versions['signed_weight_wu'].get(txid),'actual signed candidate weight',1)
+        # Exact native CarrierLimits max_fee_rate.fee_wu(tx.weight()), with
+        # integer ceiling; original opening predates this loaded policy.
+        if fee>(rate*weight+999)//1000:
+            raise EvidenceGap('B continuing ordinary: retained version exceeds loaded signed-weight rate ceiling')
         state=versions['states'].get(txid)
         if state not in {'mempool','confirmed','replaced'}:
             raise EvidenceGap('B continuing ordinary: unknown retained current disposition')
