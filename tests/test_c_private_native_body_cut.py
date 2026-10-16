@@ -69,6 +69,22 @@ class PrivateNativeBodyCut(unittest.TestCase):
             database=self.f.consume(value['public_lines'],self.fixture.limits,self.fixture.binding,lambda:0)
             self.assertEqual(self.rows,database['rows']);self.assertFalse(database['complete']);self.assertFalse(database['qualified'])
             self.assertNotIn(b'body_hex',b''.join(value['public_lines']))
+    def test_exact_closed19_keeps_spent_and_unspent_pool_and_retirement(self):
+        self.populated()
+        # Authenticated closed=True model deliberately has NO active-only filter.
+        self.assertEqual('vtxo_pool',self.f.projections()['pool']['table'])
+        public={'id':2,'vtxo_id':'2'*64+':0','expiry_height':200,'amount':1000}
+        self.rows['pool'].append(public)
+        self.pg['pool'].append({'metadata':copy.deepcopy(public),'spent_at':None,'source_encoding':'VtxoFull','body_hex':'00dd'})
+        value=self.capture();private=c.common._json(value['private_pg'])
+        self.assertEqual(2,len(private['pool']));self.assertIsNotNone(private['pool'][0]['spent_at']);self.assertIsNone(private['pool'][1]['spent_at'])
+        self.assertEqual(self.pg['pool_retirements'],private['pool_retirements'])
+        for missing in (True,False):
+            raw=BodyPG(self.f,self.rows,self.pg)
+            if missing:raw.rows['pool'].pop(0) # even spent source is mandatory.
+            else:raw.rows['pool'].append({**public,'id':3,'vtxo_id':'3'*64+':0'})
+            with self.assertRaisesRegex(ValueError,'membership or metadata'):self.capture(raw)
+
     def test_wrong_role_or_resource_preflight_refuses_before_any_body_read(self):
         for key,value in [('role','trackcserver'),('database','foreign'),('coins',10001),('coins_bytes',c.MAX_BYTES+1),('pool_max',c.MAX_BODY_BYTES+1),('pending_boards_null',1),('pool',True)]:
             raw=BodyPG(self.f,self.rows,self.pg);raw.size[key]=value
@@ -103,3 +119,38 @@ class PrivateNativeBodyCut(unittest.TestCase):
             self.assertNotIn('preimage',sql);self.assertNotIn('seed',sql);self.assertNotIn('SELECT *',sql)
         self.assertIn('ORDER BY b.vtxo_id',c.PRIVATE_SQL)
         self.assertIn('ORDER BY b.id',c.PRIVATE_SQL)
+
+
+class PrivateNativeBodyPackage(unittest.TestCase):
+    def setUp(self):
+        self.cut=PrivateNativeBodyCut();self.cut.setUp();self.addCleanup(self.cut.doCleanups)
+        self.cut.populated();self.value=self.cut.capture();self.path=self.cut.fixture.root/'body.tar'
+        from simulator import c_private_native_body_package
+        self.p=c_private_native_body_package;self.safe=self.p.write_private_package(self.value,self.path)
+    def load(self,**changes):
+        x=self.cut.fixture
+        args={'expected_package_sha256':self.safe['sha256'],'expected_source_sha256':self.value['source_sha256'],
+          'expected_financial_pins':x.observation['financial_pins'],'expected_observation':x.observation,
+          'expected_chain':x.chain,'adapter':x.fixed,'limits':x.limits,'binding':x.binding,'producer_exit':lambda:0}
+        args.update(changes);return self.p.load_target_tar(self.path,**args)
+    def test_private_actual_tar_round_trip_retains_originals_not_readiness(self):
+        result=self.load();self.assertEqual(0o600,self.path.stat().st_mode&0o777)
+        self.assertEqual(self.cut.pg,result['private_pg']);self.assertFalse(result['qualified']);self.assertFalse(result['complete'])
+        self.assertEqual({'cut.json','private-pg.json','public-frontier.ndjson'},set(result['originals']))
+        with self.assertRaises(FileExistsError):self.p.write_private_package(self.value,self.path)
+    def test_wrong_hash_source_pins_tip_and_actual_transport_failure_refuse(self):
+        for change in [{'expected_package_sha256':'f'*64},{'expected_source_sha256':'e'*64},
+            {'expected_financial_pins':{**self.value['financial_pins'],'sdk_commit':'d'*40}},
+            {'expected_chain':{**self.value['chain'],'height':101}},
+            {'producer_exit':lambda:1},{'producer_exit':lambda:False},{'producer_exit':lambda:None}]:
+            with self.subTest(change=list(change)),self.assertRaises(ValueError):self.load(**change)
+    def test_loose_mode_symlink_and_nonzero_trailing_tar_data_refuse(self):
+        self.path.chmod(0o644)
+        with self.assertRaises(ValueError):self.load()
+        self.path.chmod(0o600)
+        other=self.path.with_name('linked.tar');other.symlink_to(self.path);original=self.path;self.path=other
+        with self.assertRaises(ValueError):self.load()
+        self.path=original
+        with self.path.open('ab')as f:f.write(b'private-trailing-data')
+        from simulator import c_private_fee_cut as common
+        with self.assertRaises(ValueError):self.load(expected_package_sha256=common.digest(self.path.read_bytes()))
