@@ -84,17 +84,66 @@ fn verify_original_forfeit(
     }))
 }
 
+/// Compare a literal stored native Full with the independently validated client
+/// Full. This authenticates the supplied representations, not their SQL origin.
+fn verify_native_original(
+    completed: &Vtxo<Full, ServerVtxoPolicy>,
+    completed_raw: &[u8],
+    anchor: &bitcoin::Transaction,
+    value: &Value,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let native_raw = decode_hex(value["native_vtxo"].as_str().ok_or("native original absent")?)?;
+    let native = Vtxo::<Full, ServerVtxoPolicy>::deserialize(&native_raw)?;
+    if completed.policy_type().to_string() != "pubkey"
+        || native.policy_type().to_string() != "pubkey"
+        || padding_marker(completed) || padding_marker(&native)
+    {
+        return Err("native completion requires ordinary non-padding Fulls".into());
+    }
+    // Canonical original hashes must bind exactly the bytes the caller supplied.
+    if completed.serialize() != completed_raw || native.serialize() != native_raw {
+        return Err("native completion requires canonical original Full bytes".into());
+    }
+    native.validate_unsigned(anchor)?;
+    if native.id() != completed.id()
+        || native.chain_anchor() != completed.chain_anchor()
+        || native.server_pubkey() != completed.server_pubkey()
+        || native.policy().serialize() != completed.policy().serialize()
+        || native.to_bare().serialize() != completed.to_bare().serialize()
+    {
+        return Err("native original identity or committed contract differs".into());
+    }
+    let relation = if native_raw == completed_raw {
+        "exact_full_equality"
+    } else if completed.is_final_hark_leaf_completion_of(&native) {
+        "final_hark_leaf_completion"
+    } else {
+        return Err("native original is not an exact known-field-preserving completion".into());
+    };
+    Ok(json!({
+        "native_vtxo_sha256": sha256::Hash::hash(&native_raw).to_string(),
+        "completed_vtxo_sha256": sha256::Hash::hash(completed_raw).to_string(),
+        "native_completion_relation": relation,
+        "native_owner_verified": false,
+        "payment_verified": false,
+        "native_completion_scope": "supplied native structure and exact completed signed path only; SQL origin, ownership, confirmation, payment, current availability and retirement are separate"
+    }))
+}
+
 fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     let fields = value.as_object().ok_or("public object required")?;
-    if ![2, 3, 5].contains(&fields.len())
-        || !["signed_vtxo", "server_pubkey"]
-            .iter()
-            .all(|field| fields.contains_key(*field))
-        || (fields.len() >= 3 && !fields.contains_key("anchor_raw"))
-        || (fields.len() == 5 && !["forfeit_raw", "forfeit_unlock_hash"]
-            .iter().all(|field| fields.contains_key(*field)))
+    let native_mode = fields.contains_key("native_vtxo");
+    let forfeit_mode = fields.contains_key("forfeit_raw") || fields.contains_key("forfeit_unlock_hash");
+    let anchor_mode = fields.contains_key("anchor_raw");
+    let mut permitted = vec!["signed_vtxo", "server_pubkey"];
+    if anchor_mode { permitted.push("anchor_raw"); }
+    if native_mode { permitted.push("native_vtxo"); }
+    if forfeit_mode { permitted.extend(["forfeit_raw", "forfeit_unlock_hash"]); }
+    if fields.len() != permitted.len()
+        || !permitted.iter().all(|field| fields.contains_key(*field))
+        || ((native_mode || forfeit_mode) && !anchor_mode)
     {
-        return Err("only public coin, raw anchor, pinned server key and paired original forfeit fields permitted".into());
+        return Err("only exact coin/server, optional anchor, native original and paired forfeit fields permitted".into());
     }
     let encoded = decode_hex(value["signed_vtxo"].as_str().ok_or("coin absent")?)?;
     if encoded.first()==Some(&b'{') {
@@ -136,7 +185,12 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     } else {
         coin.validate(&tx)?;
     }
-    let forfeit = if fields.len() == 5 {
+    let native_original = if native_mode {
+        Some(verify_native_original(&coin, &encoded, &tx, value)?)
+    } else {
+        None
+    };
+    let forfeit = if forfeit_mode {
         Some(verify_original_forfeit(&coin, value)?)
     } else {
         None
@@ -164,6 +218,10 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         "chain_contract_verified":!padding,"padding_backing_structure_verified":padding,
         "signed_path_valid":!padding,"client_owner_verified":false,
         "scope":if padding {"protocol padding unsigned structure and exact raw anchor; signatures, customer ownership, confirmation and spend status are unproved"} else {"public server-policy contract and exact raw anchor; confirmations, customer ownership and current spendability are separate"}});
+    if let Some(native_original) = native_original {
+        response.as_object_mut().ok_or("contract response must be an object")?
+            .extend(native_original.as_object().ok_or("native response must be an object")?.clone());
+    }
     if let Some(forfeit) = forfeit {
         response.as_object_mut().ok_or("contract response must be an object")?
             .extend(forfeit.as_object().ok_or("forfeit response must be an object")?.clone());
@@ -425,6 +483,178 @@ mod tests {
         hash[0] ^= 1; foreign_hash["forfeit_unlock_hash"] = json!(encode(hash));
         assert!(verify_contract(&foreign_hash).is_err());
         let mut detached = request.clone(); detached["forfeit_signature_valid"] = json!(true);
+        assert!(verify_contract(&detached).is_err());
+    }
+
+    // Uses the exact public native builder APIs exercised by e217's own
+    // final_hark_completion_tests. This is an unfunded cryptographic unit
+    // fixture, never a real Core/native database qualification.
+    fn native_completion_fixture() -> (Transaction, Vtxo<Full, ServerVtxoPolicy>, Vtxo<Full, ServerVtxoPolicy>) {
+        use ark::{VtxoPolicy, VtxoRequest};
+        use ark::tree::signed::{LeafVtxoCosignContext, LeafVtxoCosignResponse};
+        use ark::tree::signed::builder::SignedTreeBuilder;
+        use bitcoin::secp256k1::Keypair;
+        fn key(byte: u8) -> Keypair {
+            Keypair::from_secret_key(&ark::SECP, &bitcoin::secp256k1::SecretKey::from_slice(&[byte; 32]).unwrap())
+        }
+        let leaf_key = key(1);
+        let user_cosign = key(2);
+        let server = key(3);
+        let server_cosign = key(4);
+        let preimage = [7; 32];
+        let expiry = 128u32.into();
+        let delta = 12u16.into();
+        let requests = [10_000, 20_000].map(|amount| VtxoRequest {
+            amount: Amount::from_sat(amount),
+            policy: VtxoPolicy::new_pubkey(leaf_key.public_key()),
+        });
+        let builder = SignedTreeBuilder::new(requests.iter().cloned(), user_cosign.public_key(), preimage,
+            expiry, server.public_key(), server_cosign.public_key(), delta).unwrap();
+        let funding = Transaction { version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO, input: vec![], output: vec![builder.funding_txout()] };
+        let point = OutPoint::new(funding.compute_txid(), 0);
+        let builder = builder.set_utxo(point).generate_user_nonces(&user_cosign);
+        let response = SignedTreeBuilder::new_for_cosign(requests.iter().cloned(), user_cosign.public_key(),
+            preimage, expiry, server.public_key(), server_cosign.public_key(), delta, point,
+            builder.user_pub_nonces().to_vec()).unwrap().server_cosign(&server_cosign);
+        builder.verify_cosign_response(&response).unwrap();
+        let tree = builder.build_tree(&response, &user_cosign).unwrap().into_cached_tree();
+        let original = tree.output_vtxos().next().unwrap();
+        let mut complete = original.clone();
+        let (context, request) = LeafVtxoCosignContext::new(&complete, &funding, &leaf_key).unwrap();
+        let response = LeafVtxoCosignResponse::new_cosign(&request, &complete, &funding, &server).unwrap();
+        assert!(context.finalize(&mut complete, response));
+        assert!(complete.provide_unlock_preimage(preimage));
+        original.validate_unsigned(&funding).unwrap();
+        assert!(original.validate(&funding).is_err());
+        complete.validate(&funding).unwrap();
+        (funding, original.into(), complete.into())
+    }
+
+    fn native_request(anchor: &Transaction, original: &Vtxo<Full, ServerVtxoPolicy>, complete: &Vtxo<Full, ServerVtxoPolicy>) -> Value {
+        json!({"signed_vtxo":encode(complete.serialize()),
+            "anchor_raw":encode(bitcoin::consensus::serialize(anchor)),
+            "server_pubkey":complete.server_pubkey().to_string(),
+            "native_vtxo":encode(original.serialize())})
+    }
+
+    #[test]
+    fn native_original_fields_require_anchor_exact_shape_and_ordinary_full() {
+        let mut no_anchor = fixture();
+        no_anchor.as_object_mut().unwrap().remove("anchor_raw");
+        no_anchor["native_vtxo"] = no_anchor["signed_vtxo"].clone();
+        assert!(verify_contract(&no_anchor).is_err());
+        let mut expiry = fixture(); expiry["native_vtxo"] = expiry["signed_vtxo"].clone();
+        assert!(verify_contract(&expiry).is_err(), "internal expiry policy is outside ordinary completion scope");
+        let mut padding: Value = serde_json::from_str(include_str!("../../tests/fixtures/public-round-padding-anchor.json")).unwrap();
+        padding["native_vtxo"] = padding["signed_vtxo"].clone();
+        assert!(verify_contract(&padding).is_err());
+        let mut projected: Value = serde_json::from_str(include_str!("../../tests/fixtures/public-round-padding.json")).unwrap();
+        projected["native_vtxo"] = projected["signed_vtxo"].clone();
+        assert!(verify_contract(&projected).is_err());
+        let (anchor, original, complete) = native_completion_fixture();
+        let request = native_request(&anchor, &original, &complete);
+        for key in ["native_completion_relation", "native_owner_verified", "payment_verified", "detached_native_valid"] {
+            let mut changed = request.clone(); changed[key] = json!(true);
+            assert!(verify_contract(&changed).is_err());
+        }
+        let mut paired = request; paired["forfeit_raw"] = json!("00");
+        assert!(verify_contract(&paired).is_err(), "forfeit fields remain paired in native mode");
+    }
+
+    #[test]
+    fn native_original_accepts_exact_or_only_known_field_preserving_final_leaf_completion() {
+        let (anchor, original, complete) = native_completion_fixture();
+        let mut variants = vec![(original.clone(), "final_hark_leaf_completion"),
+            (complete.clone(), "exact_full_equality")];
+        let signature = schnorr::Signature::from_slice(
+            complete.transactions().last().unwrap().tx.input[0].witness.iter().next().unwrap()).unwrap();
+        let mut signature_only = original.clone();
+        assert!(signature_only.provide_unlock_signature(signature));
+        assert!(signature_only.transactions().last().unwrap().tx.input[0].witness.is_empty());
+        variants.push((signature_only, "final_hark_leaf_completion"));
+        let mut preimage_only = original;
+        assert!(preimage_only.provide_unlock_preimage([7; 32]));
+        assert!(preimage_only.transactions().last().unwrap().tx.input[0].witness.is_empty());
+        variants.push((preimage_only, "final_hark_leaf_completion"));
+        for (native, relation) in variants {
+            let request = native_request(&anchor, &native, &complete);
+            let proof = verify_contract(&request).unwrap();
+            assert_eq!(proof["native_completion_relation"], relation);
+            assert_eq!(proof["native_vtxo_sha256"], sha256::Hash::hash(&native.serialize()).to_string());
+            assert_eq!(proof["completed_vtxo_sha256"], sha256::Hash::hash(&complete.serialize()).to_string());
+            assert_eq!(proof["signed_path_valid"], true);
+            assert_eq!(proof["client_owner_verified"], false);
+            assert_eq!(proof["native_owner_verified"], false);
+            assert_eq!(proof["payment_verified"], false);
+        }
+    }
+
+    #[test]
+    fn native_original_refuses_hidden_corrupt_partial_signature() {
+        use bitcoin::secp256k1::{Keypair, Message, SecretKey};
+        let (anchor, mut original, complete) = native_completion_fixture();
+        let key = Keypair::from_secret_key(&ark::SECP, &SecretKey::from_slice(&[5; 32]).unwrap());
+        let unrelated = ark::SECP.sign_schnorr_no_aux_rand(&Message::from_digest([99; 32]), &key);
+        assert!(original.provide_unlock_signature(unrelated));
+        assert!(original.transactions().last().unwrap().tx.input[0].witness.is_empty(),
+            "the corrupt known signature is hidden by missing preimage");
+        original.validate_unsigned(&anchor).unwrap();
+        complete.validate(&anchor).unwrap();
+        assert!(verify_contract(&native_request(&anchor, &original, &complete)).is_err());
+    }
+
+    #[test]
+    fn native_original_refuses_corrupt_known_preimage_or_unvalidated_completed_path() {
+        let (anchor, original, complete) = native_completion_fixture();
+        let mut request = native_request(&anchor, &complete, &complete);
+        let mut raw = complete.serialize();
+        let marker = [7u8; 32];
+        let offsets = raw.windows(marker.len()).enumerate().filter_map(|(i, b)| (b == marker).then_some(i)).collect::<Vec<_>>();
+        assert_eq!(offsets.len(), 1, "public synthetic preimage must have a unique encoding position");
+        raw[offsets[0]] ^= 1;
+        request["native_vtxo"] = json!(encode(raw));
+        assert!(verify_contract(&request).is_err());
+        let mut request = native_request(&anchor, &original, &complete);
+        request["signed_vtxo"] = json!(encode(original.serialize()));
+        assert!(verify_contract(&request).is_err(), "native structure cannot supply missing completed signatures");
+        let mut foreign_anchor = anchor.clone(); foreign_anchor.lock_time = bitcoin::absolute::LockTime::from_consensus(1);
+        let request = native_request(&foreign_anchor, &original, &complete);
+        assert!(verify_contract(&request).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires a private genuine captured native-original/client-Full paired request"]
+    fn archived_native_original_completion_controls() {
+        use std::os::unix::fs::MetadataExt;
+        let path = std::env::var_os("BARK_SIM_ACTUAL_NATIVE_COMPLETION_REQUEST")
+            .expect("genuine private native/client completion fixture required");
+        let before = std::fs::symlink_metadata(&path).unwrap();
+        assert!(before.is_file() && !before.file_type().is_symlink() && before.mode() & 0o077 == 0
+            && before.nlink() == 1 && before.len() <= 2 * 1024 * 1024);
+        let mut file = std::fs::File::open(&path).unwrap();
+        let opened = file.metadata().unwrap();
+        assert!(before.dev() == opened.dev() && before.ino() == opened.ino() && before.len() == opened.len());
+        let mut raw = Vec::new(); file.by_ref().take(2 * 1024 * 1024 + 1).read_to_end(&mut raw).unwrap();
+        let opened_after = file.metadata().unwrap(); let after = std::fs::symlink_metadata(&path).unwrap();
+        assert!(raw.len() as u64 == before.len() && before.dev() == after.dev() && before.ino() == after.ino()
+            && before.mode() == after.mode() && before.uid() == after.uid() && before.nlink() == after.nlink()
+            && before.len() == after.len() && before.mtime() == after.mtime() && before.mtime_nsec() == after.mtime_nsec()
+            && before.ctime() == after.ctime() && before.ctime_nsec() == after.ctime_nsec()
+            && opened.dev() == opened_after.dev() && opened.ino() == opened_after.ino() && opened.len() == opened_after.len()
+            && opened.mtime() == opened_after.mtime() && opened.mtime_nsec() == opened_after.mtime_nsec()
+            && opened.ctime() == opened_after.ctime() && opened.ctime_nsec() == opened_after.ctime_nsec());
+        let request: Value = serde_json::from_slice(&raw).unwrap();
+        let proof = verify_contract(&request).expect("genuine completed/native representation relation must validate");
+        assert!(matches!(proof["native_completion_relation"].as_str(),
+            Some("exact_full_equality" | "final_hark_leaf_completion")));
+        assert_eq!(proof["signed_path_valid"], true);
+        assert_eq!(proof["client_owner_verified"], false);
+        assert_eq!(proof["native_owner_verified"], false);
+        assert_eq!(proof["payment_verified"], false);
+        let mut changed = request.clone(); changed["native_vtxo"] = json!("00");
+        assert!(verify_contract(&changed).is_err());
+        let mut detached = request; detached["native_completion_relation"] = json!("exact_full_equality");
         assert!(verify_contract(&detached).is_err());
     }
 
