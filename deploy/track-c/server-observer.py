@@ -50,6 +50,13 @@ def checked_file(path, *, maximum=2*1024*1024):
 
 
 def validate_manifest(value):
+    if isinstance(value,dict) and 'operating_projection' in value:
+        binding=value['operating_projection']
+        if(not isinstance(binding,dict) or set(binding)!={'c_runtime_profile.py','model.py','bip39-english.txt'}):
+            raise ValueError('exact public C operating projection source package required')
+        for digest in binding.values():public.public_hash(digest)
+        validate_manifest({key:item for key,item in value.items() if key!='operating_projection'})
+        return value
     required={'schema_version','track','architecture_profile','active','deployment_id',
               'genesis','financial_pins','observer_files','ops','services'}
     if (not isinstance(value,dict) or set(value)!=required or type(value['schema_version']) is not int
@@ -154,7 +161,7 @@ def config(service):
     value=json.loads(public.ops('public-config',service))
     allowed={'sha256','network','postgres_database','vtxo_lifetime','pool_lifetime_blocks',
         'min_trusted_confs','round_interval','required_board_confirmations','fee_estimator',
-        'watchman','direct_expiry','expiry_payout','lightning_configured','vtxopool'}
+        'watchman','direct_expiry','expiry_payout','lightning_configured','vtxopool','operating_source'}
     if not isinstance(value,dict) or set(value)-allowed or 'sha256' not in value:
         raise ValueError('allowlisted public config only')
     public.public_hash(value['sha256'])
