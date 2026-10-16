@@ -41,7 +41,7 @@ def _json(raw):
     return json.loads(raw,object_pairs_hook=pairs)
 
 def bind_native_claim(expected,row,contract_request,contract_response,binding_request,binding_response,*,genesis,server_pubkey,
-                      completed_vtxo=None,source_anchor_raw=None,policy_sdk_commit=None):
+                      completed_vtxo=None,source_anchor_raw=None,policy_sdk_commit=None,retained_public_projection=None):
     """Join ORIGINAL native tool requests/outputs, after actual pinned execution.
 
     `expected` is the preserved authenticated owner/coin claim, never a newly
@@ -53,17 +53,28 @@ def bind_native_claim(expected,row,contract_request,contract_response,binding_re
     _check(isinstance(req,dict) and isinstance(contract,dict) and isinstance(breq,dict)
         and set(breq)=={'user_pubkey','binding','key_link_attestation'},'native proof request differs')
     full=_hex(row['signed_vtxo_hex']);completion={}
-    if completed_vtxo is None and source_anchor_raw is None and policy_sdk_commit is None:
+    if completed_vtxo is None and source_anchor_raw is None and policy_sdk_commit is None and retained_public_projection is None:
         _check(set(req)=={'signed_vtxo','anchor_raw','server_pubkey'},'native proof request differs')
         _check(_hex(req['signed_vtxo'])==full and req['server_pubkey']==server_pubkey,'signed native proof input differs')
     else:
         _check(isinstance(completed_vtxo,str) and isinstance(source_anchor_raw,str)
             and policy_sdk_commit==NATIVE_COMPLETION_SDK,'exact native-completion source/SDK required')
         completed=_hex(completed_vtxo)
-        _check(_hash(completed)==expected.get('signed_hash'),'retained completed claim hash differs')
-        _check(set(req)=={'signed_vtxo','native_vtxo','anchor_raw','server_pubkey'}
-            and req=={'signed_vtxo':completed_vtxo,'native_vtxo':row['signed_vtxo_hex'],
-                'anchor_raw':source_anchor_raw,'server_pubkey':server_pubkey},'literal current completed/native request differs')
+        wanted_request={'signed_vtxo':completed_vtxo,'native_vtxo':row['signed_vtxo_hex'],
+            'anchor_raw':source_anchor_raw,'server_pubkey':server_pubkey}
+        if retained_public_projection is None:
+            _check(_hash(completed)==expected.get('signed_hash'),'retained completed claim hash differs')
+        else:
+            retained=_hex(retained_public_projection)
+            _check(retained.startswith(b'{') and not completed.startswith(b'{')
+                and _hash(retained)==expected.get('signed_hash'),'retained public original hash differs')
+            wanted_request['retained_public_projection']=retained_public_projection
+            _check(contract.get('retained_public_projection_sha256')==_hash(retained)
+                and contract.get('retained_public_projection_relation')=='exact_ordinary_public_encoding'
+                and contract.get('retained_public_projection_verified')is True
+                and contract.get('retained_original_owner_verified')is False,
+                'executed current exact projection/Full relation required')
+        _check(req==wanted_request,'literal current completed/native request differs')
         relation='exact_full_equality' if full==completed else 'final_hark_leaf_completion'
         wanted={'schema_version':1,'sdk_commit':policy_sdk_commit,'native_vtxo_sha256':_hash(full),
             'completed_vtxo_sha256':_hash(completed),'native_completion_relation':relation,

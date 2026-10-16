@@ -351,15 +351,18 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     if value.get("signed_tree").is_some() { return verify_round_allocation(value); }
     let fields = value.as_object().ok_or("public object required")?;
     let native_mode = fields.contains_key("native_vtxo");
+    let retained_projection_mode = fields.contains_key("retained_public_projection");
     let forfeit_mode = fields.contains_key("forfeit_raw") || fields.contains_key("forfeit_unlock_hash");
     let anchor_mode = fields.contains_key("anchor_raw");
     let mut permitted = vec!["signed_vtxo", "server_pubkey"];
     if anchor_mode { permitted.push("anchor_raw"); }
     if native_mode { permitted.push("native_vtxo"); }
+    if retained_projection_mode { permitted.push("retained_public_projection"); }
     if forfeit_mode { permitted.extend(["forfeit_raw", "forfeit_unlock_hash"]); }
     if fields.len() != permitted.len()
         || !permitted.iter().all(|field| fields.contains_key(*field))
         || ((native_mode || forfeit_mode) && !anchor_mode)
+        || (retained_projection_mode && (!native_mode || forfeit_mode))
     {
         return Err("only exact coin/server, optional anchor, native original and paired forfeit fields permitted".into());
     }
@@ -408,6 +411,33 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     } else {
         None
     };
+    let retained_projection = if retained_projection_mode {
+        if padding || coin.policy_type().to_string() != "pubkey"
+            || !coin.transactions().all(|item| item.tx.input.len() == 1
+                && item.tx.input[0].witness.len() == 1
+                && item.tx.input[0].witness.iter().all(|part| part.len() == 64))
+        {
+            return Err("retained projection join supports only fully signed ordinary key paths".into());
+        }
+        let raw = decode_hex(value["retained_public_projection"].as_str().ok_or("retained projection absent")?)?;
+        let verified = bark_sim_driver::public_coin::verify(&raw, &tx)?;
+        if verified.conditional_steps != 0 {
+            return Err("conditional retained projection requires its own source join".into());
+        }
+        // Reuse the original public representation. Compare EVERY encoded
+        // transaction, policy and signature, not just Bare fields or txids.
+        // No conditional witness/preimage is omitted by this ordinary mode.
+        let user = coin.clone().try_into_user_vtxo().map_err(|_| "ordinary user policy required")?;
+        let expected = bark_sim_driver::public_coin::encode(&user)?;
+        if serde_json::from_slice::<Value>(&raw)? != serde_json::from_slice::<Value>(&expected)? {
+            return Err("retained public original differs from exact ordinary Full encoding".into());
+        }
+        Some(json!({"retained_public_projection_sha256":sha256::Hash::hash(&raw).to_string(),
+            "retained_public_projection_relation":"exact_ordinary_public_encoding",
+            "retained_public_projection_verified":true,"retained_original_owner_verified":false}))
+    } else {
+        None
+    };
     let forfeit = if forfeit_mode {
         Some(verify_original_forfeit(&coin, value)?)
     } else {
@@ -443,6 +473,10 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     if let Some(forfeit) = forfeit {
         response.as_object_mut().ok_or("contract response must be an object")?
             .extend(forfeit.as_object().ok_or("forfeit response must be an object")?.clone());
+    }
+    if let Some(retained_projection) = retained_projection {
+        response.as_object_mut().ok_or("contract response must be an object")?
+            .extend(retained_projection.as_object().ok_or("retained projection response must be an object")?.clone());
     }
     Ok(response)
 }
@@ -586,6 +620,63 @@ mod tests {
             point,
         );
         json!({"signed_vtxo":encode(coin.serialize()),"anchor_raw":encode(bitcoin::consensus::serialize(&tx)),"server_pubkey":server.to_string()})
+    }
+    #[cfg(feature = "two-step")]
+    fn retained_projection_fixture() -> Value {
+        use ark::board::BoardBuilder;
+        use bitcoin::secp256k1::{Keypair, SecretKey};
+        let user=Keypair::from_secret_key(&ark::SECP,&SecretKey::from_slice(&[31;32]).unwrap());
+        let server=Keypair::from_secret_key(&ark::SECP,&SecretKey::from_slice(&[32;32]).unwrap());
+        let builder=BoardBuilder::new(user.public_key(),144u32.into(),server.public_key(),12u16.into());
+        let amount=Amount::from_sat(28000);let fee=Amount::from_sat(330);
+        let funding=Transaction {version:bitcoin::transaction::Version::TWO,
+            lock_time:bitcoin::absolute::LockTime::ZERO,input:vec![],
+            output:vec![TxOut {value:amount,script_pubkey:builder.funding_script_pubkey()}]};
+        let point=OutPoint::new(funding.compute_txid(),0);
+        let builder=builder.set_funding_details(amount,fee,point).unwrap().generate_user_nonces();
+        let cosign=BoardBuilder::new_for_cosign(user.public_key(),144u32.into(),server.public_key(),
+            12u16.into(),amount,fee,point,*builder.user_pub_nonce()).server_cosign(&server);
+        let coin=builder.build_vtxo(&cosign,&user).unwrap();
+        json!({"signed_vtxo":encode(coin.serialize()),"native_vtxo":encode(coin.serialize()),
+            "retained_public_projection":encode(bark_sim_driver::public_coin::encode(&coin).unwrap()),
+            "anchor_raw":encode(bitcoin::consensus::serialize(&funding)),"server_pubkey":server.public_key().to_string()})
+    }
+    #[test]
+    #[cfg(feature = "two-step")]
+    fn retained_public_original_matches_every_ordinary_full_field() {
+        let request=retained_projection_fixture();let result=verify_contract(&request).unwrap();
+        assert_eq!(result["retained_public_projection_verified"],true);
+        assert_eq!(result["retained_public_projection_relation"],"exact_ordinary_public_encoding");
+        assert_eq!(result["retained_original_owner_verified"],false);
+        assert_eq!(result["native_completion_relation"],"exact_full_equality");
+        assert_eq!(result["amount_sat"],27670);
+        let raw=decode_hex(request["retained_public_projection"].as_str().unwrap()).unwrap();
+        assert_eq!(result["retained_public_projection_sha256"],sha256::Hash::hash(&raw).to_string());
+    }
+    #[test]
+    #[cfg(feature = "two-step")]
+    fn retained_public_original_refuses_signature_transaction_and_bare_substitutions() {
+        for field in ["signature","transaction","bare_vtxo"] {
+            let mut request=retained_projection_fixture();
+            let mut projection:Value=serde_json::from_slice(&decode_hex(request["retained_public_projection"].as_str().unwrap()).unwrap()).unwrap();
+            let value=if field=="signature" {&mut projection["path"][0]["authorization"]["signature"]}
+                else if field=="transaction" {&mut projection["path"][0]["transaction"]} else {&mut projection["bare_vtxo"]};
+            let mut raw=decode_hex(value.as_str().unwrap()).unwrap();raw[0]^=1;*value=json!(encode(raw));
+            request["retained_public_projection"]=json!(encode(serde_json::to_vec(&projection).unwrap()));
+            assert!(verify_contract(&request).is_err(),"known public field {field} must match and verify");
+        }
+    }
+    #[test]
+    #[cfg(feature = "two-step")]
+    fn retained_public_original_requires_exact_paired_mode_and_full_signatures() {
+        for field in ["native_vtxo","anchor_raw"] {
+            let mut request=retained_projection_fixture();request.as_object_mut().unwrap().remove(field);
+            assert!(verify_contract(&request).is_err());
+        }
+        let mut request=retained_projection_fixture();request["forfeit_raw"]=json!("00");
+        assert!(verify_contract(&request).is_err());
+        let mut request=retained_projection_fixture();request["signed_vtxo"]=request["retained_public_projection"].clone();
+        assert!(verify_contract(&request).is_err(),"projection cannot be interpreted as Full");
     }
     #[test]
     fn decodes_real_public_padding_marker_without_claiming_owner_or_backing() {
