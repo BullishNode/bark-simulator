@@ -6,7 +6,6 @@ import copy
 import hashlib
 import json
 from pathlib import Path
-import sys
 import tempfile
 import time
 from types import SimpleNamespace
@@ -51,7 +50,9 @@ if value.pop('synthetic_child_failure',False):raise SystemExit(3)
 if not value.pop('synthetic_stale',False):value['observed_at']=time.time()
 print(json.dumps(value))
 """);self.helper.chmod(0o500)
-        python=str(Path(sys.executable).resolve())
+        # The producer requires a protected installed executable. The runner's
+        # toolcache interpreter can have different ownership/mode/link metadata.
+        python=str(Path('/usr/bin/python3').resolve())
         command=[python,str(self.helper),str(self.frame_path)]
         self.configuration={'command':command,'command_files':{p:self.sha(Path(p))for p in (python,str(self.helper))},
             'startup_path':str(self.startup),'startup_sha256':self.sha(self.startup),
