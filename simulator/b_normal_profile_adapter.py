@@ -98,6 +98,9 @@ class InitialDirectProfile:
         return initial.historical_money(store,chain,old_boundary,boundary,
             context['scripts'],context['direct']['groups'])
 
+    def loaded_fee_policy(self,runtime,*,network):
+        return loaded_native_fee_policy(runtime,network=network)
+
     def fee_projection(self,runtime,*,context,**kwargs):
         return initial.InitialTerminalProfile().fee_projection(runtime,**kwargs)
 
@@ -296,7 +299,7 @@ class InitialDirectProfile:
         public_policy=runtime.get('public_configuration')
         _require(public_policy is not None and public_policy == admitted['b_public_configuration'],
                  'actual protected loaded public fee-policy source unavailable/different')
-        limits=loaded_native_fee_policy(runtime,network=config.network)['fee_ceilings_sat_kvb']
+        limits=self.loaded_fee_policy(runtime,network=config.network)['fee_ceilings_sat_kvb']
         _require(limits == envelope['fee_ceilings_sat_kvb'], 'envelope differs from actual supported fee paths')
         _require(opening is not None and 'b_upgrade' in opening,
             'strict preserved treasury upgrade required; no A first-opening alias')

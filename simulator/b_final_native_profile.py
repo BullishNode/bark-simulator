@@ -49,11 +49,15 @@ class FinalNativeDirectProfile(ContinuingDirectProfile):
         return True
 
     def component_hashes(self):
+        from .b_final_native_fees import final_ordinary_fee_facts
+        from .b_native_normal_verifier import retained_fee_accounting
         return {**super().component_hashes(),
             'b_final_native_profile':module_hash(checked_owner),
             'b_native_owner_snapshot':module_hash(owner_snapshot),
             'b_private_native_fee_inputs':module_hash(prepare_native_fee_request),
-            'b_native_fee_reply':module_hash(bind_native_fee_reply)}
+            'b_native_fee_reply':module_hash(bind_native_fee_reply),
+            'b_final_native_fees':module_hash(final_ordinary_fee_facts),
+            'b_retained_fee_accounting':module_hash(retained_fee_accounting)}
 
     def prepare_target(self, target, admitted, observation, tools):
         self.validate_proof_tools(tools, admitted)
@@ -125,8 +129,15 @@ class FinalNativeDirectProfile(ContinuingDirectProfile):
             'source event/native private originals differ')
         return target
 
+    def loaded_fee_policy(self,runtime,*,network):
+        from .b_native_fee_policy import loaded_final_native_fee_policy
+        return loaded_final_native_fee_policy(runtime,network=network)
+
     def fee_projection(self,runtime,*,context,**kwargs):
-        # Never send final owner data through the obsolete Python disk grammar.
-        # Independent final Core/wallet/cost joins must replace this explicit
-        # hold before an installed final profile can authorize any operation.
-        _require(False, 'final owner proof needs independent retained fee/Core/wallet accounting joins')
+        from .b_final_native_fees import final_ordinary_fee_facts
+        kwargs.pop('selected_points')
+        watch=next(m for m in context['boundary']['members']if m['id']=='watchman')
+        return final_ordinary_fee_facts(runtime,native_fee_source=context['native_fee_source'],
+            versions=context['versions'],wallet_context={
+                'member':watch,'scripts':context['scripts'],'scan':context['normalized_scan'],
+                'tip':(context['tip_height'],context['tip_hash'])},**kwargs)
