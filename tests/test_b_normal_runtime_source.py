@@ -42,7 +42,7 @@ def fixture():
     checkpoint['native_budget'] = copy.deepcopy(budget); checkpoint['observed_at_ns'] = started-2
     lock = {'pid': 51, 'fd': 5, 'device': meta['device'], 'inode': 44,
             'lock_line': 'lock:\t1: FLOCK  ADVISORY  WRITE 51 08:01:44 0 EOF', 'fdinfo_sha256': h}
-    observation = {'started_at_ns': started+1, 'completed_at_ns': started+2,
+    observation = {'started_at_ns': started+1, 'completed_at_ns': started+2, 'elapsed_ns': 1,
         'before': daemons, 'after': copy.deepcopy(daemons), 'native_budget': budget, 'native_budget_after': copy.deepcopy(budget),
         'budget_lock': lock, 'budget_lock_after': dict(lock), 'admin_responses': {n: h for n in runtime.SERVICES},
         'canonical_schema_sha256': h, 'canonical_schema_repeat_sha256': h}
@@ -163,17 +163,17 @@ class BudgetCaptureTests(unittest.TestCase):
             parent = Path(root); directory = parent/'direct-expiry-witness'; directory.mkdir()
             files = {n: (str(i)+'\n').encode() for i,n in enumerate(runtime.BUDGET_FILES)}
             for n, raw in files.items(): (directory/n).write_bytes(raw)
-            (directory/'history').write_bytes(b'oldnew'); receipt=parent/'receipt'; receipt.write_bytes(b'actual')
+            (directory/'history').write_bytes(b'a'*64+b'\n'+b'b'*64+b'\n'); receipt=parent/'receipt'; receipt.write_bytes(b'actual')
             projection = {'policy_sha256': runtime.digest(files[runtime.BUDGET_FILES[0]]),
                 'opening_sha256': runtime.digest(files[runtime.BUDGET_FILES[1]]),
                 'budget_file_sha256': runtime.digest(files[runtime.BUDGET_FILES[2]]),
-                'history_prefix_bytes': 3, 'history_prefix_sha256': runtime.digest(b'old'),
+                'history_prefix_bytes': 65, 'history_prefix_sha256': runtime.digest(b'a'*64+b'\n'),
                 'accounting_receipt_sha256': runtime.digest(b'actual')}
             helper = types.SimpleNamespace(source_mount=lambda:(directory,{'source':str(parent)}),
                 read_directory=lambda _:dict(projection), LIMITS={n:100 for n in files})
             expected={'data_mount':{'source':str(parent)},'accounting_receipt_path':str(receipt)}
             actual=runtime._budget(expected,helper)
-            self.assertEqual(actual['history']['prefix_sha256'],runtime.digest(b'old'))
+            self.assertEqual(actual['history']['prefix_sha256'],runtime.digest(b'a'*64+b'\n'))
             receipt.write_bytes(b'other')
             with self.assertRaisesRegex(ValueError,'accounting receipt'): runtime._budget(expected,helper)
 
@@ -189,3 +189,89 @@ class BudgetCaptureTests(unittest.TestCase):
     def test_protected_sources_required_before_capture(self):
         with patch.object(runtime,'checked_file',side_effect=ValueError('root-owned immutable installed file required')):
             with self.assertRaisesRegex(ValueError,'root-owned'): runtime.capture_protected('/tmp/expected','/tmp/checkpoint')
+
+class BoundedCaptureTests(unittest.TestCase):
+    def test_stdout_stops_before_writer_finishes(self):
+        import sys
+        with tempfile.TemporaryDirectory() as root:
+            marker=Path(root)/'progress'
+            script="import os,pathlib; p=pathlib.Path("+repr(str(marker))+"); [(os.write(1,b'x'*4096),p.open('ab').write(b'x')) for i in range(768)]"
+            with self.assertRaises(ValueError): runtime._run([sys.executable,'-c',script],maximum=1024)
+            self.assertLess(marker.stat().st_size if marker.exists() else 0,32)
+
+    def test_stderr_stops_before_writer_finishes(self):
+        import sys
+        with tempfile.TemporaryDirectory() as root:
+            marker=Path(root)/'progress'
+            script="import os,pathlib; p=pathlib.Path("+repr(str(marker))+"); [(os.write(2,b'x'*4096),p.open('ab').write(b'x')) for i in range(768)]"
+            with self.assertRaises(ValueError): runtime._run([sys.executable,'-c',script])
+            self.assertLess(marker.stat().st_size if marker.exists() else 0,64)
+
+    def test_deadline_stops_verified_descendants_and_reaps_direct_command(self):
+        import subprocess,sys,time
+        original=subprocess.Popen; created=[]
+        def track(*a,**kw):
+            process=original(*a,**kw);created.append(process);return process
+        with tempfile.TemporaryDirectory() as root:
+            marker=Path(root)/'child'
+            script="import subprocess,sys,time,pathlib; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(20)']); pathlib.Path("+repr(str(marker))+").write_text(str(p.pid)); time.sleep(20)"
+            with patch.object(runtime.subprocess,'Popen',side_effect=track):
+                with self.assertRaisesRegex(ValueError,'deadline'): runtime._run([sys.executable,'-c',script],timeout=2)
+            self.assertEqual(len(created),1);self.assertIsNotNone(created[0].returncode)
+            with self.assertRaises(ChildProcessError): os.waitpid(created[0].pid,os.WNOHANG)
+            child=int(marker.read_text())
+            for _ in range(100):
+                path=Path('/proc')/str(child)/'stat'
+                if not path.exists() or path.read_text().rsplit(')',1)[1].split()[0]=='Z':break
+                time.sleep(.01)
+            else:self.fail('owned descendant remained running after deadline')
+
+    def test_capture_duration_cannot_borrow_fresh_completion(self):
+        args=fixture();args[2]['completed_at_ns']=args[2]['started_at_ns']+61*10**9;args[2]['elapsed_ns']=61*10**9
+        with self.assertRaisesRegex(ValueError,'duration'): runtime.verify(*args,now_ns=args[2]['completed_at_ns'])
+
+    def test_monotonic_capture_bound_independent_of_wall_clock(self):
+        args=fixture();args[2]['elapsed_ns']=61*10**9
+        with self.assertRaisesRegex(ValueError,'duration'): runtime.verify(*args,now_ns=args[2]['completed_at_ns'])
+
+    def test_public_canonical_history_projection(self):
+        raw=b'a'*64+b'\n'+b'b'*64+b'\n'
+        self.assertEqual(runtime.history_txids(raw,65),['a'*64,'b'*64])
+        self.assertEqual(runtime.history_txids(b'',0),[])
+
+    def test_history_rejects_duplicate_torn_uppercase_and_outofbound(self):
+        for raw,prefix in ((b'a'*64+b'\n'+b'a'*64+b'\n',65),(b'a'*64,0),(b'A'*64+b'\n',65),(b'a'*64+b'\n',64),(b'a'*64+b'\n',130),(b'a'*650001,0)):
+            with self.assertRaises(ValueError): runtime.history_txids(raw,prefix)
+
+
+class AggregateDeadlineTests(unittest.TestCase):
+    def test_shared_deadline_interrupts_command_before_own_eight_seconds(self):
+        import sys,time
+        token=runtime._CAPTURE_END.set(time.monotonic()+.5)
+        started=time.monotonic()
+        try:
+            with self.assertRaisesRegex(ValueError,'deadline'):
+                runtime._run([sys.executable,'-c','import time;time.sleep(10)'])
+        finally:runtime._CAPTURE_END.reset(token)
+        self.assertLess(time.monotonic()-started,2)
+
+    def test_expired_shared_deadline_refuses_before_new_command(self):
+        import time
+        token=runtime._CAPTURE_END.set(time.monotonic()-1)
+        try:
+            with patch.object(runtime.subprocess,'Popen')as spawn:
+                with self.assertRaisesRegex(ValueError,'aggregate'):runtime._run(['/usr/bin/true'])
+                spawn.assert_not_called()
+        finally:runtime._CAPTURE_END.reset(token)
+
+
+class OwnedPidTests(unittest.TestCase):
+    def test_changed_pid_startticks_never_receives_signal(self):
+        actual=runtime._process_identity(os.getpid()); changed=dict(actual);changed['start_ticks']-=1
+        with patch.object(runtime.signal,'pidfd_send_signal')as send:
+            with self.assertRaisesRegex(ValueError,'identity changed'):runtime._signal_owned(changed,runtime.signal.SIGSTOP)
+            send.assert_not_called()
+
+    def test_bounded_successful_command_keeps_exact_output(self):
+        import sys
+        self.assertEqual(runtime._run([sys.executable,'-c',"print('owned',end='')"]),b'owned')
