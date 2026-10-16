@@ -155,7 +155,7 @@ class PrivateInputControls(unittest.TestCase):
         return target,r,{'id':'1'*32,'height':101,'tip_hash':H(30)}
     def prepare(self,t,r,o):
         from simulator.b_private_native_fee_inputs import prepare_native_fee_request
-        return prepare_native_fee_request(t,r,expected_product_commit=PIN,observation=o)
+        return prepare_native_fee_request(t,r,expected_product_commit=PIN,expected_tool_commit='2'*40,observation=o)
     def mutate_originals(self,t,edit):
         name='b-native-fee-originals.json';value=json.loads(t['auxiliary_originals'][name]);edit(value)
         raw=json.dumps(value).encode();t['auxiliary_originals'][name]=raw
@@ -165,6 +165,8 @@ class PrivateInputControls(unittest.TestCase):
         self.assertEqual(request['originals']['journal_raw'],'private signed package fixture')
         self.assertEqual(request['expected']['database_sha256'],digest(request['originals']['database_raw'].encode()))
         self.assertEqual(request['source_observation'],o)
+        self.assertEqual(request['sdk_commit'],'2'*40)
+        self.assertEqual(r['product_commit'],PIN)
         # Deliberately synthetic empty DB contradicts snapshotfunding: preparation
         # must NOT claim native row equality; actual native verifier must refuse.
         self.assertNotIn('complete',request);self.assertNotIn('qualified',request)

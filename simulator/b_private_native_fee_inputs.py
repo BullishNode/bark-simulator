@@ -16,7 +16,7 @@ DATABASE_FIELDS={'native_funding_fee_intent','native_funding_fee_input',
                  'native_funding_fee_resolution','nursery_tx'}
 
 
-def prepare_native_fee_request(target,runtime,*,expected_product_commit,observation):
+def prepare_native_fee_request(target,runtime,*,expected_product_commit,expected_tool_commit,observation):
     """Bind private original bytes, preserving the same SQL transaction output.
 
     The new protected producer must emit one literal RR transaction containing
@@ -24,6 +24,9 @@ def prepare_native_fee_request(target,runtime,*,expected_product_commit,observat
     actual PostgreSQL isolation/membership. Framing text/response flags alone do
     not. No legacy separate-query or missing-table fallback is accepted.
     """
+    need(type(expected_tool_commit) is str and len(expected_tool_commit)==40
+        and all(c in '0123456789abcdef' for c in expected_tool_commit),
+        'independent actual proof tool source absent')
     manifest=target.get('manifest',{});files=target.get('auxiliary_originals',{})
     mapping=manifest.get('auxiliary_originals',{});entries=manifest.get('files',{})
     selected={}
@@ -72,7 +75,7 @@ def prepare_native_fee_request(target,runtime,*,expected_product_commit,observat
         'fixed current source observation required')
     originals={name:private[name]for name in ('policy_raw','opening_raw','journal_raw')}
     originals['database_raw']=database_raw.decode()
-    return {'schema':1,'kind':'b-native-fee-source-request','sdk_commit':expected_product_commit,
+    return {'schema':1,'kind':'b-native-fee-source-request','sdk_commit':expected_tool_commit,
         'source_observation':observation,
         'expected':{'genesis':partition['genesis'],'server_pubkey':partition['server_pubkey'],
             'policy_sha256':partition['policy_sha256'],'opening_sha256':partition['opening_sha256'],
