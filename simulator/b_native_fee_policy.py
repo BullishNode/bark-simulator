@@ -41,18 +41,44 @@ def loaded_native_fee_policy(runtime, *, network):
     receive a supported financial path ceiling here. CLN ppm is not a fixed
     satoshi limit and urgent publication proof is separate. None stays absent.
     """
+    disk = runtime.get('native_budget',{}).get('disk_budget')
+    _need(type(disk) is dict and type(disk.get('schema_version')) is int
+        and disk['schema_version'] == 2, 'locked schema2 fee policy absent')
+    return _loaded_policy(runtime, network=network, product=PRODUCT,
+        source_map_sha256=SOURCE_MAP_SHA256, locked_policy=disk)
+
+
+FINAL_PRODUCT = '15e4fd7085802ba5f7b1d9a2c87aab7277d5a7e4'
+FINAL_SOURCE_MAP_SHA256 = 'f9e7f6cbcaafc07be37c34d9b9033be3dacfbe0d1f2f0335dcbd600f483698d9'
+
+
+def loaded_final_native_fee_policy(runtime, *, network):
+    """Literal final15e policy; actual native owner supplies the locked policy.
+
+    This establishes configured caps, never publication/input/cash coverage.
+    Unknown paths remain unsupported until their independent joins are added.
+    """
+    from .b_final_native_profile import checked_owner
+    checked_owner(runtime)
+    return _loaded_policy(runtime, network=network, product=FINAL_PRODUCT,
+        source_map_sha256=FINAL_SOURCE_MAP_SHA256,
+        locked_policy=runtime['native_budget']['owner_snapshot']['policy'])
+
+
+def _loaded_policy(runtime, *, network, product, source_map_sha256, locked_policy):
+    """One exact public configuration decoder for the two reviewed versions."""
     _need(network in {'signet','regtest'}, 'unsupported expected network')
-    _need(type(runtime) is dict and runtime.get('product_commit') == PRODUCT
-        and runtime.get('execution_release',{}).get('product_commit') == PRODUCT,
+    _need(type(runtime) is dict and runtime.get('product_commit') == product
+        and runtime.get('execution_release',{}).get('product_commit') == product,
         'exact reviewed5a runtime source required')
     public = runtime.get('public_configuration')
     _need(type(public) is dict and set(public) == {'schema_version','product_commit',
         'config_sha256','policy_source_sha256','captaind','watchmand'}
         and type(public['schema_version']) is int and public['schema_version'] == 1
-        and public['product_commit'] == PRODUCT, 'literal protected policy schema/source absent')
+        and public['product_commit'] == product, 'literal protected policy schema/source absent')
     source_map = public['policy_source_sha256']
     _need(type(source_map) is dict and hashlib.sha256(canonical(source_map).encode()).hexdigest()
-          == SOURCE_MAP_SHA256, 'reviewed native policy semantics source differs')
+          == source_map_sha256, 'reviewed native policy semantics source differs')
     hashes = public['config_sha256']; daemons = runtime.get('daemons')
     _need(type(hashes) is dict and set(hashes) == {'captaind','watchmand'}
         and type(daemons) is dict, 'paired loaded config hashes absent')
@@ -71,9 +97,6 @@ def loaded_native_fee_policy(runtime, *, network):
     _need(cap['network'] == network == watch['network'], 'loaded native networks differ')
     for field in ('vtxo_lifetime','vtxo_exit_delta','htlc_expiry_delta','htlc_send_expiry_delta'):
         _number(cap[field],field,maximum=2**32-1)
-    disk = runtime.get('native_budget',{}).get('disk_budget')
-    _need(type(disk) is dict and type(disk.get('schema_version')) is int
-        and disk['schema_version'] == 2, 'locked schema2 fee policy absent')
     direct = watch.get('direct_expiry'); cap_direct = cap.get('direct_expiry')
     _need(type(direct) is dict and set(direct) == {'max_miner_fee_sat','ordinary_fee_policy'}
         and type(cap_direct) is dict and set(cap_direct) == {'enabled','grace_blocks'}
@@ -83,7 +106,7 @@ def loaded_native_fee_policy(runtime, *, network):
     fields = {'ordinary_budget_sat','urgent_reserve_sat','external_future_reserved_sat','opening_sha256'}
     _need(type(policy) is dict and set(policy) == fields
         and direct.get('ordinary_fee_policy') == policy
-        and all(disk.get(k) == v for k,v in policy.items()), 'paired loaded/locked ordinary policy differs')
+        and all(locked_policy.get(k) == v for k,v in policy.items()), 'paired loaded/locked ordinary policy differs')
     allowance = _number(policy['ordinary_budget_sat'],'lifetime allowance',minimum=1,maximum=MAX_MONEY)
     _number(policy['urgent_reserve_sat'],'urgent sublimit',minimum=1,maximum=allowance)
     _number(policy['external_future_reserved_sat'],'external future partition',maximum=allowance)
