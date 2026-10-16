@@ -47,6 +47,9 @@ def runtime_from_target(target, admission):
 
 class InitialDirectProfile:
     architecture = DIRECT
+    public_context_key = 'b_public_context'
+    public_context_filename = 'b-public-metadata-context.json'
+    backing_source_kind = 'b_original_direct_backing'
 
     def opening(self, store):
         from .preserved_treasury_upgrade import recorded
