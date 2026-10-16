@@ -11,6 +11,11 @@ two-step = []
 direct-per-key = []
 
 [[bin]]
+name = "native-full-proof"
+path = "src/bin/native-full-proof.rs"
+required-features = ["direct-per-key"]
+
+[[bin]]
 name = "noah-public-proof"
 path = "../integration/noah-public-proof/src/main.rs"
 
@@ -42,6 +47,7 @@ bdk_wallet = "=3.1.0"
 bdk_bitcoind_rpc = "=0.22.0"
 
 [dev-dependencies]
+ark-lib = { path = "../source/lib", features = ["test-util"] }
 bdk_wallet = { version = "=3.1.0", features = ["test-utils"] }
 bark-bitcoin-ext = { path = "../source/bitcoin-ext" }
 
