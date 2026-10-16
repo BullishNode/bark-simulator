@@ -48,6 +48,34 @@ class FixedProfileControls(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'strict preserved treasury upgrade'):asyncio.run(run())
 
 
+class PolicyAdmissionControls(unittest.TestCase):
+    def setUp(self):
+        from tests.test_two_step_normal import AdmissionTests
+        self.fixture=AdmissionTests();self.fixture.setUp()
+        self.fixture.collector.native_profile=adapter.InitialDirectProfile()
+        self.fixture.value['component_sha256'].update(
+            self.fixture.collector.native_profile.component_hashes())
+
+    def tearDown(self):self.fixture.tearDown()
+
+    def test_changed_policy_module_invalidates_existing_source_admission(self):
+        f=self.fixture;f.admit()
+        self.assertEqual(f.value,f.collector.admission(f.store,f.value['financial_pins']))
+        original=adapter.module_hash
+        def changed(component):
+            return '0'*64 if component is adapter.loaded_native_fee_policy else original(component)
+        with patch.object(adapter,'module_hash',side_effect=changed):
+            with self.assertRaisesRegex(ValueError,'qualification'):
+                f.collector.admission(f.store,f.value['financial_pins'])
+
+    def test_original_admission_without_policy_dependency_is_insufficient(self):
+        f=self.fixture
+        del f.value['component_sha256']['b_native_fee_policy']
+        f.admit()
+        with self.assertRaisesRegex(ValueError,'qualification'):
+            f.collector.admission(f.store,f.value['financial_pins'])
+
+
 class SignedBProjectionControls(unittest.TestCase):
     def setUp(self):
         self.h=fixtures.DirectControls();self.h.setUp();self.f=self.h.f;self.store=self.h.store
