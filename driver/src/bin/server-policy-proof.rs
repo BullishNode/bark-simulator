@@ -345,8 +345,74 @@ fn verify_pending_entitlement(value: &Value) -> Result<Value, Box<dyn std::error
         "scope":"supplied signed-tree pending entitlement membership and derived unsigned native path only; no client leaf completion, SQL provenance, ownership, input retirement, payment, chain confirmation or current availability; preserve original obligations separately"}))
 }
 
+/// Public physical-point membership only. Never export witness/scriptSig/key bodies.
+#[cfg(feature = "two-step")]
+fn checked_public_path_size(nodes: usize, inputs: usize, outputs: usize, raw: usize)
+    -> Result<(), Box<dyn std::error::Error>>
+{
+    let projected_bound=raw.checked_mul(2)
+        .and_then(|n|inputs.checked_mul(96).and_then(|v|n.checked_add(v)))
+        .and_then(|n|outputs.checked_mul(128).and_then(|v|n.checked_add(v)))
+        .and_then(|n|nodes.checked_mul(256).and_then(|v|n.checked_add(v)))
+        .and_then(|n|n.checked_add(16384)).ok_or("path public JSON size overflow")?;
+    if nodes > 256 || inputs > 4096 || outputs > 4096 || raw > 2*1024*1024 || projected_bound > 2*1024*1024 {
+        return Err("bounded validated public transaction path exceeded".into());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "two-step")]
+fn verify_public_transaction_path(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
+    let fields=value.as_object().ok_or("public object required")?;
+    let mut permitted=vec!["mode","signed_vtxo","anchor_raw","server_pubkey"];
+    if fields.contains_key("native_vtxo") { permitted.push("native_vtxo"); }
+    if fields.len()!=permitted.len() || !permitted.iter().all(|key|fields.contains_key(*key))
+        || value["mode"].as_str()!=Some("validated_transaction_path")
+    {
+        return Err("exact validated-transaction-path request required".into());
+    }
+    let mut base=value.clone();base.as_object_mut().ok_or("object required")?.remove("mode");
+    // Existing full/anchor/native verifier runs FIRST and preserves its exact
+    // signed versus unsigned-padding and known-field-completion distinctions.
+    let mut response=verify_contract(&base)?;
+    let encoded=decode_hex(value["signed_vtxo"].as_str().ok_or("coin absent")?)?;
+    let coin=Vtxo::<Full,ServerVtxoPolicy>::deserialize(&encoded)?;
+    let mut count=0usize;let mut inputs=0usize;let mut outputs=0usize;let mut raw=0usize;
+    for item in coin.transactions() {
+        count=count.checked_add(1).ok_or("path count overflow")?;
+        inputs=inputs.checked_add(item.tx.input.len()).ok_or("path input overflow")?;
+        outputs=outputs.checked_add(item.tx.output.len()).ok_or("path output overflow")?;
+        raw=raw.checked_add(item.tx.total_size()).ok_or("path raw byte overflow")?;
+        checked_public_path_size(count,inputs,outputs,raw)?;
+        if item.output_idx as usize>=item.tx.output.len() { return Err("path selected output absent".into()); }
+    }
+    // All aggregate bounds precede projection/transaction-byte materialisation.
+    let path=coin.transactions().map(|item| json!({
+        "txid":item.tx.compute_txid().to_string(),"output_index":item.output_idx,
+        "transaction_sha256":sha256::Hash::hash(&bitcoin::consensus::serialize(&item.tx)).to_string(),
+        "inputs":item.tx.input.iter().map(|input|input.previous_output.to_string()).collect::<Vec<_>>(),
+        "outputs":item.tx.output.iter().enumerate().map(|(n,output)|json!({
+            "n":n,"amount_sat":output.value.to_sat(),"script_pubkey":output.script_pubkey.to_hex_string()
+        })).collect::<Vec<_>>()
+    })).collect::<Vec<_>>();
+    let object=response.as_object_mut().ok_or("public result object required")?;
+    object.insert("mode".into(),json!("validated_transaction_path"));
+    object.insert("validated_vtxo_sha256".into(),json!(sha256::Hash::hash(&encoded).to_string()));
+    object.insert("anchor_raw_sha256".into(),json!(sha256::Hash::hash(&decode_hex(value["anchor_raw"].as_str().ok_or("anchor absent")?)?).to_string()));
+    object.insert("public_transaction_path".into(),json!(path));
+    object.insert("public_path_transaction_count".into(),json!(count));
+    object.insert("public_path_input_count".into(),json!(inputs));
+    object.insert("public_path_output_count".into(),json!(outputs));
+    object.insert("public_path_raw_size_bytes".into(),json!(raw));
+    object.insert("retirement_verified".into(),json!(false));
+    object.insert("payment_verified".into(),json!(false));
+    object.insert("current_spendability_verified".into(),json!(false));
+    Ok(response)
+}
+
 #[cfg(feature = "two-step")]
 fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
+    if value["mode"].as_str()==Some("validated_transaction_path") { return verify_public_transaction_path(value); }
     if value.get("mode").is_some() { return verify_pending_entitlement(value); }
     if value.get("signed_tree").is_some() { return verify_round_allocation(value); }
     let fields = value.as_object().ok_or("public object required")?;
@@ -640,6 +706,59 @@ mod tests {
         json!({"signed_vtxo":encode(coin.serialize()),"native_vtxo":encode(coin.serialize()),
             "retained_public_projection":encode(bark_sim_driver::public_coin::encode(&coin).unwrap()),
             "anchor_raw":encode(bitcoin::consensus::serialize(&funding)),"server_pubkey":server.public_key().to_string()})
+    }
+    #[test]
+    #[cfg(feature = "two-step")]
+    fn public_transaction_path_preserves_direct_expiry_contract_and_false_credit() {
+        let mut request=fixture();request["mode"]=json!("validated_transaction_path");
+        let result=verify_contract(&request).unwrap();
+        assert_eq!(result["policy"],"expiry");assert_eq!(result["public_transaction_path"],json!([]));
+        assert_eq!(result["public_path_transaction_count"],0);
+        assert_eq!(result["validated_vtxo_sha256"],sha256::Hash::hash(&decode_hex(request["signed_vtxo"].as_str().unwrap()).unwrap()).to_string());
+        for flag in ["client_owner_verified","payment_verified","retirement_verified","current_spendability_verified"] {
+            assert_eq!(result[flag],false);
+        }
+    }
+    #[test]
+    #[cfg(feature = "two-step")]
+    fn public_transaction_path_validates_signed_board_and_projects_all_outputs_without_witnesses() {
+        let mut request=retained_projection_fixture();request.as_object_mut().unwrap().remove("retained_public_projection");
+        request["mode"]=json!("validated_transaction_path");let result=verify_contract(&request).unwrap();
+        let coin=Vtxo::<Full,ServerVtxoPolicy>::deserialize(&decode_hex(request["signed_vtxo"].as_str().unwrap()).unwrap()).unwrap();
+        let expected=coin.transactions().collect::<Vec<_>>();
+        assert_eq!(result["public_transaction_path"].as_array().unwrap().len(),expected.len());
+        assert!(!expected.is_empty());assert_eq!(result["signed_path_valid"],true);
+        for (projected,item) in result["public_transaction_path"].as_array().unwrap().iter().zip(expected) {
+            assert_eq!(projected["txid"],item.tx.compute_txid().to_string());
+            assert_eq!(projected["outputs"].as_array().unwrap().len(),item.tx.output.len());
+            assert!(projected.get("witness").is_none() && projected.get("raw").is_none() && projected.get("script_sig").is_none());
+        }
+    }
+    #[test]
+    #[cfg(feature = "two-step")]
+    fn public_transaction_path_cannot_bypass_anchor_native_or_mode_boundaries() {
+        for mutation in ["anchor","native","projection","forfeit","mode","tree"] {
+            let mut request=retained_projection_fixture();request.as_object_mut().unwrap().remove("retained_public_projection");
+            request["mode"]=json!("validated_transaction_path");
+            match mutation {
+                "anchor" => request["anchor_raw"]=json!("00"),
+                "native" => request["native_vtxo"]=json!("00"),
+                "projection" => request["public_projection"]=json!({}),
+                "forfeit" => request["forfeit_raw"]=json!("00"),
+                "mode" => request["mode"]=json!("pending_entitlement"),
+                "tree" => request["signed_tree"]=json!("00"),
+                _ => unreachable!(),
+            }
+            assert!(verify_contract(&request).is_err(),"path projection must not widen accepted modes");
+        }
+    }
+    #[test]
+    #[cfg(feature = "two-step")]
+    fn public_transaction_path_size_refuses_each_aggregate_limit() {
+        checked_public_path_size(1,1,2,1000).unwrap();
+        for tuple in [(257,1,1,1),(1,4097,1,1),(1,1,4097,1),(1,1,1,2*1024*1024+1),(256,4096,4096,1000000)] {
+            assert!(checked_public_path_size(tuple.0,tuple.1,tuple.2,tuple.3).is_err());
+        }
     }
     #[test]
     #[cfg(feature = "two-step")]
