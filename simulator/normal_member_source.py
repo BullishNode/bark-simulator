@@ -12,7 +12,7 @@ from .chain import ChainReader
 from .model import SIGNET_GENESIS, btc_to_sat, canonical, integer, timestamp
 from .two_step_normal import digest, native_tables, strict_json
 from .public_wallet_metadata import wallet_metadata
-from .scanned_public_wallets import scan_current
+from .descriptor_checkpoint import current_from_checkpoint
 
 
 class ConfigCredential:
@@ -175,7 +175,9 @@ class MemberReader:
             path=Path(cfg['wallet_root'])/actor/'db.sqlite'
             metadata[actor]=wallet_metadata(path) if path.exists() else {'wallet_database_exists':False}
         save('public-wallet-metadata.json',canonical(metadata).encode())
-        frames=scan_current(chain,members,cfg['actor_member_ids'],prepared,metadata,rpc_records)
+        frames=current_from_checkpoint(chain,members,cfg['actor_member_ids'],prepared,metadata,rpc_records,
+            path=cfg['descriptor_checkpoint'],expected_sha256=cfg['descriptor_checkpoint_sha256'],
+            prepared_sha256=cfg['prepared_descriptors_sha256'])
         bank=cfg['bank_member_id'];fixture=cfg['fixture_member_id'];target_cln=cfg['target_cln_member_id'];backing=cfg['backing_member_id']
         bank_raw=strict_json(originals[manifest['originals_map']['bank']],decimals=True)
         frames[bank]=bank_projection(bank_raw,members[bank],chain,height=observation['height'],tip_hash=observation['tip_hash'],records=[digest(raw_manifest),*rpc_records])

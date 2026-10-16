@@ -32,6 +32,13 @@ and all fee-history/source originals retain their actual byte hashes.
   its values remain only in local memory. This is not a full wallet cookie.
 - prepared_descriptors and prepared_descriptors_sha256: the immutable genuine
   all24 pure-derivation/fresh-generation manifest, containing no seed bodies.
+- descriptor_checkpoint and descriptor_checkpoint_sha256: an actual admitted
+  retained two-batch UTXO-scan manifest and exact original file hashes. This is
+  not a fresh balance; each observation applies the complete subsequent active
+  block interval (at most144 blocks), rechecks all current outputs and matches
+  the full owning-script mempool. Reorgs, stale checkpoints or newly issued
+  indices outside the actual scanned window hold. Slow scans run separately
+  while paused; the90-second financial freshness rule remains unchanged.
 - wallet_root: the existing actor wallet parent; only public descriptor/index
   and locked-outpoint SQL columns are read. Nonempty WAL requires a separately
   authenticated consistent private snapshot; no SDK wallet is opened.
@@ -43,7 +50,7 @@ and all fee-history/source originals retain their actual byte hashes.
 configuration SHA256 and actor_member_ids. Admission additionally binds the
 actual target/member reader configurations by `reader_configuration_sha256`.
 The qualification event's `capture_dependencies_sha256` includes target_reader,
-member_reader, public_wallet_metadata, descriptor_scan and factory module hashes.
+member_reader, public_wallet_metadata, descriptor_checkpoint and factory module hashes.
 Its `member_source_sha256` is the composer module hash; `target_source_sha256`
 is the actual installed TARGET source program hash. Core adapter/tool/native
 fee/history qualification fields are defined in two-step-normal-collector.md.
@@ -59,9 +66,10 @@ identity fields; PSBTs and preimages are omitted.
 Customer discovery uses actual single-External BDK descriptors and persisted
 issued frontiers. The descriptor ID must equal SHA256 of the independently
 derived index-zero script. Existing zero snapshots do not supply a birthday.
-Current unspent outputs are scanned in bounded batches of at most16 descriptors,
-independently checked through Core, with a separate complete matching-script
-mempool activity check. All24 identities remain present, including permanent
+Initial unspent outputs are genuinely scanned in bounded batches of at most16
+descriptors. Recurring observations verify the retained active scan block, apply
+every subsequent matching-script confirmed event, independently check current
+Core outputs and verify separate complete matching-script mempool activity. All24 identities remain present, including permanent
 absences and genuinely dormant future identities. A scan does not replace the
 historical injection/cost/rights or source-provenance proofs.
 
