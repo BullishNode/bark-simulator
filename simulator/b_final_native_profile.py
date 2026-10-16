@@ -13,7 +13,7 @@ from .b_native_owner_snapshot import owner_snapshot
 from .b_private_native_fee_inputs import AUXILIARY, prepare_native_fee_request
 from .b_native_fee_reply import bind_native_fee_reply
 from .model import canonical
-from .two_step_normal import digest, module_hash, strict_json, run_native_fee_source_proof
+from .two_step_normal import digest, module_hash, strict_json, native_wallet, run_native_fee_source_proof
 
 PRODUCT = '15e4fd7085802ba5f7b1d9a2c87aab7277d5a7e4'
 PRIVATE = 'b_native_fee_private'
@@ -29,6 +29,26 @@ def checked_owner(runtime):
     # The protected producer/source admission proves process/route/custody;
     # this independent decoder validates exact native fields/arithmetic.
     return owner_snapshot(raw.encode(), runtime, expected_product_commit=PRODUCT)
+
+
+def checked_owner_original(target,runtime):
+    partition=checked_owner(runtime)
+    _require(target.get('auxiliary_originals',{}).get(AUXILIARY['b_native_fee_snapshot'])==
+        runtime['native_budget']['owner_snapshot_raw'].encode(),
+        'private owner snapshot is not the exact protected CLI original')
+    return partition
+
+
+def checked_inventory_originals(target,runtime):
+    """Bind each exact original CLI reply to the protected same-window read."""
+    frames={}
+    for key,wallet,daemon in (('raw_rounds_inventory','rounds','captaind'),
+                              ('raw_watchman_inventory','watchman','watchmand')):
+        raw=target.get(key)
+        _require(type(raw)is bytes and digest(raw)==runtime.get('daemons',{}).get(daemon,{}).get('admin_response_sha256'),
+                 'same protected '+wallet+' inventory original/hash differs')
+        frames[wallet]=native_wallet(raw,wallet)
+    return frames
 
 
 class FinalNativeDirectProfile(ContinuingDirectProfile):
@@ -51,18 +71,28 @@ class FinalNativeDirectProfile(ContinuingDirectProfile):
     def component_hashes(self):
         from .b_final_native_fees import final_ordinary_fee_facts
         from .b_native_normal_verifier import retained_fee_accounting
+        from .b_private_native_fee_cut import sql as native_cut_sql
+        from .b_private_native_fee_capture import capture_private_cut
         return {**super().component_hashes(),
             'b_final_native_profile':module_hash(checked_owner),
             'b_native_owner_snapshot':module_hash(owner_snapshot),
             'b_private_native_fee_inputs':module_hash(prepare_native_fee_request),
             'b_native_fee_reply':module_hash(bind_native_fee_reply),
             'b_final_native_fees':module_hash(final_ordinary_fee_facts),
-            'b_retained_fee_accounting':module_hash(retained_fee_accounting)}
+            'b_retained_fee_accounting':module_hash(retained_fee_accounting),
+            'b_private_native_fee_cut':module_hash(native_cut_sql),
+            'b_private_native_fee_capture':module_hash(capture_private_cut)}
+
+    def member_frames(self,store,config,chain,cfg,observation,members,target,originals,manifest,rpc_records):
+        runtime=runtime_from_target(target,cfg['b_runtime_admission'])
+        checked_inventory_originals(target,runtime)
+        return super().member_frames(store,config,chain,cfg,observation,members,target,
+                                     originals,manifest,rpc_records)
 
     def prepare_target(self, target, admitted, observation, tools):
         self.validate_proof_tools(tools, admitted)
         runtime = runtime_from_target(target, admitted)
-        checked_owner(runtime)
+        checked_owner_original(target,runtime)
         selected = {k:observation[k] for k in ('id','height','tip_hash')}
         request = prepare_native_fee_request(target, runtime,
             expected_product_commit=PRODUCT, expected_tool_commit=self.native_fee_tool['sdk_commit'],
@@ -82,7 +112,8 @@ class FinalNativeDirectProfile(ContinuingDirectProfile):
 
     def native_projection(self, store, chain, target, scripts, tip, admission, boundary, context):
         runtime = runtime_from_target(target, admission)
-        partition = checked_owner(runtime)
+        checked_inventory_originals(target,runtime)
+        partition = checked_owner_original(target,runtime)
         proof = target.get(PRIVATE)
         _require(type(proof) is dict and set(proof) == {'request_raw','reply_raw'},
                  'actual native private proof originals absent')
@@ -96,6 +127,12 @@ class FinalNativeDirectProfile(ContinuingDirectProfile):
             target['auxiliary_originals'][AUXILIARY['b_native_fee_snapshot']],
             expected_tool_commit=self.native_fee_tool['sdk_commit'])
         result = super().native_projection(store,chain,target,scripts,tip,admission,boundary,context)
+        public_nursery=result['database']['rows']['nursery']
+        private_nursery=reply['nursery_inventory']
+        _require(len({r['txid']for r in public_nursery})==len(public_nursery)
+            and {(r['txid'],r['kind'])for r in public_nursery}==
+                {(r['txid'],r['kind'])for r in private_nursery},
+            'same public/private whole nursery membership differs')
         result['native_fee_source'] = {'partition':partition, 'reply':reply}
         return result
 
