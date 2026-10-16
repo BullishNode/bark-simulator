@@ -119,12 +119,35 @@ def _native_inventory(binary,binary_sha256,address,timeout):
  value=json.loads(raw,object_pairs_hook=_pairs)
  return value,{'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw),'exit':proc.returncode}
 
+OWNER_MISSING={
+ 'rounds':'watchmand owns its wallet; inventory unavailable from captaind',
+ 'watchman':'captaind owns its rounds wallet; collect its separate source without assuming global atomicity',
+}
+OWNER_FIELDS={'wallet','network','public_descriptor','tip_height','tip_hash','min_trusted_confirmations',
+ 'complete','reserved_outpoints','last_revealed_index','utxos','pending_transaction_scope',
+ 'pending_transactions','pending_parents','unavailable_parent_txids'}
+
+def _owned_inventory_frame(frame,role):
+ """Each daemon speaks only for its OWN wallet, never global atomic completeness."""
+ if role not in OWNER_MISSING:raise ValueError('unknown native owning role')
+ other='watchman'if role=='rounds'else'rounds'
+ if (not isinstance(frame,dict)or set(frame)!={'rounds','watchman','complete','missing_sources'}
+     or frame['complete']is not False or frame[other]is not None
+     or frame['missing_sources']!=[OWNER_MISSING[role]]):
+  raise ValueError('exact owning-only native response with truthful missing other owner required')
+ owner=frame[role]
+ if (not isinstance(owner,dict)or set(owner)!=OWNER_FIELDS or owner['complete']is not True
+     or owner['wallet']!=role or owner['network']!='regtest'
+     or owner['pending_transaction_scope']!='canonical_wallet_graph_only'):
+  raise ValueError('complete actual owning-role inventory required')
+ return owner
+
 def _wallet_facts(chain,value,role,tip,deadline=None):
  if value.get('complete')is not True or value.get('network')!='regtest' or value.get('wallet')!=role:raise ValueError('complete actual owning wallet source required')
  if value.get('tip_height')!=tip['blocks']or value.get('tip_hash')!=tip['bestblockhash']:raise ValueError('owning wallet source tip differs')
  rows=value.get('utxos');reserved=value.get('reserved_outpoints')
  if not isinstance(rows,list)or len(rows)>2000 or not isinstance(reserved,list)or len(reserved)>2000:raise ValueError('complete native wallet row bound exceeded')
- if value.get('pending_transactions')or value.get('unavailable_parent_txids'):raise ValueError('quiescent complete native wallet source required')
+ if any(value.get(field)!=[]for field in ('pending_transactions','pending_parents','unavailable_parent_txids')):raise ValueError('quiescent complete native wallet source required')
  seen=set();total=eligible=0
  for row in rows:
   point=row['outpoint']
@@ -150,6 +173,7 @@ def _collect_worker(core_url,cookie,native_binary,native_sha256,rounds_admin,wat
      or not parsed.port or not 1<=parsed.port<=65535 or parsed.query or parsed.fragment
      or (parsed.path and re.fullmatch(r'/wallet/[A-Za-z0-9_.%~-]{1,128}',parsed.path)is None)):
   raise ValueError('exact local fixture Core endpoint required')
+ if rounds_admin==watch_admin:raise ValueError('distinct explicit owning daemon endpoints required')
  began=time.monotonic();chain=ChainReader(core_url,cookie,REGTEST_GENESIS,consumer='regtest-fixture-financial')
  before=chain.identity()
  if before.get('chain')!='regtest'or before.get('initialblockdownload')is not False:raise ValueError('verified non-IBD REGTEST required')
@@ -158,8 +182,11 @@ def _collect_worker(core_url,cookie,native_binary,native_sha256,rounds_admin,wat
   remaining=25-(time.monotonic()-began)
   if remaining<=0:raise TimeoutError('fixture source total deadline exceeded')
   frame,source=_native_inventory(native_binary,native_sha256,address,min(12,remaining))
-  if frame.get('complete')is not True or not isinstance(frame.get(role),dict):raise ValueError('actual native owner source unavailable')
-  facts[role]=_wallet_facts(chain,frame[role],role,before,began+25);raw_sources[role]=source
+  owner=_owned_inventory_frame(frame,role)
+  facts[role]=_wallet_facts(chain,owner,role,before,began+25)
+  raw_sources[role]={**source,'requested_admin_address':address,'owning_role':role,
+   'owning_inventory_complete':owner['complete'],'response_complete':frame['complete'],
+   'other_owner_absent':True,'missing_sources':frame['missing_sources']}
  after=chain.identity()
  if before['blocks']!=after['blocks']or before['bestblockhash']!=after['bestblockhash']or after.get('initialblockdownload')is not False:raise ValueError('fixture source tip changed')
  if time.monotonic()-began>25:raise TimeoutError('fixture source late result refused')

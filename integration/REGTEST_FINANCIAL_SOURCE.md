@@ -41,3 +41,18 @@ public descriptors and stripped transaction bodies. A must independently match
 its actual native ABI and qualified product; absence must hold, not alias C.
 Canonical common baseline0038; A's published SDK metadata contributiondc3b85a
 provides explicit sdk_commit propagation separately. No A checkout was changed.
+
+Ownership-scope ABI correction (v3): native WalletInventoryResponse is exactly
+rounds/watchman/complete/missing_sources. Actual captaind reports complete=false,
+rounds.complete=true, watchman=null and its fixed missing-watchmand explanation;
+watchmand reports the converse, with its fixed missing-captaind explanation. The
+collector requires these exact owning-role source shapes, distinct declared
+loopback admin endpoints, complete owning inventory and independent matching
+Core tip/value/script/reservations. It retains the original outer false and
+missing-other-owner metadata in the source digest receipt. Neither separate
+response nor their sequential combination is globally atomic/complete or ready.
+A must independently verify the same actual native ABI at its pinned source;
+changed strings/fields/absent/foreign/partial owner frames hold.
+Source: native902 server/src/rpcserver/admin.rs43–58,115–130;
+server/src/bin/captaind/main.rs694–734; server-rpc/protos/bark_server.proto849–856.
+No source-only mock or corrected ABI earns native runtime/readiness credit.
