@@ -381,9 +381,18 @@ def main():
     for field in ("check_id", "intent", "sender_before", "sender_after", "receiver_before", "receiver_after"):
         check.add_argument(field)
     check.add_argument("--maximum-fee-sat", type=int, required=True)
+    funding = commands.add_parser("record-funding")
+    funding.add_argument("actor")
+    funding.add_argument("txid")
+    funding.add_argument("index", type=int)
+    s01 = commands.add_parser("s01-step")
+    s01.add_argument("--board-sat", type=int, required=True)
+    s01.add_argument("--transfer-sat", type=int, required=True)
+    s01.add_argument("--maximum-fee-sat", type=int, required=True)
     args = parser.parse_args()
     campaign = Campaign(args.state, json.loads(args.config.read_text()))
     try:
+        progress = None
         if args.command == "execute":
             campaign.execute(args.intent, args.actor, args.operation, args.arguments)
         elif args.command == "abandon":
@@ -391,7 +400,17 @@ def main():
         elif args.command == "check-transfer":
             campaign.check_transfer(args.check_id, args.intent, args.sender_before, args.sender_after,
                                     args.receiver_before, args.receiver_after, args.maximum_fee_sat)
-        print(json.dumps(campaign.report(), indent=2))
+        elif args.command == "record-funding":
+            from .signet_s01 import funding_receipt
+            progress = funding_receipt(campaign, args.actor, args.txid, args.index)
+        elif args.command == "s01-step":
+            from .signet_s01 import S01
+            progress = S01(campaign, board_sat=args.board_sat, transfer_sat=args.transfer_sat,
+                           maximum_fee_sat=args.maximum_fee_sat).advance()
+        report = campaign.report()
+        if progress is not None:
+            report["progress"] = progress
+        print(json.dumps(report, indent=2))
     finally:
         campaign.close()
 

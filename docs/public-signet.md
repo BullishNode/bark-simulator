@@ -84,7 +84,7 @@ the campaign runbook must first establish that no other wallet actor exists.
 Verification of this milestone:
 
 ```sh
-python3 -m unittest tests.test_signet tests.test_signet_checks -v
+python3 -m unittest tests.test_signet tests.test_signet_checks tests.test_signet_s01 -v
 ```
 
 These are local journal/fault tests with a stubbed process and Core. They verify
@@ -120,3 +120,45 @@ Each check is stored under a new ID; failed/incomplete observations stay in the
 report. Native owner observations and Core backing are separate from signature
 path proof, which remains explicitly `NOT_EVALUATED`. These partial checks do
 not release an unknown action or label the complete S01 scenario passed.
+
+## Resumable S01 sequence
+
+`s01-step` advances the actual two-wallet flow until its next dependency. Amounts
+below are examples; the coordinator selects the funded run's values:
+
+```sh
+python3 -m simulator.signet --state /private/campaign --config /private/run.json \
+  s01-step --board-sat 50000 --transfer-sat 5000 --maximum-fee-sat 100
+```
+
+The first call creates fresh sender/receiver wallets and obtains their native
+funding addresses and receiver Ark address. It stops at
+`WAITING_FOR_OWNER_ALLOCATED_FUNDING`; it never withdraws from the offline
+treasury or calls a faucet. The coordinator then sends a declared allocation to
+each native onchain address, recording confirmed output receipts:
+
+```sh
+python3 -m simulator.signet --state /private/campaign --config /private/run.json \
+  record-funding sender ACTUAL_TXID ACTUAL_OUTPUT_INDEX
+python3 -m simulator.signet --state /private/campaign --config /private/run.json \
+  record-funding receiver ACTUAL_TXID ACTUAL_OUTPUT_INDEX
+```
+
+`record-funding` independently checks the real output's script, exact satoshis,
+confirmation and chain identity against the actor's native address receipt. One
+outpoint cannot fund two actors. Fund each address above the requested board
+amount to leave actual miner-fee headroom.
+
+Repeat `s01-step` with the same parameters. It boards both wallets once, waits
+for actual native board settlement, captures before snapshots, sends once, and
+captures/reconciles after snapshots. A board's returned amount is **net of the
+protocol board fee**; waiting for the original gross amount would never finish.
+Repeated steps and controller restarts reuse all original money-moving intent
+IDs. Fresh observation intents preserve each poll. Failed/incomplete checks stay
+in the report; a later good observation never erases them. Uncertain dispatches
+stop at `RECONCILIATION_REQUIRED` and are not repeated.
+
+`NATIVE_TRANSFER_OBSERVED` means the actual native wallet values and independent
+Core backing match. It still reports the exact signature-verification coverage;
+native signed-path verification is being connected through the product's own
+`dev vtxo verify` command. There is no global qualified-time gate.
