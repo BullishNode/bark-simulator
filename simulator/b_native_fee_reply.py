@@ -121,7 +121,9 @@ def bind_native_fee_reply(request_raw,reply_raw,owner_snapshot_raw,*,expected_to
             and type(row['urgent_fee_bound']) is bool,'native urgent source/ceiling differs')
         hashed(row['metadata_binding_sha256'],'native urgent metadata binding')
         anchors=rows(row['source_anchors'],'safe urgent anchor bound')
-        need(anchors and anchors==sorted(set(point(p)for p in anchors)),'native urgent anchors differ')
+        # Native already verifies OutPoint ordering. Display text ordering is
+        # not Rust Txid/OutPoint ordering; preserve the exact native sequence.
+        need(anchors and len(anchors)==len(set(point(p)for p in anchors)),'native urgent anchors differ')
         txs=rows(row['transactions'],'safe urgent package bound');need(1<=len(txs)<=2,'complete urgent package required')
         ids=[]
         for tx in txs: selected.update(transaction(tx));members.add(tx['txid']);ids.append({'txid':tx['txid'],'wtxid':tx['wtxid']})
@@ -155,7 +157,9 @@ def bind_native_fee_reply(request_raw,reply_raw,owner_snapshot_raw,*,expected_to
                     and actual.get('urgent_fee_bound')==publication['urgent_fee_bound'],
                     'urgent publication row metadata/bound state differs')
             else:need(actual.get('urgent_metadata_native_sha256') is None,'urgent shared parent metadata differs')
-    need(members<=set(inventory) and reply['unrelated_nursery_txids']==sorted(set(inventory)-members),
+    unrelated=rows(reply['unrelated_nursery_txids'],'safe unrelated nursery bound')
+    need(len(unrelated)==len(set(hashed(p,'unrelated nursery identity')for p in unrelated))
+        and members<=set(inventory) and set(unrelated)==set(inventory)-members,
          'whole nursery member/unrelated inventory differs')
     return {'proof_sha256':digest(reply_raw),'request_sha256':digest(request_raw),
         'original_sha256':reply['original_sha256'],'funding_rows':reply['funding_rows'],
