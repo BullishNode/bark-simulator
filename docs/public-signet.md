@@ -4,9 +4,10 @@ The entry point is `python3 -m simulator.signet`. It invokes the product's nativ
 `bark` CLI, built from the same fresh source as the server. It does not build the
 old simulator Rust driver or activate the old three-track financial collectors.
 
-This first milestone is the durable native-action transport. **No public-Signet
-campaign or completed payment is claimed by its unit tests.** Independent case
-reconciliation and actual native deployment receipts are subsequent milestones.
+This path includes durable native-action transport and separate integer-value /
+Core backing checks. **No public-Signet campaign or completed payment is claimed
+by its unit tests.** Actual native deployment receipts and cryptographic-path
+verification are subsequent milestones.
 
 The CLI contract was checked against product commit
 `bfbe6b7c3088a09dd4e81c4ac24cdc763a627a8c`:
@@ -79,10 +80,39 @@ the campaign runbook must first establish that no other wallet actor exists.
 Verification of this milestone:
 
 ```sh
-python3 -m unittest tests.test_signet -v
+python3 -m unittest tests.test_signet tests.test_signet_checks -v
 ```
 
 These are local journal/fault tests with a stubbed process and Core. They verify
 unknown-outcome retention, restart behavior, actor exclusion, absent-wallet
 fencing, executable/network pin rejection and public receipt projections. They
 are not native wallet, signature-validation, accounting, expiry or load tests.
+
+## First two-wallet observations
+
+Use `sync_vtxos` while wallets are active to collect current native state. This
+runs `vtxos --all` without `--no-sync`. `vtxos` is the explicit cached read. Both
+still open the wallet, so both are forbidden after abandonment.
+
+Bracket one isolated transfer with four durable native snapshots: sender before
+and after, receiver before and after. Obtain the destination through the receiver's
+own recorded `address` action before sending. Then run:
+
+```sh
+python3 -m simulator.signet --state /private/campaign --config /private/run.json \
+  check-transfer check-001 transfer-001 sender-before sender-after \
+  receiver-before receiver-after --maximum-fee-sat 100
+```
+
+The maximum fee is the run's declared operation-specific bound, not a universal
+default or a subsidy cap. The check rejects overlapping monetary actions,
+misordered snapshots, a destination without the receiver's native receipt,
+locked value, duplicate active coins, changed immutable fields, wrong received
+amount, unexplained value and missing/unconfirmed/insufficient backing. It uses
+the independent Core node, checks a consistent tip and never treats backing as
+additional cohort money.
+
+Each check is stored under a new ID; failed/incomplete observations stay in the
+report. Native owner observations and Core backing are separate from signature
+path proof, which remains explicitly `NOT_EVALUATED`. These partial checks do
+not release an unknown action or label the complete S01 scenario passed.

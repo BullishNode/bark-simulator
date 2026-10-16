@@ -22,7 +22,7 @@ PUBLIC_SIGNET_CHALLENGE = (
     "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430"
     "210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae"
 )
-OBSERVATIONS = {"vtxos", "balance"}
+OBSERVATIONS = {"vtxos", "sync_vtxos", "balance"}
 OPERATIONS = OBSERVATIONS | {"create", "address", "onchain_address", "board", "send", "refresh"}
 
 
@@ -57,6 +57,8 @@ def command(operation: str, args: dict, config: dict) -> list[str]:
     if operation == "create":
         return ["create", "--signet", "--ark", config["ark_url"], "--bitcoind",
                 config["core_url"], "--bitcoind-cookie", config["core_credential"]]
+    if operation == "sync_vtxos":
+        return ["vtxos", "--all"]
     if operation in OBSERVATIONS:
         return [operation, *(["--all"] if operation == "vtxos" else []), "--no-sync"]
     if operation == "onchain_address":
@@ -89,7 +91,7 @@ def project_reply(operation: str, raw: bytes):
         # is only acknowledgement, never payment completion.
         return {"native_exit_zero": True, "completion": "requires_reconciliation"}
     value = json.loads(raw)
-    if operation == "vtxos":
+    if operation in {"vtxos", "sync_vtxos"}:
         if not isinstance(value, list):
             raise ValueError("VTXO list required")
         result = []
@@ -171,6 +173,8 @@ class Campaign:
                 updated REAL NOT NULL, chain TEXT, reply TEXT, diagnostic TEXT);
             CREATE UNIQUE INDEX IF NOT EXISTS actor_dispatch ON action(actor)
                 WHERE state IN ('dispatched','unknown');
+            CREATE TABLE IF NOT EXISTS result(
+                id TEXT PRIMARY KEY, observed REAL NOT NULL, payload TEXT NOT NULL);
         """)
         fingerprint = canonical(config)
         self.db.execute("INSERT OR IGNORE INTO meta VALUES ('config',?)", (fingerprint,))
@@ -247,6 +251,52 @@ class Campaign:
             self.db.execute("INSERT OR IGNORE INTO actor(id) VALUES (?)", (actor,))
             self.db.execute("UPDATE actor SET absent=1 WHERE id=?", (actor,))
 
+    def check_transfer(self, check_id: str, intent: str, sender_before: str, sender_after: str,
+                       receiver_before: str, receiver_after: str, maximum_fee_sat: int):
+        from .signet_checks import confirmed_backing, transfer_values
+        names = [sender_before, sender_after, receiver_before, receiver_after]
+        if len(set(names)) != 4:
+            raise ValueError("four distinct wallet snapshot intents required")
+        snapshots = []
+        for name in names:
+            row = self.db.execute("SELECT * FROM action WHERE id=?", (name,)).fetchone()
+            if not row or row["state"] != "acknowledged" or row["operation"] not in {"vtxos", "sync_vtxos"}:
+                raise ValueError("acknowledged native VTXO snapshot required")
+            snapshots.append(row)
+        payment = self.db.execute("SELECT * FROM action WHERE id=?", (intent,)).fetchone()
+        if not payment or payment["operation"] != "send":
+            raise ValueError("original send intent required")
+        sb, sa, rb, ra = snapshots
+        if (sb["actor"] != sa["actor"] or rb["actor"] != ra["actor"]
+                or sb["actor"] == rb["actor"] or payment["actor"] != sb["actor"]
+                or max(sb["updated"], rb["updated"]) > payment["created"]
+                or min(sa["created"], ra["created"]) < payment["updated"]):
+            raise ValueError("snapshots do not bracket an isolated two-wallet payment")
+        arguments = json.loads(payment["arguments"])
+        if not self.db.execute("""SELECT 1 FROM action WHERE actor=? AND operation='address'
+            AND state='acknowledged' AND updated<=? AND json_extract(reply,'$.address')=?""", (
+                rb["actor"], payment["created"], arguments["destination"])).fetchone():
+            raise ValueError("payment destination not bound to the receiver's native address receipt")
+        other = self.db.execute("""SELECT id FROM action
+            WHERE actor IN (?,?) AND operation IN ('create','send','board','refresh')
+              AND created>=? AND created<=? AND id!=?""", (
+            sb["actor"], rb["actor"], min(sb["created"], rb["created"]),
+            max(sa["updated"], ra["updated"]), intent)).fetchall()
+        if other:
+            raise ValueError("other monetary operations overlap the checkpoint")
+        coins = [json.loads(row["reply"]) for row in snapshots]
+        outcome = {"kind": "S01_transfer_observation", "intent": intent, "snapshots": names,
+                   "native_state": payment["state"], "maximum_fee_sat": maximum_fee_sat,
+                   "case_verdict": "NOT_EVALUATED"}
+        try:
+            outcome.update(transfer_values(*coins, arguments["amount_sat"], maximum_fee_sat))
+            outcome.update(confirmed_backing(self.core, [coins[1], coins[3]]))
+        except ValueError as error:
+            outcome.update({"observation": "FAILED_OR_INCOMPLETE", "reason": str(error)})
+        public_payload(outcome)
+        self.db.execute("INSERT INTO result VALUES (?,?,?)", (check_id, time.time(), canonical(outcome)))
+        return outcome
+
     def report(self) -> dict:
         rows = [dict(row) for row in self.db.execute("SELECT * FROM action ORDER BY created,id")]
         for row in rows:
@@ -257,6 +307,7 @@ class Campaign:
                 "binary_sha256": self.config["binary_sha256"],
                 "product_config_sha256": self.config["product_config_sha256"],
                 "network": "public-signet", "actions": rows,
+                "results": [json.loads(row[0]) for row in self.db.execute("SELECT payload FROM result ORDER BY observed,id")],
                 "case_verdict": "NOT_EVALUATED",
                 "note": "Native acknowledgements are not proof of terminal payment or fallback."}
 
@@ -274,6 +325,10 @@ def main():
     execute.add_argument("--arguments", type=json.loads, default={})
     absent = commands.add_parser("abandon")
     absent.add_argument("actor")
+    check = commands.add_parser("check-transfer")
+    for field in ("check_id", "intent", "sender_before", "sender_after", "receiver_before", "receiver_after"):
+        check.add_argument(field)
+    check.add_argument("--maximum-fee-sat", type=int, required=True)
     args = parser.parse_args()
     campaign = Campaign(args.state, json.loads(args.config.read_text()))
     try:
@@ -281,6 +336,9 @@ def main():
             campaign.execute(args.intent, args.actor, args.operation, args.arguments)
         elif args.command == "abandon":
             campaign.abandon(args.actor)
+        elif args.command == "check-transfer":
+            campaign.check_transfer(args.check_id, args.intent, args.sender_before, args.sender_after,
+                                    args.receiver_before, args.receiver_after, args.maximum_fee_sat)
         print(json.dumps(campaign.report(), indent=2))
     finally:
         campaign.close()
