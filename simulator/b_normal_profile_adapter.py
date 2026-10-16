@@ -10,6 +10,7 @@ from .architecture import DIRECT, profile
 from . import b_initial_normal_profile as initial
 from . import b_native_normal_verifier as native
 from . import b_normal_runtime_source as runtime_source
+from .b_native_fee_policy import loaded_native_fee_policy
 from .model import canonical, integer, SIGNET_GENESIS, btc_to_sat
 from .ownership import EvidenceGap
 from .two_step_normal import digest, module_hash, native_wallet, strict_json
@@ -242,7 +243,7 @@ class InitialDirectProfile:
         public_policy=runtime.get('public_configuration')
         _require(public_policy is not None and public_policy == admitted['b_public_configuration'],
                  'actual protected loaded public fee-policy source unavailable/different')
-        limits=public_policy['fee_ceilings_sat_kvb']
+        limits=loaded_native_fee_policy(runtime,network=config.network)['fee_ceilings_sat_kvb']
         _require(limits == envelope['fee_ceilings_sat_kvb'], 'envelope differs from actual supported fee paths')
         _require(not source['pending_liabilities'] and not native_context['pending_liabilities'],
                  'unsettled original liability not supported by initial profile')
