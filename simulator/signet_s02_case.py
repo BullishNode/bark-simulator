@@ -23,6 +23,9 @@ class S02:
                        "wallet_profile": {"vtxo_refresh_expiry_threshold": 4, "vtxo_exit_margin": 2}}
         from .signet import command
         command("onchain_drain", {"destination": recovery_destination}, campaign.config)
+        destination = campaign.core.call("validateaddress", recovery_destination)
+        if not isinstance(destination, dict) or destination.get("isvalid") is not True or not destination.get("scriptPubKey"):
+            raise ValueError("valid actual Signet recovery destination required before actor work")
         encoded = canonical(self.params)
         campaign.db.execute("INSERT OR IGNORE INTO meta VALUES ('s02_parameters',?)", (encoded,))
         if campaign.db.execute("SELECT value FROM meta WHERE key='s02_parameters'").fetchone()[0] != encoded:

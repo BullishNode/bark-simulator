@@ -77,6 +77,7 @@ class S02CaseTests(unittest.TestCase):
         self.assertLess(calls.index(("control", "board")), calls.index(("absent", "sync_vtxos")))
 
     def test_unknown_native_outcome_holds_all_later_actions(self):
+        self.campaign.core = fixture.LifecycleCore()
         self.receipt("unknown-coin-operation", "maintain", {}, actor="control")
         self.campaign.db.execute("UPDATE action SET state='unknown' WHERE id='unknown-coin-operation'")
         case = self.case()
@@ -84,6 +85,15 @@ class S02CaseTests(unittest.TestCase):
             progress = case.advance()
         self.assertEqual(progress["stage"], "RECONCILIATION_REQUIRED")
         native.assert_not_called()
+
+    def test_invalid_recovery_destination_is_rejected_before_native_actions(self):
+        self.campaign.core = fixture.LifecycleCore()
+        with patch.object(self.campaign.core, "call", return_value={"isvalid": False}), \
+             patch("simulator.signet.subprocess.run") as native:
+            with self.assertRaisesRegex(ValueError, "recovery destination"):
+                self.case()
+        native.assert_not_called()
+        self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action").fetchone()[0], 0)
 
     def test_absent_wallet_is_never_opened_while_waiting_for_chain_payout(self):
         original = self.prepare_control()
