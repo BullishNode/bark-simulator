@@ -52,6 +52,10 @@ def declaration_hashes(store):
 
 
 def active_identity(store):
+    if (store.get_meta('c_execution_context') is not None or store.db.execute("SELECT 1 FROM event WHERE kind='c_execution_context_activated' LIMIT 1").fetchone()):
+        from .c_execution_context import active
+        current=active(store)
+        if current is not None:return current['execution_client']['execution_identity']
     # Registry rows are a view of the append-only financial history. Dropping
     # or editing that view must never authorize an undeclared image or rollback.
     original = store.get_meta('target_identity')
@@ -344,6 +348,9 @@ def _validate_runtime_manifest(store, declaration, *, declaring=False):
 
 def active_runtime_manifest(store):
     """Return the declared finite runtime transition, never infer compatibility."""
+    if (store.get_meta('c_execution_context') is not None or store.db.execute("SELECT 1 FROM event WHERE kind='c_execution_context_activated' LIMIT 1").fetchone()):
+        from .c_execution_context import active
+        return active(store)
     if not store.db.execute("SELECT 1 FROM event WHERE kind='target_epoch_declared' AND json_type(payload,'$.runtime_manifest')='object' LIMIT 1").fetchone():return None
     active_identity(store)
     exists=store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='target_epoch'").fetchone()
@@ -360,6 +367,13 @@ def active_runtime_manifest(store):
 
 def verified_execution_context(store, snapshot=None):
     """Authenticate fresh actual execution separately from old origin/budget pins."""
+    if (store.get_meta('c_execution_context') is not None or store.db.execute("SELECT 1 FROM event WHERE kind='c_execution_context_activated' LIMIT 1").fetchone()):
+        from .c_execution_context import active,verify_execution_snapshot
+        if active(store) is not None:
+            if snapshot is None:
+                row=store.db.execute('SELECT payload FROM snapshot ORDER BY id DESC LIMIT 1').fetchone()
+                snapshot=json.loads(row[0]) if row else {}
+            return verify_execution_snapshot(store,snapshot)
     from .final_campaign import _source_event
     manifest=active_runtime_manifest(store)
     if manifest is None:return None
@@ -390,6 +404,10 @@ def verified_execution_context(store, snapshot=None):
 
 def verified_runtime_source(store, sequence, *, origin_pins, current_source_sha256):
     """Readiness hook: current executable identity never replaces historical pins."""
+    if (store.get_meta('c_execution_context') is not None or store.db.execute("SELECT 1 FROM event WHERE kind='c_execution_context_activated' LIMIT 1").fetchone()):
+        from .c_execution_context import active,verify_runtime_source
+        if active(store) is not None:
+            return verify_runtime_source(store,sequence,financial_pins=origin_pins,current_source_sha256=current_source_sha256)
     from .final_campaign import _source_event
     event,runtime=_source_event(store,sequence)
     manifest=active_runtime_manifest(store)

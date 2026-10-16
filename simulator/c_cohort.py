@@ -278,6 +278,7 @@ def prospective_funding_policy(store):
     from .c_pilot import declaration
     from .c_escrow import effective_opening_sat
     pilot=declaration(store)
+    from .c_execution_context import effective_pins
     return {'customers':set(INITIAL),'amounts':{**{actor:25000 for actor in INITIAL},'watchman':100000},
         'profile_id':value['id'],'pilot_id':pilot['id'],'boundary_id':pilot['boundary_id'],
         'opening_sat':effective_opening_sat(store),'urgent_isolation_qualified':False,
@@ -285,7 +286,7 @@ def prospective_funding_policy(store):
         'operator_fee_grants_sat':{'rounds':0,'watchman':100000},'fee_signer_member':'watchman',
         'ordinary_budget_sat':60000,'urgent_budget_sat':40000,'maximum_fee_sat':1000,
         'maximum_rate_sat_kvb':20000,'grant_sat':25000,'board_sat':20000,'board_fee_reserve_sat':1000,
-        'pins':value['pins'],'opening_kind':'unfunded_initial12','seal_sequence':value['seal_sequence'],
+        'pins':effective_pins(store,value['pins']),'origin_financial_pins':value['pins'],'opening_kind':'unfunded_initial12','seal_sequence':value['seal_sequence'],
         'required_source_actors':list(INITIAL),'retained_create_ids':{'actor-01':'c_create_01','actor-02':'c_create_02'},
         'scope':'source contract only; root finite-funding integration and complete12 source remain required'}
 
@@ -338,9 +339,11 @@ def _initial_identity_sources(store,*,initial_rows):
         native_event,native=_source_event(store,zero.get('driver_response_sequence'))
         response=native.get('response',{});data=response.get('data',{})
         row=store.db.execute('SELECT actor_id,operation,state,actual_fee_sat,fee_reservation_sat,result FROM action WHERE id=?',(action_id,)).fetchone()
+        from .c_execution_context import source_pins
+        actual_pins=source_pins(store,native_event['sequence'],policy.get('origin_financial_pins',policy['pins']))
         if (event['kind']!=kind or zero.get('actor')!=actor or zero.get('action_id')!=action_id
                 or zero.get('bootstrap_declaration_sha256')!=_digest(declared)
-                or zero.get('financial_pins')!=policy['pins'] or zero.get('complete') is not True
+                or zero.get('financial_pins')!=actual_pins or zero.get('complete') is not True
                 or zero.get('zero_assets') is not True or zero.get('confirmed_assets_sat')!=0
                 or zero.get('unconfirmed_assets_sat')!=0
                 or row is None or tuple(row)[:5]!=(actor,'create','completed',0,0)
@@ -355,17 +358,17 @@ def _initial_identity_sources(store,*,initial_rows):
             'height':zero['height'],'tip_hash':zero['tip_hash'],'genesis':SIGNET_GENESIS,
             'native_response_sha256':zero['native_response_sha256'],
             'bootstrap_declaration_sha256':_digest(declared)})
-        _verify_key_sources(store,actor,action_id,data,policy['pins'],initial_rows=initial_rows)
+        _verify_key_sources(store,actor,action_id,data,actual_pins,initial_rows=initial_rows)
         binding=data['binding']
         if binding['mailbox_pk'] in mailboxes or binding['spk'] in scripts:
             raise ValueError('distinct original12 native payout identities required')
         mailboxes.add(binding['mailbox_pk']);scripts.add(binding['spk'])
         references[actor]={'zero_source_sequence':sequence,'zero_event_hash':event['hash'],
             'driver_response_sequence':native_event['sequence'],'driver_response_hash':native_event['hash'],
-            'native_response_sha256':_digest(response),'create_action_id':action_id,
+            'native_response_sha256':_digest(response),'create_action_id':action_id,'financial_pins':actual_pins,
             'bootstrap_declaration_sha256':_digest(declared)}
     return {'profile_id':policy['profile_id'],'seal_sequence':policy['seal_sequence'],
-        'financial_pins':policy['pins'],'actors':list(INITIAL),'wallet_root':original['declaration']['wallet_root'],
+        'financial_pins':policy['pins'],'origin_financial_pins':policy.get('origin_financial_pins',policy['pins']),'actors':list(INITIAL),'wallet_root':original['declaration']['wallet_root'],
         'filesystem':original['filesystem'],'identity':original['declaration']['identity'],
         'extra10_closure_sequence':closure_rows[0][0],'sources':references,
         'scope':'original native identity provenance only; current complete financial source still required'}
@@ -513,7 +516,7 @@ def declare_enrollment(store,config,phase,*,identifier,actions):
         _,zero=_source_event(store,rows[0][0])
         if zero.get('action_id')!='c_create_02':raise ValueError('original02 create ID changed')
         _,native=_source_event(store,zero['driver_response_sequence'])
-        _verify_key_sources(store,'actor-02','c_create_02',native['response'].get('data',{}),selected['pins'])
+        _verify_key_sources(store,'actor-02','c_create_02',native['response'].get('data',{}),zero['financial_pins'])
     if phase=='ramp' and not enrollment_complete(store,'initial'):
         raise ValueError('all initial new identities require original checked sources')
     from pathlib import Path
@@ -532,8 +535,9 @@ def declare_enrollment(store,config,phase,*,identifier,actions):
         row=store.db.execute('SELECT details FROM actor WHERE id=?',(actor,)).fetchone()
         if row is not None and (json.loads(row[0]) or not store.ordinary_actor_available(actor)):
             raise ValueError('new actor must be fresh and unheld')
-    value={**base,'id':identifier,'actors':list(new),'pins':selected['pins']}
-    context=_context(config,value)
+    from .c_execution_context import effective_pins
+    value={**base,'id':identifier,'actors':list(new),'pins':effective_pins(store,selected['pins'])}
+    context=_context(config,value,store=store)
     proof={'phase':phase,'profile_sha256':_digest(selected),'declaration':value,
         'actions':actions,'filesystem':original['filesystem'],'context':context,
         'retained_actors':sorted(allowed)}
@@ -646,7 +650,7 @@ def eligible_create(store,config,snapshot,action=None):
     import os,time
     from pathlib import Path
     from .identity_bootstrap import _context,_root,_sole_writer
-    value=current['declaration'];root=value['wallet_root'];_context(config,value);_sole_writer(root)
+    value=current['declaration'];root=value['wallet_root'];_context(config,value,store=store);_sole_writer(root)
     if _root(root)!=current['filesystem']:raise ValueError('original cohort root identity changed')
     config.validate_identity(snapshot)
     if (snapshot.get('financial_pins')!=value['pins'] or snapshot.get('stable_tip') is not True
@@ -691,14 +695,14 @@ def begin_create(store,config,snapshot,action):
     with store.transaction():
         store._event(CREATE_EVENT,{'bootstrap_id':value['id'],'financial_pins':value['pins'],
             'actor':action['actor_id'],'action_id':action['id'],'operation':'create','maximum_fee_sat':0,
-            'actor_path_absent':True,'filesystem':_root(value['wallet_root']),'context':_context(config,value)})
+            'actor_path_absent':True,'filesystem':_root(value['wallet_root']),'context':_context(config,value,store=store)})
 
 
 def verify_created(store,config,chain,actor,action_id):
     current=enrollment_for_actor(store,actor)
     if current is None or current['actions'][actor]!=action_id:raise ValueError('exact original cohort create required')
     from .identity_bootstrap import _context,_root
-    _context(config,current['declaration'])
+    _context(config,current['declaration'],store=store)
     if _root(current['declaration']['wallet_root'])!=current['filesystem']:raise ValueError('cohort root changed')
     intents=store.db.execute('SELECT sequence FROM event WHERE kind=? AND json_extract(payload,\'$.action_id\')=?',(CREATE_EVENT,action_id)).fetchall()
     if len(intents)!=1:raise ValueError('original absent-path cohort create intent required')
@@ -726,11 +730,13 @@ def _verify_key_sources(store,actor,action_id,data,pins,*,initial_rows=True):
     _,proof_source=_source_event(store,rows[0][0])
     if (proof_source.get('actor')!=actor or proof_source.get('financial_pins')!=pins
             or proof_source.get('objects')!=51):raise ValueError('all original51 independent key proofs required')
+    from .c_execution_context import effective_pins
+    checked_pins=[pins] if initial_rows is not None else [pins,effective_pins(store,pins)]
     for origin in origins:
         row=store.db.execute('SELECT * FROM owner_key WHERE pubkey=?',(origin['user_pubkey'],)).fetchone()
         checked=json.loads(row['proof']) if row else {}
         if (row is None or row['actor']!=actor or row['mailbox']!=binding['mailbox_pk']
-                or checked.get('financial_pins')!=pins or not proof_matches(checked,origin)
+                or checked.get('financial_pins') not in checked_pins or not proof_matches(checked,origin)
                 or not binding_matches(checked.get('binding',{}),binding)):
             raise ValueError('cohort original independently checked key identity differs')
     record=store.db.execute('SELECT * FROM owner_record WHERE mailbox=?',(binding['mailbox_pk'],)).fetchone()

@@ -52,7 +52,7 @@ def _identity_sources(store):
         selected=cohort_profile(store)
         if selected is not None and seal(store).get('opening_kind')=='unfunded_initial12':
             view=historical_initial_identity_sources(store)
-            return {**original,'declaration':{**original['declaration'],'actors':view['actors']},
+            return {**original,'declaration':{**original['declaration'],'actors':view['actors'],'pins':view['financial_pins']},
                     'historical_initial12_sources':view}
     return original
 
@@ -434,12 +434,8 @@ def record_fresh_cash_readiness(store,config,chain,*,source_sequence,runtime_sou
         raise ValueError('fresh cash source has different financial context')
     runtime_event,runtime=_source_event(store,runtime_source_sequence)
     current,current_sha=_read(current_startup_path)
-    if (runtime_event['kind']!='owned_runtime_configuration_verified'
-            or runtime.get('loaded_configuration_identity_verified') is not True
-            or runtime.get('current_source_sha256')!=current_sha
-            or runtime.get('product_commit')!=plan['pins']['product_commit']
-            or runtime.get('schema_sha256')!=plan['pins']['schema_sha256']):
-        raise ValueError('actual same-process loaded cash configuration required')
+    from .target_epochs import verified_runtime_source
+    verified_runtime_source(store,runtime_source_sequence,origin_pins=plan['pins'],current_source_sha256=current_sha)
     _fresh(runtime['observed_at'])
     limits=envelope(store,config);treasury=boundary(store)
     if (limits['pins']!=plan['pins'] or limits['boundary_id']!=plan['boundary_id']

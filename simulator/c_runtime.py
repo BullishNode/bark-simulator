@@ -7,20 +7,31 @@ from .model import public_payload
 SERVICES={'captaind','watchmand'}
 
 
-def verify(store,startup_path,current_path,*,expected):
+def verify(store,startup_path,current_path,*,expected,execution_release=None):
     from .runtime_startup import _read,_sha,_time_ns,_rate
     from .c_pilot import declaration
     pilot=declaration(store);pins=pilot['pins']
+    from .c_execution_context import active
+    context=active(store)
+    if context is not None:
+        if expected!=context['expected']:raise ValueError('actual C runtime expectations differ from activation')
+        if execution_release is not None and execution_release!=context['execution_release']:
+            raise ValueError('actual C runtime release differs from activation')
+        execution_release=context['execution_release']
+    product=execution_release['product_commit'] if execution_release is not None else pins['product_commit']
+    schema=execution_release['schema_sha256'] if execution_release is not None else pins['schema_sha256']
     if (not isinstance(expected,dict) or set(expected)!={'architecture_profile','product_commit','schema_sha256','database','services'}
-            or expected['architecture_profile']!='direct_per_key' or expected['product_commit']!=pins['product_commit']
-            or expected['schema_sha256']!=pins['schema_sha256'] or expected['database']!='trackc'
+            or expected['architecture_profile']!='direct_per_key' or expected['product_commit']!=product
+            or expected['schema_sha256']!=schema or expected['database']!='trackc'
             or not isinstance(expected['services'],dict) or set(expected['services'])!=SERVICES):
         raise ValueError('explicit exact C native startup expectations required')
     startup,startup_sha=_read(startup_path);current,current_sha=_read(current_path)
+    if context is not None and startup_sha!=context['startup_source_sha256']:
+        raise ValueError('C startup source differs from activated original capture')
     for frame in (startup,current):
         if (not isinstance(frame,dict) or frame.get('kind')!='owned_native_startup_source'
                 or frame.get('architecture_profile')!='direct_per_key' or frame.get('runtime_transport')!='systemd'
-                or frame.get('product_commit')!=pins['product_commit'] or frame.get('schema_sha256')!=pins['schema_sha256']
+                or frame.get('product_commit')!=product or frame.get('schema_sha256')!=schema
                 or not isinstance(frame.get('daemons'),dict) or set(frame['daemons'])!=SERVICES):
             raise ValueError('actual C native release/schema/source differs')
     observed=_time_ns(current['observed_at']);original_at=_time_ns(startup['observed_at'])
@@ -65,7 +76,7 @@ def verify(store,startup_path,current_path,*,expected):
             raise ValueError('root original pre-exec native config provenance required')
         if (now.get('process_cmdline')!=[spec['executable_path'],'--config',spec['config_path'],'start']
                 or now['process_cmdline']!=original.get('process_cmdline')
-                or any(pins['product_commit'] not in frame.get('version','') for frame in (original,now))):
+                or any(product not in frame.get('version','') for frame in (original,now))):
             raise ValueError('actual native command/release differs')
         names=now.get('environment_names');overrides=now.get('config_overrides')
         if (not isinstance(names,list) or len(names)>256 or len(set(names))!=len(names)
@@ -88,12 +99,14 @@ def verify(store,startup_path,current_path,*,expected):
                 raise ValueError('C native pilot policy differs: 48-block lifetimes and 3 Board confirmations required')
         verified[service]={**now,'pre_exec_config':pre}
     receipt={'kind':'owned_runtime_configuration_verified','architecture_profile':'direct_per_key',
-        'runtime_transport':'systemd','product_commit':pins['product_commit'],'schema_sha256':pins['schema_sha256'],
+        'runtime_transport':'systemd','product_commit':product,'schema_sha256':schema,
         'startup_source_sha256':startup_sha,'current_source_sha256':current_sha,
         'current_schema_artifact_sha256':current['schema_sha256'],'observed_at':observed/10**9,
         'daemons':verified,'loaded_configuration_identity_verified':True,
         'effective_fee_ceilings_sat_kvb':{'round':None,'pool':None,'sweep':20000,'payout':20000,'claim':None,'progression':None},
         'complete':False,'qualified':False,
         'scope':'root-authenticated same native process and pre-exec configuration identity only; no treasury or financial admission'}
+    if execution_release is not None:
+        receipt.update(execution_release=execution_release,origin_financial_pins=pins)
     public_payload(receipt);store.event('owned_runtime_configuration_verified',receipt)
     return receipt

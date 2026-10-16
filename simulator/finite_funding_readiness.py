@@ -51,10 +51,17 @@ def _c_records_links(store, customer_data, pins):
         binding=data['binding'];wire=record_envelope(binding)
         records.append({'mailbox_pk':binding['mailbox_pk'],'spk':binding['spk'],'mailbox_sig':wire[-64:].hex()})
         origins=initial_origins(data)
+        from .c_execution_context import active
+        actual_pins=pins
+        if active(store) is not None:
+            from .identity_bootstrap import _source_pins
+            creation=store.db.execute("SELECT e.sequence FROM action a JOIN event e ON e.kind='driver_response' AND json_extract(e.payload,'$.action_id')=a.id WHERE a.actor_id=? AND a.operation='create' AND a.state='completed'",(actor,)).fetchall()
+            if len(creation)!=1:raise ValueError('unique original native C create source required')
+            actual_pins=_source_pins(store,creation[0][0],pins)
         for origin in origins:
             row=store.db.execute('SELECT * FROM owner_key WHERE pubkey=?',(origin['user_pubkey'],)).fetchone()
             checked=json.loads(row['proof']) if row else {}
-            if (not row or row['actor']!=actor or checked.get('financial_pins')!=pins
+            if (not row or row['actor']!=actor or checked.get('financial_pins')!=actual_pins
                     or not proof_matches(checked,origin) or not binding_matches(checked.get('binding',{}),binding)):
                 raise ValueError('original independently verified C creation link required')
             raw=bytes.fromhex(origin['key_link_attestation'])
@@ -141,7 +148,8 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
         proof=declaration(store)
     if proof is None or set(proof['declaration']['actors'])!=customers:
         raise ValueError('exact fresh three-customer bootstrap required')
-    pins=proof['declaration']['pins'];_initial(store,pins)
+    from .identity_bootstrap import _effective_pins
+    pins=_effective_pins(store,proof['declaration']['pins']);_initial(store,pins)
     if per_key and (policy['pins']!=pins or policy['boundary_id']!=boundary_id):
         raise ValueError('C pilot identity/treasury context differs')
     wallet_root=Path(proof['declaration']['wallet_root'])
@@ -159,10 +167,8 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
     if getattr(store,'trace',None) is None:raise ValueError('original source trace capture required')
     runtime_event,runtime=_source_event(store,runtime_source_sequence)
     current,current_sha=_read(current_startup_path)
-    if (runtime_event['kind']!='owned_runtime_configuration_verified' or runtime.get('loaded_configuration_identity_verified') is not True
-            or runtime.get('product_commit')!=pins['product_commit'] or runtime.get('schema_sha256')!=pins['schema_sha256']
-            or runtime.get('current_source_sha256')!=current_sha):
-        raise ValueError('original exact loaded runtime source required')
+    from .target_epochs import verified_runtime_source
+    verified_runtime_source(store,runtime_source_sequence,origin_pins=pins,current_source_sha256=current_sha)
     _fresh(runtime['observed_at'],'runtime')
     before=chain.identity();tip=(before['blocks'],before['bestblockhash'])
     if before.get('chain')!='signet' or before.get('initialblockdownload') is not False:

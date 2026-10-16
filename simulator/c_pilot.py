@@ -110,6 +110,8 @@ def retained_links(store,*,actors=None):
     """Exact original native prefix/proof union; server rows cannot bless extras."""
     from .per_key import initial_origins,retained_origins,binding_matches,proof_matches
     pilot=declaration(store);result={}
+    from .c_execution_context import effective_pins
+    retained_pins=[pilot['pins'],effective_pins(store,pilot['pins'])]
     if actors is None:actors=sorted(CUSTOMERS)
     if (not isinstance(actors,(list,tuple)) or not actors
             or any(not isinstance(actor,str) for actor in actors) or len(set(actors))!=len(actors)):
@@ -145,7 +147,7 @@ def retained_links(store,*,actors=None):
         for origin in origins:
             owned=store.db.execute('SELECT * FROM owner_key WHERE pubkey=?',(origin['user_pubkey'],)).fetchone()
             checked=json.loads(owned['proof']) if owned else {}
-            if (not owned or owned['actor']!=actor or checked.get('financial_pins')!=pilot['pins']
+            if (not owned or owned['actor']!=actor or checked.get('financial_pins') not in retained_pins
                     or not proof_matches(checked,origin) or not binding_matches(checked.get('binding',{}),binding)):
                 raise ValueError('C retained native key lacks original independent signature proof')
             raw=bytes.fromhex(origin['key_link_attestation'])

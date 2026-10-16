@@ -151,6 +151,8 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         raise ValueError('unique original create response required')
     source,original = _source_event(store,sources[0]['sequence'])
     response = original['response']
+    from .identity_bootstrap import _source_pins
+    actual_pins=_source_pins(store,source['sequence'],bootstrap_declaration['pins'])
     if (response != json.loads(action['result']) or response.get('action_id') != action_id
             or response.get('status') != 'ok' or response.get('actual_fee_sat') != 0):
         raise ValueError('original create response differs from completed action')
@@ -163,7 +165,7 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         _,receipt=_source_event(store,existing[-1]['sequence'])
         expected={'actor':actor,'action_id':action_id,'bootstrap_id':bootstrap_declaration['id'],
             'bootstrap_declaration_sha256':_digest(bootstrap_declaration),
-            'financial_pins':bootstrap_declaration['pins'],'source_sequence':source['sequence'],
+            'financial_pins':actual_pins,'source_sequence':source['sequence'],
             'driver_response_sequence':source['sequence'],'source_event_hash':source['hash'],
             'response_sha256':_digest(response),'native_response_sha256':_digest(response),
             'complete':True,'zero_assets':True}
@@ -242,7 +244,7 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         'complete': True, 'zero_assets': True,
         'driver_response_sequence': source['sequence'], 'native_response_sha256': _digest(response),
         'bootstrap_declaration_sha256': _digest(bootstrap_declaration),
-        'financial_pins': bootstrap_declaration['pins'], 'source_sequence': source['sequence'],
+        'financial_pins': actual_pins, 'source_sequence': source['sequence'],
         'source_event_hash': source['hash'], 'response_sha256': _digest(response),
         'native_inventory_sha256': _digest(native), 'descriptors': descriptors,
         'genesis': SIGNET_GENESIS, 'height': ending['blocks'], 'tip_hash': ending['bestblockhash'],

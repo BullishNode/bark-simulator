@@ -38,7 +38,8 @@ def _context(store, observation):
         raise EvidenceGap('exact fresh C source observation required')
     from .c_pilot import declaration
     pilot = declaration(store)
-    if (pilot is None or observation['financial_pins'] != pilot['pins']
+    from .c_execution_context import effective_pins
+    if (pilot is None or observation['financial_pins'] != effective_pins(store,pilot['pins'])
             or observation['boundary_id'] != pilot['boundary_id']):
         raise EvidenceGap('unchanged original C pins and boundary required')
     return observation
