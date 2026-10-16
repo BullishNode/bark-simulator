@@ -1,4 +1,4 @@
-import copy,json,os,tempfile,unittest
+import copy,hashlib,json,os,tempfile,time,unittest
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -54,6 +54,29 @@ class FinancialSourceControls(unittest.TestCase):
   with tempfile.NamedTemporaryFile()as n:
    n.write(b'not native');n.flush()
    with self.assertRaises(ValueError):f._native_inventory(n.name,'0'*64,'http://127.0.0.1:3536',1)
+ def native_script(self,d,body):
+  p=Path(d)/'harmless-child';p.write_text('#!/usr/bin/python3\n'+body);p.chmod(0o700)
+  return p,hashlib.sha256(p.read_bytes()).hexdigest()
+ def test_actual_pipe_oversize_refused_before_child_finishes(self):
+  with tempfile.TemporaryDirectory()as d:
+   p,h=self.native_script(d,"import os,time\nos.write(1,b'x'*(2*1024*1024+1))\ntime.sleep(5)\n")
+   started=time.monotonic()
+   with self.assertRaisesRegex(ValueError,'byte bound'):f._native_inventory(p,h,'http://127.0.0.1:3536',2)
+   self.assertLess(time.monotonic()-started,2)
+ def test_actual_pipe_prefix_hang_and_closed_pipe_hang_have_real_deadline(self):
+  for body in ["import os,time\nos.write(1,b'{')\ntime.sleep(5)\n", "import os,time\nos.close(1)\ntime.sleep(5)\n"]:
+   with self.subTest(body=body),tempfile.TemporaryDirectory()as d:
+    p,h=self.native_script(d,body);started=time.monotonic()
+    with self.assertRaises((TimeoutError, __import__('subprocess').TimeoutExpired)):f._native_inventory(p,h,'http://127.0.0.1:3536',0.15)
+    self.assertLess(time.monotonic()-started,1)
+ def test_actual_pipe_requires_successful_exit_and_exact_original_digest(self):
+  with tempfile.TemporaryDirectory()as d:
+   p,h=self.native_script(d,"import os\nos.write(1,b'{\"complete\":false}\\n')\n")
+   value,receipt=f._native_inventory(p,h,'http://127.0.0.1:3536',1)
+   raw=b'{"complete":false}\n'
+   self.assertEqual({'complete':False},value);self.assertEqual(hashlib.sha256(raw).hexdigest(),receipt['sha256']);self.assertEqual(len(raw),receipt['bytes'])
+   p,h=self.native_script(d,"import os\nos.write(1,b'{}')\nraise SystemExit(1)\n")
+   with self.assertRaisesRegex(ValueError,'process failed'):f._native_inventory(p,h,'http://127.0.0.1:3536',1)
  def test_duplicate_source_keys_refused(self):
   with self.assertRaises(ValueError):json.loads('{"complete":false,"complete":true}',object_pairs_hook=f._pairs)
 

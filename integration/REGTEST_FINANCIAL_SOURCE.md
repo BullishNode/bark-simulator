@@ -6,7 +6,10 @@ regtest_financial.collect takes an existing loopback Core/cookie and a SHA-bound
 qualified native executable plus its two owning admin endpoints. It executes only
 fixed read-only Core requests and `captaind rpc --addr ENDPOINT wallet-inventory`.
 A separate owned process group gives the whole collector a real25s deadline,
-including native descendants. It verifies the actual REGTEST genesis, non-IBD
+including native descendants. The fixed native pipe is independently bounded
+while reading at2MiB and12s; EOF is insufficient without actual exit0. Oversize,
+prefix hang, closed-pipe hang and failed-exit controls use harmless local child
+processes, not a native daemon or qualification runtime. It verifies the actual REGTEST genesis, non-IBD
 stable chain bracket, each native wallet tip and complete inventory, independent
 Core value/script/confirmed-unspent matching and actual unreserved eligibility.
 It reports observed physical rounds and fee-wallet amounts. It cannot declare

@@ -3,7 +3,7 @@
 This first contribution does not issue financial/bootstrap readiness. Native pool,
 liability and architecture-specific owner proof producers remain explicit gaps.
 """
-import hashlib,json,os,re,signal,stat,subprocess,sys,time
+import hashlib,json,os,re,selectors,signal,stat,subprocess,sys,time
 from pathlib import Path
 from urllib.parse import urlsplit
 if __package__ in (None,''):
@@ -92,10 +92,32 @@ def _native_inventory(binary,binary_sha256,address,timeout):
  if not isinstance(address,str)or re.fullmatch(r'http://127\.0\.0\.1:[1-9][0-9]{0,4}',address)is None:raise ValueError('fixed loopback native admin endpoint required')
  if not HEX64.fullmatch(binary_sha256)or hashlib.sha256(_read(binary,128*1024*1024)).hexdigest()!=binary_sha256:raise ValueError('native fixture executable differs')
  # No shell or caller-supplied verb, SQL, operation, executable arguments or callback.
- proc=subprocess.run([str(binary),'rpc','--addr',address,'wallet-inventory'],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=timeout,check=True)
- if len(proc.stdout)>2*1024*1024:raise ValueError('native owning inventory byte bound exceeded')
- value=json.loads(proc.stdout,object_pairs_hook=_pairs)
- return value,{'sha256':hashlib.sha256(proc.stdout).hexdigest(),'bytes':len(proc.stdout),'exit':proc.returncode}
+ if not isinstance(timeout,(int,float))or isinstance(timeout,bool)or not 0<timeout<=12:raise ValueError('bounded native inventory deadline required')
+ deadline=time.monotonic()+timeout;maximum=2*1024*1024;raw=bytearray()
+ # Inherit the fixed worker's process group, so its outer deadline also kills this child.
+ proc=subprocess.Popen([str(binary),'rpc','--addr',address,'wallet-inventory'],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+ try:
+  with selectors.DefaultSelector()as ready:
+   ready.register(proc.stdout,selectors.EVENT_READ)
+   while True:
+    remaining=deadline-time.monotonic()
+    if remaining<=0:raise TimeoutError('native owning inventory deadline exceeded')
+    if not ready.select(remaining):raise TimeoutError('native owning inventory deadline exceeded')
+    chunk=os.read(proc.stdout.fileno(),min(65536,maximum+1-len(raw)))
+    if not chunk:break
+    raw.extend(chunk)
+    if len(raw)>maximum:raise ValueError('native owning inventory byte bound exceeded')
+  remaining=deadline-time.monotonic()
+  if remaining<=0:raise TimeoutError('native owning inventory deadline exceeded')
+  proc.wait(timeout=remaining)
+  if proc.returncode!=0:raise ValueError('native owning inventory process failed')
+  if time.monotonic()>deadline:raise TimeoutError('native owning inventory late result refused')
+ finally:
+  if proc.poll()is None:proc.kill()
+  proc.wait(timeout=3)
+  proc.stdout.close()
+ value=json.loads(raw,object_pairs_hook=_pairs)
+ return value,{'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw),'exit':proc.returncode}
 
 def _wallet_facts(chain,value,role,tip,deadline=None):
  if value.get('complete')is not True or value.get('network')!='regtest' or value.get('wallet')!=role:raise ValueError('complete actual owning wallet source required')
