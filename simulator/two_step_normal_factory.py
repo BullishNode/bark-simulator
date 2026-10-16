@@ -20,7 +20,7 @@ def build_collector(store, *, admission_sequence, boundary, capture_configuratio
     target=TargetTarReader(target_configuration['command'],target_configuration['evidence_directory'],
         timeout=target_configuration['timeout'])
     member=MemberReader(member_configuration,store, native_profile=native)
-    capture=SourceCapture(target.read,member.read,admission_sequence,boundary,capture_configuration,
+    capture=SourceCapture(target.read,member.read,admission_sequence,boundary,capture_configuration,lineage_tools=tools,
         dependencies={'public_wallet_metadata':wallet_metadata,'descriptor_checkpoint':current_from_checkpoint,
             'factory':build_collector}, native_profile=native)
     funding=None

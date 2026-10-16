@@ -136,9 +136,9 @@ def run_proof(tool, request):
     return encoded, reply.stdout
 
 
-def authenticate_claims(store, tables, tools, server_pubkey, *, authenticated_pool_ids=()):
+def authenticate_claims(store, tables, tools, server_pubkey, *, authenticated_pool_ids=(), lineage_context=None):
     """Neither SQL spendable nor a provided signature verdict authenticates a Full."""
-    claims = _current_claims(store)
+    claims = _current_claims(store) if lineage_context is None else lineage_context['claims']
     rows = {row['vtxo_id']:row for row in tables['vtxo']}
     if len(rows) != len(tables['vtxo']): raise ValueError('duplicate native VTXO source')
     virtuals = {row['txid']:row for row in tables['virtual_transaction']}
@@ -147,7 +147,7 @@ def authenticate_claims(store, tables, tools, server_pubkey, *, authenticated_po
     for identifier, row in rows.items():
         if row['policy_type'] != 'pubkey' or identifier in expected or identifier in authenticated_pool_ids: continue
         old = store.db.execute('SELECT c.*,k.actor FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey WHERE c.id=?', (identifier,)).fetchone()
-        if old is None or not _superseded_ark_input(store, old):
+        if old is None or (not _superseded_ark_input(store, old) if lineage_context is None else identifier not in lineage_context['consumed_claim_ids']):
             raise ValueError('unattributed native ordinary right cannot be omitted')
     authenticated = []
     for claim in claims:
@@ -535,6 +535,13 @@ class Collector:
             'deadline':module_hash(Deadline), 'pending_board':module_hash(verify_pending_boards),
             'ordinary_pool':module_hash(authenticate_pool)}
         hashes['profile_builder']=module_hash(collector_from_profile)
+        if value.get('ordinary_lineage') is not None:
+            if self.native_profile is not None:
+                raise ValueError('A typed lineage cannot qualify another native profile')
+            from .normal_lineage_join import authenticate_frontier
+            from .normal_lineage import bind_coin
+            hashes['ordinary_lineage']=module_hash(authenticate_frontier)
+            hashes['typed_lineage']=module_hash(bind_coin)
         if self.funding_reader is not None:
             hashes['funding_reader']=module_hash(self.funding_reader.read)
             if value.get('funding_reader_configuration_sha256')!=digest(canonical(self.funding_reader.configuration).encode()):
@@ -671,6 +678,17 @@ class Collector:
         tables = native_tables(originals['native_sql'], source['original_sha256']['native_sql'],
             pending_board_proof_sha256=admitted['proof_tool_sha256'].get('pending'),
             ordinary_pool_source_sha256=admitted.get('ordinary_pool',{}).get('classifier_sha256'))
+        lineage_context = None
+        if admitted.get('ordinary_lineage') is not None:
+            from .normal_lineage_join import authenticate_frontier, public_frontier
+            lineage_context = authenticate_frontier(store,tables,self.tools,
+                server_pubkey=source['identity']['server_pubkey'],genesis=SIGNET_GENESIS,
+                native_source_sha256=source['original_sha256']['native_sql'],observation_id=observation['id'],
+                configuration=admitted['ordinary_lineage'])
+            if source.get('ordinary_lineage') != public_frontier(lineage_context):
+                raise ValueError('source and independent collector typed frontier differ')
+        elif source.get('ordinary_lineage') is not None:
+            raise ValueError('ordinary lineage source is not admitted')
         if len(tables['recovery_reserve']) != 1:
             raise ValueError('one actual native recovery reserve required')
         reserve = tables['recovery_reserve'][0]
@@ -695,7 +713,7 @@ class Collector:
                     or source.get('ordinary_pool_original_sha256')!={key:digest(raw)for key,raw in pool_originals.items()}):
                 raise ValueError('ordinary pool source admission differs')
             current=[]
-            for claim in _current_claims(store):
+            for claim in (_current_claims(store) if lineage_context is None else lineage_context['claims']):
                 original=strict_json(store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(claim['coin_id'],)).fetchone()[0])
                 current.append({**claim,'chain_anchor':original['chain_anchor']})
             pool_checked=authenticate_pool(tables,originals['native_sql'],pool_originals,originals['core'],chain,self.tools['policy'],
@@ -704,7 +722,7 @@ class Collector:
         elif any(tables[name]for name in POOL_TABLES-{'sweep'}):
             raise ValueError('ordinary pool original sources unavailable')
         claims, authenticated = authenticate_claims(store, tables, self.tools, source['identity']['server_pubkey'],
-            authenticated_pool_ids=()if pool_checked is None else pool_checked['coin_ids'])
+            authenticated_pool_ids=()if pool_checked is None else pool_checked['coin_ids'], lineage_context=lineage_context)
         holds = {row['id'] for row in tables['recovery_source_hold']}
         recovered_claims = [claim for claim in authenticated if claim['chain_anchor'] in holds]
         fresh_claims = [claim for claim in authenticated if claim['chain_anchor'] not in holds]
@@ -719,7 +737,7 @@ class Collector:
                 source_hashes={key:source['original_sha256'][key] for key in ('native_sql','core','rounds_inventory')})
         pending_resolution = verify_pending_boards(store,tables,authenticated,chain,self.tools.get('pending'),
             server_pubkey=source['identity']['server_pubkey'],height=source['height'],tip_hash=source['tip_hash'],
-            fresh_backing=fresh_backing,recovered=recovered)
+            fresh_backing=fresh_backing,recovered=recovered,lineage_context=lineage_context)
         liabilities = []
         for claim in authenticated:
             borrowers = [name for name, member in members.items()
@@ -778,4 +796,5 @@ class Collector:
         if available < sum(max(0,envelope['fee_budgets_msat'][key]-used[key]) for key in used):
             raise ValueError('actual unreserved fee cash does not back remaining outer budgets')
         return (assets, claims, fee, limits, pending_fees, recovered, fresh_backing, edge, available, source_event, source), {
-            'pending_board_resolution':pending_resolution, 'ordinary_pool_resolution':pool_checked}
+            'pending_board_resolution':pending_resolution, 'ordinary_pool_resolution':pool_checked,
+            'ordinary_lineage':source.get('ordinary_lineage')}
