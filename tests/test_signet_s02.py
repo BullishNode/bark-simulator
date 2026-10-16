@@ -1,12 +1,15 @@
 """Adversarial stubbed lifecycle tests; no public-Signet qualification."""
 from decimal import Decimal
 import json
+import os
+import shutil
+import subprocess
 import time
 import unittest
 from unittest.mock import patch
 
 from simulator.model import canonical
-from simulator.signet_s02 import begin_absence, observe_payout, check_recovery
+from simulator.signet_s02 import begin_absence, observe_payout, check_recovery, _backup_recovery_source
 from tests import test_signet
 
 
@@ -55,7 +58,17 @@ class S02Tests(unittest.TestCase):
             intent, actor, operation, canonical(args or {}), "acknowledged", created, created,
             None, canonical(reply), None))
 
+    def source(self):
+        path = self.campaign.actor_path("absent")
+        path.mkdir(parents=True, mode=0o700, exist_ok=True)
+        words = ("abandon " * 11 + "about").encode()
+        (path / "mnemonic").write_bytes(words)
+        os.chmod(path / "mnemonic", 0o600)
+        (path / "wallet.sqlite").write_bytes(b"must never be copied into recovery wallet")
+        return words
+
     def freeze(self):
+        self.source()
         self.campaign.core = LifecycleCore()
         coin = {"id": "e" * 64 + ":0", "amount_sat": 10000, "chain_anchor": ANCHOR + ":0",
                 "user_pubkey": "02" + "1" * 64, "expiry_height": 180, "state": "spendable"}
@@ -85,6 +98,7 @@ class S02Tests(unittest.TestCase):
         proof.assert_not_called()
 
     def test_stale_snapshot_cannot_declare_absence(self):
+        self.source()
         self.campaign.core = LifecycleCore()
         self.campaign.core.info["blocks"] = 170
         coin = {"id": "e" * 64 + ":0", "amount_sat": 10000, "expiry_height": 180,
@@ -96,6 +110,34 @@ class S02Tests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "actor changed"):
                 begin_absence(self.campaign, "absent", "snapshot", "registration")
         self.assertIsNone(self.campaign.db.execute("SELECT * FROM actor WHERE id='absent'").fetchone())
+
+    def test_restore_uses_only_protected_source_file_and_never_exposes_words_in_argv_or_report(self):
+        self.campaign.core = LifecycleCore()
+        words = self.source()
+        _backup_recovery_source(self.campaign, "absent")
+        shutil.rmtree(self.campaign.actor_path("absent"))
+        def native(argv, **kwargs):
+            self.assertNotIn(words.decode(), argv)
+            self.assertIn("--mnemonic-file", argv)
+            self.assertNotIn("--mnemonic", argv)
+            self.assertNotIn("--force", argv)
+            restored = self.campaign.actor_path("restored")
+            self.assertFalse(restored.exists())
+            from pathlib import Path
+            backup = Path(argv[argv.index("--mnemonic-file") + 1])
+            self.assertEqual(backup.read_bytes(), words)
+            return subprocess.CompletedProcess(argv, 0)
+        with patch("simulator.signet.subprocess.run", side_effect=native) as run:
+            result = self.campaign.execute("restore-native", "restored", "restore", {
+                "source_actor": "absent", "birthday_height": 100})
+            self.assertEqual(result["state"], "acknowledged")
+            self.campaign.execute("restore-native", "restored", "restore", {
+                "source_actor": "absent", "birthday_height": 100})
+        self.assertEqual(run.call_count, 1)
+        self.assertNotIn(words.decode(), json.dumps(self.campaign.report()))
+        with self.assertRaisesRegex(ValueError, "prior native history"):
+            self.campaign.execute("restore-again", "restored", "restore", {
+                "source_actor": "absent", "birthday_height": 100})
 
     def test_exact_payout_requires_actual_signed_path_and_preserves_failed_observations(self):
         frozen, good = self.payout()

@@ -6,12 +6,51 @@ are observations, not authority: signed paths, scripts and exact values decide.
 from __future__ import annotations
 
 import json
+import hashlib
+import io
+import os
 import re
+import stat
 import time
 
 from .model import btc_to_sat, canonical, integer, public_payload
 from .signet import network_identity
 from .signet_proof import verify_coin
+
+
+def recovery_source(campaign, actor: str):
+    """Return only a protected recovery phrase backup, never an original DB."""
+    campaign.actor_path(actor)
+    intent = "s02-recovery-source-" + actor
+    row = campaign.db.execute("SELECT * FROM native_artifact WHERE intent=? AND kind='source'", (intent,)).fetchone()
+    if not row or row["truncated"] or not 1 <= row["bytes"] <= 512:
+        raise ValueError("complete protected recovery source backup required")
+    path = campaign.root / row["relative_path"]
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+            raise ValueError("recovery source must be an owner-only regular file")
+        raw = source.read(513)
+    if len(raw) != row["bytes"] or hashlib.sha256(raw).hexdigest() != row["sha256"]:
+        raise ValueError("protected recovery source changed")
+    return path
+
+
+def _backup_recovery_source(campaign, actor):
+    intent = "s02-recovery-source-" + actor
+    if campaign.db.execute("SELECT 1 FROM native_artifact WHERE intent=? AND kind='source'", (intent,)).fetchone():
+        return recovery_source(campaign, actor)
+    fd = os.open(campaign.actor_path(actor) / "mnemonic", os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+            raise ValueError("original recovery source must be owner-only")
+        raw = source.read(513)
+    if not raw or len(raw) > 512:
+        raise ValueError("bounded original recovery source required")
+    campaign._retain_private(intent, "source", io.BytesIO(raw))
+    return recovery_source(campaign, actor)
 
 
 def _save(campaign, prefix, payload):
@@ -62,6 +101,7 @@ def begin_absence(campaign, actor: str, snapshot_intent: str, registration_inten
     chain = network_identity(campaign.core)
     if any(coin["expiry_height"] <= chain["height"] for coin in coins):
         raise ValueError("capture absence before the original coins expire")
+    _backup_recovery_source(campaign, actor)
     frozen = {"kind": "S02_absent_cohort", "actor": actor, "snapshot_intent": snapshot_intent,
               "registration_intent": registration_intent, "registration": public_record,
               "coins": coins, "signature_proofs": proofs, "chain": chain,

@@ -239,9 +239,26 @@ fee-child subsidy, or every ownership class has been qualified.
 
 Recovery uses a distinct wallet directory created from the original recovery
 phrase only, never a copied database. Native `onchain_utxos` and `onchain_drain`
-operations use the existing CLI. Secure native phrase-file restore plumbing is
-still a product dependency; no fake restore receipt is created by this runner.
-Once the real restore and drain are journaled:
+operations use the existing CLI. Beginning absence retains an owner-only bounded
+backup of the original phrase file. `restore` checks that protected artifact and
+passes only its path through the new native `--mnemonic-file` option, alongside
+an explicit birthday height. Words never enter process arguments or the public
+journal. It refuses an existing recovery directory or any earlier native action
+for the recovery actor. The native option and signed-path verifier are drafted
+in the fresh product branch; a compiled, checked binary is still required for
+real execution. No fake restore receipt is created by this runner.
+
+```
+python -m simulator.signet --state PRIVATE_DIR --config PRIVATE_CONFIG \
+  execute restore-1 RESTORED_ACTOR restore \
+  --arguments '{"source_actor":"ABSENT_ACTOR","birthday_height":ACTUAL_BIRTHDAY}'
+python -m simulator.signet --state PRIVATE_DIR --config PRIVATE_CONFIG \
+  execute drain-1 RESTORED_ACTOR onchain_drain \
+  --arguments '{"destination":"EXPECTED_SIGNET_DESTINATION"}'
+```
+
+The JSON examples contain placeholders to replace with the actual actor, integer
+height and destination. Once the real restore and drain are journaled:
 
 ```
 python -m simulator.signet --state PRIVATE_DIR --config PRIVATE_CONFIG \

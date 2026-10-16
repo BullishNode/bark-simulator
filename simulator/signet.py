@@ -24,7 +24,7 @@ PUBLIC_SIGNET_CHALLENGE = (
     "210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae"
 )
 OBSERVATIONS = {"vtxos", "sync_vtxos", "balance", "ark_info"}
-OPERATIONS = OBSERVATIONS | {"create", "address", "onchain_address", "onchain_utxos", "onchain_drain", "board", "send", "refresh", "maintain", "raw_vtxo", "fallback_record"}
+OPERATIONS = OBSERVATIONS | {"create", "restore", "address", "onchain_address", "onchain_utxos", "onchain_drain", "board", "send", "refresh", "maintain", "raw_vtxo", "fallback_record"}
 
 
 def digest(path: Path) -> str:
@@ -51,14 +51,21 @@ def command(operation: str, args: dict, config: dict) -> list[str]:
     if operation not in OPERATIONS:
         raise ValueError("unsupported native operation")
     expected = {"board": {"amount_sat"}, "send": {"destination", "amount_sat"},
-                "raw_vtxo": {"coin_id"}, "onchain_drain": {"destination"}}.get(operation, set())
+                "raw_vtxo": {"coin_id"}, "onchain_drain": {"destination"},
+                "restore": {"source_actor", "birthday_height"}}.get(operation, set())
     if set(args) != expected:
         raise ValueError("unexpected operation arguments")
     if "amount_sat" in args:
         integer(args["amount_sat"], "amount_sat", 1)
-    if operation == "create":
-        return ["create", "--signet", "--ark", config["ark_url"], "--bitcoind",
-                config["core_url"], "--bitcoind-cookie", config["core_credential"]]
+    if operation in {"create", "restore"}:
+        result = ["create", "--signet", "--ark", config["ark_url"], "--bitcoind",
+                  config["core_url"], "--bitcoind-cookie", config["core_credential"]]
+        if operation == "restore":
+            if not isinstance(args["source_actor"], str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", args["source_actor"]):
+                raise ValueError("original recovery actor required")
+            result += ["--birthday-height", str(integer(args["birthday_height"], "recovery birthday"))]
+            # Campaign.execute appends the verified private source-file path.
+        return result
     if operation == "sync_vtxos":
         return ["vtxos", "--all"]
     if operation == "ark_info":
@@ -109,7 +116,7 @@ def project_reply(operation: str, raw: bytes):
         serialized = bytes.fromhex(text)
         return {"serialized_sha256": hashlib.sha256(serialized).hexdigest(),
                 "serialized_bytes": len(serialized)}
-    if operation in {"create", "send", "refresh", "maintain"}:
+    if operation in {"create", "restore", "send", "refresh", "maintain"}:
         # send intentionally emits no machine receipt at bfbe6b7c3. A zero exit
         # is only acknowledgement, never payment completion.
         return {"native_exit_zero": True, "completion": "requires_reconciliation"}
@@ -302,6 +309,12 @@ class Campaign:
             if (previous["actor"], previous["operation"], previous["arguments"]) != (actor, operation, canonical(args)):
                 raise ValueError("intent ID reused with different action")
             return dict(previous)
+        if operation == "restore":
+            from .signet_s02 import recovery_source
+            if actor == args["source_actor"] or path.exists():
+                raise ValueError("recovery requires a distinct, previously empty wallet directory")
+            source = recovery_source(self, args["source_actor"])
+            native_args += ["--mnemonic-file", str(source)]
         # Potentially slow file hashing and Core reads happen before the short
         # SQLite write transaction. Actor exclusion is rechecked atomically below.
         if digest(Path(self.config["binary"])) != self.config["binary_sha256"]:
@@ -320,6 +333,9 @@ class Campaign:
                 raise ValueError("absent actor: no native wallet process may open it")
             if self.db.execute("SELECT 1 FROM action WHERE actor=? AND state IN ('dispatched','unknown')", (actor,)).fetchone():
                 raise ValueError("actor has an in-flight or unknown action; reconcile first")
+            if operation == "restore":
+                if path.exists() or self.db.execute("SELECT 1 FROM action WHERE actor=?", (actor,)).fetchone():
+                    raise ValueError("recovery wallet must have no prior native history or database")
             now = time.time()
             self.db.execute("INSERT INTO action VALUES (?,?,?,?,?,?,?,?,?,?)", (
                 intent, actor, operation, canonical(args), "dispatched", now, now,
