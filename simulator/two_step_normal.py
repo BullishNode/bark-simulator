@@ -132,7 +132,19 @@ def run_native_fee_source_proof(tool, request):
     return encoded, reply
 
 
-def _run_proof(tool, request, *, input_limit, output_limit, timeout_seconds):
+def run_c_captured_audit(tool, request_raw):
+    """Fixed C captured-byte ABI, preserving originals without JSON rewrite.
+
+    Exact C tool/source/runtime is independently admitted by its typed caller.
+    Input is the declared32MiB; output2MiB/12s and absolute observation deadline
+    remain unchanged. No observer/request selects any transport limit or mode.
+    """
+    if not isinstance(request_raw,bytes):raise ValueError('exact private C audit bytes required')
+    return _run_proof(tool,request_raw,input_limit=32*1024*1024,
+                      output_limit=2*1024*1024,timeout_seconds=12,raw_input=True)
+
+
+def _run_proof(tool, request, *, input_limit, output_limit, timeout_seconds, raw_input=False):
     """Execute the admitted pure verifier and retain its exact private originals."""
     command = tool['command']; binary = Path(command[0]); parent = Path(tool['evidence_directory'])
     if (not binary.is_absolute() or binary.is_symlink() or not binary.is_file()
@@ -145,7 +157,7 @@ def _run_proof(tool, request, *, input_limit, output_limit, timeout_seconds):
     def save(name, raw):
         with os.fdopen(os.open(directory/name, os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW, 0o600), 'wb') as stream:
             stream.write(raw); stream.flush(); os.fsync(stream.fileno())
-    encoded = canonical(request).encode()
+    encoded = request if raw_input else canonical(request).encode()
     if len(encoded) > input_limit: raise ValueError('private proof input exceeds bound')
     save('request.json', encoded)
     try:

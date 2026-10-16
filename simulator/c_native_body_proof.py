@@ -37,9 +37,13 @@ def _point(text):
     return txid,index
 
 
-def _tool(tool,identity,pins):
+def _tool(tool,identity,pins,*,expected_source=PROOF_SOURCE,binary_name="native-full-proof"):
+    # Only fixed native roles used by the admitted C callers. Neither field is
+    # read from an observer request; the qualification binds their exact data.
+    if binary_name not in {'native-full-proof','native-fee-audit'}:
+        raise ValueError('fixed native proof role required')
     fields={'source_commit','sdk_actual_GIT_HASH','sdk_component_commit','binary_sha256','launcher_sha256','runtime_manifest_sha256','component_inventory','python_sha256'}
-    if(not isinstance(identity,dict)or set(identity)!=fields or identity['source_commit']!=PROOF_SOURCE
+    if(not isinstance(identity,dict)or set(identity)!=fields or identity['source_commit']!=expected_source
             or identity['sdk_component_commit']!=pins['sdk_commit']or identity['launcher_sha256']!=tool.get('sha256')
             or not isinstance(tool.get('command'),(list,tuple))or len(tool['command'])!=1):
         raise ValueError('explicit actual native proof source/component/runtime identity required')
@@ -49,11 +53,11 @@ def _tool(tool,identity,pins):
         if not isinstance(value,str)or re.fullmatch('[0-9a-f]{'+str(size)+'}',value)is None:
             raise ValueError('complete native proof identity hash required')
     components=identity['component_inventory']
-    modes={'native-full-proof':0o500,'source-identity.json':0o600,'launch':0o500,
+    modes={binary_name:0o500,'source-identity.json':0o600,'launch':0o500,
       'lib/libc.so.6':0o400,'lib/ld-linux-x86-64.so.2':0o500,'lib/libgcc_s.so.1':0o400}
     if(not isinstance(components,dict)or set(components)!=set(modes)or any(not isinstance(v,dict)for v in components.values())
             or components['launch'].get('sha256')!=identity['launcher_sha256']
-            or components['native-full-proof'].get('sha256')!=identity['binary_sha256']):
+            or components[binary_name].get('sha256')!=identity['binary_sha256']):
         raise ValueError('exact qualified native closure components required')
     root=Path(tool['command'][0]).parent
     if not root.is_absolute()or any(p.is_symlink()for p in [root,*root.parents]):raise ValueError('fixed native closure root differs')
@@ -61,7 +65,7 @@ def _tool(tool,identity,pins):
         info=directory.lstat()
         if not stat.S_ISDIR(info.st_mode)or info.st_uid!=os.getuid()or stat.S_IMODE(info.st_mode)!=0o700:
             raise ValueError('owned0700 native runtime directories required')
-    if {p.name for p in root.iterdir()}!={'launch','native-full-proof','source-identity.json','lib'}or {p.name for p in (root/'lib').iterdir()}!={'libc.so.6','ld-linux-x86-64.so.2','libgcc_s.so.1'}:
+    if {p.name for p in root.iterdir()}!={'launch',binary_name,'source-identity.json','lib'}or {p.name for p in (root/'lib').iterdir()}!={'libc.so.6','ld-linux-x86-64.so.2','libgcc_s.so.1'}:
         raise ValueError('native runtime closure contains extra/missing members')
     for name,mode in modes.items():
         entry=components[name]

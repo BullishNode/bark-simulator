@@ -83,7 +83,7 @@ class DirectPerKeyProfile:
     public_context_filename = 'c-public-metadata-context.json'
     backing_source_kind = 'c_native_current_backing'
 
-    def __init__(self, target, *, runtime=None, owning=None, cln=None, members=None, current=None):
+    def __init__(self, target, *, runtime=None, owning=None, cln=None, members=None, current=None, audit=None):
         if type(target) is not CheckedTargetReader:
             raise EvidenceGap('fixed C checked-target reader required')
         from .c_normal_runtime_source import RuntimeSource
@@ -111,6 +111,11 @@ class DirectPerKeyProfile:
             if type(current)is not CurrentBinding:raise EvidenceGap('fixed C native current binding required')
             current.check()
         self.current=current
+        from .c_native_audit_tool import AuditBinding
+        if audit is not None:
+            if type(audit)is not AuditBinding:raise EvidenceGap('fixed native captured-audit binding required')
+            audit.check()
+        self.audit=audit
 
     def source_configuration(self):
         """Exact C constructor data for existing shared source admission.
@@ -124,7 +129,7 @@ class DirectPerKeyProfile:
         from .c_normal_cln_join import ClnBinding
         from .c_normal_member_join import MemberBinding
         if (type(self) is not DirectPerKeyProfile
-                or set(self.__dict__) != {'target','runtime','owning','cln','members','current'}
+                or set(self.__dict__) != {'target','runtime','owning','cln','members','current','audit'}
                 or type(self.target) is not CheckedTargetReader
                 or set(self.target.__dict__) != {'reader','adapter','configuration','qualification_sequence'}
                 or type(self.runtime) is not RuntimeSource
@@ -144,6 +149,11 @@ class DirectPerKeyProfile:
             if type(self.current)is not CurrentBinding or set(self.current.__dict__)!={'tool','tool_identity','qualification_sequence'}:
                 raise EvidenceGap('fixed C current tool instance required')
             value['current']={**self.current.check(),'qualification_sequence':self.current.qualification_sequence}
+        if self.audit is not None:
+            from .c_native_audit_tool import AuditBinding
+            if type(self.audit)is not AuditBinding or set(self.audit.__dict__)!={'tool','tool_identity','expected','qualification_sequence'}:
+                raise EvidenceGap('fixed native captured-audit instance required')
+            value['audit']={**self.audit.check(),'qualification_sequence':self.audit.qualification_sequence}
         return value
 
     def component_hashes(self):
@@ -180,12 +190,17 @@ class DirectPerKeyProfile:
             result['c_current_join']=module_hash(collect)
             result['c_current_constructor_sha256']=digest(canonical({**self.current.check(),
                 'qualification_sequence':self.current.qualification_sequence}).encode())
+        if self.audit is not None:
+            from .c_native_audit_tool import collect
+            result['c_captured_native_audit']=module_hash(collect)
+            result['c_captured_native_constructor_sha256']=digest(canonical({**self.audit.check(),
+                'qualification_sequence':self.audit.qualification_sequence}).encode())
         return result
 
     def collect_current(self,store,config,chain,observation,boundary,checked,members):
         if self.current is None:raise EvidenceGap('actual fixed C native current source is not installed')
         from .c_normal_current_join import collect
-        return collect(store,config,chain,observation,boundary=boundary,checked=checked,members=members,binding=self.current)
+        return collect(store,config,chain,observation,boundary=boundary,checked=checked,members=members,binding=self.current,audit_binding=self.audit)
 
     async def collect_members(self,store,config,chain,observation,boundary,checked,runtime,cln):
         if self.members is None:raise EvidenceGap('actual fixed complete C member source is not installed')

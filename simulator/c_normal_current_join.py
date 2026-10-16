@@ -48,7 +48,7 @@ def requirement(binding,pins):
             'source_member_join':module_hash(member_join.collect)}}
 
 
-def collect(store,config,chain,observation,*,boundary,checked,members,binding):
+def collect(store,config,chain,observation,*,boundary,checked,members,binding,audit_binding=None):
     _context(store,observation);deadline_check()
     if type(binding)is not CurrentBinding:raise EvidenceGap('typed C native current binding required')
     constructor=canonical(binding.check());original=canonical(observation)
@@ -65,6 +65,13 @@ def collect(store,config,chain,observation,*,boundary,checked,members,binding):
             or len(safe.get('inventory_sequences',{})) not in (17,29)
             or safe.get('cln_join_sequence')!=members['private_cln_join']['safe']['source_sequence']):
         raise EvidenceGap('actual complete same-observation C member/target source required')
+    if checked['loaded']['manifest'].get('schema_version')==4:
+        from . import c_native_audit_tool
+        if type(audit_binding)is not c_native_audit_tool.AuditBinding:
+            raise EvidenceGap('actual fixed new native captured-audit tool is not installed')
+        c_native_audit_tool.collect(store,config,chain,observation,checked=checked,binding=audit_binding)
+        # Native byte/SQL consistency does not prove current financial closure.
+        raise EvidenceGap('captured native bytes audited; legacy DirectRecord/allocation, Board-root and current-economic prerequisites remain missing')
     if checked['loaded']['manifest'].get('schema_version')!=1:
         raise EvidenceGap('versioned joint originals require actual native fee/opening/urgent reconciliation before current audit')
     if store.db.execute("SELECT 1 FROM event WHERE kind=? AND json_extract(payload,'$.source_observation.id')=?",(KIND,observation['id'])).fetchone():
