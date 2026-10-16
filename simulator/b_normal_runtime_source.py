@@ -24,12 +24,18 @@ from .runtime_startup import _sha, _time_ns
 SERVICES = ('captaind', 'watchmand')
 PINS = ('product_commit', 'sdk_commit', 'driver_sha256', 'configuration_sha256', 'schema_sha256')
 LOAD_GATES = {
-    'server/src/watchman/daemon.rs': '5a00827d1e1787c857c7f9b80159815ead915ffd7b3f33e2e4c2ab52059d64e6',
-    'server/src/watchman/expiry_runtime.rs': '12a4fc64a0925c97642ba3ffaebeb2df9067f9881f9428009a8f9dd1d2608b46',
+    'server/src/lib.rs': '39f915558bbdce2cd1e527653aa4d8ef982fa2f55fa131c5eb6a2736f4511265',
+    'server/src/payout_witness.rs': 'c06c9bb24cb45564fcc0f17d88d3b6f4d7187be95df57482b3fc8cadc267d4c0',
+    'server/src/watchman/daemon.rs': '0b4a1e3c3b99b534dbbe277984659e7a03e78fdac20d049a82a7540c99422f8a',
+    'server/src/watchman/expiry_runtime.rs': 'e97479e7248de051b2d82fa2d9f429498c13bd6bda192ed1b5ef3ade738bc120',
+    'server/src/watchman/ordinary_fee.rs': 'e882bc4052cd952f66b05c687067d0704462179ee5ebb69bc3c5933ef0658d4b',
+    'server/src/watchman/urgent.rs': '41bb64748f73806785342975cb1537287b1de202b7334db56ba15e8a37c5f68e',
 }
+BUDGET_HELPER_SHA256 = 'a21adb02d3f0033ecf82dea1562e53bd9e46856388f009c56ae6ce8c37d25827'
+MAX_PUBLIC_LEDGER_RECORDS = 10000
 MAX_CAPTURE_NS = 60*10**9
 MAX_PROCESS_ENTRIES = 16384
-MAX_EXECUTABLE_BYTES = 256*1024*1024
+MAX_EXECUTABLE_BYTES = 768*1024*1024
 _CAPTURE_END = contextvars.ContextVar('b_runtime_capture_end', default=None)
 BUDGET_FILES = ('ordinary-fee-policy.json', 'ordinary-fee-opening.json', 'ordinary-fee-budget')
 
@@ -87,6 +93,8 @@ def _expected(value):
             raise ValueError('fixed owned schema source required')
     _sha(value['canonical_schema_sha256'])
     _sha(value['budget_helper_sha256'])
+    if value['budget_helper_sha256'] != BUDGET_HELPER_SHA256:
+        raise ValueError('reviewed schema-2 native disk reader required')
     _path(value['budget_helper_path']); _path(value['accounting_receipt_path'])
     if set(value['data_mount']) != {'source', 'destination'} or value['data_mount']['destination'] != '/data/captaind':
         raise ValueError('exact shared owned history mount required')
@@ -112,7 +120,50 @@ def history_txids(raw, prefix):
     return txids
 
 
-def _file(path, maximum, prefix=None, *, public_history=False):
+def ledger_projection(raw):
+    """Expose charge prefixes only after the admitted helper checks the same bytes.
+
+    Urgent package bytes remain private. This projection does not establish
+    signed-package validity, retirement, fee coverage or urgent readiness.
+    """
+    if type(raw) is not bytes or len(raw) > 2*1024*1024 or (raw and not raw.endswith(b'\n')):
+        raise ValueError('bounded complete native ledger required')
+    lines = raw.split(b'\n')[:-1]
+    if len(lines) > MAX_PUBLIC_LEDGER_RECORDS:
+        raise ValueError('public ledger record bound')
+    result = {'budget_file_sha256': digest(raw), 'ordinary_reservations': [],
+              'urgent_reservations': [], 'urgent_bindings': [], 'record_count': len(lines)}
+    for number, line in enumerate(lines, 1):
+        line = line.removesuffix(b'\r')
+        if re.fullmatch(b'[1-9][0-9]{0,15}', line):
+            result['ordinary_reservations'].append({'line': number, 'ceiling_sat': int(line)})
+        elif match := re.fullmatch(b'u:([1-9][0-9]{0,15}):([1-9][0-9]{0,15})', line):
+            result['urgent_reservations'].append({'line': number, 'attempt_index': int(match[1]), 'ceiling_sat': int(match[2])})
+        else:
+            parts = line.split(b':', 3)
+            if (len(parts) != 4 or parts[0] != b'p' or not re.fullmatch(b'[1-9][0-9]{0,15}', parts[1])
+                    or not re.fullmatch(b'[0-9a-f]{64}', parts[2]) or not parts[3]):
+                raise ValueError('canonical public ledger charge prefix required')
+            result['urgent_bindings'].append({'line': number, 'attempt_index': int(parts[1]), 'binding_sha256': parts[2].decode('ascii')})
+    return result
+
+
+def _ledger_matches(ledger, disk, file_sha256):
+    if disk.get('schema_version') != 2 or ledger['budget_file_sha256'] != file_sha256 or file_sha256 != disk['budget_file_sha256']:
+        raise ValueError('schema-2 exact native ledger bytes required')
+    ordinary = ledger['ordinary_reservations']; urgent = ledger['urgent_reservations']; bindings = ledger['urgent_bindings']
+    actual = {'ordinary_attempt_count': len(ordinary), 'urgent_attempt_count': len(urgent),
+              'urgent_binding_count': len(bindings), 'attempt_count': len(ordinary)+len(urgent),
+              'urgent_reserved_ceiling_sum_sat': sum(row['ceiling_sat'] for row in urgent),
+              'reserved_ceiling_sum_sat': sum(row['ceiling_sat'] for row in ordinary+urgent)}
+    if any(disk.get(name) != value for name, value in actual.items()):
+        raise ValueError('public ledger differs from admitted schema-2 charges')
+    if ledger['record_count'] != len(ordinary)+len(urgent)+len(bindings):
+        raise ValueError('public ledger record inventory differs')
+    return ledger
+
+
+def _file(path, maximum, prefix=None, *, public_history=False, public_ledger=False):
     """No-follow metadata/digest read; raw private contents never returned."""
     path = Path(_path(str(path)))
     _require_time()
@@ -132,7 +183,7 @@ def _file(path, maximum, prefix=None, *, public_history=False):
                 if count + len(block) > maximum:
                     raise ValueError('runtime source growth bound')
                 full.update(block)
-                if public_history: records.extend(block)
+                if public_history or public_ledger: records.extend(block)
                 if prefix is not None and count < prefix:
                     head.update(block[:prefix-count])
                 count += len(block)
@@ -146,6 +197,7 @@ def _file(path, maximum, prefix=None, *, public_history=False):
                 if not 0 <= prefix <= count: raise ValueError('history prefix outside actual history')
                 result.update(prefix_bytes=prefix, prefix_sha256=head.hexdigest())
             if public_history: result['txids'] = history_txids(bytes(records), prefix)
+            if public_ledger: result['public_ledger'] = ledger_projection(bytes(records))
             return result
         finally: os.close(fd)
     finally: os.close(directory)
@@ -316,7 +368,9 @@ def _budget(expected, helper):
     if str(directory.parent) != expected['data_mount']['source']:
         raise ValueError('native budget source outside declared owning mount')
     first = helper.read_directory(directory)
-    files = {name: _file(directory/name, helper.LIMITS[name]) for name in BUDGET_FILES}
+    files = {name: _file(directory/name, helper.LIMITS[name], public_ledger=name == 'ordinary-fee-budget') for name in BUDGET_FILES}
+    ledger = files['ordinary-fee-budget'].pop('public_ledger')
+    _ledger_matches(ledger, first, files['ordinary-fee-budget']['sha256'])
     history = _file(directory/'history', 650000, first['history_prefix_bytes'], public_history=True)
     receipt = _file(expected['accounting_receipt_path'], 2*1024*1024)
     last = helper.read_directory(directory)
@@ -328,7 +382,7 @@ def _budget(expected, helper):
         raise ValueError('budget metadata/disk projection differs')
     if history['prefix_sha256'] != first['history_prefix_sha256'] or receipt['sha256'] != first['accounting_receipt_sha256']:
         raise ValueError('original signed history/accounting receipt differs')
-    return {'disk_budget': first, 'files': files, 'history': history,
+    return {'disk_budget': first, 'files': files, 'history': history, 'public_ledger': ledger,
             'accounting_receipt_sha256': receipt['sha256'], 'source_mount_identity_sha256': identity(binding)}
 
 
@@ -469,6 +523,7 @@ def verify(expected, checkpoint, observation, *, now_ns=None):
     if observation['canonical_schema_sha256'] != expected['canonical_schema_sha256'] or observation['canonical_schema_repeat_sha256'] != expected['canonical_schema_sha256']:
         raise ValueError('actual canonical schema differs or changed')
     budget = observation['native_budget']; disk = budget['disk_budget']
+    _ledger_matches(budget['public_ledger'], disk, budget['files']['ordinary-fee-budget']['sha256'])
     if observation['native_budget_after'] != budget:
         raise ValueError('native budget/history changed during process capture')
     for name in BUDGET_FILES[:2]:

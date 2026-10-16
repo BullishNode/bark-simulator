@@ -17,14 +17,14 @@ def fixture():
         'binary_sha256': {n: h for n in runtime.SERVICES}, 'config_sha256': {n: h for n in runtime.SERVICES},
         'config_paths': {n: {'host': '/owned/'+n+'.toml', 'container': '/config/'+n+'.toml'} for n in runtime.SERVICES},
         'data_mount': {'source': '/owned/captaind', 'destination': '/data/captaind'},
-        'budget_helper_path': '/opt/owned/reader.py', 'budget_helper_sha256': h,
+        'budget_helper_path': '/opt/owned/reader.py', 'budget_helper_sha256': runtime.BUDGET_HELPER_SHA256,
         'accounting_receipt_path': '/opt/owned/accounting.json', 'load_gate_sources': dict(runtime.LOAD_GATES),
         'driver_artifact_sha256': h, 'postgres_container': 'owned-postgres', 'database': 'owned-db', 'canonical_schema_sha256': h}
     t = 1800000000*10**9
     meta = {'device': os.makedev(8, 1), 'inode': 44, 'bytes': 3, 'mtime_ns': t-3, 'ctime_ns': t-3, 'sha256': h}
-    disk = {'policy_sha256': h, 'opening_sha256': h, 'budget_file_sha256': h, 'history_prefix_sha256': h,
+    disk = {'schema_version': 2, 'attempt_count': 0, 'ordinary_attempt_count': 0, 'urgent_attempt_count': 0, 'urgent_binding_count': 0, 'reserved_ceiling_sum_sat': 0, 'urgent_reserved_ceiling_sum_sat': 0, 'policy_sha256': h, 'opening_sha256': h, 'budget_file_sha256': h, 'history_prefix_sha256': h,
             'accounting_receipt_sha256': h, **{k: False for k in ('runtime_loaded_identity_verified', 'retained_signed_fee_coverage_verified', 'urgent_selection_isolation_verified', 'complete', 'qualified')}}
-    budget = {'disk_budget': disk, 'files': {n: dict(meta) for n in runtime.BUDGET_FILES},
+    budget = {'public_ledger': {'budget_file_sha256': h, 'ordinary_reservations': [], 'urgent_reservations': [], 'urgent_bindings': [], 'record_count': 0}, 'disk_budget': disk, 'files': {n: dict(meta) for n in runtime.BUDGET_FILES},
               'history': {'prefix_sha256': h}, 'accounting_receipt_sha256': h, 'source_mount_identity_sha256': h}
     checkpoint = {'kind': 'b_runtime_before_start', 'observed_at_ns': t-2, 'expected_sha256': runtime.identity(expected),
                   'configs': {n: dict(meta) for n in runtime.SERVICES}, 'native_budget': copy.deepcopy(budget)}
@@ -164,7 +164,7 @@ class BudgetCaptureTests(unittest.TestCase):
             files = {n: (str(i)+'\n').encode() for i,n in enumerate(runtime.BUDGET_FILES)}
             for n, raw in files.items(): (directory/n).write_bytes(raw)
             (directory/'history').write_bytes(b'a'*64+b'\n'+b'b'*64+b'\n'); receipt=parent/'receipt'; receipt.write_bytes(b'actual')
-            projection = {'policy_sha256': runtime.digest(files[runtime.BUDGET_FILES[0]]),
+            projection = {'schema_version': 2, 'attempt_count': 1, 'ordinary_attempt_count': 1, 'urgent_attempt_count': 0, 'urgent_binding_count': 0, 'reserved_ceiling_sum_sat': 2, 'urgent_reserved_ceiling_sum_sat': 0, 'policy_sha256': runtime.digest(files[runtime.BUDGET_FILES[0]]),
                 'opening_sha256': runtime.digest(files[runtime.BUDGET_FILES[1]]),
                 'budget_file_sha256': runtime.digest(files[runtime.BUDGET_FILES[2]]),
                 'history_prefix_bytes': 65, 'history_prefix_sha256': runtime.digest(b'a'*64+b'\n'),
@@ -364,3 +364,42 @@ class CaptureCleanupRegressionTests(unittest.TestCase):
                 path.write_bytes(b'123456789')
                 with self.assertRaisesRegex(ValueError, 'executable size'):
                     runtime._executable_digest(path)
+
+
+class SchemaTwoLedgerTests(unittest.TestCase):
+    def test_mixed_charge_prefixes_preserve_order_and_never_export_package(self):
+        raw = b'120\nu:1:200\np:1:'+b'a'*64+b':[[0,0,0,0,0,0,0,0,0,0]]\n80\n'
+        actual = runtime.ledger_projection(raw)
+        self.assertEqual(actual['ordinary_reservations'], [{'line': 1, 'ceiling_sat': 120}, {'line': 4, 'ceiling_sat': 80}])
+        self.assertEqual(actual['urgent_reservations'], [{'line': 2, 'attempt_index': 1, 'ceiling_sat': 200}])
+        self.assertEqual(actual['urgent_bindings'], [{'line': 3, 'attempt_index': 1, 'binding_sha256': 'a'*64}])
+        self.assertEqual(actual['budget_file_sha256'], runtime.digest(raw))
+        self.assertNotIn('package', repr(actual)); self.assertNotIn('[[0,0', repr(actual))
+        disk = {'schema_version': 2, 'budget_file_sha256': runtime.digest(raw), 'ordinary_attempt_count': 2,
+                'urgent_attempt_count': 1, 'urgent_binding_count': 1, 'attempt_count': 3,
+                'urgent_reserved_ceiling_sum_sat': 200, 'reserved_ceiling_sum_sat': 400}
+        self.assertEqual(runtime._ledger_matches(actual, disk, runtime.digest(raw)), actual)
+        for key in ('ordinary_attempt_count', 'urgent_attempt_count', 'urgent_binding_count', 'attempt_count', 'reserved_ceiling_sum_sat', 'urgent_reserved_ceiling_sum_sat'):
+            changed = dict(disk); changed[key] += 1
+            with self.assertRaisesRegex(ValueError, 'charges'): runtime._ledger_matches(actual, changed, runtime.digest(raw))
+
+    def test_torn_malformed_and_overlimit_ledger_refuse(self):
+        for raw in (b'1', b'0\n', b'-1\n', b'u:0:1\n', b'p:1:bad:[]\n'):
+            with self.assertRaises(ValueError): runtime.ledger_projection(raw)
+        with patch.object(runtime, 'MAX_PUBLIC_LEDGER_RECORDS', 1):
+            with self.assertRaisesRegex(ValueError, 'record bound'): runtime.ledger_projection(b'1\n2\n')
+
+    def test_raw_ledger_hash_and_schema_cannot_borrow_other_projection(self):
+        args = fixture()
+        for key, value in (('schema_version', 1), ('budget_file_sha256', 'd'*64)):
+            changed = copy.deepcopy(args); changed[2]['native_budget']['disk_budget'][key] = value
+            changed[2]['native_budget_after'] = copy.deepcopy(changed[2]['native_budget'])
+            with self.assertRaisesRegex(ValueError, 'schema-2'): runtime.verify(*changed, now_ns=changed[2]['completed_at_ns'])
+
+    def test_final_reviewed_helper_required(self):
+        args = fixture(); args[0]['budget_helper_sha256'] = 'd'*64
+        with self.assertRaisesRegex(ValueError, 'schema-2 native disk reader'): runtime._expected(args[0])
+
+    def test_missing_charge_inventory_cannot_claim_configuration_proof(self):
+        args = fixture(); del args[2]['native_budget']['public_ledger']
+        with self.assertRaises(KeyError): runtime.verify(*args, now_ns=args[2]['completed_at_ns'])
