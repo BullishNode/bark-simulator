@@ -162,7 +162,7 @@ def checked_runtime(buffers, admission):
     return result
 
 
-def historical_money(store, chain, old_boundary, new_boundary, scripts, groups):
+def historical_money(store, chain, old_boundary, new_boundary, scripts, groups, *, historical_costs=None):
     """Authenticate actual5132/5133/5134, without rebooking or changing a pin."""
     require(profile(store) == DIRECT, 'B initial profile requires direct_xpub')
     revent, reconstruction = original_event(store, RECONCILIATION)
@@ -221,7 +221,7 @@ def historical_money(store, chain, old_boundary, new_boundary, scripts, groups):
     require(len(old_bank) == len(new_bank) == 1 and old_bank[0]['kind'] == 'wallet'
         and all(old_bank[0][key] == new_bank[0][key] for key in identity_fields),
         'B initial profile: original bank identity/descriptors changed')
-    costs = native.original_costs(store, chain)
+    costs = native.original_costs(store, chain) if historical_costs is None else historical_costs
     require(tuple(r['sequence'] for r in costs) == COST_SEQUENCES,
         'B initial profile: new/urgent/or missing original cost domain')
     require(all(r['budget'] == 'ordinary' for r in costs),

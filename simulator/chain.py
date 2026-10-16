@@ -23,6 +23,12 @@ class ChainReader:
         self.last_capture=None
         self.capture,self.consumer=capture,consumer
     def call(self,method,*args,timeout=12,max_response_bytes=16*1024*1024):
+        return self._call(method,*args,timeout=timeout,max_response_bytes=max_response_bytes)
+    def owned_activity(self,scripts,*,timeout=12):
+        from .owned_mempool import arguments,MAX_RESPONSE_BYTES
+        return self._call('getdescriptoractivity',*arguments(scripts),
+            max_response_bytes=MAX_RESPONSE_BYTES,activity_scripts=set(scripts),timeout=timeout)
+    def _call(self,method,*args,timeout=12,max_response_bytes=16*1024*1024,activity_scripts=None):
         self.last_capture=None
         if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress','scantxoutset','getrawmempool','getdescriptoractivity'}:raise ValueError('read-only RPC required')
         if method=='getdescriptoractivity':
@@ -54,8 +60,8 @@ class ChainReader:
             self.last_response_bytes=len(raw)
             if len(raw)>max_response_bytes:raw=None;raise ValueError('Core response exceeds capture bound')
             if method=='getdescriptoractivity':
-                from .owned_mempool import decode_reply
-                r=decode_reply(raw)
+                from .owned_mempool import decode_reply,decode_activity_reply
+                r=decode_reply(raw) if activity_scripts is None else decode_activity_reply(raw,activity_scripts)
             else:r=json.loads(raw,parse_float=Decimal)
         except Exception as error:
             # A malformed/nonempty activity reply is not a public projection:

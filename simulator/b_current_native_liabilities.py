@@ -283,7 +283,16 @@ def current_ordinary_liabilities(store,chain,database,*,server_pubkey,borrower,t
             dispositions.append({'coin_id':point,'actor':claim['actor'],'amount_sat':claim['amount_sat'],
                                  'state':'unsettled'})
     _need(set(terminal) <= set(claims), 'terminal group has an unclassified retained current right')
+    backing_roots={}
+    for point,expected in anchors.items():
+        if point in retirement:continue
+        txid,index=point.split(':');actual=chain.call('gettxout',txid,int(index),False)
+        _need(actual is not None and actual.get('confirmations',0)>=1
+            and btc_to_sat(actual['value'])==expected['amount_sat']
+            and actual['scriptPubKey']['hex']==expected['script'],
+            'unretired original physical backing unavailable '+point)
+        backing_roots[point]={'amount_sat':expected['amount_sat'],'script':expected['script']}
     _tip(chain,tip)
     return {'liabilities':liabilities,'dispositions':dispositions,'groups':groups,
             'outstanding_liability_sat':sum(r['amount_msat'] for r in liabilities)//1000,
-            'signed_graph_coin_ids':sorted(coins)}
+            'signed_graph_coin_ids':sorted(coins),'backing_roots':backing_roots}

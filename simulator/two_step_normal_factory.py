@@ -1,4 +1,6 @@
 """Explicit installed normal collector factory; no observer-selected plugins."""
+from .architecture import DIRECT
+from .ownership import EvidenceGap
 from .private_source_package import TargetTarReader
 from .normal_member_source import MemberReader, bank_projection, ConfigCredential
 from .public_wallet_metadata import wallet_metadata
@@ -15,8 +17,10 @@ def build_collector(store, *, admission_sequence, boundary, capture_configuratio
         raise ValueError('pending Board framing must bind the exact installed admitted proof tool')
     native = None
     if architecture_profile is not None:
-        from .b_normal_profile_adapter import initial_profile
-        native = initial_profile(store, architecture_profile)
+        if architecture_profile != DIRECT:
+            raise EvidenceGap('no matching installed normal collector for the requested architecture profile')
+        from .b_continuing_profile import continuing_profile
+        native = continuing_profile(store, architecture_profile)
     target=TargetTarReader(target_configuration['command'],target_configuration['evidence_directory'],
         timeout=target_configuration['timeout'])
     member=MemberReader(member_configuration,store, native_profile=native)
