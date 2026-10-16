@@ -188,10 +188,39 @@ def _unique(store, kind, action_id):
     return rows[0][0]
 
 
+def action_boundary(store, action, pins):
+    """Choose original or authenticated upgraded membership at the action time.
+
+    Reading an old action must not silently substitute the current overlay.
+    Neither declaration is modified and an upgrade cannot authorize an old action.
+    """
+    from .treasury import KEY, _members
+    from .final_campaign import _source_event
+    encoded = store.get_meta(KEY)
+    rows = store.db.execute("SELECT sequence FROM event WHERE kind='treasury_boundary_declared'").fetchall()
+    if encoded is None or len(rows) != 1:
+        raise ValueError('original treasury declaration missing or ambiguous')
+    event, original = _source_event(store, rows[0][0])
+    if canonical(original) != encoded:
+        raise ValueError('original treasury declaration differs from immutable metadata')
+    declared = original if original['pins'] == pins else None
+    from .preserved_treasury_upgrade import recorded
+    upgraded = recorded(store)
+    if upgraded is not None and upgraded['boundary']['pins'] == pins:
+        upgrade_event, _ = _source_event(store, upgraded['upgrade_sequence'])
+        if upgrade_event['observed_at'] <= action['created_at']:
+            event, declared = upgrade_event, upgraded['boundary']
+    if declared is None:
+        raise ValueError('action has no authenticated original or upgraded boundary')
+    _members(declared)
+    if event['observed_at'] > action['created_at']:
+        raise ValueError('treasury boundary was not sealed before action')
+    return declared
+
+
 def _derive_external(store, action, proof):
     """Re-derive a summary from original facts; booleans are never referents."""
     from .final_campaign import _action_pins, _recipient_pins, _source_event
-    from .treasury import boundary
     from .fees import movement_fee, receive_fee
     pins = proof['financial_pins']
     direction = proof.get('direction')
@@ -199,15 +228,7 @@ def _derive_external(store, action, proof):
     if action['operation'] != expected_operation or store.actor_namespace(action['actor_id']) != 'ordinary':
         raise ValueError('external direction differs from original native user action')
     _action_pins(store, action['id'], pins)
-    declared = boundary(store)
-    declaration_events = store.db.execute("SELECT sequence FROM event WHERE kind='treasury_boundary_declared'").fetchall()
-    if len(declaration_events) != 1:
-        raise ValueError('original treasury declaration missing or ambiguous')
-    declaration_event, original_declaration = _source_event(store, declaration_events[0][0])
-    if original_declaration != declared or declaration_event['observed_at'] > action['created_at']:
-        raise ValueError('original treasury declaration was not sealed before action')
-    if declared['pins'] != pins:
-        raise ValueError('external controlled membership pins differ')
+    declared = action_boundary(store, action, pins)
     nodes = {}
     for role in ALIASES:
         members = [m for m in declared['members'] if m['kind'] == 'lightning_peer' and m['role'] == role]

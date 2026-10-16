@@ -282,6 +282,8 @@ def verify_fresh_backing(authenticated, tables, chain, *, height, server_pubkey,
 
 def verified_money(store, chain, source, *, opening=None, funding_context=None, boundary=None):
     """All recorded flows/costs, checked once each; no historical fee re-debit."""
+    from .cln_router_cost import require_routing_reconciliation
+    require_routing_reconciliation(store)
     sequences = {}
     for kind, field in [('treasury_flow_verified', 'flow_sequences'), ('financial_cost_verified', 'cost_sequences')]:
         expected = [row[0] for row in store.db.execute('SELECT sequence FROM event WHERE kind=? ORDER BY sequence', (kind,))]
@@ -310,6 +312,13 @@ def verified_money(store, chain, source, *, opening=None, funding_context=None, 
         if identifier in monetary: raise ValueError('same original monetary item counted twice')
         monetary.add(identifier); integer(value['amount_msat'], 'original monetary amount', 1)
         if event['kind'] == 'financial_cost_verified':
+            if value['kind'] == 'router_cost':
+                from .cln_router_cost import verify_cost
+                verify_cost(store,value)
+                # Router expenses conserve through flows; Bitcoin costs[txid]
+                # remains exclusively independent confirmed miner expenses.
+                if sequence not in old: flows.append({'id':identifier, **value})
+                continue
             if value['kind'] != 'miner_cost' or identifier != 'miner:'+value['txid']:
                 raise ValueError('unsupported external router cost needs its original decoder')
             actual = chain.transaction(value['txid'])
@@ -632,6 +641,8 @@ class Collector:
             facts = self.native_profile.reduce(store, config, chain, boundary, envelope,
                 captured, source_event, source, originals, admitted, opening, now)
         assets, claims, fee, limits, pending_fees, recovered, fresh_backing, edge, available, source_event, source = facts
+        from .cln_router_cost import require_routing_readiness
+        require_routing_readiness(store)
         quote = chain.call('estimatesmartfee', 1, 'CONSERVATIVE')
         estimate = btc_to_sat(quote['feerate'])
         if estimate < 1: raise ValueError('current source fee quote missing')

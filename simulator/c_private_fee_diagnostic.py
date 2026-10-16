@@ -17,7 +17,7 @@ import subprocess
 from types import SimpleNamespace
 
 ROOT=Path(__file__).resolve().parent.parent
-JOIN_SHA='41ce415ba8ff0a76cdca3a0b5222a01d5bdff9132fe5d979a6ffbba3c4834540'
+JOIN_SHA='a7b3557131cb0270301c977fd807267291d9385470244e2158bf4b85cb7aa48c'
 CORE_CLI=Path('/opt/track-c/core-31.0/bin/bitcoin-cli')
 NONMONETARY=frozenset({'links','records','journal_links','journal_records','lightning_nodes'})
 

@@ -24,7 +24,7 @@ from tests.test_final_campaign import PINS
 JOIN_SOURCE=os.environ.get('C_SHARED_MONEY_JOIN_SOURCE')
 JOIN_SPEC=importlib.util.find_spec('simulator.normal_money_join')
 JOIN=pathlib.Path(JOIN_SOURCE or JOIN_SPEC.origin)if JOIN_SOURCE or JOIN_SPEC else None
-JOIN_SHA='41ce415ba8ff0a76cdca3a0b5222a01d5bdff9132fe5d979a6ffbba3c4834540'
+JOIN_SHA='a7b3557131cb0270301c977fd807267291d9385470244e2158bf4b85cb7aa48c'
 TIP='b'*64;KEY='02'+'1'*64
 
 def encoded(value):return json.dumps(value,separators=(',',':'),ensure_ascii=False).encode()
