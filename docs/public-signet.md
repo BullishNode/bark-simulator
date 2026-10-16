@@ -181,3 +181,10 @@ retried separately; the monetary action is never repeated.
 The supervisor tests stub this native command. Availability and cryptographic
 correctness of the product command require its own compiled tests and actual
 campaign receipts; this source integration does not claim those are finished.
+
+Before deliberate abandonment is supported by the deployed product, active
+wallets can run the native `maintain` operation through distinct journaled
+intents. It invokes upstream's one-shot `wallet.maintenance()`, using the wallet's
+actual refresh policy; it is not a fabricated scheduler or a forced refresh of
+every coin. Such maintenance is a monetary operation and cannot overlap an
+isolated transfer checkpoint. An absent actor is never maintained.

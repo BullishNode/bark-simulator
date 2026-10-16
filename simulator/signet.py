@@ -24,7 +24,7 @@ PUBLIC_SIGNET_CHALLENGE = (
     "210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae"
 )
 OBSERVATIONS = {"vtxos", "sync_vtxos", "balance"}
-OPERATIONS = OBSERVATIONS | {"create", "address", "onchain_address", "board", "send", "refresh", "raw_vtxo"}
+OPERATIONS = OBSERVATIONS | {"create", "address", "onchain_address", "board", "send", "refresh", "maintain", "raw_vtxo"}
 
 
 def digest(path: Path) -> str:
@@ -99,7 +99,7 @@ def project_reply(operation: str, raw: bytes):
         serialized = bytes.fromhex(text)
         return {"serialized_sha256": hashlib.sha256(serialized).hexdigest(),
                 "serialized_bytes": len(serialized)}
-    if operation in {"create", "send", "refresh"}:
+    if operation in {"create", "send", "refresh", "maintain"}:
         # send intentionally emits no machine receipt at bfbe6b7c3. A zero exit
         # is only acknowledgement, never payment completion.
         return {"native_exit_zero": True, "completion": "requires_reconciliation"}
@@ -340,7 +340,7 @@ class Campaign:
                 rb["actor"], payment["created"], arguments["destination"])).fetchone():
             raise ValueError("payment destination not bound to the receiver's native address receipt")
         other = self.db.execute("""SELECT id FROM action
-            WHERE actor IN (?,?) AND operation IN ('create','send','board','refresh')
+            WHERE actor IN (?,?) AND operation IN ('create','send','board','refresh','maintain')
               AND created>=? AND created<=? AND id!=?""", (
             sb["actor"], rb["actor"], min(sb["created"], rb["created"]),
             max(sa["updated"], ra["updated"]), intent)).fetchall()
