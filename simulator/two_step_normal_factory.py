@@ -9,6 +9,9 @@ from .two_step_normal import Collector
 
 def build_collector(store, *, admission_sequence, boundary, capture_configuration,
                     target_configuration, member_configuration, tools):
+    pending=tools.get('pending',{}).get('sha256')
+    if member_configuration.get('pending_board_proof_sha256')!=pending:
+        raise ValueError('pending Board framing must bind the exact installed admitted proof tool')
     target=TargetTarReader(target_configuration['command'],target_configuration['evidence_directory'],
         timeout=target_configuration['timeout'])
     member=MemberReader(member_configuration,store)
