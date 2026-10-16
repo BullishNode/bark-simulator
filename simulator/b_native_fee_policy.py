@@ -60,9 +60,12 @@ def loaded_final_native_fee_policy(runtime, *, network):
     """
     from .b_final_native_profile import checked_owner
     checked_owner(runtime)
-    return _loaded_policy(runtime, network=network, product=FINAL_PRODUCT,
+    result = _loaded_policy(runtime, network=network, product=FINAL_PRODUCT,
         source_map_sha256=FINAL_SOURCE_MAP_SHA256,
         locked_policy=runtime['native_budget']['owner_snapshot']['policy'])
+    for path in ('round','pool'):
+        result['unsupported_paths'][path]='final native reservation needs current owned family/input/backing proof'
+    return result
 
 
 def _loaded_policy(runtime, *, network, product, source_map_sha256, locked_policy):

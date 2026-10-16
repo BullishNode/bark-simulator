@@ -788,17 +788,24 @@ def verify(expected, checkpoint, observation, *, now_ns=None):
     return result
 
 
-def _capture(expected, checkpoint):
+def _capture(expected, checkpoint, *, _native_fee_cut=False):
     """Privileged fixed-owned readonly capture; caller retains privately, no append."""
     _expected(expected); started = time.time_ns(); monotonic = time.monotonic_ns(); helper = _helper(expected)
     before = {name: _daemon(expected, name) for name in SERVICES}
     route = _owner_route(before)
     budget = _budget(expected, helper); lock = _lock(before['watchmand']['pid'], budget['files']['ordinary-fee-budget'])
-    responses = {}
+    responses = {}; private_inventories = {}
     for name, port in (('captaind', '3536'), ('watchmand', '3538')):
         raw = _run(['/usr/bin/docker', 'exec', expected['containers'][name], 'captaind', 'rpc', '--addr', '127.0.0.1:'+port, 'wallet-inventory'], 65536)
         if not isinstance(json.loads(raw), dict): raise ValueError('actual successful admin inventory required')
         responses[name] = digest(raw)
+        if _native_fee_cut:
+            role = 'rounds_inventory' if name == 'captaind' else 'watchman_inventory'
+            private_inventories[role] = raw
+    private_cut = None
+    if _native_fee_cut:
+        from .b_private_native_fee_capture import capture_private_cut
+        private_cut = capture_private_cut(expected, budget)
     after_budget = _budget(expected, helper); after_lock = _lock(before['watchmand']['pid'], after_budget['files']['ordinary-fee-budget'])
     schemas = []
     for _ in range(2):
@@ -812,7 +819,12 @@ def _capture(expected, checkpoint):
                    'budget_lock_after': after_lock, 'admin_responses': responses,
                    'canonical_schema_sha256': schemas[0], 'canonical_schema_repeat_sha256': schemas[1],
                    'elapsed_ns': time.monotonic_ns()-monotonic}
-    return observation, verify(expected, checkpoint, observation)
+    result = observation, verify(expected, checkpoint, observation)
+    if _native_fee_cut:
+        # Keep the exact already-read replies private. Their hashes are in the
+        # verified observation; another RPC or JSON re-encoding is not this cut.
+        private_cut['wallet_inventory_originals'] = private_inventories
+    return (*result, private_cut) if _native_fee_cut else result
 
 
 def capture(expected, checkpoint):
@@ -853,3 +865,24 @@ def capture_originals_protected(expected_path, checkpoint_path):
     encode = lambda value: json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False)
     return {'expected_raw':expected_raw.decode('utf8'),'checkpoint_raw':checkpoint_raw.decode('utf8'),
             'observation_raw':encode(observation),'protected_receipt_raw':encode(receipt)}
+
+
+def capture_native_fee_originals_protected(expected_path, checkpoint_path):
+    """PRIVATE fixed fee cut inside the existing single custody loop."""
+    expected_raw, expected_sha = checked_file(expected_path)
+    checkpoint_raw, checkpoint_sha = checked_file(checkpoint_path)
+    expected, checkpoint = json.loads(expected_raw), json.loads(checkpoint_raw)
+    token = _CAPTURE_END.set(time.monotonic()+MAX_CAPTURE_NS/10**9)
+    try:
+        observation, receipt, private_cut = _capture(expected, checkpoint, _native_fee_cut=True)
+    finally:
+        _CAPTURE_END.reset(token)
+    if checked_file(expected_path)[1] != expected_sha or checked_file(checkpoint_path)[1] != checkpoint_sha:
+        raise ValueError('protected operator declaration changed during capture')
+    receipt['operator_expected_source_sha256'] = expected_sha
+    receipt['operator_checkpoint_source_sha256'] = checkpoint_sha
+    receipt['producer_source_sha256'] = checked_file(Path(__file__))[1]
+    encode = lambda value: json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False)
+    runtime_originals = {'expected_raw':expected_raw.decode('utf8'),'checkpoint_raw':checkpoint_raw.decode('utf8'),
+        'observation_raw':encode(observation),'protected_receipt_raw':encode(receipt)}
+    return runtime_originals, private_cut
