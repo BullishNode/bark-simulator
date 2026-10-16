@@ -422,6 +422,8 @@ def record_ordinary_journey(store,config,chain,*,source_sequence):
     if (event['kind']!=KIND or source.get('complete') is not True or source.get('ordinary_plan_id')!=value['id']
             or source.get('ordinary_step') is not None or source.get('financial_pins')!=value['pins']
             or source.get('boundary_id')!=value['boundary_id']):raise ValueError('actual complete ordinary source required')
+    from .owned_mempool import verify_source as verify_owned_source
+    verify_owned_source(store,source,'board_backing',fresh=True)
     _fresh(source['observed_at']);origin=backing._origin(store,chain)
     if source['origin']!=origin or _history(store,origin)[0] is not None:raise ValueError('all original ordinary steps must complete at unchanged origin')
     native=_native(store,config,origin,source['height']);send=_send(store,origin)

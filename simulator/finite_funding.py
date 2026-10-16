@@ -66,6 +66,8 @@ def _validate(store, value, chain):
             or bank_source['source_identity']['wallet_name'] != value['bank_wallet_name']
             or sorted(bank_source['source_identity']['descriptors']) != sorted(bank['descriptors'])):
         raise ValueError('original independently verified finite bank source differs')
+    from .owned_mempool import verify_source as verify_owned_source
+    verify_owned_source(store,source,'finite_initial_funding')
     recipients = value['recipients']
     if (not isinstance(recipients, list) or len(recipients) != len(amounts)
             or {r['member_id'] for r in recipients} != set(amounts)

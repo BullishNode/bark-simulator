@@ -212,6 +212,8 @@ def record_first_board_readiness(store,config,chain,*,cash_readiness_sequence,cu
     if (source_event['kind']!='finite_fresh_cash_sources_verified' or source.get('financial_pins')!=plan['pins']
             or source.get('boundary_id')!=plan['boundary_id'] or source.get('funding_confirmation_sequence')!=funding_sequence):
         raise ValueError('original confirmed cash source differs')
+    from .owned_mempool import verify_source as verify_owned_source
+    verify_owned_source(store,source,'finite_fresh_cash',fresh=True)
     _fresh(source['observed_at'])
     observations=verify_synced_cash_snapshots(store,source)
     assets=capture_assets(store,source['inventory_sequences'],chain);limits=envelope(store,config)

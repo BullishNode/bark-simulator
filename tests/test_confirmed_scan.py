@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from tests.owned_activity_fixture import script, capture as capture_activity
 from simulator import confirmed_scan as scans
 from simulator.engine import initialize
 from simulator.model import SIGNET_GENESIS,canonical
@@ -223,7 +224,16 @@ class CachedCashSourceControls(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(2,sys.modules['simulator.process'].json_command.call_count)
             self.assertEqual(2,sys.modules['simulator.fresh_cash_readiness'].observe_empty_client_economics.call_count)
         self.assertEqual(1,self.starts());self.assertTrue(second['source']['confirmed_scan']['reused'])
-        self.assertEqual(12,sum(method=='gettxout' for method,args in self.calls));self.assertEqual(4,sum(method=='getrawmempool' for method,args in self.calls))
+        self.assertEqual(12,sum(method=='gettxout' for method,args in self.calls))
+        self.assertEqual(2,sum(method=='getdescriptoractivity' for method,args in self.calls))
+        self.assertEqual(0,sum(method=='getrawmempool' for method,args in self.calls))
+        expected_scripts={script(owner+':'+str(child)) for owner in ('bank','rounds','watchman','actor-01','actor-02','actor-04')
+            for child in range(22 if owner in ('rounds','watchman') else 20)}
+        self.assertEqual(124,len(expected_scripts))
+        for item in (first,second):
+            self.assertEqual(sorted(expected_scripts),item['source']['mempool']['scripts'])
+            self.assertEqual(124,item['source']['mempool']['script_count'])
+            self.assertEqual(65536,item['source']['mempool']['maximum_response_bytes'])
         self.assertGreaterEqual(second['source']['observed_at'],first['source']['observed_at'])
     async def test_cached_confirmed_coin_pending_spent_is_still_refused(self):
         with self.f.dependencies():await self.collect()
@@ -239,10 +249,10 @@ class CachedCashSourceControls(unittest.IsolatedAsyncioTestCase):
         with self.f.dependencies():await self.collect()
         original=self.f.chain.call
         def arrival(method,*args,**kwargs):
-            if method=='getrawmempool':return ['9'*64]
+            if method=='getdescriptoractivity':return capture_activity(self.f.chain,self.f.store,args,{'activity':[{'type':'receive'}]})
             return original(method,*args,**kwargs)
-        self.f.chain.call=arrival;self.f.chain.tx=lambda txid:{'vout':[{'scriptPubKey':{'hex':'actor-02:0'}}]}
-        with self.f.dependencies(),self.assertRaisesRegex(ValueError,'unconfirmed output'):await self.collect()
+        self.f.chain.call=arrival
+        with self.f.dependencies(),self.assertRaisesRegex(ValueError,'unconfirmed assets or spends'):await self.collect()
         self.assertEqual(1,self.starts())
     async def test_changed_server_or_native_database_refuses_despite_scan_reuse(self):
         with self.f.dependencies():await self.collect()
@@ -260,7 +270,7 @@ class CachedCashSourceControls(unittest.IsolatedAsyncioTestCase):
                 self.calls.append((method,args))
                 rows=[{'txid':self.f.txid,'vout':row['vout'],'amount':str(__import__('decimal').Decimal(row['amount_sat'])/100000000),
                     'scriptPubKey':row['script']} for row in self.f.transaction['outputs']]
-                rows.append({'txid':'9'*64,'vout':0,'amount':'0.00000001','scriptPubKey':'actor-02:10'})
+                rows.append({'txid':'9'*64,'vout':0,'amount':'0.00000001','scriptPubKey':script('actor-02:10')})
                 return self.f.capture_scan({'success':True,'height':100,'bestblock':self.f.tip,'unspents':rows,'total_amount':'0.00664455'},args[1])
             return original(method,*args,**kwargs)
         self.f.chain.call=extra
@@ -276,7 +286,7 @@ class CachedCashSourceControls(unittest.IsolatedAsyncioTestCase):
                 self.calls.append((method,args))
                 rows=[{'txid':self.f.txid,'vout':row['vout'],'amount':str(__import__('decimal').Decimal(row['amount_sat'])/100000000),
                     'scriptPubKey':row['script']} for row in self.f.transaction['outputs']]
-                rows.append({'txid':'8'*64,'vout':0,'amount':'0.00000001','scriptPubKey':'rounds:22'})
+                rows.append({'txid':'8'*64,'vout':0,'amount':'0.00000001','scriptPubKey':script('rounds:22')})
                 return self.f.capture_scan({'success':True,'height':100,'bestblock':self.f.tip,'unspents':rows,'total_amount':'0.00664455'},args[1])
             return original(method,*args,**kwargs)
         self.f.chain.call=growth

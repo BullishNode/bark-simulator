@@ -1,3 +1,4 @@
+from tests.owned_activity_fixture import capture as capture_activity, script
 """Synthetic single-Board controls; no native/Core execution credit."""
 import copy
 import json
@@ -16,7 +17,7 @@ from tests.test_final_campaign import PINS
 def origin():
     return {'financial_pins':PINS,'boundary_id':'finite','actor':'actor-01','board_action_id':'board-first-01',
         'vtxo_id':'f'*64+':0','net_liability_sat':19500,'anchor':'e'*64+':0',
-        'anchor_output':{'vout':0,'script':'board-anchor','amount_sat':20000},'expiry_height':200,'exit_margin':12,
+        'anchor_output':{'vout':0,'script':script('board-anchor'),'amount_sat':20000},'expiry_height':200,'exit_margin':12,
         'user_pubkey':'02'+'1'*64,'binding':{'mailbox_pk':'02'+'2'*64,'child_index':0},'movement_id':1,
         'mining_fee_sat':1200,'service_charge_sat':500,'funding_fee_sat':1000,'funding_plan':{'bank_wallet_name':'bank'}}
 
@@ -97,8 +98,8 @@ class BoardSourceControls(unittest.IsolatedAsyncioTestCase):
         # Confirming a new Board changes the chainstate; never model new confirmed outputs at the old tip.
         self.f.height=101;self.f.tip=self.tip='d'*64
         self.f.bank.update(height=101,tip_hash=self.tip);self.f.bankseq=self.f.event('treasury_bank_original_source',self.f.bank)
-        self.origin['transaction']={'txid':'e'*64,'inputs':[{'outpoint':self.f.txid+':2','amount_sat':50000,'script':'actor-01:0'}],
-            'outputs':[self.origin['anchor_output'],{'vout':1,'amount_sat':28800,'script':'actor-01:2'}],'fee_sat':1200,'confirmations':1}
+        self.origin['transaction']={'txid':'e'*64,'inputs':[{'outpoint':self.f.txid+':2','amount_sat':50000,'script':script('actor-01:0')}],
+            'outputs':[self.origin['anchor_output'],{'vout':1,'amount_sat':28800,'script':script('actor-01:2')}],'fee_sat':1200,'confirmations':1}
         current={field:{owner:{'complete':True,'network':'signet','wallet':owner,'public_descriptor':'desc-'+owner,
             'last_revealed_index':1,'tip_height':101,'tip_hash':self.tip}} for owner,field in [('rounds','rounds_inventory'),('watchman','watchman_inventory')]}
         old_call=self.f.chain.call
@@ -106,7 +107,7 @@ class BoardSourceControls(unittest.IsolatedAsyncioTestCase):
             if method=='scantxoutset' and args[0]=='start':
                 rows=[{'txid':self.f.txid,'vout':row['vout'],'amount':str(__import__('decimal').Decimal(row['amount_sat'])/100000000),'scriptPubKey':row['script']}
                     for row in self.f.transaction['outputs'] if row['vout']!=2]
-                rows.append({'txid':'e'*64,'vout':1,'amount':'0.00028800','scriptPubKey':'actor-01:2'})
+                rows.append({'txid':'e'*64,'vout':1,'amount':'0.00028800','scriptPubKey':script('actor-01:2')})
                 return self.f.capture_scan({'success':True,'height':101,'bestblock':self.tip,'unspents':rows,'total_amount':'0.00643254'},args[1])
             if method=='gettxout' and args[0]=='e'*64:
                 row=self.origin['transaction']['outputs'][args[1]]

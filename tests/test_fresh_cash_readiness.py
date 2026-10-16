@@ -1,3 +1,4 @@
+from tests.owned_activity_fixture import capture as capture_activity, script
 """Synthetic cash-only context/SQLite controls; no native or Core success credit."""
 import copy
 import json
@@ -91,25 +92,25 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
             'identity':'public-'+owner,'descriptors':['desc-'+owner],'verification_sequence':1}
             for owner in ['bank','rounds','watchman',*self.actors]]
         self.recipients=[{'member_id':owner,'role':'customer' if owner in self.actors else 'operator','address':owner+'-0',
-            'script':owner+':0','amount_sat':amount,'descriptor_index':0,'child_index':0}
+            'script':script(owner+':0'),'amount_sat':amount,'descriptor_index':0,'child_index':0}
             for owner,amount in [('rounds',100000),('watchman',75000),*[(actor,50000) for actor in self.actors]]]
         self.plan={'id':'cash','pins':PINS,'boundary_id':'finite','bank_wallet_name':'bank','recipients':self.recipients}
-        self.transaction={'txid':self.txid,'inputs':[{'outpoint':self.openpoint,'amount_sat':665454,'script':'bank:0'}],
+        self.transaction={'txid':self.txid,'inputs':[{'outpoint':self.openpoint,'amount_sat':665454,'script':script('bank:0')}],
             'outputs':[{'vout':index,'script':row['script'],'amount_sat':row['amount_sat']} for index,row in enumerate(self.recipients)]
-                +[{'vout':5,'script':'bank:1','amount_sat':339454}], 'fee_sat':1000,'confirmations':1,'blockhash':self.tip}
+                +[{'vout':5,'script':script('bank:1'),'amount_sat':339454}], 'fee_sat':1000,'confirmations':1,'blockhash':self.tip}
         self.db={'kind':'closed_frontier','database_tables_complete':True,'inventory_consistent':True,'read_only':True,
             'rows':{'records':3,'journal_records':3,'coins':0}}
         self.initial={'members':self.members,'inventory_sequences':{},'descriptor_ranges':[
             {'desc':member['descriptors'][0],'range':[0,19]} for member in self.members]}
         for member in self.members:
-            coins=[{'outpoint':self.openpoint,'amount_sat':665454,'script':'bank:0','descriptor_index':0,'child_index':0}] if member['id']=='bank' else []
+            coins=[{'outpoint':self.openpoint,'amount_sat':665454,'script':script('bank:0'),'descriptor_index':0,'child_index':0}] if member['id']=='bank' else []
             self.initial['inventory_sequences'][member['id']]=self.event('treasury_inventory',{
                 'member_id':member['id'],'financial_pins':PINS,'utxos':coins})
         self.initial['database_source_sequence']=self.event('closed_cohort_original_source',{'response':self.db})
         self.plan['finite_initial_source_sequence']=self.event('finite_initial_funding_sources_verified',self.initial)
         self.funding_sequence=self.event('fixture_funding_confirmed',{'synthetic':True})
         self.bank={'source_identity':{'wallet_name':'bank'},'height':100,'tip_hash':self.tip,
-            'listunspent':[{'txid':self.txid,'vout':5,'amount':'0.00339454','scriptPubKey':'bank:1','spendable':True,'safe':True}],
+            'listunspent':[{'txid':self.txid,'vout':5,'amount':'0.00339454','scriptPubKey':script('bank:1'),'spendable':True,'safe':True}],
             'pending_transactions':[],'pending_parents':[],'locked_coins':[],'listlockunspent':[],
             'getbalances':{'mine':{'trusted':'0.00339454','untrusted_pending':0}}}
         self.bankseq=self.event('treasury_bank_original_source',self.bank)
@@ -122,7 +123,8 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
                 if method=='getblockchaininfo':return self.identity()
                 if method=='getdescriptorinfo':return {'hasprivatekeys':False,'descriptor':args[0],'isrange':True}
                 if method=='deriveaddresses':return [args[0][5:]+'-'+str(child) for child in range(args[1][0],args[1][1]+1)]
-                if method=='validateaddress':return {'isvalid':True,'scriptPubKey':args[0].rsplit('-',1)[0]+':'+args[0].rsplit('-',1)[1]}
+                if method=='validateaddress':return {'isvalid':True,'scriptPubKey':script(args[0].rsplit('-',1)[0]+':'+args[0].rsplit('-',1)[1])}
+                if method=='getdescriptoractivity':return capture_activity(self,outer.store,args,{'activity':[]})
                 if method=='getrawmempool':return []
                 if method=='estimatesmartfee':return {'feerate':'0.00001000'}
                 if method=='scantxoutset':
@@ -203,10 +205,10 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
         self.assertEqual('synthetic-sha',result['source']['range_runtime_source_sha256'])
         pending='d'*64
         def incoming(method,*args,**kwargs):
-            if method=='getrawmempool':return [pending]
+            if method=='getdescriptoractivity':return capture_activity(self.chain,self.store,args,{'activity':[{'type':'receive'}]})
             return original(method,*args,**kwargs)
-        self.chain.call=incoming;self.chain.tx=lambda txid:{'txid':txid,'vout':[{'scriptPubKey':{'hex':'rounds:200'}}]}
-        with self.dependencies(frontier=200),self.assertRaisesRegex(ValueError,'unconfirmed output'):
+        self.chain.call=incoming;self.chain.tx=lambda txid:{'txid':txid,'vout':[{'scriptPubKey':{'hex':script('rounds:200')}}]}
+        with self.dependencies(frontier=200),self.assertRaisesRegex(ValueError,'unconfirmed assets or spends'):
             await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
         with self.dependencies(frontier=1979),self.assertRaisesRegex(ValueError,'descriptor/script bound'):
             await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
@@ -226,7 +228,7 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
         with self.dependencies():result=await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
         source=result['source'];assets={}
         for row in self.transaction['outputs']:
-            owner=row['script'].split(':')[0]
+            owner=next((item['member_id'] for item in self.recipients if item['script']==row['script']),'bank')
             assets[self.txid+':'+str(row['vout'])]={'member':owner,'amount_msat':row['amount_sat']*1000}
         current={}
         for owner,field in [('rounds','rounds_inventory'),('watchman','watchman_inventory')]:

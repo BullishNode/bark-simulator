@@ -293,7 +293,10 @@ async def _collect_backing_sources(store,config,chain,bank_rpc,*,cash_source_seq
                 or actual['scriptPubKey']['hex']!=coin['script']):raise ValueError('confirmed cash/Board backing unavailable or pending-spent')
     physical_total=sum(coin['amount_sat'] for coin in physical.values())
     if physical_total!=policy['opening_sat']-origin['funding_fee_sat']-origin['mining_fee_sat']:raise ValueError('cash plus single physical Board anchor does not conserve capital')
-    mempool=_empty_mempool(chain,set(scripts)|{anchor['script']},started)
+    from .owned_mempool import collector_context
+    mempool=_empty_mempool(chain,set(scripts)|{anchor['script']},started,store=store,
+        context=collector_context('board_backing',{'financial_pins':origin['financial_pins'],
+            'boundary_id':origin['boundary_id'],'height':tip[0],'tip_hash':tip[1],'descriptor_ranges':scans,'origin':origin}))
     bankseq=collect_funding_bank_source(store,bank_rpc,chain);_,bank=_source_event(store,bankseq)
     check_named_bank(bank,origin['funding_plan']['bank_wallet_name'],observed,tip)
     _,prior=_source_event(store,cash['database_source_sequence'])
@@ -359,6 +362,8 @@ def _record_backing_readiness(store,config,chain,*,source_sequence,runtime_sourc
     from .treasury import boundary,capture_assets
     event,source=_source_event(store,source_sequence)
     if event['kind']!=source_kind or source.get('complete') is not True:raise ValueError('original complete Board adoption source required')
+    from .owned_mempool import verify_source as verify_owned_source
+    verify_owned_source(store,source,'board_backing',fresh=True)
     _fresh(source['observed_at']);origin=_origin(store,chain)
     if origin!=source['origin']:raise ValueError('original Board source changed')
     history_validator(store,origin)

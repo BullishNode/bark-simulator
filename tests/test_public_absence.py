@@ -23,6 +23,7 @@ from simulator.public_treasury import confirmed_frontier
 from tests import test_ordinary_arkoor as native_fixture
 from tests.test_final_campaign import PINS
 from tests import account_fixtures
+from tests.owned_activity_fixture import receipt as activity_receipt, capture as capture_activity, script as script_hex
 
 
 class PublicAbsenceControls(unittest.IsolatedAsyncioTestCase):
@@ -36,8 +37,8 @@ class PublicAbsenceControls(unittest.IsolatedAsyncioTestCase):
         f.binding=binding;f.setUp();self.store=f.store;self.store.attach_trace()
         self.fund='d'*64;self.tip='e'*64;self.height=100;self.anchor_script='5120'+'a'*64
         f.origin.update(anchor_output={'vout':0,'amount_sat':20000,'script':self.anchor_script},
-            transaction={'txid':'a'*64,'inputs':[{'outpoint':self.fund+':2','amount_sat':50000,'script':'actor-01:1'}],
-                'outputs':[{'vout':0,'amount_sat':20000,'script':self.anchor_script},{'vout':1,'amount_sat':29829,'script':'actor-01:2'}],
+            transaction={'txid':'a'*64,'inputs':[{'outpoint':self.fund+':2','amount_sat':50000,'script':self.script('actor-01:1')}],
+                'outputs':[{'vout':0,'amount_sat':20000,'script':self.anchor_script},{'vout':1,'amount_sat':29829,'script':self.script('actor-01:2')}],
                 'fee_sat':171,'confirmations':1,'blockhash':self.tip},funding_plan={'bank_wallet_name':'bank'})
         source,_,initial_chain=f.terminal();graph,prior=f.graph(f.send_record)
         initial_chain.call=lambda *args:{'confirmations':1,'value':'0.00020000','scriptPubKey':{'hex':self.anchor_script}}
@@ -45,15 +46,16 @@ class PublicAbsenceControls(unittest.IsolatedAsyncioTestCase):
         records=list(self.records.values());graph['rows'].update(records=copy.deepcopy(records),journal_records=copy.deepcopy(records))
         self.members=[{'id':member,'identity':'original-'+member,'kind':'wallet','role':'customer' if member.startswith('actor') else 'operator',
             'descriptors':['desc-'+member],'verification_sequence':1} for member in ('bank','rounds','watchman','actor-01','actor-02','actor-04')]
-        self.opening={self.fund+':'+str(index):{'member_id':member,'amount_sat':amount,'script':script,'descriptor_index':0,'child_index':child}
+        self.opening={self.fund+':'+str(index):{'member_id':member,'amount_sat':amount,'script':self.script(script),'descriptor_index':0,'child_index':child}
             for index,member,amount,script,child in [(0,'rounds',100000,'rounds:0',0),(1,'watchman',75000,'watchman:0',0),
                 (3,'actor-02',50000,'actor-02:1',1),(4,'actor-04',50000,'actor-04:1',1),(5,'bank',339746,'bank:1',1)]}
-        self.opening['a'*64+':1']={'member_id':'actor-01','amount_sat':29829,'script':'actor-01:2','descriptor_index':0,'child_index':2}
+        self.opening['a'*64+':1']={'member_id':'actor-01','amount_sat':29829,'script':self.script('actor-01:2'),'descriptor_index':0,'child_index':2}
         self.opening[f.anchor]={'member_id':'original-board-backing','amount_sat':20000,'script':self.anchor_script}
         self.physical=copy.deepcopy(self.opening);self.database=copy.deepcopy(graph)
         source.update(origin=f.origin,members=self.members,database=copy.deepcopy(graph),
             descriptor_ranges=[{'desc':member['descriptors'][0],'range':[0,19]} for member in self.members],
             physical_assets=copy.deepcopy(self.opening),physical_total_sat=664575)
+        source['mempool']=activity_receipt(self.store,source,'board_backing')
         self.store.event(ordinary.KIND,source);original_source=self.sequence()
         # Retain public native-verifier-shaped proof paths for the SAME original
         # signed objects before absence. These are unit doubles, not signatures.
@@ -87,10 +89,14 @@ class PublicAbsenceControls(unittest.IsolatedAsyncioTestCase):
                 if method=='getdescriptorinfo':return {'descriptor':args[0],'hasprivatekeys':False,'isrange':True}
                 if method=='deriveaddresses':return [args[0][5:]+':'+str(child) for child in range(args[1][0],args[1][1]+1)]
                 if method=='validateaddress':return {'isvalid':True,'scriptPubKey':outer.script(args[0])}
-                if method=='getrawmempool':
+                if method=='getdescriptoractivity':
                     outer.mempool_reads+=1
-                    if outer.spend_after_mempool and outer.mempool_reads>=2:outer.late_pending=True
-                    return outer.mem
+                    result=capture_activity(self,outer.store,args,{'activity':[]})
+                    # The owned-script observation was empty; a new spend
+                    # appears immediately afterwards and must fail the final
+                    # independent gettxout check, preserving the original race.
+                    if outer.spend_after_mempool:outer.late_pending=True
+                    return result
                 if method=='estimatesmartfee':return {'feerate':'0.00001001'}
                 if method=='gettxout':
                     point=args[0]+':'+str(args[1]);coin=outer.physical.get(point)
@@ -110,7 +116,7 @@ class PublicAbsenceControls(unittest.IsolatedAsyncioTestCase):
     def script(self,address):
         actor,index=address.rsplit(':',1)
         if (actor,index)==('watchman','2'):return '0014'+'5'*40
-        return self.records[actor]['spk'] if actor in self.records and index=='0' else address
+        return self.records[actor]['spk'] if actor in self.records and index=='0' else script_hex(address)
     def refresh_current(self):
         for owner,field in [('rounds','rounds_inventory'),('watchman','watchman_inventory')]:
             self.current[field]={owner:{'complete':True,'network':'signet','wallet':owner,'public_descriptor':'desc-'+owner,
@@ -202,7 +208,7 @@ class PublicAbsenceControls(unittest.IsolatedAsyncioTestCase):
         self.confirmed();self.database['rows']['journal_allocations'][0]['owner_pubkey']='02'+'7'*64
         with self.assertRaises(InvariantError):await self.collect()
     async def test_extra_owned_asset_missing_member_and_unaccounted_spender_stay_partial(self):
-        self.scan_extra=[{'txid':'7'*64,'vout':0,'amount':'0.00000100','scriptPubKey':'bank:2'}]
+        self.scan_extra=[{'txid':'7'*64,'vout':0,'amount':'0.00000100','scriptPubKey':self.script('bank:2')}]
         source=await self.collect();self.assertFalse(source['physical_complete']);self.assertIn('extra/missing/changed',source['gaps'][0])
     async def test_spent_source_without_accounted_successor_stays_partial(self):
         self.missing={self.f.anchor};source=await self.collect();self.assertFalse(source['physical_complete']);self.assertIn('accounted confirmed successor',source['gaps'][0])
