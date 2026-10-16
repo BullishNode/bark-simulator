@@ -59,12 +59,18 @@ def empty_result(value):
 
 
 def decode_reply(raw):
-    value=decode_activity_reply(raw)
-    empty_result(value['result'])
+    value=_activity_envelope(raw)
+    empty_result(value.get('result'))
     return value
 
 
-def decode_activity_reply(raw, scripts=None):
+def decode_activity_reply(raw,scripts=None):
+    value=_activity_envelope(raw)
+    activity_result(value.get('result'),scripts=scripts)
+    return value
+
+
+def _activity_envelope(raw):
     if not isinstance(raw,bytes) or not 0 < len(raw) <= MAX_RESPONSE_BYTES:
         raise ValueError('owned-script activity response exceeds byte bound')
     value=json.loads(raw,parse_float=Decimal,object_pairs_hook=unique_object)
@@ -72,7 +78,6 @@ def decode_activity_reply(raw, scripts=None):
             or type(value.get('id')) is not int or value['id']!=1
             or value.get('jsonrpc','2.0')!='2.0' or value.get('error') is not None):
         raise ValueError('Core owned-script activity envelope unavailable')
-    activity_result(value.get('result'),scripts=scripts)
     return value
 
 
