@@ -213,7 +213,9 @@ class MemberReader:
         frames[target_cln]=strict_json(target['auxiliary_originals'][cln_name])
         # Core checks current unspent roots. Spent roots retain liabilities and
         # are resolved later by actual native proof + recovery-hold validation.
-        tables=native_tables(target['raw_sql'],target['manifest']['original_sha256']['native_sql'])
+        tables=native_tables(target['raw_sql'],target['manifest']['original_sha256']['native_sql'],
+            pending_board_proof_sha256=cfg.get('pending_board_proof_sha256'),
+            ordinary_pool_source_sha256=cfg.get('ordinary_pool',{}).get('classifier_sha256'))
         roots={}
         from .financial_transition import _current_claims
         for claim in _current_claims(self.store):
@@ -224,6 +226,17 @@ class MemberReader:
             txid,index=point.rsplit(':',1);coin=chain.call('gettxout',txid,int(index),False)
             if coin is None or coin['bestblock']!=observation['tip_hash']:raise ValueError('current original backing source unavailable')
             roots[point]={'amount_sat':btc_to_sat(coin['value']),'script':coin['scriptPubKey']['hex']}
+        if cfg.get('ordinary_pool')is not None:
+            from .normal_pool import source_originals
+            pool=strict_json(source_originals(target,cfg['ordinary_pool'])['owning_pool_inventory'])
+            if len(pool['candidates'])>256:raise ValueError('bounded actual pool candidates required')
+            rows={row['vtxo_id']:row for row in tables['vtxo']}
+            for candidate in pool['candidates']:
+                row=rows.get(candidate['id'])
+                if row is None:raise ValueError('pool source missing exact same-cut SQL identity')
+                point=row['anchor_point'];txid,index=point.rsplit(':',1);coin=chain.call('gettxout',txid,int(index),True)
+                if coin is None or coin['bestblock']!=observation['tip_hash']:raise ValueError('pool source backing not currently unspent')
+                roots[point]={'amount_sat':btc_to_sat(coin['value']),'script':coin['scriptPubKey']['hex']}
         frames[backing]={'source_kind':'native_signed_ordinary_backing','roots':roots}
         final=chain.identity()
         if (final['blocks'],final['bestblockhash'],final['initialblockdownload'])!=(observation['height'],observation['tip_hash'],False):raise ValueError('current member source chain changed')

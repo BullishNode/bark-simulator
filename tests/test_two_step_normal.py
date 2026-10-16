@@ -52,6 +52,24 @@ class TablesTests(unittest.TestCase):
         for name in ('pending_board','round','vtxo_pool','htlc_vtxo','nursery_tx','recovery_capital_release'):
             self.setUp();self.source['tables'][name]={'count':1,'rows':[{'id':'unsupported'}]}
             with self.subTest(name=name),self.assertRaisesRegex(ValueError,'own resolver'):self.parse()
+    def test_pending_transport_requires_explicit_admitted_tool_hash_not_a_raw_verdict(self):
+        self.source['tables']['pending_board']={'count':1,'rows':[{'id':'root'}]}
+        self.source['pending_unsigned_structure_verified']=True
+        raw=self.raw()
+        with self.assertRaisesRegex(ValueError,'own resolver'):adapter.native_tables(raw,adapter.digest(raw))
+        self.assertEqual(1,len(adapter.native_tables(raw,adapter.digest(raw),pending_board_proof_sha256='a'*64)['pending_board']))
+        for value in (True,'foreign'):
+            with self.assertRaisesRegex(ValueError,'proof hash'):adapter.native_tables(raw,adapter.digest(raw),pending_board_proof_sha256=value)
+    def test_ordinary_framing_does_not_enable_rounds_or_detached_source_verdict(self):
+        from simulator.normal_pool import CLASSIFIER_SHA256
+        self.source['tables']['vtxo_pool']={'count':1,'rows':[{'id':'needs-proof'}]};raw=self.raw()
+        with self.assertRaises(ValueError):adapter.native_tables(raw,adapter.digest(raw))
+        self.assertEqual(1,len(adapter.native_tables(raw,adapter.digest(raw),ordinary_pool_source_sha256=CLASSIFIER_SHA256)['vtxo_pool']))
+        with self.assertRaisesRegex(ValueError,'classifier hash'):
+            adapter.native_tables(raw,adapter.digest(raw),ordinary_pool_source_sha256=True)
+        self.source['tables']['round']={'count':1,'rows':[{'id':'unresolved'}]};raw=self.raw()
+        with self.assertRaisesRegex(ValueError,'own resolver'):
+            adapter.native_tables(raw,adapter.digest(raw),ordinary_pool_source_sha256=CLASSIFIER_SHA256)
     def test_hash_tamper_duplicate_keys_and_writable_cut_refuse(self):
         raw=self.raw()
         with self.assertRaisesRegex(ValueError,'hash'):adapter.native_tables(raw,b'wrong')
@@ -294,7 +312,7 @@ class AdmissionTests(StoreTests):
         self.value={'financial_pins':PINS,'component_sha256':{'adapter':adapter.digest(Path(adapter.__file__).read_bytes()),
             'capture':adapter.module_hash(self.capture),'native_fee':adapter.module_hash(adapter.verify_native_fee_epoch),
             'recovered_backing':adapter.module_hash(adapter.bind_native_claim),
-            'money_sources':adapter.module_hash(adapter.collect_money_sources),'money_join':adapter.module_hash(adapter.journal_money_sources),'deadline':adapter.module_hash(adapter.Deadline),'financial_components':adapter.module_hash(inspect_components)},
+            'money_sources':adapter.module_hash(adapter.collect_money_sources),'money_join':adapter.module_hash(adapter.journal_money_sources),'deadline':adapter.module_hash(adapter.Deadline),'pending_board':adapter.module_hash(adapter.verify_pending_boards),'ordinary_pool':adapter.module_hash(adapter.authenticate_pool),'financial_components':adapter.module_hash(inspect_components)},
             'proof_tool_sha256':{name:tool['sha256'] for name,tool in self.tools.items()},
             'proof_commands_sha256':{name:adapter.digest(canonical(tool['command']).encode()) for name,tool in self.tools.items()}}
     def admit(self):self.collector.admission_sequence=self.event('normal_financial_collector_qualified',self.value)
