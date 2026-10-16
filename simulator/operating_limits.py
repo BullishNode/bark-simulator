@@ -152,6 +152,9 @@ def preflight(store,config,snapshot,*,operation='ordinary',amount_sat=0,maximum_
         return exploratory.preflight(store,config,snapshot,operation=operation,amount_sat=amount_sat,
             maximum_fee_sat=maximum_fee_sat,now=now,reserved_action_id=reserved_action_id)
     declaration=envelope(store,config);now=time.time() if now is None else now
+    from .normal_financial import KEY as collection_key, validate_collection
+    if store.get_meta(collection_key) is not None:
+        validate_collection(store,snapshot,now=now)
     scope=declaration.get('operation_fee_paths')
     if scope is not None and operation not in scope:
         raise ValueError('operation not declared in immutable fee path scope')
