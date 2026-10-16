@@ -1,0 +1,14 @@
+{
+  "decision": "ALLOCATED_BANK_ESCROW_ONLY",
+  "no_campaign_dispatch_permission": true,
+  "no_budget_reset": true,
+  "allocations": [
+    {
+      "track": "C",
+      "allocation_id": "COORD-C-ESCROW-20261015-2059",
+      "principal_sat": 17100000,
+      "script": "00141111111111111111111111111111111111111111"
+    }
+  ],
+  "test_fixture": "SYNTHETIC ONLY; not a coordinator receipt or runtime authority"
+}
