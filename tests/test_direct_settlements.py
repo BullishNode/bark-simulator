@@ -72,6 +72,38 @@ class DirectSettlementTests(unittest.TestCase):
     def test_flat_fee_surplus_can_exceed_miner_fee(self):
         self.tx['outputs'][1]['amount_sat']=1900;self.carrier['miner_fee_sat']=100
         self.assertEqual(900,self.check()['accounting']['flat_fee_surplus_sat'])
+    def add_same_script_leaf(self, ident, gross, fee):
+        proof=copy.deepcopy(self.proof)
+        proof['ancestor_ids']=[self.anchor,ident]
+        self.store.db.execute('INSERT INTO owned_coin VALUES(?,?,?,?,?,?)',
+            (ident,self.pub,gross,'synthetic-digest','synthetic-public-encoding',canonical(proof)))
+        row={**self.alloc,'id':ident,'gross_sat':gross,'fee_sat':fee,
+            'payout_sat':gross-fee,'retirement_ids':[ident]}
+        self.value['rows']['allocations'].append(row)
+        self.value['rows']['mappings'].append({'txid':self.carrier['txid'],'allocation_id':ident,'vout':0})
+        self.tx['inputs'][0]['amount_sat']+=gross
+        self.tx['outputs'][0]['amount_sat']+=gross-fee
+        return row
+    def test_same_script_fee_uses_internal_hash_order_and_rejects_wrong_leaf(self):
+        # This displayed hash precedes 11..11, but its internal bytes follow it.
+        second=self.add_same_script_leaf('00'*31+'ff'+':0',8835,0)
+        self.check()
+        self.alloc.update(fee_sat=0,payout_sat=20000)
+        second.update(fee_sat=1000,payout_sat=7835)
+        with self.assertRaisesRegex(InvariantError,'flat-fee allocation'):
+            self.check()
+    def test_same_hash_fee_uses_little_endian_vout_not_text_or_numeric_order(self):
+        self.store.db.execute('UPDATE owned_coin SET amount_sat=500 WHERE id=?',(self.customer,))
+        self.alloc.update(gross_sat=500,fee_sat=500,payout_sat=0)
+        self.tx['inputs'][0]['amount_sat']-=19500
+        self.tx['outputs'][0]['amount_sat']-=19000
+        earlier=self.add_same_script_leaf('11'*32+':65536',20000,500)
+        later=self.add_same_script_leaf('11'*32+':256',20000,0)
+        self.check()
+        earlier.update(fee_sat=0,payout_sat=20000)
+        later.update(fee_sat=500,payout_sat=19500)
+        with self.assertRaisesRegex(InvariantError,'flat-fee allocation'):
+            self.check()
     def test_frozen_mempool_and_unrecorded_confirmation_never_count_as_paid(self):
         self.tx['confirmations']=0
         with self.assertRaises(EvidenceGap):self.check()
