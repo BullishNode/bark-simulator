@@ -176,6 +176,10 @@ class Campaign:
                 WHERE state IN ('dispatched','unknown');
             CREATE TABLE IF NOT EXISTS result(
                 id TEXT PRIMARY KEY, observed REAL NOT NULL, payload TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS native_artifact(
+                intent TEXT NOT NULL, kind TEXT NOT NULL, relative_path TEXT NOT NULL,
+                sha256 TEXT NOT NULL, bytes INTEGER NOT NULL, truncated INTEGER NOT NULL,
+                PRIMARY KEY(intent,kind));
         """)
         fingerprint = canonical(config)
         self.db.execute("INSERT OR IGNORE INTO meta VALUES ('config',?)", (fingerprint,))
@@ -190,6 +194,25 @@ class Campaign:
         if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", actor):
             raise ValueError("invalid actor ID")
         return self.root / "wallets" / actor
+
+    def _retain_private(self, intent: str, kind: str, stream):
+        private = self.root / "private"
+        private.mkdir(mode=0o700, exist_ok=True)
+        if private.is_symlink():
+            raise ValueError("private artifacts directory cannot be a symlink")
+        os.chmod(private, 0o700)
+        stream.seek(0)
+        raw = stream.read(4 * 1024 * 1024 + 1)
+        truncated = len(raw) > 4 * 1024 * 1024
+        raw = raw[:4 * 1024 * 1024]
+        relative = f"private/{intent}.{kind}"
+        fd = os.open(self.root / relative, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as output:
+            output.write(raw)
+            output.flush()
+            os.fsync(output.fileno())
+        self.db.execute("INSERT INTO native_artifact VALUES (?,?,?,?,?,?)", (
+            intent, kind, relative, hashlib.sha256(raw).hexdigest(), len(raw), int(truncated)))
 
     def execute(self, intent: str, actor: str, operation: str, args: dict, *, timeout=120):
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", intent):
@@ -231,14 +254,20 @@ class Campaign:
                            if not key.startswith("BARK_")}
             # Use an anonymous private file, rather than accumulating unbounded
             # stdout in memory or retaining raw potential secrets on disk.
-            with tempfile.TemporaryFile(dir=self.root) as output:
-                result = subprocess.run([
-                    self.config["binary"], "--quiet", "--no-logfile", "--datadir", str(path), *native_args,
-                ], stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.DEVNULL,
-                    env=environment, timeout=timeout, check=False)
+            with tempfile.TemporaryFile(dir=self.root) as output, tempfile.TemporaryFile(dir=self.root) as errors:
+                try:
+                    result = subprocess.run([
+                        self.config["binary"], "--quiet", "--no-logfile", "--datadir", str(path), *native_args,
+                    ], stdin=subprocess.DEVNULL, stdout=output, stderr=errors,
+                        env=environment, timeout=timeout, check=False)
+                finally:
+                    self._retain_private(intent, "stdout", output)
+                    self._retain_private(intent, "stderr", errors)
                 output.seek(0)
                 raw = output.read(4 * 1024 * 1024 + 1)
             if result.returncode:
+                self.db.execute("UPDATE action SET diagnostic=? WHERE id=?",
+                                (f"NativeExit:{result.returncode}", intent))
                 raise ValueError("native_nonzero_exit")
             reply = project_reply(operation, raw)
             public_payload(reply)
@@ -247,7 +276,7 @@ class Campaign:
         except Exception as error:
             # An exception, malformed reply or nonzero exit can follow a committed
             # payment. No speculative failure classification or second attempt.
-            self.db.execute("UPDATE action SET state='unknown',diagnostic=?,updated=? WHERE id=?",
+            self.db.execute("UPDATE action SET state='unknown',diagnostic=COALESCE(diagnostic,?),updated=? WHERE id=?",
                             (type(error).__name__, time.time(), intent))
         return dict(self.db.execute("SELECT * FROM action WHERE id=?", (intent,)).fetchone())
 
@@ -322,6 +351,8 @@ class Campaign:
                 "product_config_sha256": self.config["product_config_sha256"],
                 "network": "public-signet", "actions": rows,
                 "results": [json.loads(row[0]) for row in self.db.execute("SELECT payload FROM result ORDER BY observed,id")],
+                "protected_artifacts": [dict(row) for row in self.db.execute(
+                    "SELECT * FROM native_artifact ORDER BY intent,kind")],
                 "case_verdict": "NOT_EVALUATED",
                 "note": "Native acknowledgements are not proof of terminal payment or fallback."}
 

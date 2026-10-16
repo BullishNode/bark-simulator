@@ -132,6 +132,23 @@ class SignetTests(unittest.TestCase):
         replay.assert_not_called()
         self.assertEqual(row["state"], "dispatched")
 
+    def test_failure_diagnostics_are_private_and_public_receipts_are_hashes(self):
+        sensitive = b"payment_preimage=" + b"ab" * 32
+        def native(argv, **kwargs):
+            kwargs["stderr"].write(sensitive)
+            return subprocess.CompletedProcess(argv, 7)
+        with patch("simulator.signet.subprocess.run", side_effect=native):
+            row = self.campaign.execute("send-failed", "alice", "send", {
+                "destination": "tark1abcdef", "amount_sat": 5000})
+        report = self.campaign.report()
+        self.assertEqual(row["diagnostic"], "NativeExit:7")
+        self.assertNotIn(sensitive.decode(), json.dumps(report))
+        reference = next(a for a in report["protected_artifacts"] if a["kind"] == "stderr")
+        path = self.campaign.root / reference["relative_path"]
+        self.assertEqual(path.read_bytes(), sensitive)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(reference["sha256"], hashlib.sha256(sensitive).hexdigest())
+
     def test_wallet_coin_projection_discards_unknown_fields(self):
         coin = {"id": "a" * 64 + ":0", "amount_sat": 5000, "user_pubkey": "02" + "b" * 64,
                 "chain_anchor": "c" * 64 + ":1", "expiry_height": 150,

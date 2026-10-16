@@ -69,7 +69,11 @@ never uses `--force`, and strips inherited `BARK_*` environment overrides.
 SQLite commits each dispatch before invoking the native command. Restart reads
 the original intent, acknowledgement or unknown state. Raw stdout, stderr,
 funding transaction bytes, seed phrases and preimages are not public receipts.
-Native CLI logging is disabled and responses use narrow allowlists.
+Native CLI logging is disabled and responses use narrow allowlists. Bounded raw
+stdout/stderr receipts remain in the campaign's `private/` directory, mode 0600,
+including on timeouts; public reports expose only their path/hash/size and any
+truncation flag. Exclude that directory from public exports. This preserves
+failure diagnostics without leaking preimages or authentication material.
 
 `abandon alice` permanently fences this campaign from opening Alice's wallet,
 including `--no-sync` commands: opening a wallet can itself register a record.
