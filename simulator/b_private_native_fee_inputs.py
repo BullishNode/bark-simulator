@@ -57,13 +57,13 @@ def prepare_native_fee_request(target,runtime,*,expected_product_commit,expected
         need(digest(private[role].encode())==sha and len(private[role].encode())==actual.get('bytes'),
              'private original differs from actual owning file '+role)
     sql=private['sql_raw'].encode();lines=sql.splitlines()
-    need(sql.endswith(b'\n') and len(lines)==5 and lines[:2]==[b'BEGIN',b'SET']
-        and lines[-1]==b'COMMIT','same single RR transaction framing required')
+    need(sql.endswith(b'\n') and len(lines)==6 and lines[:3]==[b'BEGIN',b'SET',b'DO']
+        and lines[-1]==b'COMMIT','same bounded single RR transaction framing required')
     whole=target.get('raw_sql')
-    need(type(whole) is bytes and whole in (lines[2],lines[2]+b'\n')
+    need(type(whole) is bytes and whole in (lines[3],lines[3]+b'\n')
         and manifest.get('original_sha256',{}).get('native_sql')==digest(whole),
         'same captured whole B frontier differs')
-    database_raw=lines[3]
+    database_raw=lines[4]
     database=strict_json(database_raw)
     need(type(database) is dict and set(database)==DATABASE_FIELDS
         and all(type(rows) is list for rows in database.values()),
