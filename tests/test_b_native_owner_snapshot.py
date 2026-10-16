@@ -2,6 +2,7 @@
 import copy
 import json
 import unittest
+from pathlib import Path
 from simulator.b_native_owner_snapshot import owner_snapshot,current_resolution_anchors,require_publication_sources
 from simulator.ownership import EvidenceGap
 from simulator.two_step_normal import digest
@@ -144,7 +145,7 @@ class PrivateInputControls(unittest.TestCase):
         whole=b'{"kind":"synthetic-whole-frontier"}'
         database={'native_funding_fee_intent':[],'native_funding_fee_input':[],
             'native_funding_fee_resolution':[],'nursery_tx':[]}
-        originals['sql_raw']='BEGIN\nSET\n'+whole.decode()+'\n'+json.dumps(database)+'\nCOMMIT\n'
+        originals['sql_raw']='BEGIN\nSET\nDO\n'+whole.decode()+'\n'+json.dumps(database)+'\nCOMMIT\n'
         files={'b-native-fee-originals.json':json.dumps(originals).encode(),
             'b-native-fee-snapshot.json':json.dumps(s).encode()}
         target={'raw_sql':whole,'auxiliary_originals':files,
@@ -174,6 +175,23 @@ class PrivateInputControls(unittest.TestCase):
         t,r,o=self.inputs();t['raw_sql']+=b'\n'
         t['manifest']['original_sha256']['native_sql']=digest(t['raw_sql'])
         self.assertEqual(self.prepare(t,r,o)['source_observation'],o)
+    def test_actual_guarded_sql_framing_preserves_original_bytes_and_native_row(self):
+        # Public command tags from the scoped real PG16 execution; data rows
+        # are explicitly synthetic. DO is its complete-source size/count guard.
+        framing=json.loads((Path(__file__).parent/'fixtures'/'b-native-fee-sql-guard-framing.json').read_text())
+        raw=framing['stdout'];t,r,o=self.inputs()
+        self.mutate_originals(t,lambda v:v.update(sql_raw=raw))
+        before=copy.deepcopy(t)
+        request=self.prepare(t,r,o)
+        self.assertEqual(request['originals']['database_raw'].encode(),raw.encode().splitlines()[4])
+        self.assertEqual(t,before)
+        self.assertIn(b'BEGIN\\nSET\\nDO\\n',t['auxiliary_originals']['b-native-fee-originals.json'])
+        for prefix in ('BEGIN\nSET\n','BEGIN\nSET\nSELECT\n','BEGIN\nSET\nDO\nDO\n',
+                       'BEGIN\nSET\nCOMMIT\nBEGIN\n'):
+            bad=raw.replace('BEGIN\nSET\nDO\n',prefix,1)
+            with self.subTest(prefix=prefix),self.assertRaisesRegex(EvidenceGap,'transaction framing'):
+                self.mutate_originals(t,lambda v:v.update(sql_raw=bad))
+                self.prepare(t,r,o)
     def test_missing_private_auxiliary_never_becomes_empty_source(self):
         t,r,o=self.inputs();del t['auxiliary_originals']['b-native-fee-originals.json']
         with self.assertRaises(EvidenceGap):self.prepare(t,r,o)
@@ -189,8 +207,8 @@ class PrivateInputControls(unittest.TestCase):
     def test_missing_native_input_or_resolution_domain_is_refused(self):
         t,r,o=self.inputs()
         def edit(v):
-            lines=v['sql_raw'].splitlines();db=json.loads(lines[3]);del db['native_funding_fee_input']
-            lines[3]=json.dumps(db);v['sql_raw']='\n'.join(lines)+'\n'
+            lines=v['sql_raw'].splitlines();db=json.loads(lines[4]);del db['native_funding_fee_input']
+            lines[4]=json.dumps(db);v['sql_raw']='\n'.join(lines)+'\n'
         self.mutate_originals(t,edit)
         with self.assertRaisesRegex(EvidenceGap,'SQL domains'):self.prepare(t,r,o)
     def test_two_transactions_cannot_be_relabelled_one_cut(self):
