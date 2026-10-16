@@ -6,6 +6,12 @@ use ark::{
 };
 use serde_json::{json, Value};
 use std::io::Read;
+use ark::{forfeit::create_hark_forfeit_tx, tree::signed::UnlockHash};
+use bitcoin::{
+    hashes::{sha256, Hash},
+    secp256k1::schnorr,
+    sighash::{Prevouts, SighashCache, TapSighashType},
+};
 
 fn decode_hex(value: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     if value.len() % 2 != 0
@@ -32,15 +38,63 @@ fn padding_marker(coin: &Vtxo<Full, ServerVtxoPolicy>) -> bool {
         && coin.past_arkoor_pubkeys().is_empty()
 }
 
+/// Verify an ORIGINAL hArk forfeit without exposing its signature or preimage.
+/// The original ordinary input Full has already validated against its anchor.
+fn verify_original_forfeit(
+    coin: &Vtxo<Full, ServerVtxoPolicy>,
+    value: &Value,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    if coin.policy_type().to_string() != "pubkey" || padding_marker(coin) {
+        return Err("forfeit requires an ordinary signed user Full".into());
+    }
+    let user = coin.clone().try_into_user_vtxo()
+        .map_err(|_| "forfeit requires a user policy")?;
+    let unlock_hash: UnlockHash = value["forfeit_unlock_hash"].as_str()
+        .ok_or("forfeit unlock hash absent")?.parse()?;
+    let raw = decode_hex(value["forfeit_raw"].as_str().ok_or("forfeit original absent")?)?;
+    let original: bitcoin::Transaction = bitcoin::consensus::deserialize(&raw)?;
+    if original.input.len() != 1 || original.input[0].witness.len() != 1 {
+        return Err("exact original forfeit key-spend witness required".into());
+    }
+    let signature_bytes = original.input[0].witness.iter().next()
+        .ok_or("forfeit signature absent")?;
+    if signature_bytes.len() != 64 {
+        return Err("forfeit requires the native default 64-byte signature".into());
+    }
+    let signature = schnorr::Signature::from_slice(signature_bytes)?;
+    let expected = create_hark_forfeit_tx(&user, unlock_hash, Some(&signature));
+    if original != expected {
+        return Err("forfeit transaction differs from native original construction".into());
+    }
+    let prevouts = [user.txout()];
+    let sighash = SighashCache::new(&expected).taproot_key_spend_signature_hash(
+        0, &Prevouts::All(&prevouts), TapSighashType::Default,
+    )?;
+    ark::SECP.verify_schnorr(
+        &signature, &sighash.into(),
+        &user.output_taproot().output_key().to_x_only_public_key(),
+    )?;
+    Ok(json!({
+        "forfeit_signature_valid": true,
+        "forfeit_input_coin_id": user.id().to_string(),
+        "forfeit_txid": original.compute_txid().to_string(),
+        "forfeit_unlock_hash": unlock_hash.to_string(),
+        "forfeit_raw_sha256": sha256::Hash::hash(&raw).to_string(),
+        "forfeit_scope": "exact original hArk key-spend authorization only; no confirmation, payment, current spendability or capital release"
+    }))
+}
+
 fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     let fields = value.as_object().ok_or("public object required")?;
-    if ![2, 3].contains(&fields.len())
+    if ![2, 3, 5].contains(&fields.len())
         || !["signed_vtxo", "server_pubkey"]
             .iter()
             .all(|field| fields.contains_key(*field))
-        || (fields.len() == 3 && !fields.contains_key("anchor_raw"))
+        || (fields.len() >= 3 && !fields.contains_key("anchor_raw"))
+        || (fields.len() == 5 && !["forfeit_raw", "forfeit_unlock_hash"]
+            .iter().all(|field| fields.contains_key(*field)))
     {
-        return Err("only public coin, raw anchor and pinned server key permitted".into());
+        return Err("only public coin, raw anchor, pinned server key and paired original forfeit fields permitted".into());
     }
     let encoded = decode_hex(value["signed_vtxo"].as_str().ok_or("coin absent")?)?;
     if encoded.first()==Some(&b'{') {
@@ -82,6 +136,11 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     } else {
         coin.validate(&tx)?;
     }
+    let forfeit = if fields.len() == 5 {
+        Some(verify_original_forfeit(&coin, value)?)
+    } else {
+        None
+    };
     let output = tx
         .output
         .get(anchor.vout as usize)
@@ -91,8 +150,7 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
     {
         return Err("direct anchor contract value/script differs".into());
     }
-    Ok(
-        json!({"schema_version":1,"sdk_commit":option_env!("GIT_HASH"),"id":coin.id().to_string(),"chain_anchor":anchor.to_string(),
+    let mut response = json!({"schema_version":1,"sdk_commit":option_env!("GIT_HASH"),"id":coin.id().to_string(),"chain_anchor":anchor.to_string(),
         "amount_sat":coin.amount().to_sat(),"anchor_amount_sat":output.value.to_sat(),
         "anchor_script":output.script_pubkey.to_hex_string(),"policy":coin.policy_type().to_string(),
         "server_pubkey":coin.server_pubkey().to_string(),"expiry_height":coin.expiry_height().to_u32(),
@@ -105,8 +163,12 @@ fn verify_contract(value: &Value) -> Result<Value, Box<dyn std::error::Error>> {
             "tree_padding":padding_marker(&coin),
         "chain_contract_verified":!padding,"padding_backing_structure_verified":padding,
         "signed_path_valid":!padding,"client_owner_verified":false,
-        "scope":if padding {"protocol padding unsigned structure and exact raw anchor; signatures, customer ownership, confirmation and spend status are unproved"} else {"public server-policy contract and exact raw anchor; confirmations, customer ownership and current spendability are separate"}}),
-    )
+        "scope":if padding {"protocol padding unsigned structure and exact raw anchor; signatures, customer ownership, confirmation and spend status are unproved"} else {"public server-policy contract and exact raw anchor; confirmations, customer ownership and current spendability are separate"}});
+    if let Some(forfeit) = forfeit {
+        response.as_object_mut().ok_or("contract response must be an object")?
+            .extend(forfeit.as_object().ok_or("forfeit response must be an object")?.clone());
+    }
+    Ok(response)
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -273,6 +335,97 @@ mod tests {
         let mut bad = request.clone();
         bad["signed_vtxo"] = json!(encode(encoded[..encoded.len() - 1].to_vec()));
         assert!(verify_contract(&bad).is_err(), "truncated genuine Full is not a proof");
+    }
+
+    #[test]
+    fn forfeit_fields_are_paired_anchor_only_and_cannot_inject_verdicts() {
+        let original = fixture();
+        for fields in [vec![("forfeit_raw", "00")],
+            vec![("forfeit_unlock_hash", "00")],
+            vec![("forfeit_raw", "00"), ("forfeit_unlock_hash", "00"), ("forfeit_signature_valid", "true")]] {
+            let mut request = original.clone();
+            for (key, value) in fields { request[key] = json!(value); }
+            assert!(verify_contract(&request).is_err());
+        }
+        let mut no_anchor = original;
+        no_anchor.as_object_mut().unwrap().remove("anchor_raw");
+        no_anchor["forfeit_raw"] = json!("00");
+        no_anchor["forfeit_unlock_hash"] = json!("00".repeat(32));
+        assert!(verify_contract(&no_anchor).is_err());
+    }
+
+    #[test]
+    fn padding_cannot_acquire_a_forfeit_signature_verdict() {
+        let mut request: Value = serde_json::from_str(include_str!("../../tests/fixtures/public-round-padding-anchor.json")).unwrap();
+        request["forfeit_raw"] = json!("00");
+        request["forfeit_unlock_hash"] = json!("00".repeat(32));
+        assert!(verify_contract(&request).is_err());
+    }
+
+    /// Explicit external genuine native round fixture; absence is a failed
+    /// prerequisite. Raw Full/witness bodies remain private and are never logged.
+    #[test]
+    #[ignore = "requires genuine private original input/forfeit and output Full fixtures"]
+    fn archived_native_original_forfeit_and_leaf_controls() {
+        use std::os::unix::fs::MetadataExt;
+        fn private_fixture(name: &str) -> Value {
+            let path = std::env::var_os(name).expect("genuine private native fixture required");
+            let before = std::fs::symlink_metadata(&path).unwrap();
+            assert!(before.is_file() && !before.file_type().is_symlink()
+                && before.mode() & 0o077 == 0 && before.nlink() == 1
+                && before.len() <= 2 * 1024 * 1024);
+            let mut file = std::fs::File::open(&path).unwrap();
+            let opened = file.metadata().unwrap();
+            assert!(before.dev() == opened.dev() && before.ino() == opened.ino()
+                && before.len() == opened.len());
+            let mut raw = Vec::new();
+            file.by_ref().take(2 * 1024 * 1024 + 1).read_to_end(&mut raw).unwrap();
+            let opened_after = file.metadata().unwrap();
+            let after = std::fs::symlink_metadata(&path).unwrap();
+            assert!(raw.len() as u64 == before.len() && before.dev() == after.dev()
+                && before.ino() == after.ino() && before.mode() == after.mode()
+                && before.nlink() == after.nlink() && before.uid() == after.uid()
+                && before.mtime() == after.mtime() && before.mtime_nsec() == after.mtime_nsec()
+                && before.ctime() == after.ctime() && before.ctime_nsec() == after.ctime_nsec()
+                && before.len() == after.len() && opened.dev() == opened_after.dev()
+                && opened.ino() == opened_after.ino() && opened.len() == opened_after.len()
+                && opened.mtime() == opened_after.mtime() && opened.mtime_nsec() == opened_after.mtime_nsec()
+                && opened.ctime() == opened_after.ctime() && opened.ctime_nsec() == opened_after.ctime_nsec());
+            serde_json::from_slice(&raw).unwrap()
+        }
+        let request = private_fixture("BARK_SIM_ACTUAL_FORFEIT_REQUEST");
+        let output = private_fixture("BARK_SIM_ACTUAL_ROUND_OUTPUT_REQUEST");
+        let proof = verify_contract(&request).expect("genuine original native forfeit must verify");
+        assert_eq!(proof["forfeit_signature_valid"], true);
+        assert_eq!(proof["signed_path_valid"], true);
+        assert_eq!(proof["client_owner_verified"], false);
+        let output_proof = verify_contract(&output).expect("genuine ordinary round output must verify");
+        assert_eq!(output_proof["signed_path_valid"], true);
+        assert_eq!(output_proof["unlock_hash"], request["forfeit_unlock_hash"]);
+        assert_eq!(output_proof["server_pubkey"], request["server_pubkey"]);
+        let original: Transaction = bitcoin::consensus::deserialize(
+            &decode_hex(request["forfeit_raw"].as_str().unwrap()).unwrap()).unwrap();
+        for mode in 0..5 {
+            let mut changed = original.clone();
+            match mode {
+                0 => { let mut sig = changed.input[0].witness.iter().next().unwrap().to_vec();
+                    sig[0] ^= 1; changed.input[0].witness = Witness::from_slice(&[sig]); },
+                1 => changed.output[0].value += Amount::from_sat(1),
+                2 => changed.input[0].previous_output.vout ^= 1,
+                3 => changed.input[0].sequence = Sequence::ZERO,
+                _ => { let mut sig = changed.input[0].witness.iter().next().unwrap().to_vec();
+                    sig.push(1); changed.input[0].witness = Witness::from_slice(&[sig]); },
+            }
+            let mut bad = request.clone();
+            bad["forfeit_raw"] = json!(encode(bitcoin::consensus::serialize(&changed)));
+            assert!(verify_contract(&bad).is_err(), "changed original forfeit must refuse");
+        }
+        let mut foreign_hash = request.clone();
+        let mut hash = decode_hex(request["forfeit_unlock_hash"].as_str().unwrap()).unwrap();
+        hash[0] ^= 1; foreign_hash["forfeit_unlock_hash"] = json!(encode(hash));
+        assert!(verify_contract(&foreign_hash).is_err());
+        let mut detached = request.clone(); detached["forfeit_signature_valid"] = json!(true);
+        assert!(verify_contract(&detached).is_err());
     }
 
     #[test]
