@@ -14,10 +14,13 @@ from .model import canonical, public_payload
 from .signet import digest, network_identity
 
 
-def verify_coin(campaign, actor: str, coin: dict) -> dict:
+def verify_coin(campaign, actor: str, coin: dict, *, expected_address: str | None = None) -> dict:
     token = hashlib.sha256((actor + ":" + coin["id"]).encode()).hexdigest()
     raw_intent = "coin-raw-" + token
-    proof_prefix = "coin-proof-" + token
+    if expected_address is not None and not re.fullmatch(r"tark1[0-9a-z]+", expected_address):
+        raise ValueError("expected native testnet Ark address required")
+    context = token + ":" + (expected_address or "")
+    proof_prefix = "coin-proof-" + hashlib.sha256(context.encode()).hexdigest()
     previous = campaign.db.execute("""SELECT payload FROM result WHERE id LIKE ?
         AND json_extract(payload,'$.status') IN ('PASS','FAILED') ORDER BY observed DESC LIMIT 1""",
                                    (proof_prefix + "-%",)).fetchone()
@@ -51,7 +54,8 @@ def verify_coin(campaign, actor: str, coin: dict) -> dict:
         return cached
     result = {"kind": "vtxo_signature_proof", "actor": actor, "coin_id": coin["id"],
               "raw_intent": raw_intent, "binary_sha256": campaign.config["binary_sha256"],
-              "source_commit": campaign.config["source_commit"], "status": "UNAVAILABLE"}
+              "source_commit": campaign.config["source_commit"], "status": "UNAVAILABLE",
+              "expected_address": expected_address}
     try:
         chain = network_identity(campaign.core)
         txid, index = coin["chain_anchor"].split(":")
@@ -68,7 +72,7 @@ def verify_coin(campaign, actor: str, coin: dict) -> dict:
             try:
                 process = subprocess.run([
                     campaign.config["binary"], "--quiet", "--no-logfile", "dev", "vtxo", "verify",
-                    serialized, funding,
+                    serialized, funding, *(["--address", expected_address] if expected_address is not None else []),
                 ], stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
                     env=environment, timeout=60, check=False)
             finally:
@@ -85,6 +89,8 @@ def verify_coin(campaign, actor: str, coin: dict) -> dict:
             verified = json.loads(response)
             if verified.get("verified") is not True or verified.get("anchor_txid") != txid:
                 raise ValueError("native verification identity mismatch")
+            if expected_address is not None and verified.get("address_verified") is not True:
+                raise ValueError("signed coin is not bound to the original destination")
             fields = ("id", "amount_sat", "user_pubkey", "chain_anchor", "expiry_height")
             if any(verified["vtxo"][field] != coin[field] for field in fields):
                 raise ValueError("verified signed coin differs from native wallet observation")

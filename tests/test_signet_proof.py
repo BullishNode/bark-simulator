@@ -80,6 +80,17 @@ class ProofTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "artifact changed"):
             verify_coin(self.campaign, "alice", self.coin())
 
+    def test_expected_destination_requires_explicit_native_address_verification(self):
+        self.campaign.core = ProofCore()
+        self.override, self.exit_code = {}, 0
+        with patch("subprocess.run", side_effect=self.native):
+            result = verify_coin(self.campaign, "alice", self.coin(), expected_address="tark1abcdef")
+        self.assertNotEqual(result["status"], "PASS")
+        self.override = {"address_verified": True}
+        with patch("subprocess.run", side_effect=self.native):
+            result = verify_coin(self.campaign, "alice", self.coin(), expected_address="tark1abcdef")
+        self.assertEqual(result["status"], "PASS")
+
 
 if __name__ == "__main__":
     unittest.main()

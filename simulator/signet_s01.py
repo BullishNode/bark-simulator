@@ -82,12 +82,15 @@ class S01:
     def _proofs(self, check):
         from .signet_proof import verify_coin
         proofs = []
+        payment = self.campaign.db.execute("SELECT arguments FROM action WHERE id='s01-transfer'").fetchone()
+        destination = json.loads(payment[0])["destination"]
         for snapshot_name in (check["snapshots"][1], check["snapshots"][3]):
             snapshot = self.campaign.db.execute("SELECT actor,reply FROM action WHERE id=?", (snapshot_name,)).fetchone()
             for coin in json.loads(snapshot["reply"]):
                 if coin["state"] == "spendable":
                     try:
-                        proofs.append(verify_coin(self.campaign, snapshot["actor"], coin))
+                        expected = destination if coin["id"] in check["new_receiver_coins"] else None
+                        proofs.append(verify_coin(self.campaign, snapshot["actor"], coin, expected_address=expected))
                     except ValueError as error:
                         proofs.append({"coin_id": coin["id"], "status": "UNAVAILABLE",
                                        "diagnostic": type(error).__name__})
