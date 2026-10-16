@@ -55,11 +55,11 @@ jobs:
             feature: two-step
             profile: two_step_per_key
           - track: B
-            sdk: 69ca8cce9501560629169c2894ce9d74df9cb1cd
+            sdk: 15e4fd7085802ba5f7b1d9a2c87aab7277d5a7e4
             feature: ''
             profile: direct_xpub
           - track: C
-            sdk: 8c4478cfbfac8a193d0a6549387229dfedee06de
+            sdk: 64ac47e88dacea1922dde3f28f574ee444c5f809
             feature: direct-per-key
             profile: direct_per_key
     env:
