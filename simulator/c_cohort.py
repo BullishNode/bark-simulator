@@ -156,7 +156,7 @@ def seal_pilot(store,config,chain,*,source_sequence):
 
 def _no_money(store):
     """Prospective path only: no financial intent, signed state or budget debit."""
-    if store.db.execute("SELECT 1 FROM action WHERE operation!='create' OR state!='completed' OR actual_fee_sat!=0 OR fee_reservation_sat!=0 LIMIT 1").fetchone():
+    if store.db.execute("SELECT 1 FROM action WHERE operation!='create' OR state!='completed' OR actual_fee_sat IS NOT 0 OR fee_reservation_sat IS NOT 0 LIMIT 1").fetchone():
         raise ValueError('pre-money opening permits completed zero-fee creates only')
     for table in ('funding_batch','owned_coin','movement_evidence'):
         if store.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
@@ -173,7 +173,7 @@ def seal_unfunded(store,config,chain):
 
     This requires the original independently verified zero-asset receipt and all
     51 native key acknowledgements. It never recreates, opens or funds a wallet.
-    The source must match the independently observed current tip. A missing zero
+    The source retains its original independently observed tip. A missing zero
     proof remains a hold, including the actual namespace before reconciliation.
     """
     previous=seal(store)
@@ -229,12 +229,15 @@ def seal_unfunded(store,config,chain):
         'height':zero['height'],'tip_hash':zero['tip_hash'],'genesis':SIGNET_GENESIS,
         'native_response_sha256':zero['native_response_sha256'],
         'bootstrap_declaration_sha256':_digest(original['declaration'])})
-    import time
     tip=chain.identity()
     if (tip.get('chain')!='signet' or tip.get('initialblockdownload') is not False
-            or (tip['blocks'],tip['bestblockhash'])!=(zero['height'],zero['tip_hash'])
-            or not 0<=time.time()-zero.get('observed_at',0)<=90):
-        raise ValueError('current independently verified original actor01 zero source required')
+            or chain.call('getblockhash',0)!=SIGNET_GENESIS):
+        raise ValueError('independent synchronized official signet required')
+    # This seal preserves the immutable historical create/zero observation.
+    # It grants no financial readiness. The original verifier is idempotent;
+    # its first receipt must not be relabeled fresh merely to seal history.
+    # The full initial source collector must rescan every current owner at its
+    # own fresh, independently bracketed tip before any monetary admission.
     last=store.db.execute('SELECT sequence,hash FROM event ORDER BY sequence DESC LIMIT 1').fetchone()
     value={'opening_kind':'unfunded_initial12','source_sequence':event['sequence'],
         'pilot_sha256':_digest(pilot),'bootstrap_sha256':_digest(original),'pins':pilot['pins'],
@@ -581,34 +584,37 @@ def enrollment_complete(store,phase):
         if (event['hash']!=reference['hash'] or event['kind']!=ZERO_EVENT
                 or source.get('actor')!=actor or source.get('action_id')!=current['actions'][actor]
                 or source.get('financial_pins')!=current['declaration']['pins']
-                or (source.get('height'),source.get('tip_hash'))!=(proof['height'],proof['tip_hash'])):
-            raise ValueError('original same-tip cohort proof source differs')
+                or {'height':source.get('height'),'tip_hash':source.get('tip_hash')}!=
+                   proof.get('source_tips',{}).get(actor,{'height':proof['height'],'tip_hash':proof['tip_hash']})):
+            raise ValueError('original historical cohort proof source differs')
     return True
 
 
 def finalize_enrollment(store,phase):
     # This is called only AFTER the existing independent Core/native verifier.
     # An owner may repeat readonly observation at a new tip; no create is retried.
-    import time
     if enrollment_complete(store,phase):return False
     current=enrollment(store,phase)
     if current is None:raise ValueError('declared cohort required')
     sources=_zero_sources(store,current)
     if set(sources)!=set(current['declaration']['actors']):return False
     tips={(proof['height'],proof['tip_hash']) for _,proof in sources.values()}
-    if len(tips)!=1 or any(not 0<=time.time()-proof.get('observed_at',0)<=90 for _,proof in sources.values()):
-        return False  # Old receipts are retained; explicit readonly refresh needed.
+    # Historical identity observations need not share a tip or wall clock.
+    # Their original native/Core proofs stay independently authenticated. Only
+    # the later complete financial collector may establish current same-tip
+    # assets/liabilities/readiness; this closure grants none of those facts.
     all_scripts=set()
     for _,source in sources.values():
         scripts=source['mempool_activity']['scripts']
         if len(scripts)!=20 or all_scripts.intersection(scripts):
             raise ValueError('independent new cohort wallet descriptor scripts required')
         all_scripts.update(scripts)
-    height,tip=tips.pop()
+    height,tip=tips.pop() if len(tips)==1 else (None,None)
     proof={'phase':phase,'enrollment_sequence':current['enrollment_sequence'],
         'profile_sha256':current['profile_sha256'],'height':height,'tip_hash':tip,
+        'source_tips':{actor:{'height':source['height'],'tip_hash':source['tip_hash']} for actor,(_,source) in sources.items()},
         'sources':{actor:{'sequence':event['sequence'],'hash':event['hash']} for actor,(event,_) in sources.items()},
-        'scope':'new cohort independent zero-assets and native per-key identities only; no monetary readiness'}
+        'scope':'historical per-wallet zero-assets/native identities only; current whole-cohort same-tip financial source remains required'}
     store.event('direct_per_key_cohort_identities_verified',proof)
     return True
 

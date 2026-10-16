@@ -49,6 +49,7 @@ class PremoneyControls(unittest.TestCase):
         self.chain=test_c_cohort_admission.CohortCreateAdmission.core(SimpleNamespace(store=self.store,config=SimpleNamespace()))
         original_call=self.chain.call
         def exact_range(method,*args,**kwargs):
+            if method=='getblockhash':return __import__('simulator.model',fromlist=['SIGNET_GENESIS']).SIGNET_GENESIS
             if method=='deriveaddresses':return [args[0]+':'+str(i) for i in range(args[1][0],args[1][1]+1)]
             return original_call(method,*args,**kwargs)
         self.chain.call=exact_range
@@ -95,6 +96,15 @@ class PremoneyControls(unittest.TestCase):
             actions={actor:'c_create_'+actor[-2:] for actor in c.INITIAL[2:]})
         for actor in c.INITIAL[2:]:self.complete_new_identity(actor)
         view=c.initial_identity_sources(self.store)
+        bootstrap.require_only_verified_creates(self.store,self.pins)
+        dispatched=self.store.db.execute("SELECT * FROM event WHERE kind='action_dispatched' AND json_extract(payload,'$.action_id')='c_create_12'").fetchone()
+        self.store.db.execute('DELETE FROM event WHERE sequence=?',(dispatched['sequence'],))
+        with self.assertRaisesRegex(ValueError,'real dispatch'):bootstrap.require_only_verified_creates(self.store,self.pins)
+        self.store.db.execute('INSERT INTO event VALUES ('+','.join('?' for _ in dispatched)+')',tuple(dispatched))
+        intent=self.store.db.execute("SELECT * FROM event WHERE kind='action_intent' AND json_extract(payload,'$.action_id')='c_create_12'").fetchone()
+        self.store.db.execute('DELETE FROM event WHERE sequence=?',(intent['sequence'],))
+        with self.assertRaisesRegex(ValueError,'unique original'):bootstrap.require_only_verified_creates(self.store,self.pins)
+        self.store.db.execute('INSERT INTO event VALUES ('+','.join('?' for _ in intent)+')',tuple(intent))
         self.assertEqual(list(c.INITIAL),view['actors']);self.assertEqual(12,len(view['sources']))
         self.assertEqual(original,self.store.get_meta('zero_principal_identity_bootstrap'))
         self.assertEqual({'actor-01','actor-02'},set(json.loads(original)['actors']))
@@ -145,13 +155,16 @@ class PremoneyControls(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'financial history'):c.seal_unfunded(self.store,self.config,self.chain)
         self.assertIsNone(self.store.get_meta(c.SEAL_KEY))
 
-    def test_stale_or_wrong_tip_zero_source_and_original_action_change_refuse(self):
-        self.verify();self.chain.height=101
-        with self.assertRaisesRegex(ValueError,'current independently'):c.seal_unfunded(self.store,self.config,self.chain)
-        self.chain.height=100
+    def test_historical_zero_keeps_original_tip_and_does_not_refresh_or_reset_it(self):
+        zero=self.verify();sequence=zero['driver_response_sequence'];self.chain.height=101
+        self.assertTrue(c.seal_unfunded(self.store,self.config,self.chain))
+        opening=c.seal(self.store)
+        self.assertEqual(100,opening['height']);self.assertEqual(zero['tip_hash'],opening['tip_hash'])
+        self.assertEqual(1,self.store.db.execute("SELECT count(*) FROM event WHERE kind='identity_bootstrap_zero_assets_verified'").fetchone()[0])
+        self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
+        self.assertFalse(c.seal_unfunded(self.store,self.config,self.chain))
         self.store.db.execute("UPDATE action SET actual_fee_sat=1 WHERE id='c_create_01'")
-        with self.assertRaises(ValueError):c.seal_unfunded(self.store,self.config,self.chain)
-        self.assertIsNone(self.store.get_meta(c.SEAL_KEY))
+        with self.assertRaisesRegex(ValueError,'action changed'):c.seal(self.store)
 
     def test_original_payout_must_independently_derive_at_external0(self):
         self.verify();original_call=self.chain.call
@@ -162,6 +175,22 @@ class PremoneyControls(unittest.TestCase):
         self.chain.call=wrong
         with self.assertRaisesRegex(ValueError,'immutable payout'):c.seal_unfunded(self.store,self.config,self.chain)
         self.assertIsNone(self.store.get_meta(c.SEAL_KEY))
+
+    def test_unknown_null_actual_fee_or_reservation_never_passes_no_money(self):
+        # Real SQLite nullable historical/corrupt input, not an asserted Boolean
+        # or mocked SQL result. Current Store reserves are NOT NULL by schema.
+        connection=sqlite3.connect(':memory:');self.addCleanup(connection.close)
+        connection.execute('CREATE TABLE action(operation TEXT,state TEXT,actual_fee_sat INTEGER,fee_reservation_sat INTEGER)')
+        connection.execute('CREATE TABLE event(kind TEXT)')
+        source=SimpleNamespace(db=connection,get_meta=lambda name:None)
+        for actual,reserve in ((None,0),(0,None),(None,None)):
+            connection.execute('DELETE FROM action')
+            connection.execute("INSERT INTO action VALUES ('create','completed',?,?)",(actual,reserve))
+            with self.subTest(actual=actual,reserve=reserve),self.assertRaisesRegex(ValueError,'zero-fee'):
+                c._no_money(source)
+        connection.execute('DELETE FROM action')
+        connection.execute("INSERT INTO action VALUES ('create','completed',0,0)")
+        c._no_money(source)
 
     def test_original51st_verified_key_cannot_be_omitted(self):
         self.verify();pubkey=self.data['initial_key_links'][-1]['origin']['user_pubkey']

@@ -140,14 +140,18 @@ class CohortCreateAdmission(unittest.TestCase):
         connection=sqlite3.connect(database);connection.execute('UPDATE bark_vtxo_key SET issued=1 WHERE idx=1');connection.commit();connection.close()
         self.assertTrue(c.enrollment_complete(self.store,'initial'))
 
-    def test_different_tip_receipts_hold_then_readonly_original_create_refresh_closes(self):
+    def test_historical_identity_closure_retains_each_tip_without_financial_credit(self):
         self.declare();core=self.core()
         actions={}
         for index,actor in enumerate(c.INITIAL[2:]):
             action,_=self.fill_created(actor);actions[actor]=action
             if index:core.height=101;core.tip='d'*64
             bootstrap.verify_created(self.store,self.config,core,actor,action['id'])
-        self.assertFalse(c.enrollment_complete(self.store,'initial'))
+        self.assertTrue(c.enrollment_complete(self.store,'initial'))
+        _,closure=c._source_event(self.store,self.store.db.execute("SELECT sequence FROM event WHERE kind='direct_per_key_cohort_identities_verified'").fetchone()[0])
+        self.assertIsNone(closure['height']);self.assertIsNone(closure['tip_hash'])
+        self.assertEqual(100,closure['source_tips']['actor-03']['height'])
+        self.assertEqual(101,closure['source_tips']['actor-04']['height'])
         self.assertEqual(10,self.store.db.execute('SELECT count(*) FROM event WHERE kind=?',(c.CREATE_EVENT,)).fetchone()[0])
         # Reobserve ONLY already-created actor03 with actual readonly Core/source
         # verification. No native driver call, action or create intent is repeated.
