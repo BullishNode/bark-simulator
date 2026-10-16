@@ -73,8 +73,9 @@ def initialize(store: Store):
 
 
 class Engine:
-    def __init__(self, config: Config, store: Store):
+    def __init__(self, config: Config, store: Store, *, financial_source_collector=None):
         self.config, self.store = config, store
+        self.financial_source_collector = financial_source_collector
         selected=campaign_profile(store)
         declared=getattr(config,'architecture_profile',None)
         if (selected!=(declared or DIRECT)
@@ -88,6 +89,9 @@ class Engine:
             # This is a requirement marker, never a readiness proof. Both routes
             # retain the exact same complete financial preflight before dispatch.
             store.db.execute("INSERT OR IGNORE INTO meta VALUES ('financial_qualification_required','true')")
+        if self._requires_financial_qualification():
+            from .normal_financial import KEY
+            store.db.execute('INSERT OR IGNORE INTO meta VALUES (?,?)', (KEY, 'true'))
         self.phases=PhaseController(store,config)
         if config.trace_enabled:
             store.attach_trace(config.trace_retention_days)
@@ -121,6 +125,14 @@ class Engine:
             # Its independent source proof was collected in observe(), before
             # persisting this snapshot. Partial/global sources stay separate.
             return True
+        latest = self.store.db.execute('SELECT payload FROM snapshot ORDER BY id DESC LIMIT 1').fetchone()
+        if latest and self.financial_source_collector is not None:
+            try:
+                from .normal_financial import validate_collection
+                validate_collection(self.store, json.loads(latest['payload']))
+                return True
+            except ValueError:
+                pass  # Partial capture below is diagnostic; it cannot admit.
         try:
             last=float(self.store.get_meta('financial_partial_observed_at') or '0')
             if 0<=time.time()-last<60:return True
@@ -160,6 +172,21 @@ class Engine:
             chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],self.config.expected_genesis,
                 capture=self.store.trace_sample,consumer='exploratory-operating-readiness')
             snapshot=await exploratory.collect(self.store,self.config,chain,snapshot)
+        elif self._requires_financial_qualification():
+            # An observer cannot inject or recycle a historical readiness ID.
+            snapshot.pop('operating_readiness_sequence', None)
+            snapshot.pop('financial_collection_sequence', None)
+            from .operating_limits import KEY as envelope_key
+            if self.store.get_meta(envelope_key) is not None and not identity_bootstrap.pending(self.store):
+                try:
+                    if len(self.config.proof_command)!=4:
+                        raise ValueError('independent Core required for normal source verification')
+                    chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],
+                        self.config.expected_genesis,capture=self.store.trace_sample,consumer='normal-operating-readiness')
+                    from .normal_financial import collect
+                    snapshot=await collect(self.store,self.config,chain,snapshot,self.financial_source_collector)
+                except Exception as error:
+                    self.store.event('normal_financial_source_gap', {'reason':type(error).__name__, 'qualified':False})
         self.store.add_snapshot(snapshot)
         for item in snapshot.get("rounds_owned_scripts",[]):
             self.store.db.execute("INSERT OR IGNORE INTO operator_script VALUES (?,?)",(item["script"],canonical(item)))
