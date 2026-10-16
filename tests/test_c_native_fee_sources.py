@@ -63,7 +63,7 @@ class CNativeFeeSources(unittest.TestCase):
         cw=encoded({'generation':1,'backing':[point],'fee_inputs':[],'miner':100,'subsidy':0,'mappings':[{'id':point,'vout':0}]}).decode()
         self.record={'freeze_set':'synthetic-freeze','tx':list(self.raw),'allocation_hash':c.digest(c._native_vec([aw])),'carrier_hash':c.digest(cw.encode())}
         self.policy=encoded({'urgent_reserve_sat':40000,'ordinary_budget_sat':58000})
-        self.cut={'schema_version':1,'root_identity':self.root,'identity_hex':encoded({'version':1,'genesis':SIGNET_GENESIS,'server_pubkey':KEY}).hex(),'policy_hex':self.policy.hex(),'budget_hex':b'20000\n'.hex(),'history_hex':(self.txid+'\n').encode().hex(),'records':{self.txid:encoded(self.record).hex()},'allocation_witnesses':{'synthetic-freeze':[aw]},'carrier_witnesses':{self.txid:cw},'database_snapshot':self.database['snapshot']}
+        self.cut={'schema_version':1,'root_identity':self.root,'identity_hex':encoded({'version':1,'genesis':c.NATIVE_SIGNET_CHAIN_HASH,'server_pubkey':KEY}).hex(),'policy_hex':self.policy.hex(),'budget_hex':b'20000\n'.hex(),'history_hex':(self.txid+'\n').encode().hex(),'records':{self.txid:encoded(self.record).hex()},'allocation_witnesses':{'synthetic-freeze':[aw]},'carrier_witnesses':{self.txid:cw},'database_snapshot':self.database['snapshot']}
         self.check={'txid':self.txid,'freeze_set':'synthetic-freeze','physical_inputs':[point],'carrier_versions':[self.txid],'accounting':{'synthetic':True}}
         self.store.event('direct_payment_checked',self.check)
     def source(self):
@@ -161,3 +161,11 @@ class CNativeFeeSources(unittest.TestCase):
     def test_existing_operator_member_identity_is_not_a_caller_selected_cost_label(self):
         self.member['identity']='another-wallet'
         with self.assertRaisesRegex(ValueError,'member source'):self.collect()
+
+    def test_actual_native_ChainHash_header_uses_BOLT_byte_order(self):
+        self.cut['identity_hex']=encoded({'version':1,'genesis':'f61eee3b63a380a477a063af32b2bbc97c9ff9f01f2c4225e973988108000000','server_pubkey':KEY}).hex()
+        self.assertEqual(self.collect()['native_fee']['ordinary_booked_sat'],20000)
+
+    def test_RPC_display_order_cannot_substitute_for_native_identity_header(self):
+        self.cut['identity_hex']=encoded({'version':1,'genesis':SIGNET_GENESIS,'server_pubkey':KEY}).hex()
+        with self.assertRaisesRegex(ValueError,'network/server identity'):self.collect()

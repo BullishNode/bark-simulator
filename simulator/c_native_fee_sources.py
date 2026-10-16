@@ -16,6 +16,9 @@ from .model import SIGNET_GENESIS, canonical, integer, public_payload
 
 MAX_BYTES = 16 * 1024 * 1024
 MAX_ROWS = 10000
+# Native identity.json uses bitcoin::constants::ChainHash Display (BOLT order),
+# distinct from the RPC genesis BlockHash displayed by independent Core.
+NATIVE_SIGNET_CHAIN_HASH = 'f61eee3b63a380a477a063af32b2bbc97c9ff9f01f2c4225e973988108000000'
 
 
 def digest(raw):
@@ -102,7 +105,7 @@ def collect_cost_records(store, chain, *, config, private_cut, source_event, sou
             or not 0<integer(policy['ordinary_budget_sat'],'ordinary budget')<=60000):
         raise ValueError('immutable live native ordinary policy differs')
     identity=_json(_raw(cut['identity_hex'],65536))
-    if type(identity.get('version'))is not int or identity!={'version':1,'genesis':SIGNET_GENESIS,'server_pubkey':expected_server_pubkey}:
+    if type(identity.get('version'))is not int or identity!={'version':1,'genesis':NATIVE_SIGNET_CHAIN_HASH,'server_pubkey':expected_server_pubkey}:
         raise ValueError('independent native history network/server identity differs')
     ledger=_raw(cut['budget_hex'],2*1024*1024)
     if ledger and not ledger.endswith(b'\n'):raise ValueError('torn native reservation history')
