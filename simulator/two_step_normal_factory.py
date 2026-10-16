@@ -21,8 +21,9 @@ def build_collector(store, *, admission_sequence, boundary, capture_configuratio
             raise EvidenceGap('no matching installed normal collector for the requested architecture profile')
         from .b_continuing_profile import continuing_profile
         native = continuing_profile(store, architecture_profile, native_fee_tool=tools.get('native_fee'))
+    from .b_final_native_profile import FinalNativeDirectProfile
     target=TargetTarReader(target_configuration['command'],target_configuration['evidence_directory'],
-        timeout=target_configuration['timeout'])
+        timeout=target_configuration['timeout'], request_stdin=type(native) is FinalNativeDirectProfile)
     member=MemberReader(member_configuration,store, native_profile=native)
     capture=SourceCapture(target.read,member.read,admission_sequence,boundary,capture_configuration,lineage_tools=tools,
         dependencies={'public_wallet_metadata':wallet_metadata,'descriptor_checkpoint':current_from_checkpoint,

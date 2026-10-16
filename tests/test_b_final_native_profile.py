@@ -53,6 +53,21 @@ class FinalProfileControls(unittest.TestCase):
     def test_constructor_tool_configuration_is_not_mutable_alias(self):
         original=tool();p=FinalNativeDirectProfile(original);original['command'][1]='rpc'
         self.assertEqual(p.native_fee_tool['command'][1],'native-fee-source-proof')
+    def test_fixed_final_factory_sends_existing_public_observation_stdin_only_for_final_profile(self):
+        from simulator.two_step_normal_factory import build_collector
+        from test_b_current_native_liabilities import CurrentRightsTests
+        f=CurrentRightsTests();self.addCleanup(f.doCleanups);f.setUp()
+        def build(native_tool,architecture):
+            tools={'native_fee':native_tool}if native_tool is not None else {}
+            return build_collector(f.store,admission_sequence=1,boundary={},capture_configuration={},
+                target_configuration={'command':['/bin/false'],'evidence_directory':f.tmp.name,'timeout':5},
+                member_configuration={'pending_board_proof_sha256':None},tools=tools,architecture_profile=architecture)
+        final=build(tool(),'direct_xpub')
+        self.assertIs(type(final.native_profile),FinalNativeDirectProfile)
+        self.assertTrue(final.capture.__self__.target_reader.__self__.request_stdin)
+        legacy=build(None,'direct_xpub');default=build(None,None)
+        self.assertFalse(legacy.capture.__self__.target_reader.__self__.request_stdin)
+        self.assertFalse(default.capture.__self__.target_reader.__self__.request_stdin)
     def test_default_a_tool_sets_remain_exact(self):
         for profile in (None,InitialDirectProfile()):
             c=SimpleNamespace(native_profile=profile,tools={'policy':{},'binding':{}})
