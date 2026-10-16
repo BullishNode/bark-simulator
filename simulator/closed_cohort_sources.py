@@ -118,8 +118,13 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
     never changes financial readiness, pause state, or dispatcher authority.
     """
     started = time.monotonic()
-    if chain is None or config.network != 'signet' or config.expected_genesis != SIGNET_GENESIS:
-        raise ValueError('independent signet source required')
+    genesis_by_network={'signet':SIGNET_GENESIS,
+        'regtest':'0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206'}
+    if (chain is None or config.network not in genesis_by_network
+            or config.expected_genesis!=genesis_by_network[config.network]
+            or bootstrap_declaration.get('identity',{}).get('network')!=config.network
+            or bootstrap_declaration.get('identity',{}).get('genesis')!=config.expected_genesis):
+        raise ValueError('independent declared bootstrap network/genesis source required')
     if getattr(store, 'trace', None) is None:
         raise ValueError('original driver and Core trace capture required')
     public_payload(bootstrap_declaration)
@@ -164,7 +169,7 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         return receipt
     data = response.get('data', {})
     native = data.get('onchain_inventory', {})
-    if (native.get('schema_version') != 1 or native.get('network') != 'signet'
+    if (native.get('schema_version') != 1 or native.get('network') != config.network
             or native.get('read_only') is not True or native.get('complete') is not True
             or any(native.get(key) != [] for key in ('utxos','pending_transactions','pending_parents','unavailable_parent_txids'))):
         raise ValueError('fresh complete empty native onchain graph required')
@@ -175,8 +180,9 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
             or descriptors[0].get('keychain') != 'external'):
         raise ValueError('pinned single external wallet descriptor required')
     before = chain.identity()
-    if before.get('chain') != 'signet' or before.get('initialblockdownload') is not False:
-        raise ValueError('independent synchronized signet required')
+    if (before.get('chain') != config.network or before.get('initialblockdownload') is not False
+            or chain.call('getblockhash',0)!=config.expected_genesis):
+        raise ValueError('independent synchronized bootstrap network/genesis required')
     scans, scripts = [], set()
     for row in descriptors:
         # SDK5e load_or_create reserves fallback external0. The existing native
@@ -248,7 +254,8 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
     else:
         raise ValueError('complete mempool did not reach bounded checked fixed point')
     ending = chain.identity()
-    if (ending.get('initialblockdownload') is not False
+    if (ending.get('chain')!=config.network or ending.get('initialblockdownload') is not False
+            or chain.call('getblockhash',0)!=config.expected_genesis
             or (ending['blocks'], ending['bestblockhash']) != (before['blocks'], before['bestblockhash'])):
         raise ValueError('independent chain changed during bootstrap observation')
     if time.monotonic()-started>MAX_SOURCE_SECONDS:raise ValueError('bootstrap source deadline exceeded')
@@ -259,7 +266,7 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         'financial_pins': bootstrap_declaration['pins'], 'source_sequence': source['sequence'],
         'source_event_hash': source['hash'], 'response_sha256': _digest(response),
         'native_inventory_sha256': _digest(native), 'descriptors': descriptors,
-        'genesis': SIGNET_GENESIS, 'height': ending['blocks'], 'tip_hash': ending['bestblockhash'],
+        'network':config.network,'genesis': config.expected_genesis, 'height': ending['blocks'], 'tip_hash': ending['bestblockhash'],
         'descriptor_range': [0,19], 'mempool_transactions_checked': len(checked_txids),
         'mempool_unique_transactions_checked':len(checked_txids),'mempool_current_transactions':len(current),
         'mempool_current_set_sha256':_digest(sorted(current)),'mempool_fixed_point_passes':passes,

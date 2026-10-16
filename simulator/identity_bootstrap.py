@@ -60,11 +60,15 @@ def _sole_writer(root):
 
 def _context(config, value, *, store=None):
     selected = getattr(config, 'architecture_profile', None)
-    if (selected not in {'direct_xpub','direct_per_key'}
+    if (selected not in {'two_step_per_key','direct_xpub','direct_per_key'}
             or config.expected_sdk_commit != value['pins']['sdk_commit']
             or str(config.wallet_root) != value['wallet_root']
             or len(config.driver_command) != 1):
         raise ValueError('exact profiled bootstrap driver context required')
+    genesis_by_network={'signet':'00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6',
+        'regtest':'0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206'}
+    if config.network not in genesis_by_network or config.expected_genesis!=genesis_by_network[config.network]:
+        raise ValueError('exact bootstrap network/genesis required')
     identity = {'network': config.network, 'genesis': config.expected_genesis,
                 'container': config.expected_container, 'image_digest': config.expected_image,
                 'server_pubkey': config.expected_server_pubkey}
@@ -89,8 +93,8 @@ def _context(config, value, *, store=None):
     if len(raw) > 65536 or hashlib.sha256(raw).hexdigest() != value['driver_config_sha256']:
         raise ValueError('bootstrap driver configuration changed')
     native = json.loads(raw)
-    if selected == 'direct_per_key' and native.get('architecture_profile') != selected:
-        raise ValueError('C bootstrap requires the actual explicitly profiled C native adapter')
+    if selected in {'two_step_per_key','direct_per_key'} and native.get('architecture_profile') != selected:
+        raise ValueError('per-key bootstrap requires the actual explicitly profiled native adapter')
     if (native.get('wallet_root') != value['wallet_root'] or native.get('network') != config.network
             or not isinstance(native.get('ark_endpoint'), str) or not native['ark_endpoint']):
         raise ValueError('bootstrap native configuration scope differs')

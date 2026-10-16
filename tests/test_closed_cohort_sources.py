@@ -20,10 +20,12 @@ class Chain:
     def __init__(self):
         self.tip={'chain':'signet','blocks':100,'bestblockhash':'a'*64,'initialblockdownload':False}
         self.scan={'success':True,'height':100,'bestblock':'a'*64,'unspents':[],'total_amount':0}
+        self.genesis=SIGNET_GENESIS
         self.mempool=[]; self.tx_script='other'; self.changed=False;self.scan_status=None;self.scan_calls=[]
     def identity(self): return self.tip.copy()
     def tx(self,txid): return {'vout':[{'scriptPubKey':{'hex':self.tx_script}}]}
     def call(self,method,*args,**kwargs):
+        if method=='getblockhash':return self.genesis
         if method=='getdescriptorinfo': return {'hasprivatekeys':False,'isrange':True,'issolvable':True,'descriptor':args[0]}
         if method=='deriveaddresses': return ['address'+str(i) for i in range(20)]
         if method=='validateaddress': return {'isvalid':True,'scriptPubKey':'script'+args[0]}
@@ -42,7 +44,8 @@ class BootstrapSourceTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.store=Store(Path(self.tmp.name),'synthetic',10000)
         initialize(self.store);self.store.attach_trace();self.chain=Chain()
         self.config=SimpleNamespace(network='signet',expected_genesis=SIGNET_GENESIS)
-        self.declaration={'id':'fresh','pins':PINS,'actors':['actor-01']}
+        self.declaration={'id':'fresh','pins':PINS,'actors':['actor-01'],
+            'identity':{'network':'signet','genesis':SIGNET_GENESIS}}
         self.store.db.execute('INSERT INTO meta VALUES (?,?)',('zero_principal_identity_bootstrap',canonical(self.declaration)))
         self.store.event('identity_bootstrap_declared',{'declaration':self.declaration})
         self.native={'schema_version':1,'network':'signet','read_only':True,'complete':True,
@@ -198,3 +201,37 @@ class BootstrapSourceTests(unittest.TestCase):
     def test_original_event_tampering_refuses(self):
         self.store.db.execute("UPDATE event SET hash=? WHERE kind='driver_response'",('0'*64,))
         with self.assertRaisesRegex(ValueError,'event frame changed'):self.verify()
+
+
+class RegtestBootstrapSourceTests(BootstrapSourceTests):
+    def setUp(self):
+        super().setUp()
+        genesis='0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206'
+        self.config.network='regtest';self.config.expected_genesis=genesis
+        self.chain.tip['chain']='regtest';self.chain.genesis=genesis
+        self.declaration['identity']={'network':'regtest','genesis':genesis}
+        self.store.db.execute('UPDATE meta SET value=? WHERE key=?',
+            (canonical(self.declaration),'zero_principal_identity_bootstrap'))
+        self.store.db.execute("DELETE FROM event WHERE kind='identity_bootstrap_declared'")
+        self.store.event('identity_bootstrap_declared',{'declaration':self.declaration})
+        self.native['network']='regtest';self.source()
+
+    # This inherited unrelated four-wallet source collector remains Signet-only.
+    test_actual_source_capture_preserves_four_wallet_provenance_without_readiness=None
+
+    def test_exact_regtest_chain_and_declared_identity_are_required(self):
+        for target in ('actual','configured','declared'):
+            with self.subTest(target=target):
+                self.tearDown();self.setUp()
+                if target=='actual':self.chain.genesis=SIGNET_GENESIS
+                elif target=='configured':self.config.expected_genesis=SIGNET_GENESIS
+                else:self.declaration['identity']['genesis']=SIGNET_GENESIS
+                with self.assertRaisesRegex(ValueError,'network/genesis'):
+                    self.verify()
+
+    def test_valid_regtest_receipt_preserves_zero_only_scope_and_financial_hold(self):
+        receipt=self.verify()
+        self.assertEqual('regtest',receipt['network'])
+        self.assertEqual(self.config.expected_genesis,receipt['genesis'])
+        self.assertEqual(0,self.store.db.execute(
+            "SELECT count(*) FROM event WHERE kind IN ('financial_operating_readiness','treasury_inventory')").fetchone()[0])

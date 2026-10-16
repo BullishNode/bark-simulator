@@ -27,7 +27,7 @@ class IdentityBootstrapTests(unittest.TestCase):
         self.native_config=self.root/'native.json'
         native={'network':'signet','wallet_root':str(self.wallets),
             'ark_endpoint':'http://127.0.0.1:1','wallet_config':str(self.wallet_config)}
-        if selected=='direct_per_key':native['architecture_profile']=selected
+        if selected in {'direct_per_key','two_step_per_key'}:native['architecture_profile']=selected
         self.native_config.write_text(json.dumps(native))
         self.environment=patch.dict(os.environ,{'SIM_DRIVER_CONFIG':str(self.native_config)})
         self.environment.start()
@@ -153,3 +153,36 @@ class IdentityBootstrapTests(unittest.TestCase):
         native.assert_awaited_once()
         self.assertEqual('outcome_unknown',self.store.db.execute('SELECT state FROM action LIMIT 1').fetchone()[0])
         self.assertIsNotNone(self.store.get_meta('financial_qualification_required'))
+
+
+class TwoStepIdentityBootstrapTests(IdentityBootstrapTests):
+    architecture_profile='two_step_per_key'
+
+    def test_foreign_or_unprofiled_native_adapter_refuses_before_create(self):
+        for selected in (None,'direct_per_key'):
+            native=json.loads(self.native_config.read_text())
+            if selected is None:native.pop('architecture_profile')
+            else:native['architecture_profile']=selected
+            self.native_config.write_text(json.dumps(native))
+            self.value['driver_config_sha256']=self.digest(self.native_config)
+            with self.assertRaisesRegex(ValueError,'explicitly profiled'):
+                bootstrap.declare(self.store,self.config,self.value)
+
+
+class RegtestTwoStepIdentityBootstrapTests(TwoStepIdentityBootstrapTests):
+    def setUp(self):
+        super().setUp()
+        from dataclasses import replace
+        genesis='0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206'
+        self.config=replace(self.config,network='regtest',expected_genesis=genesis)
+        self.identity.update(network='regtest',genesis=genesis)
+        native=json.loads(self.native_config.read_text());native['network']='regtest'
+        self.native_config.write_text(json.dumps(native))
+        self.value['driver_config_sha256']=self.digest(self.native_config)
+
+    def test_wrong_genesis_refuses_before_any_identity(self):
+        from dataclasses import replace
+        config=replace(self.config,expected_genesis=SIGNET_GENESIS)
+        with self.assertRaisesRegex(ValueError,'network/genesis'):
+            bootstrap.declare(self.store,config,self.value)
+        self.assertEqual(0,self.store.db.execute('SELECT count(*) FROM action').fetchone()[0])
