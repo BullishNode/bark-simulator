@@ -83,13 +83,17 @@ class DirectPerKeyProfile:
     public_context_filename = 'c-public-metadata-context.json'
     backing_source_kind = 'c_native_current_backing'
 
-    def __init__(self, target):
+    def __init__(self, target, *, runtime=None):
         if type(target) is not CheckedTargetReader:
             raise EvidenceGap('fixed C checked-target reader required')
+        from .c_normal_runtime_source import RuntimeSource
+        if runtime is not None and type(runtime) is not RuntimeSource:
+            raise EvidenceGap('fixed admitted C runtime producer required')
         self.target = target
+        self.runtime = runtime
 
     def component_hashes(self):
-        return {'c_profile':digest(Path(__file__).read_bytes()),
+        result = {'c_profile':digest(Path(__file__).read_bytes()),
             'c_target':module_hash(CheckedTargetReader.check_transport),
             'c_history':module_hash(initial_history),
             'c_target_configuration_sha256':digest(canonical({
@@ -98,6 +102,23 @@ class DirectPerKeyProfile:
                 'reader':{'command':list(self.target.reader.command),
                     'evidence_directory':str(self.target.reader.evidence_directory),
                     'timeout':self.target.reader.timeout,'request_stdin':self.target.reader.request_stdin}}).encode())}
+
+        if self.runtime is not None:
+            from .c_normal_runtime_source import RuntimeSource
+            result['c_runtime_producer']=module_hash(RuntimeSource.collect)
+            result['c_runtime_constructor_sha256']=digest(canonical({
+                'configuration':self.runtime.configuration,
+                'qualification_sequence':self.runtime.qualification_sequence}).encode())
+        return result
+
+    async def collect_runtime(self, store, config, chain, observation, checked):
+        if (checked.get('kind')!='c-checked-native-target-source'
+                or checked.get('source_observation')!=observation
+                or checked.get('qualification_sequence')!=self.target.qualification_sequence):
+            raise EvidenceGap('C target must be checked before fresh runtime/member capture')
+        if self.runtime is None:
+            raise EvidenceGap('actual fixed fresh C runtime producer is not installed')
+        return await self.runtime.collect(store,config,chain,observation)
 
     def begin_target(self, store, chain, observation):
         return self.target.begin(store, chain, observation)
