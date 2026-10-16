@@ -15,6 +15,12 @@ class CurrentJoin(unittest.TestCase):
         self.x=fixture.NativeBodyProof();self.x.setUp();self.addCleanup(self.x.doCleanups)
         self.loaded=self.x.loaded;self.paths,_=self.x.collect();self.obs=self.x.f.observation;self.store=self.x.f.fixture.store
         self.original={'id':self.x.point,'pubkey':self.x.proof['user_pubkey'],'actor':'actor-01','proof':json.dumps({'chain_anchor':self.x.point})}
+        self.mailbox='03'+'9'*64
+        self.record={'mailbox_pk':self.mailbox,'spk':'5120'+'8'*64,'mailbox_sig':'7'*128}
+        self.link={'user_pubkey':self.x.proof['user_pubkey'],'mailbox_pk':self.mailbox,'sig':'6'*128,'recovery_index':1}
+        self.loaded['database']['rows']['records']=[self.record];self.loaded['database']['rows']['links']=[self.link]
+        self.original['mailbox']=self.mailbox
+        self.original['proof']=json.dumps({'chain_anchor':self.x.point,'binding':{'mailbox_pk':self.mailbox,'spk':self.record['spk'],'fallback_record':c.record_bytes(self.record),'key_link_attestation':c.link_bytes(self.link)}})
         self.claim={'coin_id':self.x.point,'actor':'actor-01','amount_sat':25000,'signed_hash':'a'*64,'state':'Spendable','observation_action_id':'snapshot'}
         # Store projection is mocked because the original crypto authority is a
         # distinct existing reducer. No fabricated source gets journaled.
@@ -25,7 +31,7 @@ class CurrentJoin(unittest.TestCase):
             def execute(self,*args):return [outer.original]
         class Store:
             db=DB()
-        with patch('simulator.c_normal_source._context'),patch.object(c,'_current_claims',return_value=[self.claim]if claims is None else claims):
+        with patch('simulator.c_normal_source._context'),patch.object(c,'has_owner_record',return_value=True),patch.object(c,'_current_claims',return_value=[self.claim]if claims is None else claims):
             return c.reduce(Store(),self.loaded,self.paths,observation=self.obs,server_pubkey=f.KEY,backings=self.backings)
     def test_original_customer_right_and_actual_same_RR_still_not_global_readiness(self):
         audit=self.reduce();self.assertEqual([],audit['unresolved']);rights=c.require_resolved(audit)
@@ -61,3 +67,15 @@ class CurrentJoin(unittest.TestCase):
             audit=self.reduce()
             with self.assertRaises(EvidenceGap):c.require_resolved(audit)
             self.loaded['database']['rows'][name]=[]
+
+    def test_same_RR_immutable_payout_record_and_retained_V1_ack_are_mandatory(self):
+        original=copy.deepcopy(self.loaded['database']['rows'])
+        for name in ('links','records'):
+            self.loaded['database']['rows'][name]=[]
+            with self.assertRaises(EvidenceGap):self.reduce()
+            self.loaded['database']['rows']=copy.deepcopy(original)
+        self.loaded['database']['rows']['records'][0]['spk']='5120'+'1'*64
+        with self.assertRaises(ValueError):self.reduce()
+        self.loaded['database']['rows']=copy.deepcopy(original)
+        self.loaded['database']['rows']['links'][0]['recovery_index']=2
+        with self.assertRaises(ValueError):self.reduce()

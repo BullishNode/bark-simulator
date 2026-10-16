@@ -10,7 +10,8 @@ from . import c_native_body_proof as native
 from .c_private_native_body_cut import SOURCES
 from .financial_transition import _current_claims
 from .model import canonical,integer,public_payload,btc_to_sat
-from .ownership import EvidenceGap
+from .ownership import EvidenceGap,has_owner_record
+from .per_key import record_bytes,link_bytes,binding_matches
 from .normal_source_deadline import check as deadline_check
 
 
@@ -42,7 +43,7 @@ def reduce(store,loaded,paths,*,observation,server_pubkey,backings):
         unresolved.append({'source':'client_originals','id':'retained_rights','reason':'shared original-right reducer cannot authenticate whole current set'})
     claimed={}if claims is None else {v['coin_id']:v for v in claims}
     if claims is not None and len(claimed)!=len(claims):raise ValueError('original current rights duplicated')
-    known={v['id']:dict(v)for v in store.db.execute('SELECT c.*,k.actor FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey')}
+    known={v['id']:dict(v)for v in store.db.execute('SELECT c.*,k.actor,k.mailbox FROM owned_coin c JOIN owner_key k ON k.pubkey=c.pubkey')}
     for table in SOURCES:
         for row in pg[table]:
             deadline_check();meta=row['metadata'];ident=meta['vtxo_id'];path=by[table,ident];proof=path['proof']
@@ -70,6 +71,17 @@ def reduce(store,loaded,paths,*,observation,server_pubkey,backings):
                         or meta['amount']!=proof['amount_sat']or meta['anchor_point']!=proof['chain_anchor']
                         or original_proof.get('chain_anchor')!=proof['chain_anchor']):
                     raise ValueError('native current customer identity/amount/anchor differs from original')
+                bound=original_proof.get('binding',{})
+                matching_links=[r for r in rows['links']if r['user_pubkey']==original['pubkey']]
+                matching_records=[r for r in rows['records']if r['mailbox_pk']==original['mailbox']]
+                if len(matching_links)!=1 or len(matching_records)!=1:
+                    raise EvidenceGap('same-RR canonical customer record/key link missing or ambiguous')
+                link=matching_links[0];record=matching_records[0]
+                if (link['mailbox_pk']!=original['mailbox']or bound.get('mailbox_pk')!=original['mailbox']
+                        or link_bytes(link)!=bound.get('key_link_attestation')
+                        or not binding_matches(bound,{'mailbox_pk':record['mailbox_pk'],'spk':record['spk'],'fallback_record':record_bytes(record)})
+                        or not has_owner_record(store,original['actor'],bound)):
+                    raise ValueError('same-RR immutable V4/V1 payout binding differs from original customer proof')
                 anchor=proof['chain_anchor'];backing=backings.get(anchor)
                 if backing is None:
                     unresolved.append({'source':table,'id':ident,'reason':'independent current physical root absent/spent; no unpaid/paid inference'})
@@ -82,7 +94,8 @@ def reduce(store,loaded,paths,*,observation,server_pubkey,backings):
                     raise ValueError('independent current root amount/script/tip differs from original funding')
                 supported.append({'chain_anchor':anchor,'root_amount_sat':output['amount_sat'],'coin_id':ident,'actor':claim['actor'],'amount_msat':integer(claim['amount_sat'],'original customer principal',1)*1000,
                   'original_signed_hash':claim['signed_hash'],'native_response_sha256':path['response_sha256'],
-                  'native_body_sha256':path['body_sha256'],'source_table':table,'status':'retained_customer_right'})
+                  'native_body_sha256':path['body_sha256'],'mailbox_pk':original['mailbox'],'fallback_record_sha256':native._sha(bytes.fromhex(bound['fallback_record'])),
+                  'key_link_sha256':native._sha(bytes.fromhex(bound['key_link_attestation'])),'source_table':table,'status':'retained_customer_right'})
             if why:unresolved.append({'source':table,'id':ident,'reason':why})
     for anchor in {r['chain_anchor']for r in supported}:
         selected=[r for r in supported if r['chain_anchor']==anchor]
