@@ -105,6 +105,12 @@ class JointPrivateCut(unittest.TestCase):
         with self.assertRaises(ValueError):self.capture()
         p.chmod(0o600);os.link(p,p.with_name('a'*64+'.json'))
         with self.assertRaises(ValueError):self.capture()
+    def test_small_shared_witness_quota_is_checked_before_buffering_next_file(self):
+        self.witness()
+        with patch.object(c,'MAX_WITNESS_BYTES',80),patch.object(c.fee,'digest',wraps=c.fee.digest)as hashed:
+            with self.assertRaisesRegex(ValueError,'whole witness bounds exceeded before read'):
+                c._files(self.f.expected)
+        self.assertNotIn(b'a'*64,[call.args[0]for call in hashed.call_args_list])
     def test_context_each_independent_expected_binding_and_exit_required(self):
         result,path,safe,args=self.packed()
         for key,value in [('expected_joint_source_sha256','e'*64),('expected_source_sha256','d'*64),
