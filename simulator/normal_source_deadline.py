@@ -41,6 +41,10 @@ class DeadlineChain:
         value = self.chain.call(method, *args, timeout=self.deadline.limit(timeout), **kwargs)
         self.deadline.remaining()
         return value
+    def owned_activity(self,scripts):
+        value=self.chain.owned_activity(scripts,timeout=self.deadline.limit(12))
+        self.deadline.remaining()
+        return value
     def identity(self): return ChainReader.identity(self)
     def tx(self, txid): return ChainReader.tx(self, txid)
     def transaction(self, txid): return ChainReader.transaction(self, txid)

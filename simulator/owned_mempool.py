@@ -59,6 +59,18 @@ def empty_result(value):
 
 
 def decode_reply(raw):
+    value=_activity_envelope(raw)
+    empty_result(value.get('result'))
+    return value
+
+
+def decode_activity_reply(raw,scripts=None):
+    value=_activity_envelope(raw)
+    activity_result(value.get('result'),scripts=scripts)
+    return value
+
+
+def _activity_envelope(raw):
     if not isinstance(raw,bytes) or not 0 < len(raw) <= MAX_RESPONSE_BYTES:
         raise ValueError('owned-script activity response exceeds byte bound')
     value=json.loads(raw,parse_float=Decimal,object_pairs_hook=unique_object)
@@ -66,7 +78,37 @@ def decode_reply(raw):
             or type(value.get('id')) is not int or value['id']!=1
             or value.get('jsonrpc','2.0')!='2.0' or value.get('error') is not None):
         raise ValueError('Core owned-script activity envelope unavailable')
-    empty_result(value.get('result'))
+    return value
+
+
+def activity_result(value,*,scripts=None):
+    """Full bounded Core31 mempool events; no truncation or terminal meaning."""
+    if (not isinstance(value,dict) or set(value)!={'activity'} or not isinstance(value['activity'],list)
+            or len(value['activity'])>2000):
+        raise ValueError('bounded full Core owned activity required')
+    seen=set()
+    for row in value['activity']:
+        if not isinstance(row,dict):raise ValueError('Core activity object required')
+        spend=row.get('type')=='spend';receive=row.get('type')=='receive'
+        fields=({'type','amount','spend_txid','spend_vin','prevout_txid','prevout_vout','prevout_spk'} if spend else
+                {'type','amount','txid','vout','output_spk'})
+        if not (spend or receive) or set(row)!=fields:raise ValueError('unknown/confirmed Core mempool activity fields')
+        from .model import btc_to_sat,integer
+        btc_to_sat(row['amount'])
+        ids=['spend_txid','prevout_txid'] if spend else ['txid']
+        if any(not isinstance(row[k],str) or re.fullmatch('[0-9a-f]{64}',row[k])is None for k in ids):
+            raise ValueError('Core activity transaction identity invalid')
+        for k in (['spend_vin','prevout_vout']if spend else ['vout']):integer(row[k],'Core activity index')
+        spk=row['prevout_spk'if spend else 'output_spk']
+        if (not isinstance(spk,dict) or not {'hex','asm','type'}<=set(spk)
+                or set(spk)-{'hex','asm','type','address','desc'}
+                or any(not isinstance(v,str) or len(v)>20000 for v in spk.values())
+                or re.fullmatch('(?:[0-9a-f]{2}){1,10000}',spk['hex'])is None
+                or scripts is not None and spk['hex']not in scripts):
+            raise ValueError('Core activity exact public requested script required')
+        key=(row['type'],row[ids[0]],row['spend_vin'if spend else 'vout'])
+        if key in seen:raise ValueError('duplicated Core activity identity')
+        seen.add(key)
     return value
 
 
