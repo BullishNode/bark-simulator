@@ -82,8 +82,9 @@ def declare(store, value):
 def funding_policy(store):
     """Only the source policy varies; Core signing/once-only state stays common."""
     value = declaration(store)
+    from .c_escrow import effective_opening_sat
     return {'customers': CUSTOMERS, 'amounts': {'actor-01': 25000, 'watchman': 100000},
-            'opening_sat': value['bank_opening_sat'], 'principal_sat': 125000,
+            'opening_sat': effective_opening_sat(store), 'principal_sat': 125000,
             'client_principal_sat': 25000, 'operator_fee_grants_sat': value['operator_fee_grants_sat'],
             'fee_signer_member': 'watchman', 'urgent_isolation_qualified': False,
             'maximum_fee_sat': 1000, 'maximum_rate_sat_kvb': 20000,
@@ -96,8 +97,9 @@ def board_policy(store=None):
     """Phase policy only; all native dispatch and monetary checks stay shared."""
     if store is not None and profile(store)==DIRECT_PER_KEY:
         pilot=declaration(store)
+        from .c_escrow import effective_opening_sat
         return {'actors':['actor-01','actor-02'],'board_actors':['actor-01'],
-            'maximum_fee_sat':1000,'grants':pilot['grants_sat'],'opening_sat':pilot['bank_opening_sat'],
+            'maximum_fee_sat':1000,'grants':pilot['grants_sat'],'opening_sat':effective_opening_sat(store),
             'urgent_budget_sat':40000,'board_action_id':pilot['board_action_id']}
     actors=['actor-01','actor-02','actor-04']
     return {'actors':actors,'board_actors':actors,'maximum_fee_sat':4000,

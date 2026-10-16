@@ -315,6 +315,12 @@ async def collect_initial_funding_sources(store,config,chain,bank_rpc,*,runtime_
             'urgent_fee_reserve_sat':policy['urgent_budget_sat'],'operation_scope':['funding'],
             'scope':'only initial funding of six fully enumerated owned wallets; all monetary database rows absent; no subsequent wallet operation admission'}
         if per_key:
+            from .c_escrow import transition as escrow_transition
+            escrow=escrow_transition(store)
+            if escrow is not None:
+                source.update(original_pilot_bank_opening_sat=escrow['original_pilot_bank_opening_sat'],
+                    escrow_bank_inflow_sat=escrow['escrow_bank_inflow_sat'],
+                    escrow_opening_transition_sequence=escrow['transition_sequence'])
             source.update(architecture_profile=DIRECT_PER_KEY,c_pilot_id=policy['pilot_id'],
                 client_principal_sat=policy['client_principal_sat'],
                 operator_fee_grants_sat=policy['operator_fee_grants_sat'],
