@@ -51,7 +51,7 @@ jobs:
       matrix:
         include:
           - track: A
-            sdk: e2291996ac2713227fd25ead508abe800373f012
+            sdk: cccc3f5747ad11b07b4742df1a25fb7b3ebe29c9
             feature: two-step
             profile: two_step_per_key
           - track: B

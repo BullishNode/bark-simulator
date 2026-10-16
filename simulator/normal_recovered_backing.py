@@ -11,6 +11,7 @@ from decimal import Decimal
 from .bundle_audit import decode_transaction
 
 MAX = 2_100_000_000_000_000
+NATIVE_COMPLETION_SDK = 'cccc3f5747ad11b07b4742df1a25fb7b3ebe29c9'
 
 def _check(condition, message):
     if not condition: raise ValueError(message)
@@ -39,7 +40,8 @@ def _json(raw):
         return result
     return json.loads(raw,object_pairs_hook=pairs)
 
-def bind_native_claim(expected,row,contract_request,contract_response,binding_request,binding_response,*,genesis,server_pubkey):
+def bind_native_claim(expected,row,contract_request,contract_response,binding_request,binding_response,*,genesis,server_pubkey,
+                      completed_vtxo=None,source_anchor_raw=None,policy_sdk_commit=None):
     """Join ORIGINAL native tool requests/outputs, after actual pinned execution.
 
     `expected` is the preserved authenticated owner/coin claim, never a newly
@@ -48,9 +50,28 @@ def bind_native_claim(expected,row,contract_request,contract_response,binding_re
     """
     req=_json(contract_request);contract=_json(contract_response)
     breq=_json(binding_request);binding=_json(binding_response)
-    _check(set(req)=={'signed_vtxo','anchor_raw','server_pubkey'} and set(breq)=={'user_pubkey','binding','key_link_attestation'},'native proof request differs')
-    full=_hex(row['signed_vtxo_hex']);anchor=decode_transaction(req['anchor_raw'])
-    _check(_hex(req['signed_vtxo'])==full and req['server_pubkey']==server_pubkey,'signed native proof input differs')
+    _check(isinstance(req,dict) and isinstance(contract,dict) and isinstance(breq,dict)
+        and set(breq)=={'user_pubkey','binding','key_link_attestation'},'native proof request differs')
+    full=_hex(row['signed_vtxo_hex']);completion={}
+    if completed_vtxo is None and source_anchor_raw is None and policy_sdk_commit is None:
+        _check(set(req)=={'signed_vtxo','anchor_raw','server_pubkey'},'native proof request differs')
+        _check(_hex(req['signed_vtxo'])==full and req['server_pubkey']==server_pubkey,'signed native proof input differs')
+    else:
+        _check(isinstance(completed_vtxo,str) and isinstance(source_anchor_raw,str)
+            and policy_sdk_commit==NATIVE_COMPLETION_SDK,'exact native-completion source/SDK required')
+        completed=_hex(completed_vtxo)
+        _check(_hash(completed)==expected.get('signed_hash'),'retained completed claim hash differs')
+        _check(set(req)=={'signed_vtxo','native_vtxo','anchor_raw','server_pubkey'}
+            and req=={'signed_vtxo':completed_vtxo,'native_vtxo':row['signed_vtxo_hex'],
+                'anchor_raw':source_anchor_raw,'server_pubkey':server_pubkey},'literal current completed/native request differs')
+        relation='exact_full_equality' if full==completed else 'final_hark_leaf_completion'
+        wanted={'schema_version':1,'sdk_commit':policy_sdk_commit,'native_vtxo_sha256':_hash(full),
+            'completed_vtxo_sha256':_hash(completed),'native_completion_relation':relation,
+            'client_owner_verified':False,'native_owner_verified':False,'payment_verified':False}
+        _check(all(type(contract.get(key)) is type(value) and contract[key]==value for key,value in wanted.items()),
+            'executed current native-completion proof differs')
+        completion={'completed_vtxo_sha256':_hash(completed),'native_completion_relation':relation}
+    anchor=decode_transaction(req['anchor_raw'])
     root,index=_point(expected['chain_anchor'])
     _check(anchor['txid']==root and index<len(anchor['outputs']),'native proof root differs')
     _check(contract.get('signed_path_valid') is True and contract.get('chain_contract_verified') is True
@@ -65,7 +86,7 @@ def bind_native_claim(expected,row,contract_request,contract_response,binding_re
     _check(binding['genesis']==genesis and binding['user_pubkey']==expected['user_pubkey'] and breq['user_pubkey']==expected['user_pubkey']
         and b.get('record_signature_valid') is True and b.get('key_link_signature_valid') is True,'native ownership signatures/network differ')
     _check(all(b[k]==wanted[k]==breq['binding'][k] for k in ('mailbox_pk','spk','seq')),'native rotating per-key binding differs')
-    return {**expected,'signed_vtxo_sha256':_hash(full),'anchor_raw_sha256':_hash(_hex(req['anchor_raw'])),
+    return {**expected,**completion,'signed_vtxo_sha256':_hash(full),'anchor_raw_sha256':_hash(_hex(req['anchor_raw'])),
         'key_link_signature_sha256':_hash(_hex(breq['key_link_attestation'])),
         'record_signature_sha256':_hash(_hex(breq['binding']['record_attestation'])),
         'native_request_sha256':_hash(contract_request),'native_contract_sha256':_hash(contract_response),

@@ -27,7 +27,7 @@ from .normal_pool import authenticate_pool, join_pool_finance, POOL_TABLES
 from .normal_source_deadline import ACTIVE, Deadline, DeadlineChain, timeout as source_timeout, check as deadline_check
 from .normal_money_sources import collect_money_sources
 from .normal_money_join import journal_money_sources
-from .normal_recovered_backing import bind_native_claim, verify_recovered_backing
+from .normal_recovered_backing import bind_native_claim, verify_recovered_backing, NATIVE_COMPLETION_SDK
 from .operating_limits import PATHS, fee_totals
 from .target_epochs import active_identity
 from .treasury import _capture_assets, _members, reconcile_edge
@@ -136,8 +136,16 @@ def run_proof(tool, request):
     return encoded, reply.stdout
 
 
-def authenticate_claims(store, tables, tools, server_pubkey, *, authenticated_pool_ids=(), lineage_context=None):
-    """Neither SQL spendable nor a provided signature verdict authenticates a Full."""
+def authenticate_claims(store, tables, tools, server_pubkey, *, authenticated_pool_ids=(), lineage_context=None,
+                        native_source_sha256=None,source_observation_id=None):
+    """Execute same admitted completed/native pair under the authenticated source cut."""
+    import re
+    if (not isinstance(native_source_sha256,str) or re.fullmatch('[0-9a-f]{64}',native_source_sha256) is None
+            or not isinstance(source_observation_id,str) or re.fullmatch('[0-9a-f]{32}',source_observation_id) is None):
+        raise ValueError('authenticated current claim SQL/observation binding required')
+    if lineage_context is not None and (lineage_context.get('native_source_sha256')!=native_source_sha256
+            or lineage_context.get('source_observation_id')!=source_observation_id):
+        raise ValueError('current claim lineage source/observation differs')
     claims = _current_claims(store) if lineage_context is None else lineage_context['claims']
     rows = {row['vtxo_id']:row for row in tables['vtxo']}
     if len(rows) != len(tables['vtxo']): raise ValueError('duplicate native VTXO source')
@@ -153,7 +161,17 @@ def authenticate_claims(store, tables, tools, server_pubkey, *, authenticated_po
     for claim in claims:
         row = rows.get(claim['coin_id'])
         if row is None: raise ValueError('retained customer right absent from native source')
-        proof = json.loads(store.db.execute('SELECT proof FROM owned_coin WHERE id=?', (claim['coin_id'],)).fetchone()[0])
+        original = store.db.execute('SELECT signed_vtxo,signed_hash,proof FROM owned_coin WHERE id=?', (claim['coin_id'],)).fetchone()
+        if original is None: raise ValueError('retained completed claim original missing')
+        completed = original['signed_vtxo']
+        if digest(bytes.fromhex(completed)) != original['signed_hash'] or claim.get('signed_hash') != original['signed_hash']:
+            raise ValueError('retained completed claim original hash differs')
+        lineage_coin=None if lineage_context is None else lineage_context.get('authenticated_coins',{}).get(claim['coin_id'])
+        if lineage_context is not None and (lineage_coin is None
+                or lineage_coin.get('completed_full_sha256')!=original['signed_hash']
+                or lineage_coin.get('native_full_sha256')!=digest(bytes.fromhex(row['signed_vtxo_hex']))):
+            raise ValueError('current claim differs from executed lineage Full pair')
+        proof = json.loads(original['proof'])
         if proof['server_pubkey'] != server_pubkey: raise ValueError('retained claim server differs')
         links = [v for v in tables['key_link'] if v['user_pubkey'] == proof['user_pubkey']]
         records = [] if len(links) != 1 else [v for v in tables['fallback_record'] if v['mailbox_pk'] == links[0]['mailbox_pk']]
@@ -161,16 +179,25 @@ def authenticate_claims(store, tables, tools, server_pubkey, *, authenticated_po
         link, record = links[0], records[0]; anchor = virtuals.get(row['anchor_point'].split(':')[0])
         if anchor is None or anchor['is_funding'] is not True:
             raise ValueError('original signed native anchor required')
-        contract_request, contract_reply = run_proof(tools['policy'], {
-            'signed_vtxo':row['signed_vtxo_hex'], 'anchor_raw':anchor['signed_transaction_hex'], 'server_pubkey':server_pubkey})
+        wanted_contract = {'signed_vtxo':completed, 'native_vtxo':row['signed_vtxo_hex'],
+            'anchor_raw':anchor['signed_transaction_hex'], 'server_pubkey':server_pubkey}
+        contract_request, contract_reply = run_proof(tools['policy'], wanted_contract)
+        if strict_json(contract_request) != wanted_contract:
+            raise ValueError('executed current completed/native request changed')
+        if lineage_coin is not None and (lineage_coin.get('native_policy_request_sha256')!=digest(contract_request)
+                or lineage_coin.get('native_policy_response_sha256')!=digest(contract_reply)):
+            raise ValueError('current claim policy originals differ from executed lineage pair')
         binding_request, binding_reply = run_proof(tools['binding'], {
             'user_pubkey':proof['user_pubkey'], 'binding':{'mailbox_pk':record['mailbox_pk'],
                 'spk':record['spk'], 'seq':record['seq'], 'record_attestation':record['sig']},
             'key_link_attestation':link['sig']})
         expected_claim = {**claim, 'chain_anchor':proof['chain_anchor'], 'user_pubkey':proof['user_pubkey'],
             'expiry_height':proof['expiry_height'], 'exit_delta':12, 'server_pubkey':server_pubkey, 'binding':proof['binding']}
-        authenticated.append(bind_native_claim(expected_claim, row, contract_request, contract_reply,
-            binding_request, binding_reply, genesis=SIGNET_GENESIS, server_pubkey=server_pubkey))
+        verified=bind_native_claim(expected_claim, row, contract_request, contract_reply,
+            binding_request, binding_reply, genesis=SIGNET_GENESIS, server_pubkey=server_pubkey,
+            completed_vtxo=completed,source_anchor_raw=anchor['signed_transaction_hex'],policy_sdk_commit=NATIVE_COMPLETION_SDK)
+        authenticated.append({**verified,'native_source_sha256':native_source_sha256,
+            'source_observation_id':source_observation_id})
     return claims, authenticated
 
 
@@ -733,7 +760,8 @@ class Collector:
         elif any(tables[name]for name in POOL_TABLES-{'sweep'}):
             raise ValueError('ordinary pool original sources unavailable')
         claims, authenticated = authenticate_claims(store, tables, self.tools, source['identity']['server_pubkey'],
-            authenticated_pool_ids=()if pool_checked is None else pool_checked['coin_ids'], lineage_context=lineage_context)
+            authenticated_pool_ids=()if pool_checked is None else pool_checked['coin_ids'], lineage_context=lineage_context,
+            native_source_sha256=source['original_sha256']['native_sql'],source_observation_id=observation['id'])
         holds = {row['id'] for row in tables['recovery_source_hold']}
         recovered_claims = [claim for claim in authenticated if claim['chain_anchor'] in holds]
         fresh_claims = [claim for claim in authenticated if claim['chain_anchor'] not in holds]
