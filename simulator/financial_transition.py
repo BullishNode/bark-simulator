@@ -138,6 +138,26 @@ def _current_claims(store):
     return claims
 
 
+def _original_miner_cost(store, sequence):
+    """Decode retained source representations without mutating the old event.
+
+    The caller still verifies original provenance, confirmed fee, unique txid,
+    action charges, and internal service classification. This is no new cost.
+    """
+    import re
+    event, cost = _source_event(store, sequence)
+    if event['kind'] != 'financial_cost_verified':
+        raise ValueError('original verified financial cost event required')
+    monetary_id = cost.get('monetary_id')
+    legacy = re.fullmatch(r'bitcoin-miner:([0-9a-f]{64})', monetary_id or '')
+    if legacy is not None:
+        txid = legacy[1]
+        if cost.get('kind', 'miner_cost') != 'miner_cost' or cost.get('txid', txid) != txid:
+            raise ValueError('legacy miner identity conflicts with original record')
+        cost = {**cost, 'kind': 'miner_cost', 'txid': txid, 'monetary_id': 'miner:' + txid}
+    return event, cost
+
+
 def validate(store, opening, boundary_declaration, inventory_sequences, chain, *, now=None):
     """Require the normal producer's original complete opening reconciliation.
 
@@ -203,7 +223,7 @@ def validate(store, opening, boundary_declaration, inventory_sequences, chain, *
             raise ValueError('pending liability original source differs')
     costs = set();cost_actions=set();cost_txids=set();client_costs=[]
     for sequence in reconciliation['historical_cost_sequences']:
-        event, cost = _source_event(store, sequence)
+        event, cost = _original_miner_cost(store, sequence)
         if (event['kind'] != 'financial_cost_verified' or cost.get('monetary_id') in costs
                 or cost.get('kind')!='miner_cost' or cost.get('txid') in cost_txids
                 or cost.get('monetary_id')!='miner:'+str(cost.get('txid'))):
@@ -226,7 +246,7 @@ def validate(store, opening, boundary_declaration, inventory_sequences, chain, *
             raise ValueError('historical client charge and independent original cost incomplete')
         _,fee=_source_event(store,events[0]['sequence'])
         if any(fee.get(k)!=v for k,v in verified.items()):raise ValueError('original client fee source changed')
-        matching=[_source_event(store,v)[1] for v in reconciliation['historical_cost_sequences'] if _source_event(store,v)[1].get('action_id')==action['id']]
+        matching=[_original_miner_cost(store,v)[1] for v in reconciliation['historical_cost_sequences'] if _original_miner_cost(store,v)[1].get('action_id')==action['id']]
         if (len(matching)!=1 or matching[0]['txid']!=txid or matching[0]['amount_msat']!=verified['mining_fee_sat']*1000):
             raise ValueError('service charge cannot be classified as an external miner cost')
         client_costs.append({'action_id':action['id'],**verified})
