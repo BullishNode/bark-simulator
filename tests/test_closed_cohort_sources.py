@@ -14,6 +14,7 @@ from simulator.engine import initialize
 from simulator.model import SIGNET_GENESIS, canonical
 from simulator.store import Store
 from tests.test_final_campaign import PINS
+from tests.owned_activity_fixture import capture as capture_activity, script
 
 
 class Chain:
@@ -26,10 +27,13 @@ class Chain:
     def call(self,method,*args,**kwargs):
         if method=='getdescriptorinfo': return {'hasprivatekeys':False,'isrange':True,'issolvable':True,'descriptor':args[0]}
         if method=='deriveaddresses': return ['address'+str(i) for i in range(20)]
-        if method=='validateaddress': return {'isvalid':True,'scriptPubKey':'script'+args[0]}
+        if method=='validateaddress': return {'isvalid':True,'scriptPubKey':script('script'+args[0])}
         if method=='scantxoutset':
             self.scan_calls.append((args,kwargs))
             return self.scan_status if args==('status',) else self.scan
+        if method=='getdescriptoractivity':
+            result=getattr(self,'activity',{'activity':[{'type':'receive'}] if self.mempool and self.tx_script in [item[4:-1] for item in args[1]] else []})
+            return capture_activity(self,self.store,args,result)
         if method=='getrawmempool':
             answer=self.mempool.copy()
             if self.changed:self.mempool.append(f'{len(self.mempool)+1:064x}')
@@ -40,7 +44,7 @@ class Chain:
 class BootstrapSourceTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.store=Store(Path(self.tmp.name),'synthetic',10000)
-        initialize(self.store);self.store.attach_trace();self.chain=Chain()
+        initialize(self.store);self.store.attach_trace();self.chain=Chain();self.chain.store=self.store
         self.config=SimpleNamespace(network='signet',expected_genesis=SIGNET_GENESIS)
         self.declaration={'id':'fresh','pins':PINS,'actors':['actor-01']}
         self.store.db.execute('INSERT INTO meta VALUES (?,?)',('zero_principal_identity_bootstrap',canonical(self.declaration)))
@@ -67,36 +71,27 @@ class BootstrapSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'not empty'):self.verify()
         self.chain.scan['unspents']=[];self.chain.scan['bestblock']='c'*64
         with self.assertRaisesRegex(ValueError,'exact tip'):self.verify()
-    def test_unconfirmed_assets_complete_mempool_bound_and_churn_refuse(self):
-        self.chain.mempool=['b'*64];self.chain.tx_script='scriptaddress0'
-        with self.assertRaisesRegex(ValueError,'unconfirmed assets'):self.verify()
-        self.chain.tx_script='other';self.chain.mempool=[f'{i:064x}' for i in range(4097)]
-        with self.assertRaisesRegex(ValueError,'bound'):self.verify()
-        self.chain.mempool=[];self.chain.changed=True
-        with self.assertRaisesRegex(ValueError,'fixed point'):self.verify()
-    def test_new_owned_mempool_arrival_is_checked_and_refused(self):
-        snapshots=[['b'*64],['b'*64,'c'*64]];original=self.chain.call
-        def calls(method,*args,**kwargs):
-            if method=='getrawmempool':return snapshots.pop(0) if snapshots else ['b'*64,'c'*64]
-            return original(method,*args,**kwargs)
-        def transaction(txid):
-            return {'vout':[{'scriptPubKey':{'hex':'scriptaddress0' if txid=='c'*64 else 'other'}}]}
-        with patch.object(self.chain,'call',side_effect=calls),patch.object(self.chain,'tx',side_effect=transaction), \
-             self.assertRaisesRegex(ValueError,'unconfirmed assets'):
-            self.verify()
-    def test_new_unrelated_arrival_reaches_complete_fixed_point_and_removals_are_safe(self):
-        snapshots=[['b'*64],['c'*64],['c'*64]];original=self.chain.call
-        def calls(method,*args,**kwargs):
-            if method=='getrawmempool':return snapshots.pop(0) if snapshots else ['c'*64]
-            return original(method,*args,**kwargs)
-        with patch.object(self.chain,'call',side_effect=calls),patch.object(self.chain,'tx',wraps=self.chain.tx) as reads:
+    def test_owned_receive_and_spend_refuse_before_zero_asset_marker(self):
+        for kind in ('receive','spend'):
+            self.chain.activity={'activity':[{'type':kind}]}
+            with self.subTest(kind=kind),self.assertRaisesRegex(ValueError,'unconfirmed assets or spends'):self.verify()
+            self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='identity_bootstrap_zero_assets_verified'").fetchone()[0])
+    def test_unrelated_large_mempool_does_not_fetch_or_claim_global_bodies(self):
+        self.chain.mempool=[f'{i:064x}' for i in range(10000)]
+        with patch.object(self.chain,'tx',side_effect=AssertionError('no global bodies')):
             receipt=self.verify()
-        self.assertEqual(2,reads.call_count)
-        self.assertEqual(2,receipt['mempool_unique_transactions_checked'])
-        self.assertEqual(1,receipt['mempool_current_transactions'])
-        self.assertEqual(2,receipt['mempool_fixed_point_passes'])
-        import hashlib
-        self.assertEqual(hashlib.sha256(canonical(['c'*64]).encode()).hexdigest(),receipt['mempool_current_set_sha256'])
+        self.assertEqual(20,receipt['mempool_activity']['script_count'])
+        self.assertNotIn('mempool_transactions_checked',receipt)
+        self.assertNotIn('mempool_current_transactions',receipt)
+    def test_tip_change_after_atomic_activity_holds_without_zero_asset_receipt(self):
+        original=self.chain.call
+        def call(method,*args,**kwargs):
+            result=original(method,*args,**kwargs)
+            if method=='getdescriptoractivity':self.chain.tip['bestblockhash']='d'*64
+            return result
+        with patch.object(self.chain,'call',side_effect=call),self.assertRaisesRegex(ValueError,'chain changed'):
+            self.verify()
+        self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='identity_bootstrap_zero_assets_verified'").fetchone()[0])
     def test_exact_native_create_frontier_one_is_required(self):
         result=self.verify();self.assertEqual(1,result['descriptors'][0]['last_revealed_index'])
         # Check wrong frontiers before the successful marker on fresh fixtures.
@@ -105,34 +100,17 @@ class BootstrapSourceTests(unittest.TestCase):
                 self.tearDown();self.setUp()
                 self.native['descriptors'][0]['last_revealed_index']=frontier;self.source()
                 with self.assertRaisesRegex(ValueError,'frontier'):self.verify()
-    def test_full_observed_210_transaction_mempool_is_checked_under_explicit_bound(self):
-        self.chain.mempool=[f'{i:064x}' for i in range(210)]
-        with patch.object(self.chain,'tx',wraps=self.chain.tx) as reads:
-            result=self.verify()
-        self.assertEqual(210,reads.call_count)
-        self.assertEqual(210,result['mempool_transactions_checked'])
-        self.assertEqual(4096,result['mempool_transaction_bound'])
-    def test_full_observed_1972_transaction_mempool_is_checked_without_truncation(self):
-        self.chain.mempool=[f'{i:064x}' for i in range(1972)]
-        with patch.object(self.chain,'tx',wraps=self.chain.tx) as reads:
-            result=self.verify()
-        self.assertEqual(1972,reads.call_count)
-        self.assertEqual(1972,result['mempool_transactions_checked'])
-        self.assertEqual(4096,result['mempool_transaction_bound'])
-        self.assertEqual(50000,result['mempool_output_bound'])
-    def test_mempool_aggregate_byte_output_and_total_deadline_bounds_refuse(self):
-        self.chain.mempool=['b'*64,'c'*64]
-        with patch('simulator.closed_cohort_sources.MAX_MEMPOOL_SCAN_BYTES',1),self.assertRaisesRegex(ValueError,'byte'):
-            self.verify()
-        with patch('simulator.closed_cohort_sources.MAX_MEMPOOL_OUTPUTS',1),self.assertRaisesRegex(ValueError,'output'):
-            self.verify()
-        self.chain.mempool=[];clock=[0];original=self.chain.call
+    def test_activity_malformed_and_total_deadline_bounds_refuse(self):
+        for result in ({}, {'activity':None}, {'activity':[], 'truncated':True}):
+            self.chain.activity=result
+            with self.subTest(result=result),self.assertRaisesRegex(ValueError,'activity reply'):self.verify()
+        del self.chain.activity
+        clock=[0];original=self.chain.call
         def delayed(method,*args,**kwargs):
             result=original(method,*args,**kwargs)
             if method=='scantxoutset' and args[0]=='start':clock[0]=181
             return result
-        with patch('simulator.closed_cohort_sources.time.monotonic',side_effect=lambda:clock[0]), \
-             patch.object(self.chain,'call',side_effect=delayed),self.assertRaisesRegex(ValueError,'deadline'):
+        with patch('simulator.closed_cohort_sources.time.monotonic',side_effect=lambda:clock[0]),patch.object(self.chain,'call',side_effect=delayed),self.assertRaisesRegex(ValueError,'deadline'):
             self.verify()
     def test_busy_scan_holds_without_start_or_abort_and_start_timeout_is_explicit(self):
         self.chain.scan_status={'progress':25}
@@ -143,15 +121,6 @@ class BootstrapSourceTests(unittest.TestCase):
         self.assertEqual('status',self.chain.scan_calls[0][0][0])
         self.assertEqual(120,self.chain.scan_calls[1][1]['timeout'])
         self.assertEqual(180,receipt['source_deadline_seconds'])
-    def test_actual_core_decimal_amounts_and_missing_output_scripts(self):
-        self.chain.mempool=['b'*64]
-        with patch.object(self.chain,'tx',return_value={'vout':[{'value':Decimal('0.00010000'),
-                'scriptPubKey':{'hex':'other'}}]}):
-            self.assertTrue(self.verify()['zero_assets'])
-        self.tearDown();self.setUp();self.chain.mempool=['b'*64]
-        with patch.object(self.chain,'tx',return_value={'vout':[{}]}), \
-             self.assertRaisesRegex(ValueError,'script inventory'):
-            self.verify()
     def test_missing_native_rows_and_fabricated_internal_keychain_refuse(self):
         del self.native['pending_transactions'];self.source()
         with self.assertRaisesRegex(ValueError,'native'):self.verify()

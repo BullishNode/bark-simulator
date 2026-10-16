@@ -15,7 +15,11 @@ class ChainReader:
         self.capture,self.consumer=capture,consumer
     def call(self,method,*args,timeout=12,max_response_bytes=16*1024*1024):
         self.last_capture=None
-        if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress','scantxoutset','getrawmempool'}:raise ValueError('read-only RPC required')
+        if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress','scantxoutset','getrawmempool','getdescriptoractivity'}:raise ValueError('read-only RPC required')
+        if method=='getdescriptoractivity':
+            from .owned_mempool import validate_arguments,MAX_RESPONSE_BYTES
+            validate_arguments(args)
+            if max_response_bytes>MAX_RESPONSE_BYTES:raise ValueError('owned-script activity response bound required')
         if method=='scantxoutset':
             if args==('status',):pass
             elif (len(args)!=2 or args[0]!='start' or not isinstance(args[1],list) or not 1<=len(args[1])<=16
@@ -27,7 +31,11 @@ class ChainReader:
             if args!=('status',):public_payload(args[1])
         if method=='getrawmempool' and args!=(False,):raise ValueError('bounded transaction-id inventory required')
         token=base64.b64encode(self.credential.read_text().strip().encode()).decode()
-        req=urllib.request.Request(self.url,json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':args}).encode(),{'Authorization':'Basic '+token,'Content-Type':'application/json'})
+        body=json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':args}).encode()
+        if method=='getdescriptoractivity':
+            from .owned_mempool import MAX_REQUEST_BYTES
+            if len(body)>MAX_REQUEST_BYTES:raise ValueError('owned script request exceeds byte bound')
+        req=urllib.request.Request(self.url,body,{'Authorization':'Basic '+token,'Content-Type':'application/json'})
         maximum_timeout=120 if method=='scantxoutset' and args[0]=='start' else 12
         if not 0<timeout<=maximum_timeout or not 0<max_response_bytes<=16*1024*1024:raise ValueError('invalid Core response bounds')
         self.last_response_bytes=0
@@ -36,9 +44,14 @@ class ChainReader:
             with urllib.request.urlopen(req,timeout=timeout) as f:raw=f.read(max_response_bytes+1)
             self.last_response_bytes=len(raw)
             if len(raw)>max_response_bytes:raw=None;raise ValueError('Core response exceeds capture bound')
-            r=json.loads(raw,parse_float=Decimal)
+            if method=='getdescriptoractivity':
+                from .owned_mempool import decode_reply
+                r=decode_reply(raw)
+            else:r=json.loads(raw,parse_float=Decimal)
         except Exception as error:
-            self._capture(method,args,None,type(error).__name__,raw)
+            # A malformed/nonempty activity reply is not a public projection:
+            # never capture arbitrary event fields, RPC messages or raw bytes.
+            self._capture(method,args,None,type(error).__name__,None if method=='getdescriptoractivity' else raw)
             raise
         self._capture(method,args,r.get('result'),r.get('error'),raw)
         if r.get('error'):raise ValueError('independent chain evidence unavailable')

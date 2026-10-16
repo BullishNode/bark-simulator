@@ -215,6 +215,8 @@ def record_first_board_readiness(store,config,chain,*,cash_readiness_sequence,cu
         raise ValueError('original confirmed cash source differs')
     frontier_source.verify_source(store,config,source,plan['pins'])
     frontier_source.verify_source(store,config,initial,plan['pins'])
+    from .owned_mempool import verify_source as verify_owned_source
+    verify_owned_source(store,source,'finite_fresh_cash',fresh=True)
     _fresh(source['observed_at'])
     observations=verify_synced_cash_snapshots(store,source)
     assets=capture_assets(store,source['inventory_sequences'],chain);limits=envelope(store,config)
