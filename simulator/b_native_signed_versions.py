@@ -34,7 +34,7 @@ def retained_ordinary_versions(store,chain,database,rights,*,scripts,tip):
     retained={row[0]for row in store.db.execute('SELECT script FROM operator_script')}
     _need(retained<=operator_scripts,'retained operator script lacks current complete descriptor ownership')
     confirmed={g['result']['freeze_set']:g for g in rights['groups']}
-    rows=journal['rows'];versions={};states={};checked={};selected=set();matching=set(scripts)
+    rows=journal['rows'];versions={};states={};checked={};selected=set();matching=set(scripts);weights={}
     for carrier in rows['carriers']:
         txid=carrier['txid']
         try:tx,raw=chain.transaction(txid),chain.tx(txid)
@@ -56,7 +56,7 @@ def retained_ordinary_versions(store,chain,database,rights,*,scripts,tip):
             _need(tx.get('confirmations',0)==0 and tx.get('blockhash')is None,'unknown/conflicted Core outcome '+txid)
             result=direct.check_pending_candidate(store,journal,freeze,txid,tx)
             state='replaced'if winner is not None and set(result['physical_inputs'])&set(winner['result']['physical_inputs'])else 'mempool'
-        checked[txid]=result;versions[txid]=tx;states[txid]=state
+        checked[txid]=result;versions[txid]=tx;states[txid]=state;weights[txid]=raw['weight']
         _need(all(i['script_pubkey']in operator_scripts for i in carrier['fee_inputs']),
             'selected fee input lacks current owning operator descriptor '+txid)
         selected.update(i['outpoint']for i in carrier['fee_inputs'])
@@ -74,6 +74,6 @@ def retained_ordinary_versions(store,chain,database,rights,*,scripts,tip):
     _need(len(set(actual))==len(actual) and set(actual)==expected,'complete current mempool inputs/outputs differ')
     _need(chain.owned_activity(matching)==activity,'matching mempool state changed during observation')
     _tip(chain,tip)
-    return {'versions':versions,'states':states,'checked_candidates':checked,
+    return {'versions':versions,'signed_weight_wu':weights,'states':states,'checked_candidates':checked,
         'selected_fee_outpoints':sorted(selected),'mempool_activity':activity,
         'matching_scripts':sorted(matching),'pending_txids':sorted(k for k,v in states.items()if v=='mempool')}

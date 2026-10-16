@@ -266,10 +266,11 @@ class CeilingControls(unittest.TestCase):
         self.partition={'ordinary_attempts':[{'ceiling_sat':10000},{'ceiling_sat':10000}],
             'ordinary_reserved_sat':20000}
         self.versions={'versions':{self.old:{'fee_sat':4985},self.new:{'fee_sat':500}},
-            'states':{self.old:'confirmed',self.new:'mempool'}}
+            'states':{self.old:'confirmed',self.new:'mempool'},
+            'signed_weight_wu':{self.old:1000,self.new:1000}}
     def exposure(self):
         from simulator.b_continuing_native_fees import retained_ceiling_exposure
-        return retained_ceiling_exposure(self.runtime,self.partition,self.versions,10000)
+        return retained_ceiling_exposure(self.runtime,self.partition,self.versions,10000,5000)
     def test_failed_reservation_stays_charged_pending_then_confirmed(self):
         self.assertEqual(20000000,self.exposure())
         self.versions['states'][self.new]='confirmed'
@@ -288,6 +289,15 @@ class CeilingControls(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceGap,'exceeds exact prepare'):self.exposure()
         self.versions['versions'][self.new]['fee_sat']=500;self.versions['states'][self.new]='unknown'
         with self.assertRaisesRegex(EvidenceGap,'unknown retained'):self.exposure()
+
+    def test_actual_signed_weight_rate_ceiling_and_integer_rounding(self):
+        from simulator.b_continuing_native_fees import retained_ceiling_exposure
+        self.versions['signed_weight_wu'][self.new]=1001
+        self.versions['versions'][self.new]['fee_sat']=501
+        self.assertEqual(20000000,retained_ceiling_exposure(self.runtime,self.partition,self.versions,10000,500))
+        self.versions['versions'][self.new]['fee_sat']=502
+        with self.assertRaisesRegex(EvidenceGap,'signed-weight rate ceiling'):
+            retained_ceiling_exposure(self.runtime,self.partition,self.versions,10000,500)
 
 
 class TypedBoundaryControls(unittest.TestCase):
