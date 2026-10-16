@@ -537,7 +537,8 @@ def declare_enrollment(store,config,phase,*,identifier,actions):
             raise ValueError('new actor must be fresh and unheld')
     from .c_execution_context import effective_pins
     value={**base,'id':identifier,'actors':list(new),'pins':effective_pins(store,selected['pins'])}
-    context=_context(config,value,store=store)
+    from .identity_bootstrap import _create_context
+    context=_create_context(store,config,value)
     proof={'phase':phase,'profile_sha256':_digest(selected),'declaration':value,
         'actions':actions,'filesystem':original['filesystem'],'context':context,
         'retained_actors':sorted(allowed)}
@@ -650,7 +651,8 @@ def eligible_create(store,config,snapshot,action=None):
     import os,time
     from pathlib import Path
     from .identity_bootstrap import _context,_root,_sole_writer
-    value=current['declaration'];root=value['wallet_root'];_context(config,value,store=store);_sole_writer(root)
+    from .identity_bootstrap import _create_context
+    value=current['declaration'];root=value['wallet_root'];_create_context(store,config,value);_sole_writer(root)
     if _root(root)!=current['filesystem']:raise ValueError('original cohort root identity changed')
     config.validate_identity(snapshot)
     if (snapshot.get('financial_pins')!=value['pins'] or snapshot.get('stable_tip') is not True
@@ -691,11 +693,11 @@ def eligible_create(store,config,snapshot,action=None):
 def begin_create(store,config,snapshot,action):
     if not eligible_create(store,config,snapshot,action):raise ValueError('cohort bootstrap inactive')
     current=pending_enrollment(store);value=current['declaration']
-    from .identity_bootstrap import _context,_root
+    from .identity_bootstrap import _create_context,_root
     with store.transaction():
         store._event(CREATE_EVENT,{'bootstrap_id':value['id'],'financial_pins':value['pins'],
             'actor':action['actor_id'],'action_id':action['id'],'operation':'create','maximum_fee_sat':0,
-            'actor_path_absent':True,'filesystem':_root(value['wallet_root']),'context':_context(config,value,store=store)})
+            'actor_path_absent':True,'filesystem':_root(value['wallet_root']),'context':_create_context(store,config,value)})
 
 
 def verify_created(store,config,chain,actor,action_id):

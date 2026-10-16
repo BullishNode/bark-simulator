@@ -231,6 +231,8 @@ def record_upgrade(store, config, chain, declaration, *, source_verifier=None):
     old_members = _members(old_boundary)
     members = _members(new_boundary)
     _pins(new_boundary['pins']); validate(limits, config)
+    if getattr(config, 'expected_sdk_commit', None) != new_boundary['pins']['sdk_commit']:
+        raise ValueError('actual configured SDK differs from proposed execution pins')
     if (new_boundary['id'] == old_boundary['id'] or limits['id'] == old_envelope['id']
             or limits['pins'] != new_boundary['pins'] or limits['boundary_id'] != new_boundary['id']
             or new_boundary['genesis'] != old_boundary['genesis']
@@ -300,7 +302,8 @@ def record_upgrade(store, config, chain, declaration, *, source_verifier=None):
         if cost.get('financial_pins') != old_boundary['pins'] or cost.get('budget') not in {'ordinary', 'urgent'}:
             raise ValueError('original cost financial lineage differs')
         tx = chain.transaction(cost['txid'])
-        if (tx.get('confirmations', 0) < 1 or tx['fee_sat'] * 1000 != cost['amount_msat']):
+        if (tx.get('txid') != cost['txid'] or tx.get('confirmations', 0) < 1
+                or tx['fee_sat'] * 1000 != cost['amount_msat']):
             raise ValueError('original miner cost differs from independent confirmed chain')
         identity = _cost_key(cost)
         if identity in seen:

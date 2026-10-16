@@ -26,6 +26,7 @@ class PreservedTreasuryUpgradeTests(unittest.TestCase):
         self.pins = {**self.case.declaration['pins'], 'product_commit': '6' * 40,
                      'sdk_commit': '7' * 40, 'driver_sha256': '8' * 64,
                      'configuration_sha256': '9' * 64, 'schema_sha256': 'a' * 64}
+        self.case.config.expected_sdk_commit = self.pins['sdk_commit']
         self.new_boundary = copy.deepcopy(self.case.declaration)
         self.new_boundary.update(id='preserved-new', pins=self.pins)
         self.new_boundary['members'].append({'id': 'added', 'kind': 'wallet', 'role': 'customer',
@@ -180,3 +181,13 @@ class PreservedTreasuryUpgradeTests(unittest.TestCase):
         self.store.event('financial_cost_verified', {'monetary_id': 'miner:' + 'f' * 64,
             'amount_msat': 1000, 'financial_pins': self.case.declaration['pins'], 'budget': 'ordinary'})
         with self.assertRaisesRegex(ValueError, 'previous or foreign'): fee_totals(self.store, self.pins)
+
+    def test_actual_configured_sdk_must_match_new_pins(self):
+        self.case.config.expected_sdk_commit = '0' * 40
+        with self.assertRaisesRegex(ValueError, 'configured SDK'):
+            self.admit()
+
+    def test_same_fee_on_another_transaction_is_not_original_money(self):
+        self.chain.transaction = lambda txid: {'txid': 'f' * 64, 'confirmations': 1, 'fee_sat': 1}
+        with self.assertRaisesRegex(ValueError, 'confirmed chain'):
+            self.admit()

@@ -72,6 +72,19 @@ def _source_pins(store,sequence,pins):
     return source_pins(store,sequence,pins)
 
 
+def _create_context(store, config, value):
+    """Only an explicit C activation may move a new create to new execution.
+
+    Existing target epochs may authenticate historical reads, but never grant
+    fresh creates through an old bootstrap declaration.
+    """
+    if getattr(config, 'architecture_profile', None) == 'direct_per_key':
+        from .c_execution_context import active
+        if active(store) is not None:
+            return _context(config, value, store=store)
+    return _context(config, value)
+
+
 def _context(config, value, *, store=None):
     selected = getattr(config, 'architecture_profile', None)
     if selected=='direct_per_key' and store is not None:
@@ -147,7 +160,7 @@ def declare(store, config, value):
     if old is not None:
         if old['declaration'] != value: raise ValueError('bootstrap declaration immutable')
         return False
-    context = _context(config, value,store=store)
+    context = _create_context(store, config, value)
     filesystem = _root(value['wallet_root'])
     if any(Path(value['wallet_root']).iterdir()): raise ValueError('bootstrap root must initially be empty')
     with store.transaction():
@@ -288,7 +301,7 @@ def eligible(store, config, snapshot, action=None):
     value = proof['declaration']
     from .c_cohort import validate_original_unfunded_create
     validate_original_unfunded_create(store,action)
-    _context(config, value,store=store)
+    _create_context(store, config, value)
     if _root(value['wallet_root']) != proof['filesystem']: raise ValueError('bootstrap root identity changed')
     _sole_writer(value['wallet_root'])
     config.validate_identity(snapshot)
@@ -331,7 +344,7 @@ def begin(store, config, snapshot, action):
         store._event('identity_bootstrap_create_intent', {'bootstrap_id': value['id'],
             'financial_pins': _effective_pins(store,value['pins']), 'actor': action['actor_id'], 'action_id': action['id'],
             'operation': 'create', 'maximum_fee_sat': 0, 'actor_path_absent': True,
-            'filesystem': _root(value['wallet_root']), 'context': _context(config, value,store=store),
+            'filesystem': _root(value['wallet_root']), 'context': _create_context(store, config, value),
             'unknown_outcome': 'park; never retry or regenerate identity'})
 
 
