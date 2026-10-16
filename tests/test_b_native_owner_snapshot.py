@@ -239,6 +239,7 @@ class NativeReplyControls(unittest.TestCase):
             'source_observation':request['source_observation'],
             'original_sha256':{k:digest(v.encode())for k,v in request['originals'].items()},
             'snapshot':{k:v for k,v in owner.items()if k not in {'journal_device','journal_inode'}},
+            'direct_reservations':[{'line':1,'ceiling_sat':10000}],
             'funding_rows':funding,'urgent_rows':urgent,'resolutions':owner['resolutions'],
             'nursery_inventory':nursery,'unrelated_nursery_txids':[H(70)]}
         return raw,reply,json.dumps(owner).encode()
@@ -248,6 +249,14 @@ class NativeReplyControls(unittest.TestCase):
     def reject(self,edit):
         raw,reply,owner=self.proof();edit(reply)
         with self.assertRaises((EvidenceGap,ValueError)):self.bind(raw,reply,owner)
+    def test_native_direct_rows_preserve_physical_lines_and_complete_ceiling(self):
+        raw,reply,owner=self.proof()
+        self.assertEqual(self.bind(raw,reply,owner)['direct_reservations'],[{'line':1,'ceiling_sat':10000}])
+        for rows0 in ([],[{'line':1,'ceiling_sat':9999}],[{'line':True,'ceiling_sat':10000}],
+                      [{'line':1,'ceiling_sat':5000},{'line':1,'ceiling_sat':5000}]):
+            reply['direct_reservations']=rows0
+            with self.subTest(rows=rows0),self.assertRaises(EvidenceGap):self.bind(raw,reply,owner)
+
     def test_every_funding_and_full_urgent_member_retained_without_financial_flags(self):
         raw,reply,owner=self.proof();result=self.bind(raw,reply,owner)
         self.assertEqual(len(result['funding_rows']),2);self.assertEqual(len(result['urgent_rows'][0]['transactions']),2)

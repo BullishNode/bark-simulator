@@ -14,7 +14,7 @@ from .model import canonical
 MAX_REPLY=16*1024*1024
 MAX_REQUEST=64*1024*1024
 TOP={'schema','kind','sdk_commit','input_sha256','source_observation','original_sha256',
-     'snapshot','funding_rows','urgent_rows','resolutions','nursery_inventory','unrelated_nursery_txids'}
+     'snapshot','direct_reservations','funding_rows','urgent_rows','resolutions','nursery_inventory','unrelated_nursery_txids'}
 FUNDING={'attempt_key','index','purpose','family','family_sha256','generation','unsigned_body_sha256',
     'prevouts_sha256','reservation_native_sha256','ceiling_sat','max_fee_rate_sat_kwu','unsigned','signed'}
 URGENT={'index','ceiling_sat','policy_sha256','metadata_binding_sha256','source_anchors',
@@ -78,6 +78,15 @@ def bind_native_fee_reply(request_raw,reply_raw,owner_snapshot_raw,*,expected_to
          'actual original native file/SQL hashes differ')
     need(canonical(reply['snapshot'])==canonical({k:v for k,v in owner.items()if k not in {'journal_device','journal_inode'}}),
          'native private SQL/journal projection differs from current owning snapshot')
+    direct=rows(reply['direct_reservations'],'safe complete direct reservation bound')
+    previous=0;reserved=0
+    for row in direct:
+        need(type(row) is dict and set(row)=={'line','ceiling_sat'},'safe direct reservation fields differ')
+        line=number(row['line'],'native original physical journal line',minimum=1,maximum=2**64-1)
+        need(line>previous,'native original decimal line ordering differs');previous=line
+        reserved+=number(row['ceiling_sat'],'native original decimal ceiling',minimum=1)
+    need(len(direct)==owner['direct_attempt_count'] and reserved==owner['direct_reserved_sat'],
+         'complete native individual direct reservations differ from owning aggregate')
     funding={r['index']:r for r in owner['funding']};got=set();keys=set();selected=set()
     for row in rows(reply['funding_rows'],'safe native funding row bound'):
         need(type(row) is dict and set(row)==FUNDING,'exact safe funding proof fields required')
@@ -162,7 +171,7 @@ def bind_native_fee_reply(request_raw,reply_raw,owner_snapshot_raw,*,expected_to
         and members<=set(inventory) and set(unrelated)==set(inventory)-members,
          'whole nursery member/unrelated inventory differs')
     return {'proof_sha256':digest(reply_raw),'request_sha256':digest(request_raw),
-        'original_sha256':reply['original_sha256'],'funding_rows':reply['funding_rows'],
+        'original_sha256':reply['original_sha256'],'direct_reservations':direct,'funding_rows':reply['funding_rows'],
         'urgent_rows':reply['urgent_rows'],'resolutions':reply['resolutions'],
         'nursery_inventory':reply['nursery_inventory'],'unrelated_nursery_txids':reply['unrelated_nursery_txids'],
         'publication_inputpoints':sorted(selected)}
