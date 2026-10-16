@@ -150,6 +150,8 @@ def declare(store, config, value):
 
 
 def pending(store):
+    from .c_cohort import pending_enrollment
+    if pending_enrollment(store) is not None:return True
     proof = declaration(store)
     if proof is None: return False
     value = proof['declaration']
@@ -233,6 +235,8 @@ def require_only_verified_creates(store, pins):
 
 
 def eligible(store, config, snapshot, action=None):
+    from .c_cohort import pending_enrollment,eligible_create
+    if pending_enrollment(store) is not None:return eligible_create(store,config,snapshot,action)
     proof = declaration(store)
     if proof is None or not pending(store): return False
     value = proof['declaration']
@@ -270,6 +274,8 @@ def eligible(store, config, snapshot, action=None):
 
 
 def begin(store, config, snapshot, action):
+    from .c_cohort import pending_enrollment,begin_create
+    if pending_enrollment(store) is not None:return begin_create(store,config,snapshot,action)
     if not eligible(store, config, snapshot, action): raise ValueError('bootstrap is not active')
     proof = declaration(store)
     value = proof['declaration']
@@ -283,6 +289,9 @@ def begin(store, config, snapshot, action):
 
 def verify_created(store,config,chain,actor,action_id):
     """Invoke the actual native/Core verifier; a reply or balance is insufficient."""
+    from .c_cohort import enrollment_for_actor,verify_created as verify_cohort_created
+    if enrollment_for_actor(store,actor) is not None:
+        return verify_cohort_created(store,config,chain,actor,action_id)
     proof=declaration(store)
     if proof is None:raise ValueError('bootstrap declaration missing')
     value=proof['declaration']

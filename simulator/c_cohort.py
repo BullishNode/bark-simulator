@@ -232,3 +232,270 @@ def cohort_request(store,phase):
             'same-tip independent zeroasset Core source and original driver response',
             'authenticated native V4 immutable record and all original51 V1 key proofs per new actor',
             'actual complete normal economic/source, pool/LN/native signer and cumulative fee readiness']}
+
+
+ENROLLMENT_EVENT = 'direct_per_key_cohort_enrollment_declared'
+CREATE_EVENT = 'direct_per_key_cohort_create_intent'
+ZERO_EVENT = 'direct_per_key_cohort_zero_assets_verified'
+
+
+def enrollment(store,phase):
+    key='direct_per_key_cohort_enrollment_'+phase
+    encoded=store.get_meta(key)
+    rows=store.db.execute('SELECT sequence FROM event WHERE kind=? AND json_extract(payload,\'$.phase\')=?',(ENROLLMENT_EVENT,phase)).fetchall()
+    if encoded is None:
+        if rows:raise ValueError('cohort enrollment metadata missing over original history')
+        return None
+    if phase not in ('initial','ramp') or len(rows)!=1:raise ValueError('unique exact cohort enrollment required')
+    _,value=_source_event(store,rows[0][0]);selected=cohort_profile(store)
+    if canonical(value)!=encoded or selected is None or value['profile_sha256']!=_digest(selected):
+        raise ValueError('cohort enrollment original profile differs')
+    if value['declaration']['actors']!=list(INITIAL[2:] if phase=='initial' else RAMP):
+        raise ValueError('exact new cohort identities required')
+    return {**value,'enrollment_sequence':rows[0][0]}
+
+
+def enrollment_for_actor(store,actor):
+    if architecture(store)!=DIRECT_PER_KEY:return None
+    for phase in ('initial','ramp'):
+        current=enrollment(store,phase)
+        if current is not None and actor in current['declaration']['actors']:return current
+    return None
+
+
+def declare_enrollment(store,config,phase,*,identifier,actions):
+    """Declare only new absent paths; the original root-empty API is untouched."""
+    _quiescent(store);requirements=cohort_request(store,phase);selected=cohort_profile(store)
+    from .identity_bootstrap import declaration as bootstrap,_context,_root,_sole_writer
+    original=bootstrap(store);base=original['declaration'];root=base['wallet_root']
+    _sole_writer(root)
+    if _root(root)!=original['filesystem']:raise ValueError('original private wallet root identity changed')
+    new=requirements['new_actors']
+    if (not isinstance(identifier,str) or re.fullmatch('[a-zA-Z0-9:_-]{1,100}',identifier) is None
+            or not isinstance(actions,dict) or set(actions)!=set(new)
+            or len(set(actions.values()))!=len(new)
+            or any(not isinstance(v,str) or re.fullmatch('[a-zA-Z0-9:_-]{1,100}',v) is None for v in actions.values())):
+        raise ValueError('exact distinct new-cohort create IDs required')
+    previous=enrollment(store,phase)
+    if previous is not None:
+        if previous['declaration']['id']!=identifier or previous['actions']!=actions:
+            raise ValueError('cohort enrollment and create IDs immutable')
+        return False
+    if phase=='ramp' and not enrollment_complete(store,'initial'):
+        raise ValueError('all initial new identities require original checked sources')
+    from pathlib import Path
+    allowed=set(INITIAL[:2] if phase=='initial' else INITIAL)
+    children={item.name:item for item in Path(root).iterdir()}
+    if set(children)!=(allowed|{'supervisor.lock'}) or any(item.is_symlink() for item in children.values()):
+        raise ValueError('exact retained private wallet directories required before cohort')
+    import stat,os
+    if any(not stat.S_ISDIR(children[a].lstat().st_mode)
+           or stat.S_IMODE(children[a].lstat().st_mode)!=0o700
+           or children[a].lstat().st_uid!=os.getuid() for a in allowed):
+        raise ValueError('retained actor paths must remain owned private directories')
+    for actor,action_id in actions.items():
+        if (Path(root)/actor).exists() or store.db.execute('SELECT 1 FROM action WHERE actor_id=? OR id=? LIMIT 1',(actor,action_id)).fetchone():
+            raise ValueError('new cohort actor path or action already attempted')
+        row=store.db.execute('SELECT details FROM actor WHERE id=?',(actor,)).fetchone()
+        if row is not None and (json.loads(row[0]) or not store.ordinary_actor_available(actor)):
+            raise ValueError('new actor must be fresh and unheld')
+    value={**base,'id':identifier,'actors':list(new),'pins':selected['pins']}
+    context=_context(config,value)
+    proof={'phase':phase,'profile_sha256':_digest(selected),'declaration':value,
+        'actions':actions,'filesystem':original['filesystem'],'context':context,
+        'retained_actors':sorted(allowed)}
+    with store.transaction():
+        _quiescent(store)
+        key='direct_per_key_cohort_enrollment_'+phase
+        if store.get_meta(key) is not None:raise ValueError('cohort enrollment concurrent writer')
+        for actor in new:
+            if store.db.execute('SELECT 1 FROM actor WHERE id=?',(actor,)).fetchone() is None:
+                store.db.execute("INSERT INTO actor VALUES (?, 'declared C cohort identity',1,'{}')",(actor,))
+        store.db.execute('INSERT INTO meta VALUES (?,?)',(key,canonical(proof)))
+        store._event(ENROLLMENT_EVENT,proof)
+    return True
+
+
+def _zero_sources(store,current):
+    result={};value=current['declaration']
+    for row in store.db.execute('SELECT sequence FROM event WHERE kind=? AND json_extract(payload,\'$.bootstrap_id\')=? ORDER BY sequence',(ZERO_EVENT,value['id'])):
+        event,proof=_source_event(store,row[0]);actor=proof.get('actor')
+        if (actor not in value['actors'] or proof.get('action_id')!=current['actions'][actor]
+                or proof.get('bootstrap_declaration_sha256')!=_digest(value)
+                or proof.get('financial_pins')!=value['pins'] or proof.get('zero_assets') is not True or proof.get('complete') is not True):
+            raise ValueError('original cohort zero-asset context differs')
+        action=store.db.execute('SELECT actor_id,operation,state,actual_fee_sat,result FROM action WHERE id=?',(proof['action_id'],)).fetchone()
+        response_event,response=_source_event(store,proof.get('driver_response_sequence'))
+        if (action is None or tuple(action)[:4]!=(actor,'create','completed',0)
+                or json.loads(action['result'])!=response.get('response')
+                or response_event['kind']!='driver_response' or response_event['hash']!=proof.get('source_event_hash')
+                or response.get('action_id')!=proof['action_id'] or response['response'].get('status')!='ok'
+                or response['response'].get('actual_fee_sat')!=0
+                or _digest(response['response'])!=proof.get('native_response_sha256')):
+            raise ValueError('cohort original completed native source differs')
+        if (proof.get('confirmed_assets_sat')!=0 or proof.get('unconfirmed_assets_sat')!=0
+                or proof.get('descriptor_range')!=[0,19]):
+            raise ValueError('complete original independent zero-assets source required')
+        from .owned_mempool import verify as verify_activity
+        from .model import SIGNET_GENESIS
+        verify_activity(store,proof.get('mempool_activity'),expected_context={
+            'collector':'identity_bootstrap_zero_assets','actor':actor,'action_id':proof['action_id'],
+            'height':proof['height'],'tip_hash':proof['tip_hash'],'genesis':SIGNET_GENESIS,
+            'native_response_sha256':proof['native_response_sha256'],
+            'bootstrap_declaration_sha256':_digest(value)})
+        result[actor]=(event,proof)
+    return result
+
+
+def enrollment_complete(store,phase):
+    current=enrollment(store,phase)
+    if current is None:return False
+    rows=store.db.execute("SELECT sequence FROM event WHERE kind='direct_per_key_cohort_identities_verified' AND json_extract(payload,'$.phase')=?",(phase,)).fetchall()
+    if not rows:return False
+    if len(rows)!=1:raise ValueError('unique original cohort identity closure required')
+    _,proof=_source_event(store,rows[0][0])
+    if (proof.get('enrollment_sequence')!=current['enrollment_sequence']
+            or proof.get('profile_sha256')!=current['profile_sha256']
+            or set(proof.get('sources',{}))!=set(current['declaration']['actors'])):
+        raise ValueError('original cohort identity closure context differs')
+    _zero_sources(store,current)  # Retain refusal of any malformed later source.
+    for actor,reference in proof['sources'].items():
+        event,source=_source_event(store,reference['sequence'])
+        if (event['hash']!=reference['hash'] or event['kind']!=ZERO_EVENT
+                or source.get('actor')!=actor or source.get('action_id')!=current['actions'][actor]
+                or source.get('financial_pins')!=current['declaration']['pins']
+                or (source.get('height'),source.get('tip_hash'))!=(proof['height'],proof['tip_hash'])):
+            raise ValueError('original same-tip cohort proof source differs')
+    return True
+
+
+def finalize_enrollment(store,phase):
+    # This is called only AFTER the existing independent Core/native verifier.
+    # An owner may repeat readonly observation at a new tip; no create is retried.
+    import time
+    if enrollment_complete(store,phase):return False
+    current=enrollment(store,phase)
+    if current is None:raise ValueError('declared cohort required')
+    sources=_zero_sources(store,current)
+    if set(sources)!=set(current['declaration']['actors']):return False
+    tips={(proof['height'],proof['tip_hash']) for _,proof in sources.values()}
+    if len(tips)!=1 or any(not 0<=time.time()-proof.get('observed_at',0)<=90 for _,proof in sources.values()):
+        return False  # Old receipts are retained; explicit readonly refresh needed.
+    all_scripts=set()
+    for _,source in sources.values():
+        scripts=source['mempool_activity']['scripts']
+        if len(scripts)!=20 or all_scripts.intersection(scripts):
+            raise ValueError('independent new cohort wallet descriptor scripts required')
+        all_scripts.update(scripts)
+    height,tip=tips.pop()
+    proof={'phase':phase,'enrollment_sequence':current['enrollment_sequence'],
+        'profile_sha256':current['profile_sha256'],'height':height,'tip_hash':tip,
+        'sources':{actor:{'sequence':event['sequence'],'hash':event['hash']} for actor,(event,_) in sources.items()},
+        'scope':'new cohort independent zero-assets and native per-key identities only; no monetary readiness'}
+    store.event('direct_per_key_cohort_identities_verified',proof)
+    return True
+
+
+def pending_enrollment(store):
+    if architecture(store)!=DIRECT_PER_KEY:return None
+    for phase in ('initial','ramp'):
+        current=enrollment(store,phase)
+        if current is not None and not enrollment_complete(store,phase):return current
+    return None
+
+
+def eligible_create(store,config,snapshot,action=None):
+    current=pending_enrollment(store)
+    if current is None:return False
+    import os,time
+    from pathlib import Path
+    from .identity_bootstrap import _context,_root,_sole_writer
+    value=current['declaration'];root=value['wallet_root'];_context(config,value);_sole_writer(root)
+    if _root(root)!=current['filesystem']:raise ValueError('original cohort root identity changed')
+    config.validate_identity(snapshot)
+    if (snapshot.get('financial_pins')!=value['pins'] or snapshot.get('stable_tip') is not True
+            or snapshot.get('initial_block_download') is not False or snapshot.get('server_status',{}).get('status')!='running'
+            or not 0<=time.time()-snapshot.get('observed_at',0)<=90):
+        raise ValueError('fresh exact cohort target source required')
+    if store.db.execute("SELECT 1 FROM action WHERE state='outcome_unknown' LIMIT 1").fetchone():
+        raise ValueError('cohort unknown outcome parked; never retry')
+    verified=set(_zero_sources(store,current));intents=[]
+    for row in store.db.execute('SELECT sequence FROM event WHERE kind=? AND json_extract(payload,\'$.bootstrap_id\')=?',(CREATE_EVENT,value['id'])):
+        _,item=_source_event(store,row[0]);intents.append(item)
+        if (item.get('actor') not in value['actors'] or item.get('action_id')!=current['actions'][item['actor']]
+                or item.get('financial_pins')!=value['pins'] or item.get('actor_path_absent') is not True):
+            raise ValueError('original cohort create intent differs')
+    if len({item['actor'] for item in intents})!=len(intents):raise ValueError('cohort create repeated')
+    allowed=set(current['retained_actors'])|{'supervisor.lock'}|{item['actor'] for item in intents}
+    if any(path.name not in allowed or path.is_symlink() for path in Path(root).iterdir()):
+        raise ValueError('cohort root contains unenumerated wallet')
+    if any(item['actor'] not in verified for item in intents):raise ValueError('await original cohort zero-asset and key proofs')
+    if action is None:
+        if len(intents)==len(value['actors']):raise ValueError('cohort identities require explicit shared-tip source refresh')
+        return True
+    actor=action['actor_id']
+    retained=store.db.execute('SELECT actor_id,operation,state,args,fee_reservation_sat FROM action WHERE id=?',(action['id'],)).fetchone()
+    if (retained is None or retained['actor_id']!=actor or retained['operation']!='create'
+            or retained['state'] not in ('queued','dispatched') or json.loads(retained['args'])!={}
+            or retained['fee_reservation_sat']!=0):
+        raise ValueError('original queued or dispatched zero-principal create required')
+    if (actor not in value['actors'] or action['id']!=current['actions'][actor] or action['operation']!='create'
+            or action['args'] or action['fee_reservation_sat']!=0 or actor in {item['actor'] for item in intents}
+            or os.path.lexists(Path(root)/actor)):
+        raise ValueError('cohort permits one exact absent-path zero-fee create only')
+    if store.db.execute("SELECT 1 FROM action WHERE state='dispatched' AND id!=? LIMIT 1",(action['id'],)).fetchone():
+        raise ValueError('cohort create requires existing sole writer')
+    return True
+
+
+def begin_create(store,config,snapshot,action):
+    if not eligible_create(store,config,snapshot,action):raise ValueError('cohort bootstrap inactive')
+    current=pending_enrollment(store);value=current['declaration']
+    from .identity_bootstrap import _context,_root
+    with store.transaction():
+        store._event(CREATE_EVENT,{'bootstrap_id':value['id'],'financial_pins':value['pins'],
+            'actor':action['actor_id'],'action_id':action['id'],'operation':'create','maximum_fee_sat':0,
+            'actor_path_absent':True,'filesystem':_root(value['wallet_root']),'context':_context(config,value)})
+
+
+def verify_created(store,config,chain,actor,action_id):
+    current=enrollment_for_actor(store,actor)
+    if current is None or current['actions'][actor]!=action_id:raise ValueError('exact original cohort create required')
+    from .identity_bootstrap import _context,_root
+    _context(config,current['declaration'])
+    if _root(current['declaration']['wallet_root'])!=current['filesystem']:raise ValueError('cohort root changed')
+    intents=store.db.execute('SELECT sequence FROM event WHERE kind=? AND json_extract(payload,\'$.action_id\')=?',(CREATE_EVENT,action_id)).fetchall()
+    if len(intents)!=1:raise ValueError('original absent-path cohort create intent required')
+    _,intent=_source_event(store,intents[0][0])
+    if intent.get('actor')!=actor or intent.get('bootstrap_id')!=current['declaration']['id']:
+        raise ValueError('cohort original intent identity differs')
+    from .closed_cohort_sources import verify_bootstrap_zero_assets
+    result=verify_bootstrap_zero_assets(store,config,chain,actor,action_id,bootstrap_declaration=current['declaration'])
+    finalize_enrollment(store,current['phase'])
+    return result
+
+
+def verify_native_identity(store,actor,action_id,data):
+    """Consume all native acknowledgements and already independently checked keys."""
+    current=enrollment_for_actor(store,actor)
+    if current is None or current['actions'][actor]!=action_id:raise ValueError('declared cohort identity required')
+    from .per_key import initial_origins,binding_matches,proof_matches
+    origins=initial_origins(data);binding=data['binding'];pins=current['declaration']['pins']
+    rows=store.db.execute("SELECT sequence FROM event WHERE kind='public_ownership_verified' AND json_extract(payload,'$.action_id')=?",(action_id,)).fetchall()
+    if len(rows)!=1:raise ValueError('unique original native signature verification source required')
+    _,proof_source=_source_event(store,rows[0][0])
+    if (proof_source.get('actor')!=actor or proof_source.get('financial_pins')!=pins
+            or proof_source.get('objects')!=51):raise ValueError('all original51 independent key proofs required')
+    for origin in origins:
+        row=store.db.execute('SELECT * FROM owner_key WHERE pubkey=?',(origin['user_pubkey'],)).fetchone()
+        checked=json.loads(row['proof']) if row else {}
+        if (row is None or row['actor']!=actor or row['mailbox']!=binding['mailbox_pk']
+                or checked.get('financial_pins')!=pins or not proof_matches(checked,origin)
+                or not binding_matches(checked.get('binding',{}),binding)):
+            raise ValueError('cohort original independently checked key identity differs')
+    record=store.db.execute('SELECT * FROM owner_record WHERE mailbox=?',(binding['mailbox_pk'],)).fetchone()
+    if (record is None or record['actor']!=actor or record['record_version']!=4 or record['script']!=binding['spk']
+            or not binding_matches(json.loads(record['proof']),binding)):
+        raise ValueError('cohort original immutable native payout record differs')
+    from .c_pilot import verify_public_key_rows
+    return verify_public_key_rows(store,actor,origins,initial=True)

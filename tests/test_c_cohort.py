@@ -24,7 +24,7 @@ class PreservedCohortControls(unittest.TestCase):
         self.addCleanup(self.store.close);self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','test')")
         self.pilot={**pilot(),'bank_opening_sat':900000};c_pilot.declare(self.store,self.pilot)
         self.pins=self.pilot['pins']
-        self.bootstrap={'declaration':{'id':'original-two','actors':['actor-01','actor-02'],'pins':self.pins,'wallet_root':str(self.wallet)},'filesystem':{}}
+        self.bootstrap={'declaration':{'id':'original-two','actors':['actor-01','actor-02'],'pins':self.pins,'wallet_root':str(self.wallet)},'filesystem':__import__('simulator.identity_bootstrap',fromlist=['_root'])._root(str(self.wallet))}
         self.event('identity_bootstrap_declared',self.bootstrap)
         self.store.db.execute('INSERT INTO meta VALUES (?,?)',('zero_principal_identity_bootstrap',canonical(self.bootstrap['declaration'])))
         for actor,operation,fee in [('actor-01','create',0),('actor-02','create',0),('actor-01','board',530)]:

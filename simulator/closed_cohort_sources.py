@@ -124,14 +124,21 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         raise ValueError('original driver and Core trace capture required')
     public_payload(bootstrap_declaration)
     _pins(bootstrap_declaration['pins'])
-    if store.get_meta('zero_principal_identity_bootstrap') != canonical(bootstrap_declaration):
-        raise ValueError('immutable bootstrap declaration required')
-    declarations = store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_declared'").fetchall()
-    if len(declarations)!=1:raise ValueError('original bootstrap declaration required')
-    _,declared=_source_event(store,declarations[0]['sequence'])
-    if (declared.get('declaration') != bootstrap_declaration
-            or actor not in bootstrap_declaration['actors']):
-        raise ValueError('original bootstrap declaration scope differs')
+    from .c_cohort import enrollment_for_actor,ZERO_EVENT
+    cohort=enrollment_for_actor(store,actor)
+    zero_kind=ZERO_EVENT if cohort is not None else 'identity_bootstrap_zero_assets_verified'
+    if cohort is not None:
+        if (cohort['declaration']!=bootstrap_declaration or cohort['actions'][actor]!=action_id):
+            raise ValueError('original cohort bootstrap scope differs')
+    else:
+        if store.get_meta('zero_principal_identity_bootstrap') != canonical(bootstrap_declaration):
+            raise ValueError('immutable bootstrap declaration required')
+        declarations = store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_declared'").fetchall()
+        if len(declarations)!=1:raise ValueError('original bootstrap declaration required')
+        _,declared=_source_event(store,declarations[0]['sequence'])
+        if (declared.get('declaration') != bootstrap_declaration
+                or actor not in bootstrap_declaration['actors']):
+            raise ValueError('original bootstrap declaration scope differs')
     action = store.db.execute('SELECT * FROM action WHERE id=?', (action_id,)).fetchone()
     if (action is None or action['actor_id'] != actor or action['operation'] != 'create'
             or action['state'] != 'completed' or action['fee_reservation_sat'] != 0
@@ -147,21 +154,28 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
     if (response != json.loads(action['result']) or response.get('action_id') != action_id
             or response.get('status') != 'ok' or response.get('actual_fee_sat') != 0):
         raise ValueError('original create response differs from completed action')
-    existing=store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_zero_assets_verified' AND json_extract(payload,'$.actor')=?",(actor,)).fetchall()
+    if cohort is not None:
+        from .c_cohort import verify_native_identity
+        verify_native_identity(store,actor,action_id,response.get('data',{}))
+    existing=store.db.execute("SELECT sequence FROM event WHERE kind=? AND json_extract(payload,'$.actor')=?",(zero_kind,actor)).fetchall()
     if existing:
-        if len(existing)!=1:raise ValueError('ambiguous repeated bootstrap source proofs')
-        _,receipt=_source_event(store,existing[0]['sequence'])
+        if cohort is None and len(existing)!=1:raise ValueError('ambiguous repeated bootstrap source proofs')
+        _,receipt=_source_event(store,existing[-1]['sequence'])
         expected={'actor':actor,'action_id':action_id,'bootstrap_id':bootstrap_declaration['id'],
             'bootstrap_declaration_sha256':_digest(bootstrap_declaration),
             'financial_pins':bootstrap_declaration['pins'],'source_sequence':source['sequence'],
             'driver_response_sequence':source['sequence'],'source_event_hash':source['hash'],
             'response_sha256':_digest(response),'native_response_sha256':_digest(response),
             'complete':True,'zero_assets':True}
-        if any(receipt.get(key)!=value for key,value in expected.items()):
-            raise ValueError('existing bootstrap source proof context differs')
+        for retained in existing:
+            _,receipt=_source_event(store,retained['sequence'])
+            if any(receipt.get(key)!=value for key,value in expected.items()):
+                raise ValueError('existing bootstrap source proof context differs')
         # This is an immutable historical bootstrap proof, not a fresh funded
         # wallet inventory. Reconciliation must not append duplicate markers.
-        return receipt
+        if cohort is None:return receipt
+        # Cohort identity closure may explicitly reobserve Core at one shared
+        # tip. This reuses the original native create; no wallet/signing call.
     data = response.get('data', {})
     native = data.get('onchain_inventory', {})
     if (native.get('schema_version') != 1 or native.get('network') != 'signet'
@@ -200,6 +214,9 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
             checked = chain.call('validateaddress', address)
             if checked.get('isvalid') is not True or not checked.get('scriptPubKey'):
                 raise ValueError('independent descriptor script unavailable')
+            if (cohort is not None and address==addresses[0]
+                    and checked['scriptPubKey']!=data['binding']['spk']):
+                raise ValueError('cohort immutable payout must derive at native external0')
             if checked['scriptPubKey'] in scripts:
                 raise ValueError('bootstrap descriptors overlap')
             scripts.add(checked['scriptPubKey'])
@@ -233,5 +250,5 @@ def verify_bootstrap_zero_assets(store, config, chain, actor, action_id, *, boot
         'source_deadline_seconds': MAX_SOURCE_SECONDS,'descriptor_scan_timeout_seconds':MAX_SCAN_SECONDS,
         'confirmed_assets_sat': 0, 'unconfirmed_assets_sat': 0,
         'observed_at': time.time(), 'scope': 'fresh sole-writer bootstrap descriptors only; not financial readiness'}
-    store.event('identity_bootstrap_zero_assets_verified', receipt)
+    store.event(zero_kind, receipt)
     return receipt

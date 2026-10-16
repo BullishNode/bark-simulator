@@ -155,7 +155,11 @@ def verify_public_key_rows(store,actor,origins,*,initial=False):
     from pathlib import Path
     from .identity_bootstrap import declaration as bootstrap,_root,_sole_writer
     original=bootstrap(store)
-    if original is None or actor not in CUSTOMERS:raise ValueError('original C customer context required')
+    if actor not in CUSTOMERS:
+        from .c_cohort import enrollment_for_actor
+        current=enrollment_for_actor(store,actor)
+        original=({'declaration':current['declaration'],'filesystem':current['filesystem']} if current else None)
+    if original is None:raise ValueError('original C customer context required')
     value=original['declaration'];_sole_writer(value['wallet_root'])
     if _root(value['wallet_root'])!=original['filesystem']:raise ValueError('original C wallet root identity changed')
     path=Path(value['wallet_root'])/actor/'db.sqlite'
