@@ -287,6 +287,74 @@ def prospective_funding_policy(store):
         'scope':'source contract only; root finite-funding integration and complete12 source remain required'}
 
 
+
+def initial_identity_sources(store):
+    """Verified source references for the prospective original12 collector.
+
+    Original bootstrap metadata remains two actors. The extra10 are a separate
+    authenticated closure. No identity, readiness, funding or observation is
+    minted here, and the actual financial collector must independently rescan
+    the entire current owning footprint at one tip before any admission.
+    """
+    _no_money(store)
+    policy=prospective_funding_policy(store)
+    current=enrollment(store,'initial')
+    if current is None or not enrollment_complete(store,'initial'):
+        raise ValueError('all original12 checked identity sources required')
+    from .identity_bootstrap import declaration as bootstrap
+    original=bootstrap(store)
+    from .owned_mempool import verify as verify_activity
+    from .model import SIGNET_GENESIS
+    closure_rows=store.db.execute("SELECT sequence FROM event WHERE kind='direct_per_key_cohort_identities_verified' AND json_extract(payload,'$.phase')='initial'").fetchall()
+    if len(closure_rows)!=1:raise ValueError('unique extra10 identity closure required')
+    _,closure=_source_event(store,closure_rows[0][0])
+    references={};mailboxes=set();scripts=set()
+    for actor in INITIAL:
+        if actor in INITIAL[:2]:
+            rows=store.db.execute("SELECT sequence FROM event WHERE kind='identity_bootstrap_zero_assets_verified' AND json_extract(payload,'$.actor')=?",(actor,)).fetchall()
+            if len(rows)!=1:raise ValueError('original01/02 checked zero source required')
+            sequence=rows[0][0];declared=original['declaration'];action_id='c_create_'+actor[-2:]
+            kind='identity_bootstrap_zero_assets_verified'
+        else:
+            reference=closure['sources'][actor];sequence=reference['sequence']
+            declared=current['declaration'];action_id=current['actions'][actor];kind=ZERO_EVENT
+        event,zero=_source_event(store,sequence)
+        native_event,native=_source_event(store,zero.get('driver_response_sequence'))
+        response=native.get('response',{});data=response.get('data',{})
+        row=store.db.execute('SELECT actor_id,operation,state,actual_fee_sat,fee_reservation_sat,result FROM action WHERE id=?',(action_id,)).fetchone()
+        if (event['kind']!=kind or zero.get('actor')!=actor or zero.get('action_id')!=action_id
+                or zero.get('bootstrap_declaration_sha256')!=_digest(declared)
+                or zero.get('financial_pins')!=policy['pins'] or zero.get('complete') is not True
+                or zero.get('zero_assets') is not True or zero.get('confirmed_assets_sat')!=0
+                or zero.get('unconfirmed_assets_sat')!=0
+                or row is None or tuple(row)[:5]!=(actor,'create','completed',0,0)
+                or native_event['kind']!='driver_response' or native.get('action_id')!=action_id
+                or response.get('action_id')!=action_id or response.get('status')!='ok'
+                or response.get('actual_fee_sat')!=0 or json.loads(row['result'])!=response
+                or _digest(response)!=zero.get('native_response_sha256')
+                or native_event['hash']!=zero.get('source_event_hash')):
+            raise ValueError('original12 source/native create ancestry differs')
+        verify_activity(store,zero.get('mempool_activity'),expected_context={
+            'collector':'identity_bootstrap_zero_assets','actor':actor,'action_id':action_id,
+            'height':zero['height'],'tip_hash':zero['tip_hash'],'genesis':SIGNET_GENESIS,
+            'native_response_sha256':zero['native_response_sha256'],
+            'bootstrap_declaration_sha256':_digest(declared)})
+        _verify_key_sources(store,actor,action_id,data,policy['pins'])
+        binding=data['binding']
+        if binding['mailbox_pk'] in mailboxes or binding['spk'] in scripts:
+            raise ValueError('distinct original12 native payout identities required')
+        mailboxes.add(binding['mailbox_pk']);scripts.add(binding['spk'])
+        references[actor]={'zero_source_sequence':sequence,'zero_event_hash':event['hash'],
+            'driver_response_sequence':native_event['sequence'],'driver_response_hash':native_event['hash'],
+            'native_response_sha256':_digest(response),'create_action_id':action_id,
+            'bootstrap_declaration_sha256':_digest(declared)}
+    return {'profile_id':policy['profile_id'],'seal_sequence':policy['seal_sequence'],
+        'financial_pins':policy['pins'],'actors':list(INITIAL),'wallet_root':original['declaration']['wallet_root'],
+        'filesystem':original['filesystem'],'identity':original['declaration']['identity'],
+        'extra10_closure_sequence':closure_rows[0][0],'sources':references,
+        'scope':'original native identity provenance only; current complete financial source still required'}
+
+
 def cohort_profile(store):
     encoded=store.get_meta(PROFILE_KEY)
     rows=store.db.execute('SELECT sequence FROM event WHERE kind=?',(PROFILE_EVENT,)).fetchall()

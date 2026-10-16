@@ -62,6 +62,50 @@ class PremoneyControls(unittest.TestCase):
             'initial_actors':list(c.INITIAL),'ramp_actors':list(c.RAMP),'grant_sat':25000,
             'maximum_client_principal_sat':600000,'fee_budgets_sat':{'ordinary':60000,'urgent':40000},'capital_exposure_sat':900000}
 
+    def complete_new_identity(self,actor):
+        """Synthetic native verifier; actual admitted path, DB and source trace."""
+        self.store.db.execute("DELETE FROM meta WHERE key='paused'")
+        action_id='c_create_'+actor[-2:]
+        self.store.queue(action_id,actor,'H01','create',{},0);action=self.store.claim({'create'})
+        bootstrap.begin(self.store,self.config,self.fixture.snapshot,action)
+        data,proofs=initial_data(int(actor[-2:])*100)
+        proofs=[{**proof,'financial_pins':self.pins} for proof in proofs]
+        data['onchain_inventory']={'schema_version':1,'network':'signet','read_only':True,'complete':True,
+            'utxos':[],'pending_transactions':[],'pending_parents':[],'unavailable_parent_txids':[],
+            'descriptors':[{'keychain':'external','last_revealed_index':1,'descriptor':'synthetic-public-'+actor}]}
+        response={'action_id':action_id,'status':'ok','actual_fee_sat':0,'data':data}
+        self.store.db.execute("UPDATE action SET state='completed',actual_fee_sat=0,result=? WHERE id=?",(canonical(response),action_id))
+        self.store.event('driver_response',{'action_id':action_id,'response':response})
+        record_verified(self.store,actor,action_id,{'objects':[{'kind':'key','proof':proof,'request_origin':row['origin']} for proof,row in zip(proofs,data['initial_key_links'])],'movements':[],'financial_pins':self.pins})
+        directory=self.wallet/actor;directory.mkdir(mode=0o700)
+        path=directory/'db.sqlite';db=sqlite3.connect(path)
+        db.execute('CREATE TABLE bark_vtxo_key(idx INTEGER,public_key TEXT,linked_proof BLOB,issued INTEGER)')
+        for index,row in enumerate(data['initial_key_links']):
+            origin=row['origin'];db.execute('INSERT INTO bark_vtxo_key VALUES (?,?,?,?)',(index,origin['user_pubkey'],bytes.fromhex(origin['key_link_attestation']),int(index==0)))
+        db.commit();db.close();path.chmod(0o600)
+        bootstrap.verify_created(self.store,self.config,self.chain,actor,action_id)
+        self.store.db.execute("INSERT OR REPLACE INTO meta VALUES ('paused','test closure')")
+
+    def test_combined12_source_view_preserves_original_bootstrap_and_each_native_origin(self):
+        self.verify();c.seal_unfunded(self.store,self.config,self.chain);c.declare_profile(self.store,self.profile())
+        original=self.store.get_meta('zero_principal_identity_bootstrap')
+        with self.assertRaisesRegex(ValueError,'all original12'):c.initial_identity_sources(self.store)
+        self.complete_new_identity('actor-02')
+        c.declare_enrollment(self.store,self.config,'initial',identifier='extra10',
+            actions={actor:'c_create_'+actor[-2:] for actor in c.INITIAL[2:]})
+        for actor in c.INITIAL[2:]:self.complete_new_identity(actor)
+        view=c.initial_identity_sources(self.store)
+        self.assertEqual(list(c.INITIAL),view['actors']);self.assertEqual(12,len(view['sources']))
+        self.assertEqual(original,self.store.get_meta('zero_principal_identity_bootstrap'))
+        self.assertEqual({'actor-01','actor-02'},set(json.loads(original)['actors']))
+        self.assertEqual(12,self.store.db.execute('SELECT count(*) FROM action').fetchone()[0])
+        self.assertEqual('c_create_01',view['sources']['actor-01']['create_action_id'])
+        self.assertNotEqual(view['sources']['actor-01']['bootstrap_declaration_sha256'],view['sources']['actor-03']['bootstrap_declaration_sha256'])
+        self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
+        # Public identity view cannot survive removing a retained native key.
+        self.store.db.execute("DELETE FROM owner_key WHERE actor='actor-12'")
+        with self.assertRaisesRegex(ValueError,'key identity'):c.initial_identity_sources(self.store)
+
     def test_actual_no_zero_proof_state_holds_without_native_recreate(self):
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='identity_bootstrap_zero_assets_verified'").fetchone()[0])
         with self.assertRaisesRegex(ValueError,'zero-asset proof'):c.seal_unfunded(self.store,self.config,self.chain)
