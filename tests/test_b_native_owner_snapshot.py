@@ -170,6 +170,10 @@ class PrivateInputControls(unittest.TestCase):
         # Deliberately synthetic empty DB contradicts snapshotfunding: preparation
         # must NOT claim native row equality; actual native verifier must refuse.
         self.assertNotIn('complete',request);self.assertNotIn('qualified',request)
+    def test_whole_frontier_original_final_lf_is_preserved_in_hash(self):
+        t,r,o=self.inputs();t['raw_sql']+=b'\n'
+        t['manifest']['original_sha256']['native_sql']=digest(t['raw_sql'])
+        self.assertEqual(self.prepare(t,r,o)['source_observation'],o)
     def test_missing_private_auxiliary_never_becomes_empty_source(self):
         t,r,o=self.inputs();del t['auxiliary_originals']['b-native-fee-originals.json']
         with self.assertRaises(EvidenceGap):self.prepare(t,r,o)

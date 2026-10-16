@@ -58,7 +58,7 @@ def prepare_native_fee_request(target,runtime,*,expected_product_commit,expected
     need(sql.endswith(b'\n') and len(lines)==5 and lines[:2]==[b'BEGIN',b'SET']
         and lines[-1]==b'COMMIT','same single RR transaction framing required')
     whole=target.get('raw_sql')
-    need(type(whole) is bytes and lines[2]==whole
+    need(type(whole) is bytes and whole in (lines[2],lines[2]+b'\n')
         and manifest.get('original_sha256',{}).get('native_sql')==digest(whole),
         'same captured whole B frontier differs')
     database_raw=lines[3]
