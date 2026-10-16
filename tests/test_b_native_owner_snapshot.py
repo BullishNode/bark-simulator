@@ -258,3 +258,52 @@ class NativeReplyControls(unittest.TestCase):
     def test_unrelated_nursery_rows_not_silently_dropped(self):self.reject(lambda r:r.update(unrelated_nursery_txids=[]))
     def test_resolution_sql_coverage_cannot_be_dropped(self):self.reject(lambda r:r.update(resolutions=[]))
     def test_changed_urgent_member_witness(self):self.reject(lambda r:r['urgent_rows'][0]['transactions'][0].update(wtxid=H(33)))
+
+
+class PrivateProofLifecycleControls(unittest.TestCase):
+    """Actual isolated tiny local subprocesses; NOT native verifier credit."""
+    def tool(self,parent,body):
+        from pathlib import Path
+        binary=Path(parent)/'fixture-tool'
+        binary.write_text('#!/usr/bin/python3\n'+body);binary.chmod(0o700)
+        return {'command':[str(binary),'native-fee-source-proof'],'sha256':digest(binary.read_bytes()),
+            'evidence_directory':str(parent)}
+    def test_default_input_bound_stays2mib_but_native_allows_complete_larger_original(self):
+        import tempfile
+        from simulator.two_step_normal import run_proof,run_native_fee_source_proof
+        with tempfile.TemporaryDirectory()as tmp:
+            tool=self.tool(tmp,'import sys,json,hashlib\nr=sys.stdin.buffer.read()\nprint(json.dumps({"input_sha256":hashlib.sha256(r).hexdigest()}))\n')
+            request={'synthetic_private_original':'x'*(2*1024*1024)}
+            with self.assertRaisesRegex(ValueError,'input exceeds'):run_proof(tool,request)
+            encoded,reply=run_native_fee_source_proof(tool,request)
+            self.assertGreater(len(encoded),2*1024*1024)
+            self.assertEqual(json.loads(reply)['input_sha256'],digest(encoded))
+    def test_default_output_bound_stays2mib_native_limit_is_separate(self):
+        import tempfile
+        from simulator.two_step_normal import run_proof,run_native_fee_source_proof
+        with tempfile.TemporaryDirectory()as tmp:
+            tool=self.tool(tmp,'import json\nprint(json.dumps({"fixture":"x"*(2*1024*1024)}))\n')
+            with self.assertRaisesRegex(ValueError,'exceeded bounds'):run_proof(tool,{})
+            _,reply=run_native_fee_source_proof(tool,{})
+            self.assertGreater(len(reply),2*1024*1024)
+    def test_fixed_offline_subcommand_no_rpc_or_config_argument(self):
+        from simulator.two_step_normal import run_native_fee_source_proof
+        for command in [['/not/executed','rpc'],['/not/executed','native-fee-source-proof','-C','private.toml']]:
+            with self.assertRaisesRegex(ValueError,'fixed native fee proof'):run_native_fee_source_proof({'command':command},{})
+    def test_actual_refusal_keeps_private_terminal_and_never_becomes_proof(self):
+        import tempfile
+        from pathlib import Path
+        from simulator.two_step_normal import run_native_fee_source_proof
+        with tempfile.TemporaryDirectory()as tmp:
+            tool=self.tool(tmp,'import sys\nsys.stderr.write("fixture refusal")\nsys.exit(7)\n')
+            with self.assertRaisesRegex(ValueError,'native proof refused'):run_native_fee_source_proof(tool,{})
+            directory=next(x for x in Path(tmp).iterdir()if x.is_dir())
+            self.assertEqual(json.loads((directory/'terminal.json').read_text())['exit'],7)
+            self.assertTrue(all(x.stat().st_mode&0o777==0o600 for x in directory.iterdir()))
+    def test_changed_executable_refuses_before_private_request_dispatch(self):
+        import tempfile
+        from pathlib import Path
+        from simulator.two_step_normal import run_native_fee_source_proof
+        with tempfile.TemporaryDirectory()as tmp:
+            tool=self.tool(tmp,'print("{}")\n');Path(tool['command'][0]).write_text('changed')
+            with self.assertRaisesRegex(ValueError,'executable identity'):run_native_fee_source_proof(tool,{})
