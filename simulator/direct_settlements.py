@@ -8,6 +8,7 @@ is held until its independent source-specific evidence adapter exists.
 import asyncio
 import hashlib
 import json
+import re
 import time
 from .model import InvariantError,canonical,integer,public_payload
 from .ownership import EvidenceGap,expiry_owner
@@ -95,6 +96,13 @@ def script_dust(script):
     if script.startswith('76a914') and script.endswith('88ac') and len(script)==50:return 546
     if script.startswith('a914') and script.endswith('87') and len(script)==46:return 540
     raise EvidenceGap('destination dust policy is not independently supported')
+
+def _native_vtxo_order(ident):
+    # Native VtxoId derives Ord on [u8;36]: internal txid bytes, then vout LE.
+    # Displayed txids reverse those hash bytes; text/numeric vout order differs.
+    match=re.fullmatch(r'([0-9a-fA-F]{64}):([0-9]+)',ident)
+    if match is None:raise ValueError('invalid direct allocation VTXO id')
+    return bytes.fromhex(match[1])[::-1]+int(match[2]).to_bytes(4,'little')
 
 def _proof(store,ident):
     row=store.db.execute('SELECT proof FROM owned_coin WHERE id=?',(ident,)).fetchone()
@@ -195,7 +203,7 @@ def check_group(store,value,freeze,transactions):
         gross=sum(r['gross_sat'] for r in group);paid=gross>=FLAT_FEE_SAT+script_dust(script)
         remaining=FLAT_FEE_SAT if paid else 0
         output=[o for o in tx['outputs'] if o['script']==script]
-        for row in sorted(group,key=lambda r:r['id']):
+        for row in sorted(group,key=lambda r:_native_vtxo_order(r['id'])):
             charge=min(row['gross_sat'],remaining);remaining-=charge
             expected=(charge,row['gross_sat']-charge,0) if paid else (0,0,row['gross_sat'])
             if (row['fee_sat'],row['payout_sat'],row['forfeited_sat'])!=expected:raise InvariantError('stable flat-fee allocation differs from policy')
