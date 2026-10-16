@@ -17,6 +17,8 @@ import stat
 import subprocess
 import time
 import types
+import tomllib
+from decimal import Decimal
 
 from .frontier_source import checked_file
 from .runtime_startup import _sha, _time_ns
@@ -163,7 +165,116 @@ def _ledger_matches(ledger, disk, file_sha256):
     return ledger
 
 
-def _file(path, maximum, prefix=None, *, public_history=False, public_ledger=False):
+
+POLICY_PRODUCT_COMMIT = '5a6702018bedc37d4d27cec1205abe828ea14ee5'
+POLICY_SOURCE_SHA256 = {
+    'server/src/config.rs': '0d8882088ea192403025bc58297811963c82381c3de133bfe308d6df5541993f',
+    'server/src/watchman/config.rs': 'c1737bfeb783cbcc7eccecf525491953a5ccc635ddec3f2b38812e24ecb38bdd',
+    'server/src/utils/serde.rs': '1a47258d50814a23914321e689ff8283e58c34bf71500babf0f8fb1a0ea944ee',
+    'server/src/fee_estimator.rs': '7c4dc5dd37aa046048388555b53baced74d1009e167c7854b822653f36179cfe',
+    'server/src/vtxopool.rs': '201035455969c724f3953f680af98ccb4596677fb32f082d94fd8f331a44ee57',
+    'server/src/expiry_dispatch.rs': 'b76668ade7329a3d00d9a68570bf42448174cd9f46ad4131bdddee2234ba0604',
+    'server/src/expiry_payout.rs': '9481d1745718232985592fd0b1ed2e5725dd15b0f7e113a9ea31bcbdee3bf05b',
+    'server/src/wallet/mod.rs': '0481a86aff6a7cfa2c9d1a46b47c35b8236f4d486194522f5364dad61171d4a7',
+    'server/src/watchman/carrier.rs': '5ed4ce9606ba16ec69870d6ea17f8d3891e1d6d5aae3e196c63dba4193fb4843',
+    'server/src/watchman/urgent.rs': '41bb64748f73806785342975cb1537287b1de202b7334db56ba15e8a37c5f68e',
+    'server/src/ln/mod.rs': 'b71f1d4297b66305ee88d75f9f28bdfb02f4f173588dc90252699e812f0a49b6',
+}
+
+
+def _public_uint(value, maximum=2**64-1):
+    if type(value) is not int or not 0 <= value <= maximum:
+        raise ValueError('bounded public native policy integer required')
+    return value
+
+
+def _public_rate(value):
+    if value is None: return None  # Native Option::None is NO finite ceiling.
+    if not isinstance(value, str): raise ValueError('native string fee rate required')
+    match = re.fullmatch(r'([0-9]{1,20})\s*(sat/kwu|sat/kvb|sat/vb)', value)
+    if not match: raise ValueError('supported native fee-rate encoding required')
+    amount = _public_uint(int(match[1]))
+    return _public_uint(amount*250 if match[2] == 'sat/vb' else (amount+3)//4 if match[2] == 'sat/kvb' else amount)
+
+
+def _public_amount(value):
+    # Deliberately support only these actual native config encodings. Unknown
+    # denominations fail closed rather than pretending a public ceiling exists.
+    if not isinstance(value, str): raise ValueError('native string amount required')
+    match = re.fullmatch(r'([0-9]+(?:\.[0-9]{1,8})?)\s*(sat|sats|BTC|btc)', value)
+    if not match: raise ValueError('supported native amount encoding required')
+    amount = Decimal(match[1]) * (100_000_000 if match[2].lower() == 'btc' else 1)
+    if amount != amount.to_integral_value(): raise ValueError('whole satoshi policy amount required')
+    return _public_uint(int(amount), 21_000_000*100_000_000)
+
+
+def _public_ordinary(value):
+    if not isinstance(value, dict) or set(value) != {'urgent_reserve_sat','ordinary_budget_sat','external_future_reserved_sat','opening_sha256'}:
+        raise ValueError('explicit adopted native fee policy required')
+    result = {key:_public_uint(value[key],21_000_000*100_000_000) for key in ('urgent_reserve_sat','ordinary_budget_sat','external_future_reserved_sat')}
+    if not result['urgent_reserve_sat'] or not result['ordinary_budget_sat'] or result['external_future_reserved_sat'] > result['ordinary_budget_sat']:
+        raise ValueError('invalid native ordinary policy amounts')
+    result['opening_sha256'] = _sha(value['opening_sha256'])
+    if result['opening_sha256'] == '0'*64: raise ValueError('original adopted opening required')
+    return result
+
+
+def public_configuration(raw, service):
+    """Whitelist public facts from the SAME bounded bytes hashed by _file.
+
+    This is configuration provenance, not current rates, available cash, a
+    per-path satoshi ceiling, cumulative global policy, or financial readiness.
+    """
+    if type(raw) is not bytes or len(raw) > 2*1024*1024 or service not in SERVICES:
+        raise ValueError('bounded owned native configuration required')
+    config = tomllib.loads(raw.decode('utf8'))
+    if config['network'] not in ('bitcoin','testnet','testnet4','signet','regtest'):
+        raise ValueError('native network required')
+    result = {'network':config['network'], 'fee_estimator_max_sat_kwu':_public_rate(config['fee_estimator'].get('max_fee_rate'))}
+    if service == 'watchmand':
+        direct = config['watchman']['direct_expiry']
+        result['direct_expiry'] = {'max_miner_fee_sat':_public_amount(direct['max_miner_fee']),
+                                  'ordinary_fee_policy':_public_ordinary(direct['ordinary_fee_policy'])}
+        return result
+    result.update({key:_public_uint(config[key],2**32-1) for key in ('vtxo_lifetime','vtxo_exit_delta','htlc_expiry_delta','htlc_send_expiry_delta')})
+    direct = config.get('direct_expiry', {}); enabled = direct.get('enabled', False)
+    legacy = config.get('expiry_payout', {}).get('enabled', False)
+    if type(enabled) is not bool or type(legacy) is not bool: raise ValueError('native producer booleans required')
+    result.update(direct_expiry={'enabled':enabled,'grace_blocks':_public_uint(direct.get('grace_blocks',6),2**32-1)},
+                  legacy_expiry_payout_enabled=legacy,ln_max_fee_ppm=_public_uint(config['ln_max_fee_ppm']),
+                  ordinary_fee_policy=_public_ordinary(config['direct_expiry_fee_policy']))
+    pool = config['vtxopool']; targets = pool['vtxo_targets']
+    if not isinstance(targets,list) or len(targets)>10000: raise ValueError('bounded native pool targets required')
+    parsed = []
+    for target in targets:
+        if not isinstance(target,str) or len(target)>128 or target.count(':')!=1: raise ValueError('native pool target required')
+        amount,count = target.split(':')
+        if not re.fullmatch('[0-9]{1,20}',count): raise ValueError('native pool target count required')
+        parsed.append({'amount_sat':_public_amount(amount),'count':_public_uint(int(count))})
+    result['vtxopool'] = {'targets':parsed, **{key:_public_uint(pool[key],2**32-1) for key in ('vtxo_lifetime','vtxo_pre_expiry','vtxo_target_issue_threshold')},
+                          'max_vtxo_exit_depth':_public_uint(pool.get('max_vtxo_exit_depth',pool.get('vtxo_max_arkoor_depth')),65535)}
+    return result
+
+
+def _configuration_pair(expected, checkpoint, daemons, disk):
+    if expected['execution_release']['product_commit'] != POLICY_PRODUCT_COMMIT:
+        raise ValueError('public configuration source is pinned to actual 5a native semantics')
+    projected = {}
+    for service in SERVICES:
+        value = daemons[service]['public_configuration']
+        if value != checkpoint['configs'][service]['public_configuration'] or checkpoint['configs'][service]['sha256'] != expected['config_sha256'][service]:
+            raise ValueError('same-byte original loaded policy projection required')
+        projected[service] = value
+    cap = projected['captaind']; watch = projected['watchmand']
+    if cap['ordinary_fee_policy'] != watch['direct_expiry']['ordinary_fee_policy'] or cap['network'] != watch['network']:
+        raise ValueError('paired adopted fee policies or networks differ')
+    if any(disk.get(key) != value for key,value in cap['ordinary_fee_policy'].items()):
+        raise ValueError('loaded public fee policy differs from same locked budget bytes')
+    return {'schema_version':1,'product_commit':POLICY_PRODUCT_COMMIT,'config_sha256':dict(expected['config_sha256']),
+            'policy_source_sha256':dict(POLICY_SOURCE_SHA256), **projected}
+
+
+def _file(path, maximum, prefix=None, *, public_history=False, public_ledger=False, configuration_service=None):
     """No-follow metadata/digest read; raw private contents never returned."""
     path = Path(_path(str(path)))
     _require_time()
@@ -183,7 +294,7 @@ def _file(path, maximum, prefix=None, *, public_history=False, public_ledger=Fal
                 if count + len(block) > maximum:
                     raise ValueError('runtime source growth bound')
                 full.update(block)
-                if public_history or public_ledger: records.extend(block)
+                if public_history or public_ledger or configuration_service: records.extend(block)
                 if prefix is not None and count < prefix:
                     head.update(block[:prefix-count])
                 count += len(block)
@@ -198,6 +309,7 @@ def _file(path, maximum, prefix=None, *, public_history=False, public_ledger=Fal
                 result.update(prefix_bytes=prefix, prefix_sha256=head.hexdigest())
             if public_history: result['txids'] = history_txids(bytes(records), prefix)
             if public_ledger: result['public_ledger'] = ledger_projection(bytes(records))
+            if configuration_service: result['public_configuration'] = public_configuration(bytes(records), configuration_service)
             return result
         finally: os.close(fd)
     finally: os.close(directory)
@@ -389,7 +501,7 @@ def _budget(expected, helper):
 def prepare_checkpoint(expected):
     """Run BEFORE starting the new pair; root privately retains these facts."""
     _expected(expected)
-    configs = {name: _file(expected['config_paths'][name]['host'], 2*1024*1024) for name in SERVICES}
+    configs = {name: _file(expected['config_paths'][name]['host'], 2*1024*1024, configuration_service=name) for name in SERVICES}
     if any(configs[name]['sha256'] != expected['config_sha256'][name] for name in SERVICES):
         raise ValueError('pre-start configuration differs from reviewed bytes')
     return {'kind': 'b_runtime_before_start', 'observed_at_ns': time.time_ns(),
@@ -464,7 +576,7 @@ def _daemon(expected, name):
             or len(data) != 1 or data[0]['Source'] != expected['data_mount']['source'] or data[0]['RW'] is not True
             or any(m['Destination'].startswith('/data/captaind/') for m in mounts)):
         raise ValueError('actual immutable config/shared history mount differs')
-    config = _file(paths['host'], 2*1024*1024)
+    config = _file(paths['host'], 2*1024*1024, configuration_service=name)
     # /proc/PID/exe is intentionally a kernel symlink; hash the opened running
     # image, not a named file in the container that can have been replaced.
     binary = _executable_digest(f'/proc/{pid}/exe')
@@ -488,7 +600,8 @@ def _daemon(expected, name):
             'process_exe_sha256': binary, 'version': version, 'config_sha256': config['sha256'],
             'config_device': config['device'], 'config_inode': config['inode'], 'config_ctime_ns': config['ctime_ns'],
             'config_mtime_ns': config['mtime_ns'], 'config_mount': {'source': paths['host'], 'destination': paths['container'], 'read_only': True},
-            'process_cmdline': command, 'environment_names': sorted(env), 'config_overrides': relevant}
+            'process_cmdline': command, 'environment_names': sorted(env), 'config_overrides': relevant,
+            'public_configuration':config['public_configuration']}
 
 
 def verify(expected, checkpoint, observation, *, now_ns=None):
@@ -538,7 +651,8 @@ def verify(expected, checkpoint, observation, *, now_ns=None):
         raise ValueError('authenticated original history/accounting join differs')
     for flag in ('runtime_loaded_identity_verified', 'retained_signed_fee_coverage_verified', 'urgent_selection_isolation_verified', 'complete', 'qualified'):
         if disk.get(flag) is not False: raise ValueError('disk labels cannot confer runtime/financial proof')
-    result = {'kind': 'owned_runtime_configuration_verified', **{k: expected['execution_release'][k] for k in ('product_commit', 'schema_sha256')},
+    configuration = _configuration_pair(expected, checkpoint, before, disk)
+    result = {'public_configuration':configuration, 'kind': 'owned_runtime_configuration_verified', **{k: expected['execution_release'][k] for k in ('product_commit', 'schema_sha256')},
               'execution_release': expected['execution_release'], 'observed_at': observation['completed_at_ns']/10**9,
               'startup_source_sha256': identity(checkpoint), 'current_source_sha256': identity(observation),
               'current_canonical_schema': {'protocol': 'pg-dump-restrict-lines-v1', 'sha256': observation['canonical_schema_sha256'], 'repeat_sha256': observation['canonical_schema_repeat_sha256']},
@@ -582,7 +696,7 @@ def capture(expected, checkpoint):
         _CAPTURE_END.reset(token)
 
 
-def capture_protected(expected_path, checkpoint_path):
+def _capture_protected_originals(expected_path, checkpoint_path):
     """Installed entry point: root-protected original declarations only.
 
     Installation/source admission is external and must pin this module's bytes.
@@ -598,4 +712,17 @@ def capture_protected(expected_path, checkpoint_path):
     receipt['operator_expected_source_sha256'] = expected_sha
     receipt['operator_checkpoint_source_sha256'] = checkpoint_sha
     receipt['producer_source_sha256'] = checked_file(Path(__file__))[1]
+    return observation, receipt, expected_raw, checkpoint_raw
+
+
+def capture_protected(expected_path, checkpoint_path):
+    observation, receipt, _, _ = _capture_protected_originals(expected_path, checkpoint_path)
     return observation, receipt
+
+
+def capture_originals_protected(expected_path, checkpoint_path):
+    """Private transport only: exact originals, NEVER an event/public trace."""
+    observation, receipt, expected_raw, checkpoint_raw = _capture_protected_originals(expected_path, checkpoint_path)
+    encode = lambda value: json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False)
+    return {'expected_raw':expected_raw.decode('utf8'),'checkpoint_raw':checkpoint_raw.decode('utf8'),
+            'observation_raw':encode(observation),'protected_receipt_raw':encode(receipt)}

@@ -9,10 +9,20 @@ from unittest.mock import patch
 from simulator import b_normal_runtime_source as runtime
 
 
+
+def configuration_bytes(service):
+    common = 'network = "regtest"\n[fee_estimator]\nmax_fee_rate = "5000sat/kwu"\n'
+    policy = 'urgent_reserve_sat = 15000\nordinary_budget_sat = 60000\nexternal_future_reserved_sat = 17622\nopening_sha256 = "'+'a'*64+'"\n'
+    if service == 'watchmand':
+        return (common+'[watchman.direct_expiry]\nmax_miner_fee = "0.00010000 BTC"\n[watchman.direct_expiry.ordinary_fee_policy]\n'+policy).encode()
+    return ('network = "regtest"\nvtxo_lifetime = 48\nvtxo_exit_delta = 12\nhtlc_expiry_delta = 6\nhtlc_send_expiry_delta = 258\nln_max_fee_ppm = 900000\nprivate_credential = "DO-NOT-EXPORT"\n[fee_estimator]\nmax_fee_rate = "20sat/vb"\n[direct_expiry]\nenabled = true\ngrace_blocks = 6\n[expiry_payout]\nenabled = false\n[direct_expiry_fee_policy]\n'+policy+'[vtxopool]\nvtxo_targets = ["10000sat:24"]\nvtxo_target_issue_threshold = 80\nvtxo_lifetime = 48\nvtxo_pre_expiry = 12\nmax_vtxo_exit_depth = 50\n').encode()
+
+
 def fixture():
     h = 'a'*64
     pins = {name: ('b'*40 if name.endswith('commit') else h) for name in runtime.PINS}
     pins['image_sha256'] = 'sha256:'+h
+    pins['product_commit'] = pins['sdk_commit'] = runtime.POLICY_PRODUCT_COMMIT
     expected = {'execution_release': pins, 'containers': {n: 'owned-'+n for n in runtime.SERVICES},
         'binary_sha256': {n: h for n in runtime.SERVICES}, 'config_sha256': {n: h for n in runtime.SERVICES},
         'config_paths': {n: {'host': '/owned/'+n+'.toml', 'container': '/config/'+n+'.toml'} for n in runtime.SERVICES},
@@ -33,6 +43,11 @@ def fixture():
                   'binary_sha256': h, 'process_exe_sha256': h, 'config_sha256': h, 'restart_count': 0,
                   **{'config_'+k: meta[k] for k in ('device', 'inode', 'ctime_ns', 'mtime_ns')}}
                for i, n in enumerate(runtime.SERVICES)}
+    for name in runtime.SERVICES:
+        projection=runtime.public_configuration(configuration_bytes(name),name)
+        checkpoint['configs'][name]['public_configuration']=projection
+        daemons[name]['public_configuration']=copy.deepcopy(projection)
+    disk.update(urgent_reserve_sat=15000,ordinary_budget_sat=60000,external_future_reserved_sat=17622)
     # Exact epoch above is intentionally computed from the actual UTC parser.
     started = runtime._time_ns(daemons['watchmand']['started_at'])
     for d in daemons.values():
@@ -403,3 +418,81 @@ class SchemaTwoLedgerTests(unittest.TestCase):
     def test_missing_charge_inventory_cannot_claim_configuration_proof(self):
         args = fixture(); del args[2]['native_budget']['public_ledger']
         with self.assertRaises(KeyError): runtime.verify(*args, now_ns=args[2]['completed_at_ns'])
+
+
+
+class PublicConfigurationTests(unittest.TestCase):
+    def test_same_actual_config_bytes_hash_and_whitelist_only(self):
+        import json
+        for service in runtime.SERVICES:
+            raw=configuration_bytes(service)
+            with tempfile.TemporaryDirectory() as directory:
+                path=Path(directory)/'config';path.write_bytes(raw)
+                actual=runtime._file(path,2*1024*1024,configuration_service=service)
+                self.assertEqual(actual['sha256'],runtime.digest(raw))
+                self.assertEqual(actual['public_configuration'],runtime.public_configuration(raw,service))
+                self.assertNotIn('DO-NOT-EXPORT',json.dumps(actual))
+        cap=runtime.public_configuration(configuration_bytes('captaind'),'captaind')
+        self.assertEqual(cap['fee_estimator_max_sat_kwu'],5000)
+        self.assertEqual(cap['vtxopool']['targets'],[{'amount_sat':10000,'count':24}])
+        self.assertNotIn('fee_ceilings_sat_kvb',cap)
+
+    def test_fee_encodings_match_supported_native_integer_rounding(self):
+        self.assertEqual(runtime._public_rate('20sat/vb'),5000)
+        self.assertEqual(runtime._public_rate('20001sat/kvb'),5001)
+        self.assertEqual(runtime._public_amount('0.00010000 BTC'),10000)
+        self.assertIsNone(runtime._public_rate(None))
+        for bad in [True,'1.5sat/vb','-1sat/kwu','18446744073709551615sat/vb']:
+            with self.assertRaises(ValueError):runtime._public_rate(bad)
+        for bad in ['0.1sat','NaN BTC','1MSAT','21000001 BTC']:
+            with self.assertRaises(ValueError):runtime._public_amount(bad)
+
+    def test_missing_cap_rate_is_honest_absence_not_a_ceiling(self):
+        raw=configuration_bytes('captaind').replace(b'max_fee_rate = "20sat/vb"\n',b'')
+        self.assertIsNone(runtime.public_configuration(raw,'captaind')['fee_estimator_max_sat_kwu'])
+
+    def test_missing_or_foreign_policy_cannot_borrow_defaults(self):
+        raw=configuration_bytes('captaind')
+        for changed in [raw.replace(b'opening_sha256',b'unsupported_opening'),raw.replace(b'urgent_reserve_sat = 15000',b'urgent_reserve_sat = true')]:
+            with self.assertRaises(ValueError):runtime.public_configuration(changed,'captaind')
+
+    def test_projection_tamper_and_disk_policy_mismatch_refuse(self):
+        args=fixture();args[2]['before']['captaind']['public_configuration']['ln_max_fee_ppm']+=1
+        args[2]['after']=copy.deepcopy(args[2]['before'])
+        with self.assertRaisesRegex(ValueError,'same-byte'):runtime.verify(*args,now_ns=args[2]['completed_at_ns']+1)
+        args=fixture();args[2]['native_budget']['disk_budget']['ordinary_budget_sat']+=1;args[2]['native_budget_after']=copy.deepcopy(args[2]['native_budget'])
+        with self.assertRaisesRegex(ValueError,'locked budget'):runtime.verify(*args,now_ns=args[2]['completed_at_ns']+1)
+
+    def test_policy_projection_stays_false_for_financial_scope(self):
+        args=fixture();out=runtime.verify(*args,now_ns=args[2]['completed_at_ns']+1)
+        self.assertEqual(out['public_configuration']['product_commit'],runtime.POLICY_PRODUCT_COMMIT)
+        self.assertEqual(out['public_configuration']['config_sha256'],args[0]['config_sha256'])
+        self.assertFalse(out['complete']);self.assertFalse(out['qualified'])
+        self.assertFalse(out['urgent_selection_isolation_verified'])
+
+    def test_exact_original_utf8_envelope_retains_original_whitespace(self):
+        import json
+        expected,checkpoint,observation=fixture();receipt=runtime.verify(expected,checkpoint,observation,now_ns=observation['completed_at_ns']+1)
+        eraw=('  '+json.dumps(expected,indent=2)+'\n').encode();craw=(json.dumps(checkpoint,indent=1)+'\n\n').encode()
+        originals={'/opt/expected':eraw,'/opt/checkpoint':craw}
+        def protected(path):
+            raw=originals.get(str(path),b'actual protected producer');return raw,runtime.digest(raw)
+        with patch.object(runtime,'checked_file',side_effect=protected),patch.object(runtime,'capture',return_value=(observation,copy.deepcopy(receipt))):
+            envelope=runtime.capture_originals_protected('/opt/expected','/opt/checkpoint')
+        self.assertEqual(set(envelope),{'expected_raw','checkpoint_raw','observation_raw','protected_receipt_raw'})
+        self.assertTrue(all(type(x)is str for x in envelope.values()))
+        self.assertEqual(envelope['expected_raw'].encode(),eraw);self.assertEqual(envelope['checkpoint_raw'].encode(),craw)
+        result=json.loads(envelope['protected_receipt_raw']);self.assertEqual(result['operator_expected_source_sha256'],runtime.digest(eraw))
+        self.assertEqual(result['operator_checkpoint_source_sha256'],runtime.digest(craw))
+        self.assertEqual(json.loads(envelope['observation_raw']),observation)
+
+    def test_protected_original_change_during_capture_refuses(self):
+        import json
+        expected,checkpoint,observation=fixture();receipt={};count={}
+        raw={'/opt/expected':json.dumps(expected).encode(),'/opt/checkpoint':json.dumps(checkpoint).encode()}
+        def protected(path):
+            name=str(path);count[name]=count.get(name,0)+1;value=raw.get(name,b'producer')
+            if name=='/opt/expected'and count[name]>1:value+=b' '
+            return value,runtime.digest(value)
+        with patch.object(runtime,'checked_file',side_effect=protected),patch.object(runtime,'capture',return_value=(observation,receipt)):
+            with self.assertRaisesRegex(ValueError,'declaration changed'):runtime.capture_originals_protected('/opt/expected','/opt/checkpoint')
