@@ -170,3 +170,57 @@ def load_target_tar(path,*,expected_package_sha256,expected_source_sha256,expect
     return {'manifest':manifest,'database':database,'private_pg':native,'fee_private_pg':fee_pg,
       'fee_cut':cut,'originals':files,'public_lines':lines,'original_private_source_references':references,
       'complete':False,'qualified':False,'scope':SCOPE}
+
+
+def decode_transport(path,*,producer_exit):
+    """STATELESS shared reader loader: framing/integrity/actual exit ONLY.
+
+    No closure, default argument, bound instance or manifest selects expected
+    authority. The same actual process accessor is returned PRIVATE to the typed
+    caller so its full context loader rechecks that status. This result is NOT a
+    normal source/admission or a financial proof. It must never be journaled.
+    """
+    from . import c_private_native_body_package as package
+    from . import c_private_fee_package as tar_rules
+    actual_exit=producer_exit()
+    if type(actual_exit)is not int or actual_exit!=0:raise ValueError('actual private normal producer did not succeed')
+    path=Path(path)
+    # This digest identifies bytes received through the admitted transport; it
+    # does not independently authenticate a source/pin/observation from the tar.
+    # _read_files immediately rechecks the same protected inode/hash and bounds.
+    if(not path.is_absolute()or any(p.is_symlink()for p in [path,*path.parents])or not path.is_file()
+            or path.parent.stat().st_uid!=os.getuid()or path.parent.stat().st_mode&0o077
+            or path.stat().st_nlink!=1 or path.stat().st_mode&0o077 or path.stat().st_uid!=os.getuid()
+            or not 0<path.stat().st_size<=tar_rules.MAX_TAR_BYTES):
+        raise ValueError('bounded owned private transport artifact required')
+    import hashlib
+    h=hashlib.sha256()
+    with path.open('rb')as stream:
+        while raw:=stream.read(65536):h.update(raw)
+    physical_sha256=h.hexdigest()
+    def allowed(name):
+        if name in FIXED_FILES|{'manifest.json'}:return name
+        if name.startswith('history/'):return tar_rules._name(name)
+        raise ValueError('private transport member outside literal normal grammar')
+    files=package._read_files(path,physical_sha256,name_validator=allowed)
+    raw_manifest=files.pop('manifest.json',None)
+    if raw_manifest is None:raise ValueError('private transport manifest missing')
+    manifest=fee._json(raw_manifest)
+    fields={'schema_version','kind','scope','financial_pins','source_observation','chain','source_sha256',
+      'body_source_sha256','policy_sha256','history_identity','files'}
+    if(not isinstance(manifest,dict)or set(manifest)!=fields or type(manifest['schema_version'])is not int
+            or manifest['schema_version']!=1 or manifest['kind']!=KIND or manifest['scope']!=SCOPE
+            or fee.canonical(manifest).encode()!=raw_manifest or not isinstance(manifest['files'],dict)
+            or set(manifest['files'])!=set(files)or not FIXED_FILES<=set(files)):
+        raise ValueError('private transport manifest/framing differs')
+    for name,raw in files.items():
+        entry=manifest['files'][name]
+        if(not isinstance(entry,dict)or set(entry)!={'sha256','size_bytes'}or type(entry['size_bytes'])is not int
+                or entry['size_bytes']!=len(raw)or entry['sha256']!=fee.digest(raw)):
+            raise ValueError('private transport original hash/size differs')
+    actual_exit=producer_exit()
+    if type(actual_exit)is not int or actual_exit!=0:raise ValueError('private transport terminal changed')
+    return {'kind':'c-private-normal-transport-only','path':path,'archive_sha256':physical_sha256,
+      'manifest':manifest,'raw_manifest':raw_manifest,'originals':files,
+      'producer_exit':producer_exit,'complete':False,'qualified':False,
+      'scope':'Transport framing/integrity only; typed expected-context verification is mandatory'}

@@ -94,3 +94,37 @@ class CombinedNativeCut(unittest.TestCase):
         result=self.capture(self.pg())
         for n,change in enumerate([{'expected_body_source_sha256':'f'*64},{'expected_policy_sha256':'e'*64},{'producer_exit':lambda:1}]):
             with self.assertRaises(ValueError):self.load(result,self.fixture.root/('bad%d.tar'%n),**change)
+
+
+class StatelessTransportSplit(unittest.TestCase):
+    def setUp(self):
+        self.x=CombinedNativeCut();self.x.setUp();self.addCleanup(self.x.doCleanups)
+        self.result=self.x.capture(self.x.pg());self.path=self.x.fixture.root/'transport.tar'
+        self.safe=c.write_private_package(self.result,self.path)
+    def test_stateless_loader_retains_actual_accessor_and_no_authority_from_manifest(self):
+        import inspect
+        exit_accessor=lambda:0
+        transport=c.decode_transport(self.path,producer_exit=exit_accessor)
+        self.assertIs(exit_accessor,transport['producer_exit']);self.assertFalse(transport['complete']);self.assertFalse(transport['qualified'])
+        self.assertEqual(('path','producer_exit'),tuple(inspect.signature(c.decode_transport).parameters))
+        self.assertIsNone(c.decode_transport.__closure__);self.assertIsNone(c.decode_transport.__defaults__)
+        # No expected authority is accepted by the stateless transport API.
+        with self.assertRaises(TypeError):c.decode_transport(self.path,producer_exit=exit_accessor,expected_financial_pins={})
+        x=self.x.fixture
+        args={'expected_package_sha256':transport['archive_sha256'],'expected_source_sha256':self.result['source_sha256'],
+          'expected_body_source_sha256':self.result['body_source_sha256'],'expected_financial_pins':x.observation['financial_pins'],
+          'expected_observation':x.observation,'expected_chain':x.chain,'expected_history_identity':x.expected,
+          'expected_policy_sha256':self.result['policy_sha256'],'adapter':x.fixed,'limits':x.limits,'binding':x.binding,
+          'producer_exit':transport['producer_exit']}
+        self.assertFalse(c.load_target_tar(transport['path'],**args)['qualified'])
+        for key,value in [('expected_source_sha256','f'*64),('expected_body_source_sha256','e'*64),
+          ('expected_observation',{**x.observation,'id':'c'*32}),
+          ('expected_financial_pins',{**x.observation['financial_pins'],'sdk_commit':'d'*40}),
+          ('expected_history_identity',{**x.expected,'inode':x.expected['inode']+1}),
+          ('expected_policy_sha256','b'*64)]:
+            with self.subTest(key=key),self.assertRaises(ValueError):c.load_target_tar(transport['path'],**{**args,key:value})
+    def test_failed_unknown_bool_or_changed_actual_process_status_refuses_transport(self):
+        for accessor in [lambda:1,lambda:None,lambda:False]:
+            with self.assertRaises(ValueError):c.decode_transport(self.path,producer_exit=accessor)
+        statuses=iter([0,1])
+        with self.assertRaises(ValueError):c.decode_transport(self.path,producer_exit=lambda:next(statuses))
