@@ -106,7 +106,23 @@ def native_wallet(raw, wallet):
 
 
 def run_proof(tool, request):
-    """Execute the admitted pure verifier and retain its exact private originals."""
+    """Existing A/B/Full proof contract: canonical JSON, unchanged2MiB input."""
+    return _run_proof_bytes(tool, canonical(request).encode(), 2*1024*1024)
+
+
+def run_c_captured_audit(tool, request_raw):
+    """Fixed C captured-byte ABI, not a caller-selected limit or JSON rewrite.
+
+    The typed C caller separately admits the exact native tool/runtime/source.
+    Existing2MiB output and12s subdeadline remain; the full observation keeps
+    its existing absolute deadline. Private originals never enter public Trace.
+    """
+    if not isinstance(request_raw,bytes):raise ValueError('exact private C audit bytes required')
+    return _run_proof_bytes(tool, request_raw, 32*1024*1024)
+
+
+def _run_proof_bytes(tool, encoded, maximum_input):
+    """Existing single pure-child lifecycle and exclusive private evidence."""
     command = tool['command']; binary = Path(command[0]); parent = Path(tool['evidence_directory'])
     if (not binary.is_absolute() or binary.is_symlink() or not binary.is_file()
             or digest(binary.read_bytes()) != tool['sha256']):
@@ -118,8 +134,7 @@ def run_proof(tool, request):
     def save(name, raw):
         with os.fdopen(os.open(directory/name, os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW, 0o600), 'wb') as stream:
             stream.write(raw); stream.flush(); os.fsync(stream.fileno())
-    encoded = canonical(request).encode()
-    if len(encoded) > 2*1024*1024: raise ValueError('private proof input exceeds bound')
+    if len(encoded) > maximum_input: raise ValueError('private proof input exceeds bound')
     save('request.json', encoded)
     try:
         reply = subprocess.run(command, input=encoded, capture_output=True, timeout=source_timeout(12))
