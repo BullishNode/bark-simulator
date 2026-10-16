@@ -22,7 +22,7 @@ m=json.loads(Path(sys.argv[1]).read_text());phase=sys.argv[2]
 assert m['network']=='regtest' and m['core_url'].startswith('http://127.0.0.1:')
 profile=fixture_profile(m)
 os.environ['SIM_DRIVER_CONFIG']=m['driver_config']
-cfg=Config(architecture_profile=profile,state_dir=Path(m['state_dir']),wallet_root=Path(m['wallet_root']),
+cfg=Config(architecture_profile=profile,expected_sdk_commit=m.get('sdk_commit'),state_dir=Path(m['state_dir']),wallet_root=Path(m['wallet_root']),
     observer_command=(sys.executable,str(ROOT/'integration/regtest-client.py'),'observer',sys.argv[1]),
     driver_command=(m['driver'],),expected_genesis=m['genesis'],expected_container='regtest-local-captaind',
     expected_image='sha256:'+m['server_binary_sha256'],expected_server_pubkey=m['server_pubkey'],

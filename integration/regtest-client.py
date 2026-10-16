@@ -17,7 +17,7 @@ from simulator.engine import Engine,initialize
 from simulator.store import Store
 from simulator.report import generate
 from simulator.raw_cases import RAW_CASES
-from integration.fixture_runtime import fixture_profile
+from integration.fixture_runtime import fixture_profile,fixture_observation_fields
 
 mode=sys.argv[1];manifest=Path(sys.argv[2]);m=json.loads(manifest.read_text())
 profile=fixture_profile(m)
@@ -35,7 +35,7 @@ def rpc(method,*args):
     return response['result']
 
 def config():
-    return Config(architecture_profile=profile,state_dir=Path(m['state_dir']),wallet_root=Path(m['wallet_root']),
+    return Config(architecture_profile=profile,expected_sdk_commit=m.get('sdk_commit'),state_dir=Path(m['state_dir']),wallet_root=Path(m['wallet_root']),
         observer_command=(sys.executable,str(Path(__file__).resolve()),'observer',str(manifest)),
         driver_command=(m['driver'],),expected_genesis=m['genesis'],expected_container='regtest-local-captaind',
         expected_image='sha256:'+m['server_binary_sha256'],expected_server_pubkey=m['server_pubkey'],
@@ -55,7 +55,7 @@ if mode=='observer':
         'server_pubkey':info['data']['server_pubkey']},'observed_at':time.time(),'height':after['blocks'],
         'tip_hash':after['bestblockhash'],'stable_tip':before['bestblockhash']==after['bestblockhash'],
         'initial_block_download':after['initialblockdownload'],'server_status':{'status':'running'},
-        'complete':False,'rounds_confirmed_sat':None,'validation_scope':'isolated fixture; full capital is separately audited'}))
+        **fixture_observation_fields(m),'complete':False,'rounds_confirmed_sat':None,'validation_scope':'isolated fixture; full capital is separately audited'}))
 elif mode=='fixture_backup':
     # The explicit fixture saves its private recovery backup while online.
     store=Store(Path(m['state_dir']),'live',m.get('fee_budget_sat',10000),architecture_profile=profile)

@@ -3,7 +3,7 @@
 from pathlib import Path
 import argparse, datetime, fcntl, hashlib, json, os, shutil, subprocess, time, sys
 import fixture_runtime as runtime
-from sdk_source import fixture_source_receipt
+from sdk_source import fixture_source_receipt, fixture_driver_sdk_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--architecture-profile',choices=['two_step_per_key','direct_xpub','direct_per_key'],help='explicit native fixture profile; omitted only for historical unprofiled Track B')
     parser.add_argument('--sdk-source',type=Path,default=ROOT/'fixture-source',help='isolated compatible SDK fixture checkout')
     parser.add_argument('--sdk-commit',default=HEAD,help='exact 40-character SDK commit; default is the historical fixture baseline')
+    parser.add_argument('--driver-sdk-commit',help='exact qualified driver SDK commit; required with an explicit architecture profile')
     parser.add_argument('--sdk-tree',help='optional exact committed SDK tree to verify in addition to the commit')
     parser.add_argument('--product-bin-dir',type=Path,default=ROOT/'source/target/debug',help='compatible product executable directory')
     parser.add_argument('--independent-target',action='store_true',help='use this simulator own target and lease; never share a suite slot')
@@ -35,11 +36,18 @@ def main():
     with open(lock, 'a') as lease:
         fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
         sdk_source = fixture_source_receipt(CLONE,args.sdk_commit,ROOT/'integration/simulator_vertical.rs',expected_tree=args.sdk_tree)
+        driver_sdk = None
+        if args.architecture_profile is not None:
+            driver_sdk = fixture_driver_sdk_receipt(CLONE,args.driver_sdk_commit,sdk_source['head'])
+        elif args.driver_sdk_commit is not None:
+            raise ValueError('driver SDK pin requires an explicit fixture architecture profile')
         harness = CLONE / 'testing/tests/bark_sdk/simulator_vertical.rs'
         env=os.environ.copy()
         env.pop('SIMULATOR_ARCHITECTURE_PROFILE',None)
+        env.pop('SIMULATOR_DRIVER_SDK_COMMIT',None)
         if args.architecture_profile is not None:
             env['SIMULATOR_ARCHITECTURE_PROFILE']=args.architecture_profile
+            env['SIMULATOR_DRIVER_SDK_COMMIT']=driver_sdk['sdk_commit']
         for name in ('TEST_POSTGRES_HOST','LIGHTNINGD_EXEC'):env.pop(name,None)
         env.setdefault('CARGO_BUILD_JOBS','4')
         env.setdefault('POSTGRES_BINS','/usr/lib/postgresql/16/bin')
@@ -57,7 +65,7 @@ def main():
         module='round_adoption::' if args.test=='simulator_confirmed_round_scheduler_cycle' else ''
         name = 'simulator_vertical::'+module+args.test
         decl = {'utc': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'head': sdk_source['head'],
-                'sdk_source':sdk_source,'architecture_profile':args.architecture_profile,'fixture_git_hash':env['GIT_HASH'],
+                'sdk_source':sdk_source,'driver_sdk_source':driver_sdk,'architecture_profile':args.architecture_profile,'fixture_git_hash':env['GIT_HASH'],
                 'qualification_scope':'isolated REGTEST harness only; caller-selected SDK pin does not port architecture-specific economic/identity contracts',
                 'test': name, 'harness_sha256': digest(harness), 'runner_sha256': digest(__file__),
                 'binaries': {p.name: digest(p) for p in PRODUCTION.iterdir()},

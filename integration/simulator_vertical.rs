@@ -19,6 +19,11 @@ fn write_profiled(path: &Path, value: &Value) {
                 "unsupported fixture architecture profile");
             value.as_object_mut().expect("fixture config must be an object")
                 .insert("architecture_profile".to_owned(), json!(profile));
+            let sdk = std::env::var("SIMULATOR_DRIVER_SDK_COMMIT")
+                .expect("explicit fixture requires the qualified driver SDK pin");
+            assert!(sdk.len() == 40 && sdk.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
+                "full lowercase driver SDK commit required");
+            value.as_object_mut().unwrap().insert("sdk_commit".to_owned(), json!(sdk));
         },
         Err(std::env::VarError::NotPresent) => {}, // Historical Track B fixture.
         Err(error) => panic!("invalid fixture architecture profile: {error}"),

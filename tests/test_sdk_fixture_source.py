@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import unittest
 
-from integration.sdk_source import fixture_source_receipt
+from integration.sdk_source import fixture_source_receipt, fixture_driver_sdk_receipt
 
 
 class FixtureSourceTests(unittest.TestCase):
@@ -70,3 +70,31 @@ class FixtureSourceTests(unittest.TestCase):
         self.harness.symlink_to(self.expected)
         with self.assertRaisesRegex(ValueError, 'regular source'):
             self.inspect()
+
+
+class DriverSdkSourceTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory(dir='/dev/shm');self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name);self.git('init','-q')
+        (self.root/'bark').mkdir();(self.root/'bark/lib.rs').write_text('actual SDK source\n')
+        self.commit('SDK');self.sdk=self.git('rev-parse','HEAD')
+    def git(self,*args):
+        return subprocess.check_output(['git','-C',str(self.root),*args],stderr=subprocess.PIPE,text=True).strip()
+    def commit(self,name):
+        self.git('add','.');self.git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid',
+            '-c','commit.gpgsign=false','-c','core.hooksPath=/dev/null','commit','-qm',name)
+    def test_actual_test_only_child_keeps_sdk_identity(self):
+        (self.root/'testing').mkdir();(self.root/'testing/helper.rs').write_text('restored test helper\n')
+        self.commit('test-only helper');head=self.git('rev-parse','HEAD')
+        got=fixture_driver_sdk_receipt(self.root,self.sdk,head)
+        self.assertEqual(self.sdk,got['sdk_commit']);self.assertEqual(['testing/helper.rs'],got['test_only_committed_paths'])
+    def test_production_change_is_not_mislabeled_test_only(self):
+        (self.root/'bark/lib.rs').write_text('different SDK source\n');self.commit('SDK changed')
+        with self.assertRaisesRegex(ValueError,'outside tests'):
+            fixture_driver_sdk_receipt(self.root,self.sdk,self.git('rev-parse','HEAD'))
+    def test_omitted_invalid_unknown_and_nonancestor_pins_refuse(self):
+        for sdk in (None,'HEAD','A'*40,'0'*40):
+            with self.subTest(sdk=sdk),self.assertRaises(ValueError):
+                fixture_driver_sdk_receipt(self.root,sdk,self.sdk)
+        self.git('checkout','--orphan','unrelated');self.git('rm','-rf','.');(self.root/'new').write_text('unrelated\n');self.commit('unrelated')
+        with self.assertRaises(ValueError):fixture_driver_sdk_receipt(self.root,self.sdk,self.git('rev-parse','HEAD'))

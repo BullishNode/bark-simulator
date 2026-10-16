@@ -54,3 +54,27 @@ def fixture_source_receipt(source, expected_commit, harness_source, *, expected_
         raise ValueError('fixture SDK changed during source observation')
     return {'head': head, 'tree': tree, 'overlay_sha256': hashes,
             'scope': 'exact source provenance only; architecture-specific harness qualification is separate'}
+
+
+def fixture_driver_sdk_receipt(source, sdk_commit, harness_commit):
+    """Separate the qualified driver SDK from a test-only harness child.
+
+    The launcher's immutable executable declaration supplies the driver hash.
+    This check proves the selected harness has the same committed SDK bytes;
+    it does not turn metadata into financial readiness.
+    """
+    for value in (sdk_commit, harness_commit):
+        if not isinstance(value, str) or not re.fullmatch(r'[0-9a-f]{40}', value):
+            raise ValueError('explicit fixture requires an exact qualified driver SDK commit')
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(source), *args], stderr=subprocess.PIPE)
+    try:
+        git('merge-base', '--is-ancestor', sdk_commit, harness_commit)
+        changed = git('diff', '--name-only', sdk_commit, harness_commit, '--').decode().splitlines()
+    except subprocess.CalledProcessError as exc:
+        raise ValueError('qualified driver SDK is not the declared harness ancestor') from exc
+    if any(not path.startswith('testing/') for path in changed):
+        raise ValueError('fixture harness differs from qualified SDK outside tests')
+    return {'sdk_commit': sdk_commit, 'harness_commit': harness_commit,
+            'test_only_committed_paths': changed,
+            'scope': 'Git SDK byte identity; qualified executable hash is separately declared'}

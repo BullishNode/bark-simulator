@@ -20,8 +20,8 @@ class FixtureProfileTests(unittest.TestCase):
         self.path.write_text('{}')
 
     def pair(self,declared,driver):
-        self.manifest['architecture_profile']=declared
-        self.path.write_text(json.dumps({'architecture_profile':driver}))
+        self.manifest.update(architecture_profile=declared,sdk_commit='1'*40)
+        self.path.write_text(json.dumps({'architecture_profile':driver,'sdk_commit':'1'*40}))
         return runtime.fixture_profile(self.manifest)
 
     def test_historical_unprofiled_B_unchanged(self):
@@ -71,6 +71,51 @@ class FixtureProfileTests(unittest.TestCase):
         self.pair('two_step_per_key','two_step_per_key');before=self.path.read_bytes()
         runtime.fixture_profile(self.manifest)
         self.assertEqual(self.path.read_bytes(),before)
+
+    def test_profiled_config_requires_same_actual_sdk_pin(self):
+        self.pair('two_step_per_key','two_step_per_key')
+        for value in (None, 'short', 'G'*40, '2'*40):
+            with self.subTest(value=value):
+                self.manifest['sdk_commit']=value
+                with self.assertRaises(ValueError):runtime.fixture_profile(self.manifest)
+
+    def test_actual_fixture_config_constructor_receives_qualified_sdk(self):
+        # Execute the actual constructor definition without its script CLI or RPCs.
+        import sys
+        from simulator.config import Config
+        self.pair('two_step_per_key','two_step_per_key')
+        source=ROOT/'integration/regtest-client.py'
+        tree=ast.parse(source.read_text())
+        definition=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='config')
+        manifest={**self.manifest,'state_dir':str(Path(self.tmp.name)/'state'),
+            'wallet_root':str(Path(self.tmp.name)/'wallets'),'driver':'driver','proof':'proof',
+            'core_url':'http://127.0.0.1:1234','core_cookie':'cookie',
+            'genesis':'0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206',
+            'server_pubkey':'02'+'b'*64,'server_binary_sha256':'a'*64}
+        namespace={'Config':Config,'Path':Path,'sys':sys,'m':manifest,
+                   'profile':runtime.fixture_profile(manifest),'manifest':self.path,'__file__':str(source)}
+        exec(compile(ast.Module(body=[definition],type_ignores=[]),str(source),'exec'),namespace)
+        actual=namespace['config']()
+        self.assertEqual('two_step_per_key',actual.architecture_profile)
+        self.assertEqual('1'*40,actual.expected_sdk_commit)
+
+    def test_observation_metadata_satisfies_real_config_identity_gate(self):
+        from simulator.config import Config
+        self.pair('two_step_per_key','two_step_per_key')
+        cfg=Config(Path(self.tmp.name)/'state',('observer',),(),Path(self.tmp.name)/'wallets',
+                   '0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206',
+                   'regtest-local-captaind','sha256:'+'a'*64,'02'+'b'*64,
+                   10000,1,10,False,network='regtest',architecture_profile='two_step_per_key',expected_sdk_commit='1'*40)
+        snapshot={'identity':{'network':'regtest','genesis':cfg.expected_genesis,'container':cfg.expected_container,
+                             'image_digest':cfg.expected_image,'server_pubkey':cfg.expected_server_pubkey},
+                  **runtime.fixture_observation_fields(self.manifest),'complete':False}
+        cfg.validate_identity(snapshot)
+        self.assertFalse(snapshot['complete'])
+        snapshot['financial_pins']['sdk_commit']='2'*40
+        with self.assertRaises(ValueError):cfg.validate_identity(snapshot)
+
+    def test_legacy_observation_does_not_invent_sdk_or_financial_readiness(self):
+        self.assertEqual({},runtime.fixture_observation_fields(self.manifest))
 
     def test_all_actual_client_stores_receive_bound_profile(self):
         total=0

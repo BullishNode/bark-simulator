@@ -121,4 +121,17 @@ def fixture_profile(manifest):
             or profile not in {'two_step_per_key', 'direct_xpub', 'direct_per_key'}
             or driver.get('architecture_profile') != profile):
         raise ValueError('fixture and driver architecture profiles differ')
+    sdk = manifest.get('sdk_commit')
+    if (not isinstance(sdk, str) or len(sdk) != 40
+            or any(c not in '0123456789abcdef' for c in sdk)
+            or driver.get('sdk_commit') != sdk):
+        raise ValueError('fixture and driver require the same qualified SDK commit')
     return profile
+
+
+def fixture_observation_fields(manifest):
+    profile = fixture_profile(manifest)
+    if profile is None:
+        return {}
+    return {'architecture_profile': profile,
+            'financial_pins': {'sdk_commit': manifest['sdk_commit']}}
