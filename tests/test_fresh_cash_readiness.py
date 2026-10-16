@@ -171,7 +171,7 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
         source=result['source'];self.assertEqual(664454,source['total_sat']);self.assertEqual(OPERATIONS,source['operation_scope'])
         self.assertEqual(6,len(source['inventory_sequences']));self.assertEqual(self.actors,source['actors'])
         self.assertEqual(0,self.store.db.execute("SELECT count(*) FROM event WHERE kind='financial_operating_readiness'").fetchone()[0])
-    async def test_actual_thirteen_descriptor_shape_uses_one_scan_and_seventeen_refuses(self):
+    async def test_thirteen_and_seventeen_descriptors_scan_but_total_script_overflow_refuses(self):
         from simulator.fresh_cash_readiness import collect_fresh_cash_sources
         bank=next(member for member in self.members if member['id']=='bank')
         for index in range(7):
@@ -188,7 +188,12 @@ class CashSourceControls(unittest.IsolatedAsyncioTestCase):
             descriptor='desc-bank-extra'+str(index);bank['descriptors'].append(descriptor)
             self.initial['descriptor_ranges'].append({'desc':descriptor,'range':[0,19]})
         calls.clear()
-        with self.dependencies(),self.assertRaisesRegex(ValueError,'descriptor/script bound'):
+        with self.dependencies():
+            result=await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
+        self.assertEqual([17],[len(rows) for rows in calls])
+        self.assertEqual(664454,result['source']['total_sat'])
+        calls.clear()
+        with self.dependencies(frontier=1979),self.assertRaisesRegex(ValueError,'descriptor/script bound'):
             await collect_fresh_cash_sources(self.store,self.config,self.chain,None,current_startup_path='/synthetic-only')
         self.assertEqual([],calls)
 

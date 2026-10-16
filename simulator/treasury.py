@@ -12,6 +12,7 @@ from .final_campaign import _pins, _source_event
 KEY='conserved_treasury_boundary'
 ROLES={'operator','customer','funding_bank','forwarder','fixture_peer'}
 KINDS={'wallet','ark_backing','lightning_peer'}
+MAX_MEMBERS=1024
 
 
 def _cln_cash(store,member,entry,declaration,tip,height,confirmations,sources):
@@ -75,7 +76,7 @@ def _members(declaration):
     _pins(declaration['pins']);public_payload(declaration)
     if not isinstance(declaration['id'],str) or not 1<=len(declaration['id'])<=100:
         raise ValueError('boundary identifier missing')
-    if not isinstance(declaration['members'],list) or not 1<=len(declaration['members'])<=1024:
+    if not isinstance(declaration['members'],list) or not 1<=len(declaration['members'])<=MAX_MEMBERS:
         raise ValueError('bounded actual treasury members required')
     members={};identities=set()
     for member in declaration['members']:

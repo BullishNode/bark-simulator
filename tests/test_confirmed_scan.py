@@ -112,6 +112,106 @@ class ConfirmedScanControls(unittest.TestCase):
         self.assertEqual(0,self.scans());self.assertFalse(any(args and args[0]=='abort' for method,args in self.calls))
 
 
+class CohortScanCoverageControls(unittest.TestCase):
+    """Actual Store/TraceStore with synthetic Core; no live financial credit."""
+    def setUp(self):
+        self.fixture = ConfirmedScanControls()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.tearDown)
+
+    def cohort(self, customers):
+        f = self.fixture
+        f.members = []
+        for owner in ['bank', 'rounds', 'watchman', *[
+                'actor-%02d' % number for number in range(1, customers + 1)]]:
+            descriptors = (['public-bank-%d' % number for number in range(8)]
+                           if owner == 'bank' else [owner + '-external', owner + '-internal'])
+            f.members.append({'id': owner, 'identity': 'owned-' + owner,
+                'kind': 'wallet', 'role': 'customer' if owner.startswith('actor-') else 'operator',
+                'descriptors': descriptors})
+        f.members.extend({'id': 'cln-%d' % number, 'identity': 'node-%d' % number,
+            'kind': 'lightning_peer', 'role': 'fixture_peer', 'descriptors': []}
+            for number in range(2))
+        f.specs = {descriptor: [0, 19] for member in f.members
+                   for descriptor in member['descriptors']}
+        f.context['owners'] = copy.deepcopy(f.members)
+        script = 'actor-%02d-internal:19' % customers
+        f.rows = [{'txid': 'b' * 64, 'vout': 0, 'amount': '0.00001000',
+                   'scriptPubKey': script}]
+        return script
+
+    def test_initial12_and_final24_include_all_wallets_and_both_nodes(self):
+        f = self.fixture
+        for customers in (12, 24):
+            with self.subTest(customers=customers):
+                script = self.cohort(customers)
+                scripts, coverage, result, source = f.scan()
+                self.assertEqual(customers + 5, len(f.members))
+                self.assertEqual((customers + 2) * 2 + 8, len(coverage))
+                self.assertEqual(20 * len(coverage), len(scripts))
+                self.assertEqual('actor-%02d' % customers, scripts[script]['member_id'])
+                self.assertEqual(f.rows, result['unspents'])
+                self.assertFalse(source['reused'])
+                _, original = scans._source_event(f.store, source['original_scan_sequence'])
+                self.assertEqual(f.members, original['identity']['owners'])
+        self.assertEqual(2, f.scans())
+
+    def test_missing_last_descriptor_or_foreign_spec_refuses_before_rpc(self):
+        f = self.fixture
+        self.cohort(24)
+        descriptor = 'actor-24-internal'
+        original = f.specs.pop(descriptor)
+        with self.assertRaisesRegex(ValueError, 'coverage'):
+            f.scan()
+        f.specs[descriptor] = original
+        f.specs['foreign-wallet'] = [0, 19]
+        with self.assertRaisesRegex(ValueError, 'membership'):
+            f.scan()
+        self.assertEqual([], f.calls)
+
+    def test_exact_2000_scripts_and_100_descriptors_fit_existing_work_bound(self):
+        f = self.fixture
+        descriptors = ['public-bounded-%03d' % number for number in range(100)]
+        f.members[0]['descriptors'] = descriptors
+        f.specs = {descriptor: [0, 19] for descriptor in descriptors}
+        f.context['owners'] = copy.deepcopy(f.members)
+        f.rows[0]['scriptPubKey'] = descriptors[-1] + ':19'
+        scripts, coverage, _, _ = f.scan()
+        self.assertEqual(2000, len(scripts))
+        self.assertEqual(100, len(coverage))
+        self.assertEqual(1, f.scans())
+
+    def test_2001st_script_and_101st_descriptor_refuse_before_rpc(self):
+        f = self.fixture
+        descriptors = ['public-bounded-%03d' % number for number in range(101)]
+        f.members[0]['descriptors'] = descriptors[:100]
+        f.specs = {descriptor: [0, 19] for descriptor in descriptors[:100]}
+        f.specs[descriptors[-2]] = [0, 20]
+        with self.assertRaisesRegex(ValueError, 'bound'):
+            f.scan()
+        f.members[0]['descriptors'] = descriptors
+        f.specs = {descriptor: [0, 19] for descriptor in descriptors}
+        with self.assertRaisesRegex(ValueError, 'bound'):
+            f.scan()
+        self.assertEqual([], f.calls)
+
+    def test_duplicate_member_or_descriptor_and_existing_treasury_cap_refuse(self):
+        f = self.fixture
+        self.cohort(24)
+        f.members.append(copy.deepcopy(f.members[-1]))
+        with self.assertRaisesRegex(ValueError, 'owners'):
+            f.scan()
+        f.members.pop()
+        f.members[-3]['descriptors'][0] = f.members[0]['descriptors'][0]
+        with self.assertRaisesRegex(ValueError, 'coverage'):
+            f.scan()
+        f.members = [{'id': 'node-%d' % number, 'descriptors': []}
+                     for number in range(1025)]
+        with self.assertRaisesRegex(ValueError, 'owners'):
+            f.scan()
+        self.assertEqual([], f.calls)
+
+
 class ScanIdentityControls(unittest.TestCase):
     def setUp(self):
         from tests.test_identity_bootstrap import IdentityBootstrapTests
