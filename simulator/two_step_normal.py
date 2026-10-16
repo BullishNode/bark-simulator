@@ -21,6 +21,8 @@ from .final_campaign import _source_event
 from .financial_transition import _current_claims, _superseded_ark_input, history, recorded
 from .model import SIGNET_GENESIS, btc_to_sat, canonical, integer, public_payload, timestamp
 from .normal_native_fee import verify_native_fee_epoch
+from .normal_money_sources import collect_money_sources
+from .normal_money_join import journal_money_sources
 from .normal_recovered_backing import bind_native_claim, verify_recovered_backing
 from .operating_limits import PATHS, fee_totals
 from .target_epochs import active_identity
@@ -315,16 +317,39 @@ def transaction_or_absent(store, chain, txid):
         return None
 
 
-def native_fee_exposure(tables, checked_fee, chain, costs, *, store=None):
+def verified_zero_carriers(chain, carriers):
+    """Recheck exact confirmed zero-fee bodies; zero never creates a cost event."""
+    result = set()
+    if not isinstance(carriers, dict) or len(carriers) > 10000:
+        raise ValueError('bounded authenticated zero-fee carriers required')
+    for txid, evidence in carriers.items():
+        actual = chain.tx(txid); priced = chain.transaction(txid)
+        if (evidence.get('txid') != txid or type(evidence.get('fee_sat')) is not int
+                or evidence['fee_sat'] != 0 or priced['txid'] != txid
+                or type(priced['fee_sat']) is not int or priced['fee_sat'] != 0
+                or actual.get('confirmations', 0) < 1 or priced.get('confirmations', 0) < 1
+                or evidence['blockhash'] != actual.get('blockhash')
+                or priced.get('blockhash') != actual.get('blockhash')
+                or digest(bytes.fromhex(actual['hex'])) != evidence['raw_sha256']):
+            raise ValueError('confirmed zero fee differs from actual independent Core body/parents')
+        result.add(txid)
+    return result
+
+
+def native_fee_exposure(tables, checked_fee, chain, costs, *, store=None, zero_fee_carriers=None):
     """Signed reservations may not be relabeled paid or charged as two expenses."""
     confirmed = {'ordinary':0, 'urgent':0}; actual_ids = set(); physical = set()
+    zeros = {} if zero_fee_carriers is None else zero_fee_carriers
+    zero_ids = verified_zero_carriers(chain, zeros)
     for row in tables['fee_allowance_candidate']:
         candidate = strict_json(bytes.fromhex(row['candidate_bytes_hex']))
         tx = decode_transaction(bytes(candidate['raw']).hex()); physical.add(tx['txid'])
         actual = transaction_or_absent(store, chain, tx['txid'])
         if actual is None or actual.get('confirmations', 0) < 1: continue
         cost = costs.get(tx['txid'])
-        if (cost is None or cost['amount_msat'] != row['fee_sat']*1000
+        zero = (tx['txid'] in zero_ids and row['fee_sat'] == 0 and cost is None
+            and zeros[tx['txid']]['budget'] == ('urgent' if row['urgent'] else 'ordinary'))
+        if not zero and (cost is None or cost['amount_msat'] != row['fee_sat']*1000
                 or cost['budget'] != ('urgent' if row['urgent'] else 'ordinary')):
             raise ValueError('confirmed native carrier lacks its exact once-only miner cost')
         # Distinct wtxids may represent the same chain transaction. Core names
@@ -449,7 +474,8 @@ class Collector:
         from .financial_components import inspect as inspect_components
         hashes = {'adapter':digest(Path(__file__).read_bytes()), 'capture':module_hash(self.capture),
             'financial_components':module_hash(inspect_components),
-            'native_fee':module_hash(verify_native_fee_epoch), 'recovered_backing':module_hash(bind_native_claim)}
+            'native_fee':module_hash(verify_native_fee_epoch), 'recovered_backing':module_hash(bind_native_claim),
+            'money_sources':module_hash(collect_money_sources), 'money_join':module_hash(journal_money_sources)}
         if (event['kind'] != 'normal_financial_collector_qualified' or value['financial_pins'] != pins
                 or value['component_sha256'] != hashes
                 or value['proof_tool_sha256'] != {name:tool['sha256'] for name,tool in self.tools.items()}
@@ -560,15 +586,24 @@ class Collector:
             expected_history_identity=admitted['fee_history_identity'],
             expected_opening_digest=admitted['native_opening_digest'], expected_epoch_id=admitted['native_epoch_id'],
             history=captured['fee_history'])
+        money = collect_money_sources(store, chain, financial_pins=boundary['pins'],
+            boundary_members=members, native_tables=tables, native_fee=fee,
+            native_source_sha256=source['original_sha256']['native_sql'],
+            native_member_ids={'rounds':source['rounds_member_id'], 'watchman':source['watchman_member_id']},
+            height=source['height'], tip_hash=source['tip_hash'], funding_intents=())
+        source_event, source = journal_money_sources(store, money, source_event, source,
+            helper_sha256=module_hash(collect_money_sources))
         limits = {name:fee['ordinary_signed_ceiling_sat_kvb'] for name in PATHS-{'claim','progression'}}
         limits.update({name:min(fee['urgent_child_signed_ceiling_sat_kvb'], fee['urgent_package_signed_ceiling_sat_kvb']) for name in ('claim','progression')})
         if limits != envelope['fee_ceilings_sat_kvb']: raise ValueError('envelope differs from actual signed native path ceilings')
         flows, costs = verified_money(store, chain, source, opening=opening)
-        pending_fees, native_txids = native_fee_exposure(tables, fee, chain, costs, store=store)
+        pending_fees, native_txids = native_fee_exposure(tables, fee, chain, costs, store=store,
+            zero_fee_carriers=money['zero_fee_carriers'])
         funding = {row['txid'] for row in tables['virtual_transaction'] if row['is_funding'] is True}
-        if (funding | {row['id'] for row in tables['recovery_receipt']})-set(costs):
+        if (funding | {row['id'] for row in tables['recovery_receipt']})-(set(costs) | set(money['zero_fee_carriers'])):
             raise ValueError('native physical funding/recovery carrier missing actual monetary cost')
-        if recovered and any(costs.get(row['txid'], {}).get('amount_msat') != row['mining_fee_sat']*1000 for row in recovered['receipts']):
+        if recovered and any((row['mining_fee_sat'] != 0 or row['txid'] not in money['zero_fee_carriers'])
+                and costs.get(row['txid'], {}).get('amount_msat') != row['mining_fee_sat']*1000 for row in recovered['receipts']):
             raise ValueError('original recovery Sweep fee must be counted exactly once')
         edge = reconcile_edge({'total_msat':0} if opening is None else opening['opening_assets'],
             assets, flows, source['pending_liabilities'], members)

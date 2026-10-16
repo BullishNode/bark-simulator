@@ -80,3 +80,16 @@ accounting before emitting financial_operating_readiness. Unsupported nonempty
 round, pool, HTLC, offboard, settlement or nursery domains explicitly hold until
 an actual resolver exists. Source refusal retains private partials and original
 journal history. No fallback complete=true path exists.
+
+
+Confirmed costs additionally require the exact qualified `normal_money_sources`
+and `normal_money_join` module hashes in `component_sha256`. The collector runs
+that verifier after native policy/history verification and appends positive
+miner-cost events plus an original-source-linked `normal_financial_source_cost_join`
+event. It preserves every original monetary record and source sequence. Internal
+Board service charges stay separate from miner costs. Confirmed zero-fee carriers
+have body/parent evidence and are independently rechecked without creating an
+expense; signed unconfirmed carriers remain reservations. Any funding intent is
+explicitly refused until independent original input and destination ownership
+joins are qualified. This version cannot import bank funding from a declaration
+or amount alone, and cannot supply missing historical injection records.

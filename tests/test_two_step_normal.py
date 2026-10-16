@@ -274,7 +274,8 @@ class AdmissionTests(StoreTests):
         from simulator.financial_components import inspect as inspect_components
         self.value={'financial_pins':PINS,'component_sha256':{'adapter':adapter.digest(Path(adapter.__file__).read_bytes()),
             'capture':adapter.module_hash(self.capture),'native_fee':adapter.module_hash(adapter.verify_native_fee_epoch),
-            'recovered_backing':adapter.module_hash(adapter.bind_native_claim),'financial_components':adapter.module_hash(inspect_components)},
+            'recovered_backing':adapter.module_hash(adapter.bind_native_claim),
+            'money_sources':adapter.module_hash(adapter.collect_money_sources),'money_join':adapter.module_hash(adapter.journal_money_sources),'financial_components':adapter.module_hash(inspect_components)},
             'proof_tool_sha256':{name:tool['sha256'] for name,tool in self.tools.items()},
             'proof_commands_sha256':{name:adapter.digest(canonical(tool['command']).encode()) for name,tool in self.tools.items()}}
     def admit(self):self.collector.admission_sequence=self.event('normal_financial_collector_qualified',self.value)
