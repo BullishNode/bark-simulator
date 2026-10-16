@@ -86,8 +86,19 @@ def public_wallet_projection(member, raw, *, height, tip_hash):
     This is not a native wallet-known fee-cash claim. The normal treasury still
     independently checks every output against its declared public descriptor.
     """
-    if (member['role'] not in {'customer','funding_bank'}
-            or raw['source_kind'] not in {'core_wallet_rpc','public_descriptor_activity','core_descriptor_scan'}
+    if member['role'] not in {'customer','funding_bank'}:
+        raise ValueError('actual non-fee public wallet source/discovery unresolved')
+    return _public_wallet_rows(member, raw, height=height, tip_hash=tip_hash)
+
+
+def _public_wallet_rows(member, raw, *, height, tip_hash):
+    """Shared row checks; callers must separately authenticate the member role.
+
+    The public A/B entry retains its original role gate. Fixed C bank callers
+    first prove their exact declared operator bank and actual named-wallet
+    source; this helper does not grant a role or funding authority.
+    """
+    if (raw['source_kind'] not in {'core_wallet_rpc','public_descriptor_activity','core_descriptor_scan'}
             or raw['network'] != 'signet' or (raw['height'],raw['tip_hash']) != (height,tip_hash)
             or raw['pending_transactions'] or raw['discovery_gaps']
             or raw['public_descriptors'] != member['descriptors']
@@ -225,6 +236,7 @@ class SourceCapture:
             runtime = await self.native_profile.collect_runtime(store, config, chain, observation, target)
             owning = await self.native_profile.collect_owning(store, config, chain, observation, self.boundary, target, runtime)
             cln = await self.native_profile.collect_cln(store, config, chain, observation, self.boundary, target, runtime, owning)
+            all_members = await self.native_profile.collect_members(store, config, chain, observation, self.boundary, target, runtime, cln)
             # This source primitive is admitted only for the private source cut.
             # Its whole-member/normal money reducer is not installed yet. Never
             # run generic member consumption against missing A/B source fields.

@@ -83,7 +83,7 @@ class DirectPerKeyProfile:
     public_context_filename = 'c-public-metadata-context.json'
     backing_source_kind = 'c_native_current_backing'
 
-    def __init__(self, target, *, runtime=None, owning=None, cln=None):
+    def __init__(self, target, *, runtime=None, owning=None, cln=None, members=None):
         if type(target) is not CheckedTargetReader:
             raise EvidenceGap('fixed C checked-target reader required')
         from .c_normal_runtime_source import RuntimeSource
@@ -101,6 +101,11 @@ class DirectPerKeyProfile:
             if type(cln) is not ClnBinding:raise EvidenceGap('fixed C two-host CLN binding required')
             cln.check()
         self.cln = cln
+        from .c_normal_member_join import MemberBinding
+        if members is not None:
+            if type(members) is not MemberBinding:raise EvidenceGap('fixed C complete member binding required')
+            members.check()
+        self.members = members
 
     def component_hashes(self):
         result = {'c_profile':digest(Path(__file__).read_bytes()),
@@ -127,7 +132,17 @@ class DirectPerKeyProfile:
             from .c_normal_cln_join import collect
             result['c_cln_join']=module_hash(collect)
             result['c_cln_constructor_sha256']=digest(canonical(self.cln.check()).encode())
+        if self.members is not None:
+            from .c_normal_member_join import collect
+            result['c_member_join']=module_hash(collect)
+            result['c_member_constructor_sha256']=digest(canonical(self.members.check()).encode())
         return result
+
+    async def collect_members(self,store,config,chain,observation,boundary,checked,runtime,cln):
+        if self.members is None:raise EvidenceGap('actual fixed complete C member source is not installed')
+        from .c_normal_member_join import collect
+        return await collect(store,config,chain,observation,boundary=boundary,checked=checked,
+            runtime=runtime,cln=cln,binding=self.members)
 
     async def collect_cln(self,store,config,chain,observation,boundary,checked,runtime,owning):
         if self.cln is None:raise EvidenceGap('actual fixed C two-host CLN source is not installed')
