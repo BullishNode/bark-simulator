@@ -110,9 +110,9 @@ Two actual CLN peers have a confirmed private 200,000-sat channel and a reconcil
 100,000-sat balancing payment. Those are CLN infrastructure results, not Bark
 or offline-LNURL results. A separate Lightning-enabled product profile on the
 same VM awaits the coordinator's checked backend/configuration/pool handoff;
-it must not repin either running campaign. S09 is therefore **not executed**,
-with strict invoice description-hash compatibility still to be established
-from the real callback before any payment. The independent verifier's five
+it must not repin either running campaign. At that preparation checkpoint, S09 had **not executed its callback**. The
+17 October invoice-only execution below now establishes a concrete compatibility
+failure; no financial receive case is complete. The independent verifier's five
 unit tests are not live callback proof. This gap does not block ordinary traffic.
 
 
@@ -194,3 +194,27 @@ was not found; this new binary has its own measured provenance. The verifier
 accepts one JSON policy on stdin and no arguments; it still rejects plain-memo
 invoices without the exact LNURL metadata hash. No live invoice was requested
 by the rebuild or smoke test.
+
+
+## Actual callback rejection — 17 October
+
+[The single actual callback failed strict LNURL invoice verification](evidence/noah-actual-invoice-rejection-20261017.json)
+at 16:11:48 UTC, public Signet height 326772. Stock Noah returned HTTP 200 and
+an actual 5,000-sat invoice through a newly admitted isolated Ark/CLN profile,
+authenticated fresh native provider and absent recipient. The unchanged verifier
+rejected it with `LNURL metadata hash missing; plain description is incompatible`.
+This replaces the source prediction above with measured invoice evidence.
+
+The exact original response, invoice, metadata bytes, policy and verifier outputs
+are retained privately and bound by public hashes. No payment was made, no invoice
+was regenerated, and verification was not relaxed. The old zero-funded provider
+was stopped cleanly and cold-backed up before port handover. Existing ordinary,
+short-repair, Core and CLN service identities remained unchanged.
+
+This is a compatibility blocker for the stock LNURL path, not a completed swap
+or fallback test. The financial goal still requires an actual paid native swap,
+correct conditional/recipient ownership, mailbox delivery or its interruption,
+real expiry, rightful fallback and seed-only confirmed recovery. A genuine
+failed-send/refundable path is separately required. Invoice and CLN results
+cannot substitute for those proofs; any different financial test needs its own
+explicit scope and source/profile/funding pins.
