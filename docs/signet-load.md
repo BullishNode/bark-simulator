@@ -10,6 +10,40 @@ The first cohort has 12 wallets, at most three concurrent disjoint actor pairs,
 workload proposals; no throughput or scalability result exists until actual sends
 are independently reconciled and timed.
 
+The [funded scale follow-up](signet-funded-scale-proposal-20261017.md) proposes
+cumulative 50/200/500 cohorts. The controller's new explicit bounds are 5/10/20
+disjoint concurrent pairs and at most 1,000/1,800/7,200 transfers respectively;
+the original 12-wallet defaults remain. Use `--funding-sat-per-actor 40000` only
+in a newly admitted phase. `--window-seconds` bounds how long new batches can be
+dispatched after the first batch; reaching it before completing the declared
+count holds an incomplete campaign. It is not payment qualification or a minimum
+elapsed-time requirement. Existing campaign parameters cannot be edited in place.
+
+Before each new board, the controller now checks the exact confirmed Core
+outpoints/scripts/amounts against a fresh native on-chain inventory. Undeclared
+extra coins are rejected. The 40,000-sat allocation bounds a 30,000-sat board plus
+10,000 sat combined fee/remaining-output capacity. Actual board miner fees are
+calculated from original Core inputs/outputs; above 1,000 sat is a warning, not
+an invented fee cap or guaranteed reserve. Other outputs are not automatically
+called owned change. There is no native quote/max-fee API in this path.
+
+`simulator.signet_load_phase.import_load_window` cold-copies completed non-absent
+actors into a separate new journal after the original runner is dead and its STOP
+and released lock are verified. It archives the old journal/wallets, pins copied
+wallet configurations and retains original creation heights and native final
+registrations/coins. Its allowed handoffs are 50 to 50/200 and 200 to 500.
+`prepare` reads the existing actors through the actual new CLI without create
+acknowledgements; their new funding request is zero. New native admission must
+match the original server identity, authenticated registrations and final coins.
+Any partial copy remains held for explicit reconciliation. Root must admit the
+actual paired runtime and perform its independent cold server backup/deployment.
+
+The funding request groups only new actors into at most 90-output batches, each
+with a 10,000-sat maximum miner fee proposal. Root must preflight each actual
+PSBT's inputs, outputs and fee; the recipient bound does not guarantee its fee.
+At 3 sat/vB, one 150/300-output funding transaction would exceed that inherited
+ceiling. Every batch has its own original durable intent and single broadcast.
+
 Each actor receives at most 100,000 sat and boards 30,000 sat. Explicit wallet
 configuration sets refresh threshold 144, exit margin 12, and
 `fallback_fee_rate = 750` sat/kWu (3 sat/vB). The latter is Second's supported

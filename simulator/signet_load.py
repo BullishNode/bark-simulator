@@ -10,30 +10,49 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .model import canonical, integer
+from .model import btc_to_sat, canonical, integer
 from .signet import network_identity
 from .signet_checks import confirmed_backing
 from .signet_proof import verify_coin
 
 
+def funding_batches(actors):
+    """Bound recipient count; root still preflights each real signed PSBT fee."""
+    pending = [row for row in actors if integer(row["amount_sat"], "requested actor principal")]
+    return [{"batch_id": f"load-funding-{offset // 90:03d}",
+             "actors": [row["actor"] for row in pending[offset:offset + 90]],
+             "principal_sat": sum(row["amount_sat"] for row in pending[offset:offset + 90]),
+             "maximum_miner_fee_sat": 10000}
+            for offset in range(0, len(pending), 90)]
+
+
 class Load:
     def __init__(self, campaign, *, wallets=12, concurrency=3, transfers=60,
-                 transfer_sat=1000, batch_interval_seconds=10):
+                 transfer_sat=1000, batch_interval_seconds=10,
+                 funding_sat_per_actor=100000, window_seconds=None):
         integer(wallets, "wallet count")
         integer(concurrency, "bounded concurrency", 1)
-        if wallets not in {12, 50} or concurrency > min(5, wallets // 2):
-            raise ValueError("12 or 50 wallets with at most five disjoint concurrent pairs required")
+        bounds = {12: (5, 1000), 50: (5, 1000), 200: (10, 1800), 500: (20, 7200)}
+        if wallets not in bounds or concurrency > min(bounds[wallets][0], wallets // 2):
+            raise ValueError("declared 12/50/200/500 cohort and disjoint concurrency bound required")
+        if integer(funding_sat_per_actor, "actor funding") not in {40000, 100000}:
+            raise ValueError("explicit 40000 or legacy 100000 actor allocation required")
         self.campaign = campaign
         self.parameters = {"wallets": wallets, "concurrency": concurrency,
                            "transfers": integer(transfers, "transfer count", 1),
                            "transfer_sat": integer(transfer_sat, "transfer amount", 1),
                            "batch_interval_seconds": integer(batch_interval_seconds, "batch interval", 1),
-                           "funding_sat_per_actor": 100000, "board_sat_per_actor": 30000,
+                           "funding_sat_per_actor": funding_sat_per_actor, "board_sat_per_actor": 30000,
                            "maximum_offchain_fee_sat": 1000,
                            "wallet_profile": {"vtxo_refresh_expiry_threshold": 144,
                                               "vtxo_exit_margin": 12, "fallback_fee_rate": 750}}
-        if transfers > 1000 or transfer_sat > 5000 or batch_interval_seconds < 5:
+        if transfers > bounds[wallets][1] or transfer_sat > 5000 or batch_interval_seconds < 5:
             raise ValueError("load phase exceeds the declared bounded test workload")
+        if window_seconds is not None:
+            integer(window_seconds, "maximum workload window", 1)
+            if not math.ceil(transfers / concurrency) * batch_interval_seconds <= window_seconds <= 7200:
+                raise ValueError("window must contain the offered schedule and stay within two hours")
+            self.parameters["window_seconds"] = window_seconds
         encoded = canonical(self.parameters)
         campaign.db.execute("INSERT OR IGNORE INTO meta VALUES ('load_parameters',?)", (encoded,))
         if campaign.db.execute("SELECT value FROM meta WHERE key='load_parameters'").fetchone()[0] != encoded:
@@ -49,15 +68,24 @@ class Load:
     def prepare(self):
         """No board or payment; return the actual native funding-address packet."""
         c = self.campaign
+        if c.db.execute("SELECT 1 FROM meta WHERE key='load_import_pending'").fetchone() and not c.db.execute(
+                "SELECT 1 FROM meta WHERE key='load_import_complete'").fetchone():
+            raise ValueError("partial existing-wallet import requires reconciliation")
         if c.db.execute("SELECT 1 FROM meta WHERE key='load_hold'").fetchone():
             raise ValueError("load phase is held for original-outcome reconciliation")
         if c.db.execute("SELECT 1 FROM action WHERE state IN ('unknown','dispatched')").fetchone():
             raise ValueError("load phase has an original unresolved action")
         actors = []
         for actor in self.actors:
-            self.native(actor + "-create", actor, "create", {"wallet_profile": self.parameters["wallet_profile"]})
+            imported = c.db.execute("SELECT value FROM meta WHERE key=?", ("load_existing:" + actor,)).fetchone()
+            if imported:
+                imported = json.loads(imported[0])
+            else:
+                self.native(actor + "-create", actor, "create", {"wallet_profile": self.parameters["wallet_profile"]})
             address = self.native(actor + "-funding-address", actor, "onchain_address")["address"]
             registration = self.native(actor + "-registration", actor, "fallback_record")
+            if imported and registration != imported["registration"]:
+                raise ValueError("existing authenticated registration changed during load handoff")
             self.native(actor + "-ark-address", actor, "address")
             funding = c.core.call("validateaddress", address)
             payout = c.core.call("validateaddress", registration["payout_address"])
@@ -66,22 +94,28 @@ class Load:
                     or address == registration["payout_address"]):
                 raise ValueError("genuine native funding and reserved payout destinations required")
             created = c.db.execute("SELECT chain FROM action WHERE id=?", (actor + "-create",)).fetchone()
-            actors.append({"actor": actor, "address": address, "amount_sat": 100000,
-                           "original_pre_create_height": json.loads(created[0])["height"],
+            actors.append({"actor": actor, "address": address, "amount_sat": 0 if imported else self.parameters["funding_sat_per_actor"],
+                           "existing_native_inventory": imported is not None,
+                           "original_pre_create_height": imported["original_pre_create_height"] if imported else json.loads(created[0])["height"],
                            "funding_address_intent": actor + "-funding-address",
                            "registration_intent": actor + "-registration"})
         if len({actor["address"] for actor in actors}) != len(actors):
             raise ValueError("load funding addresses must be distinct")
         target = self.native("load-native-target-info", self.actors[0], "ark_info")
         if (target["network"] != "signet" or target["vtxo_lifetime"] != 4320
+                or target["vtxo_exit_delta"] != 144
                 or target["required_board_confirmations"] != 3
                 or target["min_board_amount_sat"] > 30000):
             raise ValueError("actual long-profile native target differs")
+        previous = c.db.execute("SELECT value FROM meta WHERE key='load_import_complete'").fetchone()
+        if previous and target["server_pubkey"] != json.loads(previous[0])["server_pubkey"]:
+            raise ValueError("existing wallets cannot move to a different server identity")
         return {"kind": "load_funding_request", "stage": "PREPARED_UNFUNDED",
                 "product_source": c.config["source_commit"], "binary_sha256": c.config["binary_sha256"],
                 "product_config_sha256": c.config["product_config_sha256"],
                 "parameters": self.parameters, "chain": network_identity(c.core), "target": target,
-                "actors": actors, "total_actor_principal_sat": 100000 * len(actors),
+                "actors": actors, "total_actor_principal_sat": sum(v["amount_sat"] for v in actors),
+                "funding_batches": funding_batches(actors),
                 "fee_proposal": {"treasury_batch_sat_per_vb": 3, "treasury_batch_maximum_miner_fee_sat": 10000,
                                  "native_wallet_fallback_sat_per_kwu": 750,
                                  "native_wallet_fallback_sat_per_vb": 3,
@@ -100,21 +134,38 @@ class Load:
         if old:
             return json.loads(old[0])
         for actor in self.actors:
-            if c.db.execute("SELECT count(*) FROM action WHERE actor=? AND state='acknowledged' AND operation IN ('create','onchain_address','fallback_record','address')", (actor,)).fetchone()[0] != 4:
+            imported = c.db.execute("SELECT 1 FROM meta WHERE key=?", ("load_existing:" + actor,)).fetchone()
+            if c.db.execute("SELECT count(*) FROM action WHERE actor=? AND state='acknowledged' AND operation IN ('create','onchain_address','fallback_record','address')", (actor,)).fetchone()[0] != (3 if imported else 4):
                 raise ValueError("genuine completed load wallet preparation required")
+        reused = {actor: json.loads(row[0]) for actor in self.actors if (row := c.db.execute(
+            "SELECT value FROM meta WHERE key=?", ("load_existing:" + actor,)).fetchone())}
         funded = [json.loads(row[0]) for row in c.db.execute(
             "SELECT payload FROM result WHERE json_extract(payload,'$.kind')='external_funding'")]
-        if any(sum(v["amount_sat"] for v in funded if v["actor"] == actor) != 100000 for actor in self.actors):
+        if any(v["actor"] not in self.actors for v in funded):
+            raise ValueError("funding receipt lies outside the declared cohort")
+        if any(sum(v["amount_sat"] for v in funded if v["actor"] == actor) != (0 if actor in reused else self.parameters["funding_sat_per_actor"]) for actor in self.actors):
             return {"stage": "WAITING_FOR_EXACT_CONFIRMED_ACTOR_FUNDING", "money_dispatched": False}
-        boards = {actor: self.native(actor + "-board", actor, "board", {"amount_sat": 30000})
-                  for actor in self.actors}
+        points = [v["outpoint"] for v in funded]
+        if len(points) != len(set(points)):
+            raise ValueError("funding outpoint assigned more than once")
+        boards, costs = {}, {}
+        for actor in self.actors:
+            if actor in reused:
+                continue
+            row = c.db.execute("SELECT state FROM action WHERE id=?", (actor + "-board",)).fetchone()
+            if row is None:
+                self.preflight_actor(actor, [v for v in funded if v["actor"] == actor])
+            boards[actor] = self.native(actor + "-board", actor, "board", {"amount_sat": 30000})
+            costs[actor] = self.board_cost(actor, boards[actor]["funding_txid"])
         chain = network_identity(c.core)
         snapshots, intents = [], {}
         for actor in self.actors:
             intent = f"load-admit-{chain['height']}-{actor}"
             coins = self.native(intent, actor, "sync_vtxos")
+            if actor in reused and sorted(coins, key=lambda v: v["id"]) != reused[actor]["coins"]:
+                raise ValueError("existing native coin inventory changed during load handoff")
             if (any(coin["state"] not in {"spent", "spendable"} for coin in coins)
-                    or sum(coin["amount_sat"] for coin in coins if coin["state"] == "spendable") != boards[actor]["amount_sat"]):
+                    or (actor not in reused and sum(coin["amount_sat"] for coin in coins if coin["state"] == "spendable") != boards[actor]["amount_sat"])):
                 return {"stage": "WAITING_FOR_GENUINE_NATIVE_BOARD_ADMISSION", "actor": actor,
                         "height": chain["height"], "snapshot_intent": intent}
             snapshots.append(coins)
@@ -131,9 +182,86 @@ class Load:
             raise ValueError("chain changed during load cohort admission")
         admitted = {"stage": "LOAD_NATIVE_COHORT_ADMITTED", "chain": chain,
                     "snapshots": intents, "signature_proofs": proofs, "backing": backing,
+                    "board_costs": costs,
+                    "reused_actors": sorted(reused),
                     "opening_coin_sat": sum(coin["amount_sat"] for coins in snapshots for coin in coins if coin["state"] == "spendable")}
         c.db.execute("INSERT INTO meta VALUES ('load_admitted',?)", (canonical(admitted),))
         return admitted
+
+    def preflight_actor(self, actor, funding):
+        """Verify actual native-owned, confirmed inventory; this is not a fee quote."""
+        c = self.campaign
+        chain = network_identity(c.core)
+        expected = {v["outpoint"]: v for v in funding}
+        if not expected or len(expected) != len(funding):
+            raise ValueError("distinct exact actor funding inventory required")
+        address = json.loads(c.db.execute("SELECT reply FROM action WHERE id=?",
+                                         (actor + "-funding-address",)).fetchone()[0])["address"]
+        script = c.core.call("validateaddress", address)
+        if script.get("isvalid") is not True or not script.get("scriptPubKey"):
+            raise ValueError("actual native funding script required")
+        native = self.native(f"load-funding-inventory-{chain['height']}-{actor}", actor, "onchain_utxos")
+        if {v["outpoint"] for v in native} != set(expected):
+            raise ValueError("native wallet inventory differs from the allocated funding; no board dispatched")
+        total = 0
+        for point, receipt in expected.items():
+            txid, index = point.split(":")
+            output = c.core.call("gettxout", txid, int(index), True)
+            owned = next(v for v in native if v["outpoint"] == point)
+            if (not output or output.get("confirmations", 0) < 1 or output.get("bestblock") != chain["hash"]
+                    or output["scriptPubKey"]["hex"] != script["scriptPubKey"]
+                    or btc_to_sat(output["value"]) != receipt["amount_sat"]
+                    or owned["amount_sat"] != receipt["amount_sat"] or owned["confirmation_height"] is None):
+                raise ValueError("allocated native funding is spent, unconfirmed, misdirected or has different value")
+            total += receipt["amount_sat"]
+        if total != self.parameters["funding_sat_per_actor"] or total <= self.parameters["board_sat_per_actor"]:
+            raise ValueError("declared actor allocation and board fee headroom required")
+        if network_identity(c.core) != chain:
+            raise ValueError("chain changed during funding inventory preflight")
+        result = {"kind": "load_actor_funding_preflight", "actor": actor, "chain": chain,
+                  "outpoints": sorted(expected), "allocated_sat": total,
+                  "board_principal_sat": self.parameters["board_sat_per_actor"],
+                  "combined_fee_and_reserve_capacity_sat": total - self.parameters["board_sat_per_actor"],
+                  "fee_quote_available": False,
+                  "scope": "Actual confirmed native inventory bound; no promised fee or minimum change reserve."}
+        c.db.execute("INSERT OR IGNORE INTO result VALUES (?,?,?)", (
+            f"load-funding-preflight-{chain['height']}-{actor}", time.time(), canonical(result)))
+        return result
+
+    def board_cost(self, actor, txid):
+        """Measure the original acknowledged transaction, never repeat a board."""
+        c = self.campaign
+        tx = c.core.call("getrawtransaction", txid, True)
+        if tx.get("txid") != txid:
+            raise ValueError("original board transaction differs")
+        expected = {json.loads(row[0])["outpoint"] for row in c.db.execute(
+            "SELECT payload FROM result WHERE json_extract(payload,'$.kind')='external_funding' "
+            "AND json_extract(payload,'$.actor')=?", (actor,))}
+        inputs = [f"{v['txid']}:{v['vout']}" for v in tx["vin"]]
+        if len(inputs) != len(set(inputs)) or set(inputs) != expected:
+            raise ValueError("original board consumed inventory outside its exact allocation")
+        total = 0
+        for v in tx["vin"]:
+            parent = c.core.call("getrawtransaction", v["txid"], True)
+            if parent.get("txid") != v["txid"]:
+                raise ValueError("board parent transaction differs")
+            total += btc_to_sat(next(out["value"] for out in parent["vout"] if out["n"] == v["vout"]))
+        output_sat = sum(btc_to_sat(v["value"]) for v in tx["vout"])
+        fee = total - output_sat
+        if (total != self.parameters["funding_sat_per_actor"] or fee < 0
+                or not any(btc_to_sat(v["value"]) == self.parameters["board_sat_per_actor"] for v in tx["vout"])):
+            raise ValueError("actual board allocation or miner-fee conservation differs")
+        reserve = total - fee - self.parameters["board_sat_per_actor"]
+        if reserve < 0:
+            raise ValueError("board principal exceeds its actual funded inventory")
+        result = {"kind": "load_board_cost", "actor": actor, "funding_txid": txid,
+                  "allocated_sat": total, "board_principal_sat": self.parameters["board_sat_per_actor"],
+                  "miner_fee_sat": fee, "other_outputs_sat": reserve,
+                  "fee_warning_above_1000_sat": fee > 1000,
+                  "scope": "Actual Core input/output fee; other outputs are not asserted wallet-owned change."}
+        c.db.execute("INSERT OR IGNORE INTO result VALUES (?,?,?)", (
+            "load-board-cost-" + actor, time.time(), canonical(result)))
+        return result
 
     def advance_batch(self, monitor_pids=None):
         """At most one disjoint batch; the external runner owns pacing/its lock."""
@@ -158,6 +286,13 @@ class Load:
         if last and now - last[0] < self.parameters["batch_interval_seconds"]:
             return {"stage": "WAITING_FOR_LOAD_BATCH_INTERVAL", "money_dispatched": False,
                     "successful_reconciled_transfers": len(completed)}
+        first = c.db.execute("SELECT min(observed) FROM result WHERE json_extract(payload,'$.kind')='load_batch_started'").fetchone()[0]
+        window = self.parameters.get("window_seconds")
+        if first is not None and window is not None and now >= first + window:
+            result = {"stage": "LOAD_WINDOW_LIMIT_REACHED", "successful_reconciled_transfers": len(completed),
+                      "intended_transfers": self.parameters["transfers"], "money_dispatched": False}
+            c.db.execute("INSERT OR IGNORE INTO meta VALUES ('load_hold',?)", (canonical(result),))
+            return result
         c.db.execute("INSERT OR IGNORE INTO result VALUES (?,?,?)", (
             f"load-batch-{indices[0]:06d}-started", now,
             canonical({"kind": "load_batch_started", "indices": indices})))
@@ -352,9 +487,12 @@ def main():
     parser.add_argument("--state", required=True, type=Path)
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--runtime-pins", required=True, type=Path)
-    parser.add_argument("--wallets", type=int, choices=[12, 50], default=12)
+    parser.add_argument("--wallets", type=int, choices=[12, 50, 200, 500], default=12)
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--transfers", type=int, default=60)
+    parser.add_argument("--funding-sat-per-actor", type=int, choices=[40000, 100000], default=100000)
+    parser.add_argument("--batch-interval-seconds", type=int, default=10)
+    parser.add_argument("--window-seconds", type=int)
     parser.add_argument("command", choices=["prepare", "admit", "batch", "finish"])
     args = parser.parse_args()
     campaign = Campaign(args.state, json.loads(args.config.read_text()))
@@ -364,7 +502,9 @@ def main():
         if campaign.db.execute("SELECT value FROM meta WHERE key='phase_runtime_pins'").fetchone()[0] != pins:
             raise ValueError("load runtime pins are immutable")
         _verify_runtime(campaign)
-        load = Load(campaign, wallets=args.wallets, concurrency=args.concurrency, transfers=args.transfers)
+        load = Load(campaign, wallets=args.wallets, concurrency=args.concurrency, transfers=args.transfers,
+                    funding_sat_per_actor=args.funding_sat_per_actor,
+                    batch_interval_seconds=args.batch_interval_seconds, window_seconds=args.window_seconds)
         result = getattr(load, {"prepare": "prepare", "admit": "admit", "batch": "advance_batch", "finish": "finish"}[args.command])()
         print(json.dumps(result, indent=2))
     finally:

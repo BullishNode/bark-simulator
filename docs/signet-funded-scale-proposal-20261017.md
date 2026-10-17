@@ -133,12 +133,15 @@ evidence; continuous simulation remains public Signet.
 ## Proposed incremental funding, with no assumed reuse credit
 
 Parameterize per-actor funding to **40,000 sat**, retaining the working 30,000-sat
-board. Admit the actual board transaction only when its quote fits a 1,000-sat
-miner ceiling, leaving at least 9,000 sat on-chain reserve/change before any
-later native action. The existing 750 sat/kWu fallback setting is not a fixed
-fee estimate or ceiling; implement/check an actual preflight before dispatch.
-If the native path cannot enforce that preflight, root must explicitly admit a
-larger measured ceiling or retain 100,000-sat funding; never silently exceed it.
+board. Exactly verified native-owned inventory leaves **10,000 sat combined
+capacity for miner fee and remaining outputs**; no 9,000-sat minimum change is
+promised. Record actual Core inputs/outputs and warn above a 1,000-sat board fee.
+That warning is not an owner fee cap. The native board CLI has no pre-dispatch
+quote/max-fee option, and its 750 sat/kWu fallback setting is not a fixed estimate.
+Do not add a quote API as a prerequisite. Stop new actor admissions when actual
+funding/principal or the admitted aggregate allocation is exhausted; never top up
+automatically or replay an unknown board. Watchman funding policy remains
+uncapped miner fees with warning, as previously chosen by the owner.
 
 | Item | Additional allocation ceiling |
 |---|---:|
@@ -147,29 +150,38 @@ larger measured ceiling or retain 100,000-sat funding; never silently exceed it.
 | 300 additional actors | 12,000,000 sat |
 | Separate Lightning-capable rounds wallet | 200,000 sat |
 | Five distinct confirmed usable fee-wallet outputs | 100,000 sat |
-| Three actor funding-batch miner fees, at most 10,000 each | 30,000 sat |
+| Seven actor funding-batch miner fees, at most 10,000 each | 70,000 sat |
 | 16 short-profile actors, 40,000 each | 640,000 sat |
 | Short-profile fee-wallet allocation | 100,000 sat |
 | Short-profile funding-batch miner fee ceiling | 10,000 sat |
-| **Total new treasury reservation ceiling** | **21,080,000 sat** |
+| **Total new treasury reservation ceiling** | **21,120,000 sat** |
 
 Board miner expense is paid from each actor's 40,000 allocation and must not be
 added to the treasury allocation a second time. Pool/fee-child costs consume the
 separately allocated service balances, with a fresh usable-funds check before
 operations. Swap fees reduce attributed actor value and are reconciled, not
 assumed free. No additional reserve is taken from existing absent wallets.
-Verified reuse of all 50 reduces this reservation to 19,080,000 sat before any
+Verified reuse of all 50 removes their 2,000,000-sat allocation and one 10,000-sat
+funding batch ceiling, reducing this reservation to **19,110,000 sat** before any
 separately agreed extra maintenance. These are proposed ceilings, not funds sent
 or fixed economic-cost predictions. If funding remains 100,000 per actor, publish
 the revised incremental budget before root's funding transaction.
 
+Funding is split into at most 90 actor outputs per batch, with each actual signed
+PSBT independently preflighted against the unchanged 10,000-sat fee ceiling. The
+three increments require 1/2/4 batches. This corrects the initial 30,000-sat total
+batch-fee assumption: 150 or 300 P2WPKH outputs alone would cost about 13,950 or
+27,900 sat at 3 sat/vB, before inputs/change. Ninety outputs is a recipient bound,
+not a fee guarantee; if actual inputs push a PSBT over the ceiling, root must
+freeze a smaller new batch before any broadcast. Never redispatch an unknown one.
+
 ## Reuse the working controller; narrow changes still required
 
-`simulator/signet_load.py` currently accepts only 12/50 actors, concurrency at
+The published preparation baseline accepted only 12/50 actors, concurrency at
 most 5, at most 1,000 transfers, hardcoded 100,000 funding and 30,000 boards, and
-the 4,320 long profile. Larger cohorts and the windows above are **not currently
-executable**. Make explicit immutable limits for these named cohorts/windows,
-parameterize funding, and reuse its disjoint pairs, worker-local SQLite
+the 4,320 long profile. The follow-up source work adds explicit immutable limits
+for these named cohorts/windows and parameterizes funding; this does not prove
+a deployed larger campaign. Reuse its disjoint pairs, worker-local SQLite
 connections, intent/ACK/unknown journal, signed proofs and final cohort audit.
 Do not broadly remove limits or add another scheduler framework.
 
@@ -187,7 +199,8 @@ fee coins, queue size/oldest age and current channel liquidity. RSS is sampled,
 not an exact peak. Preserve the existing 50-ms child RSS observations separately.
 Record co-resident ordinary/Lightning activity and prove the generator is not the
 bottleneck before interpreting a throughput plateau. Do not compare a shared
-debug lookup benchmark directly with this release workload as if identical.
+debug lookup benchmark directly with a differently built/configured workload as
+if identical. Retain the actual build profile; no release-build assumption.
 
 Stop dispatching new batches on any unknown, wrong payee, duplicate owned coin,
 unexplained value change, failed signature/backing proof, source/pin drift, or

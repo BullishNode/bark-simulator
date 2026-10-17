@@ -14,12 +14,21 @@ from tests import test_signet
 
 
 class LoadCore(test_signet.Core):
+    def __init__(self):
+        super().__init__()
+        self.transactions = {}
+        self.funding = {}
+
     def call(self, method, *args):
         if method == "validateaddress":
             return {"isvalid": True, "scriptPubKey": "0014" + args[0][-40:]}
         if method == "gettxout":
+            if args[0] in self.funding:
+                return self.funding[args[0]]
             return {"value": Decimal("0.00100000"), "confirmations": 3,
                     "bestblock": self.info["bestblockhash"]}
+        if method == "getrawtransaction":
+            return self.transactions[args[0]]
         return super().call(method, *args)
 
 
@@ -37,7 +46,10 @@ class LoadTests(unittest.TestCase):
             self.assertEqual(values["vtxo_refresh_expiry_threshold"], 144)
             value = b""
         elif operation == "onchain":
-            value = json.dumps({"address": "tb1q" + key[:40]}).encode()
+            if argv[6] == "utxos":
+                value = json.dumps(self.onchain[actor]).encode()
+            else:
+                value = json.dumps({"address": "tb1q" + key[:40]}).encode()
         elif operation == "dev":
             payout = hashlib.sha256((actor + "-payout").encode()).hexdigest()[:40]
             value = json.dumps({"network": "signet", "mailbox_pk": "02" + key,
@@ -165,13 +177,23 @@ class LoadTests(unittest.TestCase):
 
     def test_each_funded_actor_boards_once_before_native_cohort_admission(self):
         phase = self.worker_fixture()
+        self.onchain = {}
         for actor in phase.actors:
+            key = hashlib.sha256(actor.encode()).hexdigest()
+            funding = hashlib.sha256((actor + "-fund").encode()).hexdigest()
+            self.onchain[actor] = [{"outpoint": funding + ":0", "amount_sat": 100000, "confirmation_height": 120}]
+            self.campaign.core.funding[funding] = {"value": Decimal("0.001"), "confirmations": 3,
+                "bestblock": self.campaign.core.info["bestblockhash"], "scriptPubKey": {"hex": "0014" + key[:40]}}
+            self.campaign.core.transactions[funding] = {"txid": funding,"vout": [{"n": 0, "value": Decimal("0.001")} ]}
+            self.campaign.core.transactions[key] = {"txid": key,"vin": [{"txid": funding,"vout": 0}],
+                "vout": [{"n": 0,"value": Decimal("0.0003")}, {"n": 1,"value": Decimal("0.00069542")}]}
             self.campaign.db.execute("INSERT INTO result VALUES (?,0,?)", (actor + "-fund", json.dumps(
-                {"kind": "external_funding", "actor": actor, "amount_sat": 100000})))
+                {"kind": "external_funding", "actor": actor, "outpoint": funding + ":0", "amount_sat": 100000})))
         with patch("simulator.signet.subprocess.run", side_effect=self.native) as native, \
              patch("simulator.signet_load.verify_coin", return_value={"status": "PASS"}):
             admitted = phase.admit()
             self.assertEqual(admitted["opening_coin_sat"], 12 * 29670)
+            self.assertEqual(sum(row["miner_fee_sat"] for row in admitted["board_costs"].values()), 12 * 458)
             self.assertEqual(phase.admit(), admitted)
         self.assertEqual(sum(call.args[0][5] == "board" for call in native.call_args_list), 12)
 
