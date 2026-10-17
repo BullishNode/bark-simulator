@@ -142,6 +142,28 @@ E=H+32. No signed D or E exists yet for this unfunded sender.
 
 ## Bounded execution after separate admission
 
+The initial `python3 -m simulator.signet_failed_send` controller implements
+`stage`, `funding`, `board` and `ready`. It binds the genuine original sender
+directory to the existing durable Campaign executor, pins its real
+configuration and imports only cached registration plus the protected original
+source. It does not copy a wallet or fabricate a create ACK. Staging requires
+the original root funding receipt/request and retained financial admission.
+The native board command is:
+
+```
+python3 -m simulator.signet_failed_send --state "$STATE" --config "$CFG" board
+python3 -m simulator.signet_failed_send --state "$STATE" --config "$CFG" ready
+```
+
+The first command waits for the actual exact funding outputs and native usable
+confirmed watchman inputs, then journals one30,000-sat board. The second waits
+for three real canonical confirmations before any sender wallet observation,
+then requires the real SDK handshake, spendable coin, full signature/backing
+proof and sufficient short-profile headroom. Zero exit and a proposed deadline
+are never held-HTLC or refund proof. Invoice/send/cancel/recovery phases are not
+implemented by this initial controller milestone; they require their own
+checked continuation before financial execution proceeds.
+
 1. Create one separate random-seed native sender with explicit SDK12/12/18
    configuration, preserving its original pre-create birthday and protected
    phrase. Retain its authentic fallback registration and native funding
