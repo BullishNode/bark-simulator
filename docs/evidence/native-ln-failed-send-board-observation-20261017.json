@@ -1,0 +1,71 @@
+{
+  "at": 1792266164.2804923,
+  "authorized_future_controller": "b948a3d384303657a7599f2ed40bb2420918cff1",
+  "board": {
+    "confirmations": 1,
+    "input_sat": 60000,
+    "miner_fee_sat": 458,
+    "native_board_ack_net_sat": 29670,
+    "native_board_ack_vtxo_ids": [
+      "3f5c5e905a4555a762f843f631ba9c841f7c0a8c8906a9d6dc195fab558525a1:0"
+    ],
+    "native_board_three_confirmation_admission": false,
+    "other_output_ownership_note": "Other output is a funding-change candidate; Core alone does not establish seed ownership. Later actual seed-only spend must reconcile it separately from fallback.",
+    "other_outputs": [
+      {
+        "amount_sat": 29542,
+        "outpoint": "033bb9d8ed94869f86db30207d95019f359d030ca73c0ae85f21f925290299ff:1",
+        "script": "0014b1e61fa268cad353ddaa9d9ad25e8eb045557ce9"
+      }
+    ],
+    "tree_output": {
+      "amount_sat": 30000,
+      "outpoint": "033bb9d8ed94869f86db30207d95019f359d030ca73c0ae85f21f925290299ff:0",
+      "script": "512052c06bda3d7c226d67d964bd8ce5e8b324134f3c953663b2710c381d05a2e571"
+    },
+    "txid": "033bb9d8ed94869f86db30207d95019f359d030ca73c0ae85f21f925290299ff",
+    "vsize": 153
+  },
+  "case_verdict": "INCOMPLETE",
+  "chain": {
+    "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+    "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+    "hash": "000000054f70fea673b1bd73e19a228d6261c6d60d3481275a516075e1f42a29",
+    "height": 326792
+  },
+  "confirmed_unspent_watchman_funding_outputs": [
+    {
+      "amount_sat": 20000,
+      "confirmations": 2,
+      "outpoint": "8e60b79edef0d909c8008c3a1f1eb68384b47058a21edfae1be2254880fd7103:2"
+    },
+    {
+      "amount_sat": 20000,
+      "confirmations": 2,
+      "outpoint": "8e60b79edef0d909c8008c3a1f1eb68384b47058a21edfae1be2254880fd7103:3"
+    }
+  ],
+  "controller_for_original_board": "03a5b570676811e064aa461bdfe7f6225106332e",
+  "funding": {
+    "confirmations": 2,
+    "miner_fee_sat": 612,
+    "principal_sat": 100000,
+    "sender_amount_sat": 60000,
+    "sender_outpoint": "8e60b79edef0d909c8008c3a1f1eb68384b47058a21edfae1be2254880fd7103:0",
+    "txid": "8e60b79edef0d909c8008c3a1f1eb68384b47058a21edfae1be2254880fd7103"
+  },
+  "invoice_or_send_or_cancel_actions": [],
+  "kind": "native_failed_send_funding_and_board_observation",
+  "partial_accounting": {
+    "board_miner_fee_sat": 458,
+    "board_tree_residual_sat": 330,
+    "funding_change_candidate_sat": 29542,
+    "native_ack_net_sat": 29670,
+    "note": "Board residual is carried tree value, distinct from current miner expense and future fallback fee. Native ACK amount is not completed payment or cryptographic admission.",
+    "sum_sat": 60000
+  },
+  "product_build_head": "6950be5a6855625d76d04e33c86a6b030cd9406e",
+  "product_source_dirty": true,
+  "product_source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b",
+  "scope": "Funding and board only; no failed external send/refund or completed fallback proof."
+}

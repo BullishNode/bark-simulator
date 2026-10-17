@@ -287,3 +287,29 @@ creation timestamp changed between successive decode calls across a wall-clock
 second. The fixture now retains the original timestamp, like a real immutable
 invoice; production identity comparisons and live receive code were unchanged.
 The failed local run is not a Signet payment failure or evidence of a refund.
+
+
+## Independent funded-board observation at326792
+
+[The additive Core receipt](evidence/native-ln-failed-send-board-observation-20261017.json)
+retains funding2confirmations and board1confirmation, with both original20,000-sat
+watchman funding outputs confirmed and unspent. The actual board miner fee is
+458sat at153vB; the treasury allocation miner fee is separately612sat. The native
+board ACK reports29,670sat and signed coin ID, but its actual three-confirmation
+native/signature/backing admission remains pending in this receipt.
+
+The approved continuation controller is frozen at
+`b948a3d384303657a7599f2ed40bb2420918cff1`, archive SHA256
+`93a04b3e0f11e6f1c0da1d8ab897c58af88aecd10fb2ee82ea9df365124a8110`.
+[All CI jobs passed](https://github.com/BullishNode/bark-simulator/actions/runs/39061413890),
+including the common suite's24 failed-send controller tests and2,895 total tests.
+Those are automated test results, not funded failed-send completion. A waiting
+supervisor preserves the original controller handle and defers extraction/import
+of this monetary code until the original supervisor exits actualREADY and releases
+its lock. It then checks unchanged live binaries, original funding/watch funds,
+canonical board confirmations and D<E headroom before the already authorized
+sequence; no additional routine approval is pending.
+
+No invoice, send, external cancellation, source-specific failure or refund is
+claimed at this checkpoint. The native receive observer, its absent recipient,
+and the ordinary workload remain on their original runtime/configuration pins.

@@ -8,7 +8,7 @@ This map covers **38 selected IDs**, including every ML061–ML080 row and selec
 
 Public Signet supplies real native registrations, funding, transfers, aging, independent payout transactions and seed recovery. The live native Lightning receive has one actual 5,000-sat payment and a signed 4,890-sat recipient coin, but still waits for backing expiry 326816 and recovery. It is native BOLT11 evidence; it proves no stock Noah functional receive. The actual stock Noah callback remains a prepayment compatibility failure.
 
-Controlled native regtest is required for precise reorgs, adversarial fee pressure, claim/forfeit races, mismatched backups, continuous arrival fairness and interrupted-provider boundaries. Reproducing those faults on demand is not a requirement imposed on public Signet block production. Source review, Python protocol tests and native ordinary success do not substitute for a funded fault scenario. No additional money or mutation was authorized or dispatched while making this map.
+Controlled native regtest is required for precise reorgs, adversarial fee pressure, claim/forfeit races, mismatched backups, continuous arrival fairness and interrupted-provider boundaries. Reproducing those faults on demand is not a requirement imposed on public Signet block production. Source review, Python protocol tests and native ordinary success do not substitute for a funded fault scenario. The original map was compiled read-only. Later authorized funding and board activity is recorded as a separate additive receipt below; it does not upgrade any complete scenario oracle.
 
 ## ML061–ML080
 
@@ -67,6 +67,23 @@ The 50-wallet public-Signet campaign is a different measurement: 200 reconciled 
 ## Next execution order
 
 1. Preserve the live receive pins and absent recipient. Observe actual expiry 326816, rightful 3,890-sat fallback if the actual one-output allocation matches, six-confirmed parent and child, then original-seed-only recovery and one confirmed drain. This supplies a normal lifecycle baseline, not the interrupted Noah or provider cases.
-2. Keep the [failed external send](signet-native-failed-send.md) as a separate unexecuted operation until admitted. The unchanged profile has a 258-block sender deadline, so cancellation and 32-block backing expiry alone cannot finish its offline fallback.
+2. Continue the separately funded [18/32 failed external send](signet-native-failed-send.md). At the [326792 Core observation](evidence/native-ln-failed-send-board-observation-20261017.json), its one30,000-sat board has1confirmation and still needs actual3-confirmation native/signature/backing admission. The frozen b948 continuation is already authorized after those physical gates: one short-CLTV invoice/send, actualAccepted, sender fence, onecancel, source-specific failure and eventual rightful fallback/recovery. Keep actual grant D/E independent. The original unchanged258-block profile and its historical preparation remain separate; this short-profile case cannot qualify its timing.
 3. Let backend/client/test owners close native controlled faults and return exact receipts. Reconcile those complete oracles with the coordinator; do not convert related normal Signet evidence into their PASS.
 4. Before claiming funded attribution capacity, declare real obligations, index/mailbox distribution, source/hardware, arrivals and resource budgets; measure each oldest unpaid entitlement through actual rightful payment/recovery. This review schedules no new funding or live mutation.
+
+## Additive funded-preparation checkpoint
+
+The [independent Core snapshot at326792](evidence/native-ln-failed-send-board-observation-20261017.json)
+records exactly one100,000-sat allocation (60,000 sender plus two20,000 watchman
+outputs), with612sat treasury miner fee. One board spends the original sender
+output:30,000sat tree output,29,542sat other output and458sat miner fee. Native
+ACK reports29,670sat net;330sat remains tree value. Neither ACK nor that carried
+residual establishes completed payment, cash subsidy or new fallback revenue.
+Core alone does not establish ownership of the other output; actual seed-only
+recovery must reconcile it separately from the eventual fallback.
+
+This is a fresh-marker profile, without legacy restoration or an unfinished
+refresh exchange. **ML073 and ML077 remain NOT_RUN.** A later normal failed-send
+PASS would still leave their complete legacy/cancellation oracles unmet. All38
+selected IDs, original oracle hashes, counts and zero whole-scenario PASS claims
+are preserved; the coordinator's200-ID ledger/research snapshot is unchanged.
