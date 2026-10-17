@@ -1,0 +1,89 @@
+{
+  "kind": "native_BOLT11_zero_funded_public_Signet_admission",
+  "observed_date": "2026-10-17",
+  "scope": "Actual zero-funded isolated service/native-registration admission before treasury allocation; NOT a Lightning receive/fallback result or Noah/LNURL credit.",
+  "network": "default-public-signet",
+  "server_pubkey": "0372ad7b440a693c6c8701f2a7adf79b51f3689c5132e8ea93c627f25db2100764",
+  "profile": {
+    "server_lifetime_blocks": 32,
+    "pool_lifetime_blocks": 32,
+    "exit_delta_blocks": 12,
+    "pool_preexpiry_blocks": 12,
+    "htlc_expiry_delta_blocks": 6,
+    "pool_targets": [
+      "10000sat:2"
+    ],
+    "receive_base_fee_sat": 100,
+    "receive_ppm": 2000,
+    "SDK_exit_margin_blocks": 12,
+    "SDK_claim_delta_blocks": 18,
+    "cap_trusted_funding_confirmations": 2,
+    "watch_trusted_funding_confirmations": 1
+  },
+  "source": {
+    "actual_build_HEAD": "6950be5a6855625d76d04e33c86a6b030cd9406e",
+    "dirty_source": true,
+    "captured_source_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b",
+    "published_equivalent_product_abbreviation": "21fb50fd5",
+    "note": "Published equivalent code is not presented as the actual clean build."
+  },
+  "ELF_sha256": {
+    "captaind": "592df297c9b58b22261b7487c57a4076bba72b735232707d98275f84981642a8",
+    "watchmand": "edf59b0b352f8aa0a5ef76e8cc306b3c591836b73181baf48b3ce46da0764bbf",
+    "bark": "7a240c143bb103b67c360a75316034211d6212947e0b65571ceaebe19fc06ba4",
+    "barkd": "570ecf6cbbdc441b1262e68ee84035718ac9f72a5f881038b9ca51812a342218"
+  },
+  "actual_running_services": {
+    "captaind": {
+      "PID": 194888,
+      "restarts": 0
+    },
+    "watchmand": {
+      "PID": 195478,
+      "restarts": 0
+    },
+    "barkd": {
+      "PID": 195940,
+      "restarts": 0
+    }
+  },
+  "actual_native_wallets_created": 2,
+  "native_zero_balances_verified": true,
+  "native_operator_addresses_distinct_and_Core_validated": 6,
+  "recipient_closed_and_fenced": true,
+  "existing_services_unchanged": true,
+  "INFO_claim_ID_log_retained": true,
+  "funding_request_sha256": "e0a994afc0aa6fb5e343864b85ab3c10fc7a6492bfb03177b27e7aebd4423e77",
+  "runtime_manifest_sha256": "e6bd3f928220637dfe81796bf95895755a331cc96ae4568e5a44a14c083019d0",
+  "planned_treasury_principal_sat": 300000,
+  "principal_roles_sat": {
+    "rounds": 200000,
+    "watchman_fee_0": 20000,
+    "watchman_fee_1": 20000,
+    "watchman_fee_2": 20000,
+    "watchman_fee_3": 20000,
+    "watchman_fee_4": 20000
+  },
+  "invoice_issued": false,
+  "payment_dispatched": false,
+  "swap_created_coin_proven": false,
+  "rightful_fallback_proven": false,
+  "retained_setup_failures": [
+    {
+      "operation": "watchmand check-config",
+      "exit_code": 2,
+      "correction": "Actual captaind check-config FILE --watchman subsequently passed; original failure retained before watch startup."
+    },
+    {
+      "operation": "Read-only Core genesis CLI output parsing",
+      "exception": "JSONDecodeError",
+      "correction": "Raw getblockhash output is a string, not JSON. Corrected before operator address reads or funding request creation."
+    }
+  ],
+  "controller": {
+    "source": "45b5aaa0af3547e816027011aceac73efea36d02",
+    "local_focused_tests_passed": 113,
+    "full_CI_success": 39051794280,
+    "test_scope": "Controller/Core stubs and protocol framing; no live receive qualification."
+  }
+}

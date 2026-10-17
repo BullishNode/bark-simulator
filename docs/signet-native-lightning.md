@@ -8,8 +8,9 @@ coins** through signed recipient ownership, fallback and seed-only recovery.
 
 The controller is `python3 -m simulator.signet_lightning`. The new Python fault
 tests exercise supervision and protocol contracts with stubs. They do not prove
-an actual Lightning receive. Deployment, funding, invoicing and payment still
-await the coordinator's checked aggregate candidate and explicit admission.
+an actual Lightning receive. Source milestone `45b5aaa` preceded actual admission;
+the later zero-funded execution is recorded below. Funding, invoice, payment and
+the financial result require their own exact receipts.
 
 ## Fixed first operation
 
@@ -193,3 +194,25 @@ One confirmed native receive/fallback does not prove failed-send refunds,
 pre-registration cancellation, interrupted claim delivery, all 80 risk IDs,
 load capacity or production readiness. A separate failed-send case remains
 required, using its actual refundable customer claim and no duplicate payment.
+
+## Actual zero-funded admission on 17 October
+
+[The measured admission projection](evidence/native-ln-receive-zero-funded-admission-20261017.json)
+records a distinct real 32/12 profile, matched new server/client ELF pins,
+authenticated native provider/recipient registrations, zero balances and six
+distinct Core-validated operator funding addresses. All three new services had
+zero restarts; the original recipient closed and was fenced before any invoice.
+Existing campaigns and the rejected Noah operation were unchanged.
+
+Two setup failures remain recorded. The watchman binary has no `check-config`
+command; its correct native validation is
+`captaind check-config FILE --watchman`, which passed before startup. A read-only
+genesis check initially tried parsing raw CLI hash output as JSON; that was
+corrected before any operator address read or funding-request creation. Neither
+failure dispatched funds, an invoice or a payment.
+
+The zero-funded admission is operational evidence only. It does not establish
+an actual swap, signed recipient proceeds, fallback or recovery. The next phase
+must verify the coordinator's original funding transaction, two confirmations
+for rounds funds, usable confirmed watchman inputs and genuine signed pool
+backing before the single invoice/payment sequence.
