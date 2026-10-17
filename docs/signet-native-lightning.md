@@ -216,3 +216,36 @@ an actual swap, signed recipient proceeds, fallback or recovery. The next phase
 must verify the coordinator's original funding transaction, two confirmations
 for rounds funds, usable confirmed watchman inputs and genuine signed pool
 backing before the single invoice/payment sequence.
+
+## Actual funded receive on 17 October
+
+[The immutable receive projection](evidence/public-signet-native-ln-receive-20261017.json)
+records exactly one 5,000-sat invoice and one successful external payment at
+height 326785, with zero routing fee. Public GetVtxo and the actual native
+signature/address verifier prove a 4,890-sat Pubkey coin for the original absent
+recipient. Its signed path includes the actual receive grant and the confirmed
+pool root. The original recipient wallet remained closed throughout.
+
+The observed grant deadline is **326833**, while its backing tree expires at
+**326816**. These are actual separate observations; the configured delta alone
+does not establish the grant deadline. After settlement, the registered Pubkey
+proceeds are the customer entitlement being followed toward fallback.
+
+Pre-invoice proof found an important collection distinction. The public VTXO
+table's ungranted pool copy is still hash locked, and full native verification
+correctly rejected it for a missing preimage. That failed proof is retained.
+The server's canonical `vtxo_pool` inventory stores the completed signed copy.
+An authorized read-only observation of only the two owned inventory bodies,
+retained privately, passed native full-signature verification against the
+confirmed Core anchor. No standalone preimage query, database write or invented
+signature result was used. The later grant and final recipient proofs use
+public GetVtxo bodies.
+
+The 300,000-sat operator allocation incurred an actual 894-sat treasury funding
+fee and 233-sat initial pool issuance fee. The receive fee was 110 sat. The
+prospective one-output fallback is 3,890 sat after its separate 1,000-sat fee;
+it has **not yet been paid** in this receipt. A lock-owning observer now follows
+actual public Signet heights. Fallback parent and fee child each need six
+confirmations before original-seed-only restore and one recovery drain. This
+milestone proves the native swap and signed rightful owner; fallback, recovery,
+failed-send refunds and Noah/LNURL success remain unproven by this receipt.
