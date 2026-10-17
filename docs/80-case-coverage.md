@@ -12,10 +12,10 @@ Categories identify the highest relevant evidence, including partial subcases. T
 
 | Category | IDs |
 |---|---:|
-| public signet | 8 |
+| public signet | 9 |
 | native regtest | 24 |
 | unit only | 10 |
-| source only | 16 |
+| source only | 15 |
 | not run | 9 |
 | failed | 1 |
 | needs adaptation | 12 |
@@ -56,7 +56,7 @@ The behavior column is copied verbatim. `complete` means the full named behavior
 | H03 | Board, finish registration, and never return. | public signet / **complete**; [SIG](#sig) | Absent registered board expired and paid its exact registered script once; public history checked and recovery spent it. Only the pinned 7055 simple-board cohort, not every candidate or ownership class. |
 | H04 | Fund pending board, stop before final registration; expiry consumes exact funded backing into owner output. | not run / **unproven**; [SOURCE](#source) | No fresh native execution of funded pending-board abandonment is established. Upstream cosign does not persist the required pending-board ownership record; full funded/unfunded cases remain. |
 | H05 | Get board cosign/proposal but never broadcast its funding transaction. | not run / **unproven**; [SOURCE](#source) | No fresh captured cosign-only/unbroadcast-board run is established. Prove absence of invented principal and operator-funded gifts on actual pending proposals. |
-| H06 | Several boards of same wallet expire in the same eligible claim batch; repeat with different expiry batches. | source only / **unproven**; [GROUP](#group), [UNIT](#unit), [EPOCHS](#epochs) | S03 and S05 source/stub tests define same-expiry grouping and deliberately separated real-height settlement. Neither real grouped payout nor different-expiry repeat has executed in the new Signet cohort. |
+| H06 | Several boards of same wallet expire in the same eligible claim batch; repeat with different expiry batches. | public signet / **partial with blocker**; [S03BLOCK](#s03block), [GROUP](#group), [EPOCHS](#epochs) | Actual two-root absence; first 28,670-sat payout confirmed, transferred 10,000 sat held by historical-forfeit geometry. No grouped output or recovery PASS; fix/current liability and new grouping/different-expiry proofs remain. |
 | H07 | Send arkoor to an online recipient. | public signet / **complete**; [SIG](#sig) | Online native sends reconcile recipient value, sender change, signatures and backing; load12 completed 60/60. Measured bounded ordinary workload, not maximum throughput or future fallback coverage. |
 | H08 | Pay absent recipient at advertised child 25 and child 50 without its database. | needs adaptation / **needs_adaptation**; [FLOW](#flow), [SOURCE](#source) | Native250-key scan evidence is related to high-index attribution. Hints were removed; offline child 25/50 ownership must be retested with mailbox verification/full xpub fallback. |
 | H09 | Receive at all eight previously advertised addresses while permanently offline, then return only after direct payouts. | not run / **unproven**; none | No eight-advertised-address offline receive campaign executed. All receipts, rightful payouts and stale original-wallet adoption remain. |
@@ -267,8 +267,14 @@ The behavior column is copied verbatim. `complete` means the full named behavior
 - reference: [S05 sequence](signet-epochs.md).
 - limits: Source and stub tests only; no actual S05 funding, launch, payout or recovery execution.
 
+### S03BLOCK
+
+- reference: [Actual Signet liveness blocker](signet-s03-blocker-20261017.md).
+- product: `7055d1fce858f3112aff671d0b2a8a454d6a2214`; controller `c669367aef254ed2ba9ebf396a44a5bc01951d2e`.
+- limits: Actual transfer/absence and one partial payout; second entitlement blocked by source geometry. No grouping/recovery PASS.
+
 ## Interpretation and next work
 
 H26 is deliberately partial: the actual seed restore and confirmed payout spend succeeded, but neither forced gap20 nor recovery independent of Ark-state/server hints was established. H27 sequential second-device restoration does not prove concurrent devices or an older backup. H34 has genuine partial-exit/regroup proof but no conflict-reorg variant. H36 is native regtest evidence, not public-Signet Lightning qualification.
 
-The 50-wallet phase subsequently completed 200/200 transfers and its final audit; this does not independently complete another composite 80-ID behavior. S03 has prepared two genuine unfunded actors after that window; grouping has not yet executed. Real grouped payouts, applicable settlement/interruption/scale cases and strict Noah offline LNURL remain separate execution work. No new readiness gate or framework is introduced by this inventory.
+The 50-wallet phase subsequently completed 200/200 transfers and its final audit; this does not independently complete another composite 80-ID behavior. S03 subsequently executed its transfer and absence but reached a confirmed source-geometry liveness blocker; its required grouped payout has not completed. Real grouped payouts, applicable settlement/interruption/scale cases and strict Noah offline LNURL remain separate execution work. No new readiness gate or framework is introduced by this inventory.

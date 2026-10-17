@@ -7,9 +7,9 @@
   "category_count_meaning": "Highest related evidence level including partial subcases; NOT passed scenario totals. needs_adaptation marks a replaced legacy expectation with an explicit new recipe, not dropped coverage or a passed case.",
   "evidence_category_counts": {
     "needs_adaptation": 12,
-    "public_signet": 8,
+    "public_signet": 9,
     "not_run": 9,
-    "source_only": 16,
+    "source_only": 15,
     "native_regtest": 24,
     "unit_only": 10,
     "failed": 1
@@ -180,6 +180,15 @@
       "level": "source_only",
       "reference": "signet-epochs.md",
       "limits": "S05 small controller wrapper and stub tests only; no public Signet funding, launch, distinct-expiry payout or recovery execution."
+    },
+    "S03BLOCK": {
+      "level": "public_signet",
+      "reference": "signet-s03-blocker-20261017.md",
+      "product_commit": "7055d1fce858f3112aff671d0b2a8a454d6a2214",
+      "controller_commit": "c669367aef254ed2ba9ebf396a44a5bc01951d2e",
+      "public_projection": "evidence/public-signet-s03-blocker-20261017.json",
+      "projection_sha256": "627e4243ecd0c62304aa4b3f6d8f46381277b748adf53166c4078e5f5f5b0614",
+      "limits": "Actual transfer/two-root absence; one partial28670 payout, second10000 held by source geometry; no grouping or recovery PASS."
     }
   },
   "rows": [
@@ -284,16 +293,17 @@
       "behavior": "Several boards of same wallet expire in the same eligible claim batch; repeat with different expiry batches.",
       "expected": "Exactly 1,000 sat per actual recipient output; cross-batch repeat charges are reported, never silently merged.",
       "driver": "SDK",
-      "evidence_category": "source_only",
-      "coverage_scope": "unproven",
+      "evidence_category": "public_signet",
+      "coverage_scope": "partial_with_blocker",
       "whole_id_pass": false,
       "evidence_refs": [
         "GROUP",
         "UNIT",
-        "EPOCHS"
+        "EPOCHS",
+        "S03BLOCK"
       ],
-      "demonstrated": "S03 and S05 source/stub tests define same-expiry one-output grouping and deliberately separated real-height settlement; neither live case has passed.",
-      "remaining_or_adaptation": "Neither real grouped payout nor different-expiry repeat has executed in the new Signet cohort.",
+      "demonstrated": "Live S03 transferred10000 once and froze two same-expiry roots; only original28670 payout confirmed, while second10000 entitlement was blocked by historical-forfeit source geometry.",
+      "remaining_or_adaptation": "Fix and natively regress source geometry; reconcile this existing entitlement without replay; independently qualify a new corrected grouped-output cohort and separate different-expiry case.",
       "design_expectation": "Independently ready roots at the same expiry opportunistically group by actual payout script, charging 1,000 sat per actual output; different expiries settle separately without indefinite waiting.",
       "required_proof": "Execute S03 same-expiry two-root one-output recovery, then S05 different-expiry separate payouts; include an unrelated unresolved root without withholding ready outputs.",
       "expectation_changed": true,

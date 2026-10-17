@@ -176,6 +176,11 @@ original two smaller campaigns and their immutable receipts remain unchanged.
 
 ## Remaining scope
 
+The later [S03 real grouping cohort](signet-s03-blocker-20261017.md) found a source-geometry
+liveness defect: one root paid, while a 10,000-sat transferred entitlement remains
+blocked. It has no grouped-payout or recovery PASS. This is a current correctness
+blocker in that separately pinned operation, not a rewrite of the results above.
+
 The separate 50-wallet phase has completed its declared 200-transfer workload.
 These results establish neither maximum TPS nor every production scenario.
 Splitting, merged ownership cases, interruptions, controlled regtest reorg/fee

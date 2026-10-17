@@ -411,7 +411,11 @@ and allocation decisions do not establish completed payment.
    Preserve its final audit, unknown outcomes, latency samples, fees and resource
    measurements. Do not start another measured workload or deploy a profile
    during this window. S01, S02 and the 12-wallet results remain immutable.
-2. **S03: independently ready same-expiry grouping.** Use the existing short
+2. **S03: independently ready same-expiry grouping.** The first live cohort
+   is paused with a [confirmed source-geometry blocker](signet-s03-blocker-20261017.md):
+   one root paid, the transferred entitlement did not. Diagnose/repair that
+   liability without replay or retroactive grouping credit before a new cohort.
+   Use the existing short
    profile and [specific sequence](signet-grouping.md). Prepare fresh actors only
    after the 50-wallet timed window and final audit. Root allocates funding after
    actual registrations/addresses are captured. Two distinct same-expiry roots
