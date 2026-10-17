@@ -130,9 +130,11 @@ hold plugin `https://localhost:39738`, each with its own CA/client certificate
 and key. Both actual peers must remain synchronized and `CHANNELD_NORMAL` with
 sufficient current receivable/spendable liquidity. A live plugin or nominal
 channel capacity alone is insufficient. Native receive additionally needs real
-upstream pool issuance and an actually eligible pool VTXO whose backing outlives
-its invoice/HTLC obligation. Do not use the twelve-block ordinary profile for
-normal Lightning horizons or insert pool coins with SQL.
+upstream pool issuance and a pool VTXO meeting the actual SDK tree headroom.
+The accepted decision-boundary design permits an HTLC deadline to outlive its
+backing tree: track both heights separately. Settled registered Pubkey proceeds
+may fallback at the tree expiry; unresolved liabilities must remain blocked.
+Never insert pool coins with SQL or infer eligibility from a lifetime alone.
 
 Create new provider/recipient native wallets only after that public identity is
 admitted, and retain their authenticated records and original birthdays. The
@@ -218,3 +220,25 @@ real expiry, rightful fallback and seed-only confirmed recovery. A genuine
 failed-send/refundable path is separately required. Invoice and CLN results
 cannot substitute for those proofs; any different financial test needs its own
 explicit scope and source/profile/funding pins.
+
+
+## Corrected receive-only financial profile research
+
+The earlier requirement that the pool tree outlive the whole HTLC was wrong.
+Current `validate_htlc_duration` bounds the HTLC deadline by tip and configured
+maximum; SDK `htlc_recv_tree_blocks_needed` requires only `vtxo_exit_margin`.
+Neither imposes tree expiry later than HTLC expiry. Record both actual heights.
+
+The coordinator is qualifying a separately pinned native BOLT11 receive profile:
+server/pool lifetime 32, exit delta 12, pool pre-expiry 12 and HTLC expiry delta 6,
+with unchanged SDK exit margin 12 and claim delta 18. Actual prepare slack is 2,
+so the requested receive CLTV is 50, approximate grant deadline is claim tip +48,
+and invoice final CLTV adds 6 to make 56. A 32-block root can therefore expire
+before its former HTLC deadline. Fully settled signed recipient Pubkey proceeds
+can still fallback at that root expiry. These are source-derived parameters;
+actual eligibility, amounts, deadlines and claim/fallback need the coordinator's
+native gate and later funded public-Signet execution. No profile was changed by
+this analysis. This future native case receives no Noah/LNURL completion credit.
+
+[Metadata-hash support options](noah-metadata-hash-support.md) are source-only.
+No Noah source was patched or rebuilt to alter the measured rejected callback.
