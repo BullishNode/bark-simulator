@@ -1,7 +1,9 @@
 # S03 repair and recovery on the existing public-Signet VM
 
-This is a prepared procedure, not a deployment or a successful repair. The
-coordinator supplies the checked replacement build and owns service changes.
+This records the repair procedure and its measured public-Signet result. The
+coordinator admitted the checked service replacement; the separate repair
+observer subsequently completed original-seed recovery. See the actual result
+below; the original grouping case remains unqualified.
 The [original S03 failure](signet-s03-blocker-20261017.md), original source pins,
 controller STOP, absent-wallet fence and all completed campaign results remain
 unchanged. No new treasury funding is authorized by this document.
@@ -25,9 +27,9 @@ Backend repair `f809bc2410b40648823caea671fe52dd0c86f11b` now has a
 separate native PASS (`74f395eb-f84c-42e7-b27d-3ca483d59746`, 33.658 s),
 following the retained unchanged-server failure (`0abeab28`, 52.881 s). The
 [exact source/evidence packet](https://github.com/BullishNode/abandon-ship-bark/blob/f809bc2410b40648823caea671fe52dd0c86f11b/docs/evidence/s03-current-economic-cut-20261017.json)
-records both. No live repair is implied. The replacement bundle and deployment
-are **unresolved until the coordinator's qualified handoff**. Do not substitute latest HEAD for a checked
-build. Client and server can have distinct commits; record each executable's
+records both. At that planning checkpoint the live handoff was unresolved.
+The coordinator later admitted the exact captured build recorded below. Do not
+substitute latest HEAD for a checked build. Client and server can have distinct commits; record each executable's
 actual build source and BIP84 compatibility.
 
 ## Preserve the stopped state
@@ -229,3 +231,31 @@ argument allowlist and JSON transport with a mocked HTTP response, including
 multi-batch progress. No RPC privacy restriction is relaxed. Resume uses a new
 named controller phase with explicit old/new source provenance; historical
 observations never become proof that recovery ran.
+
+
+## Measured repair and recovery
+
+[The actual repair/recovery packet](evidence/public-signet-s03-repair-20261017.json)
+records first PASS at 16:25:09 UTC on 17 October, public Signet height 326775.
+The newly repaired 9,000-sat payout and its fee child had seven confirmations;
+the original 28,670-sat payout and child had 61. Native restore, UTXO discovery
+and the sole drain were dispatched at height 326774, after both payouts and
+children reached at least six confirmations. The new wallet used only the
+original seed and birthday 326700; no original native wallet database or payout
+transaction hints were fed into restore.
+
+Recovery transaction
+`477d917ff7948b05214b7d7c1e62fb8209b7b8f11ea2f83aa445182e69a49ecf`
+confirmed at height 326775. It consumed both payout outpoints plus 69,847 sat of
+ordinary board change, delivering 107,271 sat to the previously owned destination
+after one 246-sat recovery miner fee. The recovery spend itself had **one
+confirmation at first PASS**, not six; later depth is monitored separately.
+The bounded runner exited COMPLETE with its lock released and no unknown actions.
+
+Actual fallback value is **37,670 sat across two outputs and two 1,000-sat
+fees**. The original merged 38,670-sat output was never demonstrated. Its
+historical grouping result remains **NOT_QUALIFIED**. Fee children paid 363 and
+489 sat to miners; their 852-sat gross operator cash payment is distinct from
+net subsidy and from the user's single recovery fee. The repaired root's
+21,000-sat operator output includes 19,670 sat earlier forfeited principal and
+330 sat carried board residual as well as the new 1,000-sat output fee.
