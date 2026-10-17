@@ -48,7 +48,7 @@
     "recorded_mailbox_matches_authenticated_record": true,
     "independent_core_descriptor_derivation_matches_actual_coin_key": true,
     "child_index": 2,
-    "worker_never_queued_this_key": true
+    "not_in_pending_or_verified_owner_cache_at_snapshot": true
   },
   "readiness_error": {
     "source": "server/src/expiry_readiness.rs:128",

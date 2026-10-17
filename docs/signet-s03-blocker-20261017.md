@@ -43,7 +43,7 @@ omits seeds, signatures, xpubs and credentials.
 
 - Product: `7055d1fce858f3112aff671d0b2a8a454d6a2214`.
 - Controller: `c669367aef254ed2ba9ebf396a44a5bc01951d2e`.
-- Public projection SHA256: `627e4243ecd0c62304aa4b3f6d8f46381277b748adf53166c4078e5f5f5b0614`.
+- Public projection SHA256: `44b5760b6c37c64cdf0d385d68999d03656023304a1bb679e8d7f20765cbe047`.
 
 This cohort cannot retrospectively become a single merged payout: one root has
 already paid independently. A repair must reconcile the remaining entitlement
