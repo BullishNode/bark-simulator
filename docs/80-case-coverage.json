@@ -194,7 +194,7 @@
       "level": "failed",
       "source": "https://github.com/BullishNode/abandon-ship-bark/blob/fb85d9a9c3b31b3eab1eb2113d2caec89c7f10dd/docs/evidence/owner-scheduler-indexed-20261017.json",
       "run_id": "7562d5ea-279e-4dbc-9a8c-1abf3086639c",
-      "result": "FAIL358.637s;10000 absent-mailbox103.265sPASS;10000 wrong-mailbox120.139sFAILafter9902records",
+      "result": "FAIL358.637s;10000 absent-mailbox103.265sPASS;10000 wrong-mailbox120.139sFAILafter9902scanner_visits_distinct_record_count_not_established",
       "build_source_manifest_sha256": "4af4b54efb5079b87379a7322bc7d58c5bcb483e720a5d248c1de7a5fe9a4d80",
       "report_sha256": "cfaaf6244a0ccbb966791858f68e0a43e9e085a26b1713f95c41681a99b79fc1",
       "limits": "Positive low-index owner matches on debug shared host; authenticated registrations are not payout coins. Earlier a892 failure remains preserved; no production capacity or complete D39 PASS."
@@ -1710,7 +1710,7 @@
         "SCALE",
         "SCALE_INDEXED"
       ],
-      "demonstrated": "Earlier10000 absent-mailbox failed. Indexed rerun:10000 absent-mailbox passed103.265s;10000 wrong-mailbox failed120.139s after9902records. All smaller cases retained.",
+      "demonstrated": "Earlier10000 absent-mailbox failed. Indexed rerun:10000 absent-mailbox passed103.265s;10000 wrong-mailbox failed120.139s after9902scanner_visits_distinct_record_count_not_established. All smaller cases retained.",
       "remaining_or_adaptation": "Wrong-mailbox10000 still misses120-second target; hints obsolete; no unauthorized-amplification or production bound/capacity proof. Earlier failed run preserved.",
       "design_expectation": "No hints are required. Verified mailbox fast path and resumable per-pending-key full xpub fallback must have measured CPU/DB/storage/lock costs without treating unfinished search as no owner.",
       "required_proof": "Measure actual absent/wrong/verified mailbox at 100/1,000/10,000 authenticated records, late keys and new registrations, restart/cursor continuity and unauthorized amplification; preserve the observed 10,000-record failure and prove any fix by rerun.",
