@@ -95,6 +95,24 @@ class S02CaseTests(unittest.TestCase):
         native.assert_not_called()
         self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action").fetchone()[0], 0)
 
+    def test_completed_case_never_opens_control_again_but_unknown_still_holds(self):
+        self.campaign.core = fixture.LifecycleCore()
+        case = self.case()
+        completed = {"kind": "case_result", "case": "S02", "actor": "absent",
+                     "case_verdict": "PASS", "stage": "COMPLETE",
+                     "chain": {"height": 200}, "confirmed_recovered_payout_sat": 9000}
+        self.campaign.db.execute("INSERT INTO result VALUES (?,?,?)", (
+            "original-complete", time.time(), canonical(completed)))
+        with patch.object(case, "_native") as native, \
+             patch("simulator.signet_s02_case.network_identity") as network:
+            self.assertEqual(case.advance(), completed)
+            self.assertEqual(case.advance(), completed)
+            self.receipt("post-pass-unknown", "maintain", {}, actor="control")
+            self.campaign.db.execute("UPDATE action SET state='unknown' WHERE id='post-pass-unknown'")
+            self.assertEqual(case.advance()["stage"], "RECONCILIATION_REQUIRED")
+        native.assert_not_called()
+        network.assert_not_called()
+
     def test_absent_wallet_is_never_opened_while_waiting_for_chain_payout(self):
         original = self.prepare_control()
         case = self.case()

@@ -108,9 +108,20 @@ class S02:
 
     def advance(self):
         campaign = self.campaign
-        chain = network_identity(campaign.core)
         if campaign.db.execute("SELECT 1 FROM action WHERE state IN ('dispatched','unknown')").fetchone():
             return self._progress("RECONCILIATION_REQUIRED")
+        completed = campaign.db.execute("""SELECT payload FROM result
+            WHERE json_extract(payload,'$.kind')='case_result'
+            AND json_extract(payload,'$.case')='S02'
+            AND json_extract(payload,'$.actor')='absent'
+            AND json_extract(payload,'$.case_verdict')='PASS'
+            ORDER BY observed LIMIT 1""").fetchone()
+        if completed:
+            # A bounded completed case is historical evidence at its recorded
+            # tip. Continued chain observation is a separate readonly phase;
+            # it must not keep spending the active control's refresh budget.
+            return json.loads(completed[0])
+        chain = network_identity(campaign.core)
         if not campaign.db.execute("SELECT 1 FROM meta WHERE key='s02_absent:absent'").fetchone():
             return self.prepare()
         frozen = _freeze(campaign, "absent")

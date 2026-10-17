@@ -96,6 +96,13 @@ unknown-outcome retention, restart behavior, actor exclusion, absent-wallet
 fencing, executable/network pin rejection and public receipt projections. They
 are not native wallet, signature-validation, accounting, expiry or load tests.
 
+A completed S02 bounded lifecycle is terminal in the current controller source:
+repeated `advance()` calls return the original successful report at its recorded
+tip without reopening the active control or spending more refresh fees. Unknown
+native outcomes still hold first. Continued chain/reorg observation is separate
+read-only work; a historical PASS is not a new assertion about today's chain.
+This fixes future controller behavior and does not repin earlier live campaigns.
+
 ## First two-wallet observations
 
 Use `sync_vtxos` while wallets are active to collect current native state. This
