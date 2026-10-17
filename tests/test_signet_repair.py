@@ -170,6 +170,8 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(sorted(r['consumed_payout_outpoint'] for r in result['recovery']),sorted([FIRST_PAYOUT,SECOND+':0']))
         self.assertEqual(sorted(f['child_miner_fee_sat'] for f in result['fee_children']),[800,1000])
         self.assertEqual({r['miner_fee_sat'] for r in result['recovery']},{178})
+        self.assertEqual(result['recovery_spend']['miner_fee_sat'],178)
+        self.assertEqual(result['recovery_spend']['ordinary_other_inputs'],[])
         self.core.transactions[RECOVERY]['vin'].pop()
         with patch('simulator.signet.subprocess.run') as native:
             self.assertNotEqual(advance(phase)['case_verdict'],'PASS')
@@ -186,6 +188,28 @@ class RepairTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'unknown action'):advance(phase)
         replay.assert_not_called()
         self.assertEqual(phase.db.execute("SELECT state FROM action WHERE id='s03-repair-drain'").fetchone()[0],'unknown')
+
+    def test_tip_change_between_per_payout_recovery_checks_needs_coherent_rerun(self):
+        self.prepare();self.stage();phase=self.open_new()
+        from simulator.signet_s02 import check_recovery
+        count=0
+        def changing_tip(*args):
+            nonlocal count
+            result=check_recovery(*args)
+            count+=1
+            if count==1:
+                self.core.info['blocks']+=1
+                self.core.info['bestblockhash']=self.core.blockhash(self.core.info['blocks'])
+                for tx in self.core.transactions.values():tx['confirmations']+=1
+            return result
+        with patch('simulator.signet.subprocess.run',side_effect=self.native), \
+             patch('simulator.signet_repair.check_recovery',side_effect=changing_tip):
+            result=advance(phase)
+        self.assertEqual([r['recovery_check'] for r in result['recovery']],['PASS','PASS'])
+        self.assertEqual(result['case_verdict'],'INCOMPLETE')
+        with patch('simulator.signet.subprocess.run') as native:
+            self.assertEqual(advance(phase)['case_verdict'],'PASS')
+        native.assert_not_called()
 
     def test_unconfirmed_fee_child_or_reorged_payout_never_starts_seed_recovery(self):
         self.prepare();self.stage();phase=self.open_new()

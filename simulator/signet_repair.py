@@ -100,7 +100,7 @@ def _fee_child(campaign, payout, chain):
     parent_id = payout['outpoint'].split(':')[0]
     parent, height = _confirmed_transaction(campaign, parent_id, chain)
     anchors = {f"{parent_id}:{out['n']}" for out in parent['vout']
-               if out['scriptPubKey']['hex'] == '51024e73'}
+               if out['scriptPubKey']['hex'] == '51024e73' and btc_to_sat(out['value']) == 0}
     if len(anchors) != 1:
         raise ValueError('one actual P2A anchor required')
     key = 's03_repair_child:' + parent_id
@@ -190,12 +190,22 @@ def advance(campaign):
         _native(campaign, 's03-repair-drain', 'restored', 'onchain_drain', {'destination': origin['recovery_destination']})
         recovery = [check_recovery(campaign, 'absent', 'restored', 's03-repair-drain', i,
                                    origin['recovery_destination']) for i, _ in payouts.values()]
-        complete = all(r['recovery_check'] == 'PASS' for r in recovery)
+        current_chain = network_identity(campaign.core)
+        complete = all(r['recovery_check'] == 'PASS' and r['chain'] == current_chain for r in recovery)
+        spend = None
+        if complete:
+            first = recovery[0]
+            spend = {'txid': first['spend_txid'], 'delivered_sat': first['delivered_sat'],
+                     'miner_fee_sat': first['miner_fee_sat'],
+                     'payout_inputs': sorted(payouts),
+                     'ordinary_other_inputs': [i for i in first['other_inputs'] if i['outpoint'] not in payouts],
+                     'note': 'One physical recovery spend; do not sum its repeated per-payout checks or fees.'}
         return _save(campaign, 's03-repair', {**base,
                      'stage': 'REPAIRED_PAYOUTS_AND_SEED_RECOVERY_CONFIRMED' if complete else 'WAITING_FOR_CONFIRMED_RECOVERY',
                      'case_verdict': 'PASS' if complete else 'INCOMPLETE',
                      'confirmed_payout_sat': 37670, 'actual_payout_output_fees_sat': 2000,
                      'payout_outpoints': sorted(payouts), 'fee_children': fees, 'recovery': recovery,
+                     'recovery_spend': spend,
                      'scope': 'Repair of the historical two-output liability, not a successful grouped payout.'})
 
 
