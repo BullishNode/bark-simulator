@@ -18,9 +18,9 @@ transaction fees must be measured from Core. Root dispatches one journaled fundi
 batch after checking actual native addresses; the proposed treasury rate is
 3 sat/vB with a 10,000-sat maximum batch fee.
 
-## Preparation milestone
+## Preparation and execution
 
-`simulator.signet_load` currently implements preparation only. With private
+`simulator.signet_load` uses the same exact durable native CLI journal. With private
 configuration and the same exact runtime-pin schema used by the phase handoff:
 
 ```sh
@@ -37,12 +37,37 @@ unknown native result holds the phase and cannot replay its intent. Retain this
 preparation controller commit explicitly when recording a subsequent workload
 controller milestone.
 
-The execution milestone must retain pre-dispatch intents, original replies,
-per-pair isolated before/after snapshots, actual received amounts, conserved
-backing, signed paths, native invocation and total reconciliation durations,
-observed process RSS and actual chain/off-chain fees. Several intended off-chain
-operations per wall-clock minute replace block-paced scheduling for load work.
-An admitted board still requires genuine confirmations. Unknown or failed money
-reconciliation stops new batches; already dispatched independent workers finish
-and preserve their results. Registration, CLI acknowledgements and requested
-rates are never reported as measured successful load.
+After root dispatches the single frozen batch, reconcile its actual confirmed
+outpoints with the existing `funding_receipt` function. `Load.admit()` boards each
+actor once, waits for actual native spendability, then requires all signed coin
+paths and whole-cohort confirmed backing before storing its admission evidence.
+The `admit` CLI command provides the same operation. Funding or CLI board
+acknowledgements cannot stand in for genuine native board admission.
+
+Run `Load.advance_batch(monitor_pids=...)` under one external runner file lock.
+Its frozen schedule limits concurrency to disjoint actor pairs and records a
+durable ten-second minimum between batch starts. Each worker owns its own journal
+connection and preserves pre-dispatch intent, isolated before/after native
+snapshots, original reply, received amount, conserved backing and signed paths.
+An acknowledged send may be reconciled with fresh observation intents for up to
+60 seconds; the send is never replayed. Unknown or failed reconciliation stops
+new batches. Already dispatched independent workers finish and retain results.
+
+The worker records native invocation duration (including wallet opening and
+journaling) separately from send-through-financial-reconciliation duration. RSS
+sampling records 50ms observed maxima for the controller, concurrent native
+children and explicitly supplied backend PIDs; it does not claim exact peaks.
+The `batch` CLI command supports manual bounded execution, while a private
+operational runner supplies service PIDs and supervision.
+
+`Load.finish()` / CLI `finish` requires every intended transfer to be reconciled,
+then takes fresh whole-cohort snapshots and rejects duplicate owned coin IDs or
+value changes unexplained by observed fees. It verifies current signed paths and
+confirmed backing, and reports latency quantiles and achieved workload rate from
+real timestamps, including pacing and pauses. Retain the private parent funding
+receipt and independently measured board transaction costs alongside this result.
+
+Separate actual preparation-controller and execution-controller commits remain
+part of the trace. Source availability, stubbed Python tests, registrations,
+native acknowledgements and requested rates are never reported as successful
+measured load or a maximum-TPS result.
