@@ -94,6 +94,25 @@ children and explicitly supplied backend PIDs; it does not claim exact peaks.
 The `batch` CLI command supports manual bounded execution, while a private
 operational runner supplies service PIDs and supervision.
 
+The existing sampler also records before/after CPU-time deltas for those exact
+processes, bound to `/proc` start identity, and all reaped child-process CPU for
+the batch. Child CPU includes signature verification and other native commands;
+it is not send-only CPU. Missing/restarted process identities yield an explicit
+gap instead of a fabricated delta. RSS and host available-memory/swap remain
+sampled at 50ms; host values include other campaigns and services. The read-only
+`integration/signet-load-metrics.sql` can be polled against the admitted target DB
+by its existing monitoring role, for example with `psql -X --quiet --tuples-only
+--no-align --dbname PRIVATE_TARGET --file integration/signet-load-metrics.sql`.
+Keep connection credentials private and poll at an explicitly recorded interval
+(proposed five seconds). Record sampler overhead. Unknown connection states are
+reported; do not treat restricted visibility as zero activity. Database size and
+database counters are distinct from cluster-wide WAL and its reset epoch. This
+SQL compatibility was checked read-only on the existing owned failed-send
+PostgreSQL instance at 2026-10-17T20:44:53Z; no actor or payment query ran. This
+does not mean a continuous sampler or new scale campaign is running. Its exact
+query/source receipt is retained in
+`docs/evidence/funded-scale-resource-checks-20261017.json`.
+
 `Load.finish()` / CLI `finish` requires every intended transfer to be reconciled,
 then takes fresh whole-cohort snapshots and rejects duplicate owned coin IDs or
 value changes unexplained by observed fees. It verifies current signed paths and

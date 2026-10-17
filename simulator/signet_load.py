@@ -369,6 +369,17 @@ class RSSSamples:
                        "note": "Sampled RSS; short-lived peaks can be missed. Native child RSS is summed concurrently."}
 
     @staticmethod
+    def cpu(pid):
+        try:
+            # comm may contain spaces or parentheses; fields after its final ')'
+            # start at state (field3), not PID.
+            fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+            return {"start_ticks": int(fields[19]),
+                    "cpu_seconds": (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")}
+        except (OSError, ValueError, IndexError, ProcessLookupError):
+            return None
+
+    @staticmethod
     def rss(pid):
         try:
             for line in Path(f"/proc/{pid}/status").read_text().splitlines():
@@ -393,12 +404,26 @@ class RSSSamples:
                 self.result["missing_samples"][role] = self.result["missing_samples"].get(role, 0) + 1
             else:
                 self.result["maximum_observed_rss_kib"][role] = max(value, self.result["maximum_observed_rss_kib"].get(role, 0))
+        try:
+            memory = {key: int(value.split()[0]) for key, value in (
+                line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())
+                if key in {"MemAvailable", "SwapTotal", "SwapFree"}}
+            available = memory["MemAvailable"]
+            self.result["minimum_sampled_host_available_memory_kib"] = min(
+                available, self.result.get("minimum_sampled_host_available_memory_kib", available))
+            self.result["maximum_sampled_host_swap_used_kib"] = max(
+                memory["SwapTotal"] - memory["SwapFree"], self.result.get("maximum_sampled_host_swap_used_kib", 0))
+        except (OSError, ValueError, KeyError):
+            self.result["host_memory_missing_samples"] = self.result.get("host_memory_missing_samples", 0) + 1
 
     def run(self):
         while not self.stop.wait(.05):
             self.sample()
 
     def __enter__(self):
+        self.started = time.monotonic()
+        self.cpu_before = {role: self.cpu(pid) for role, pid in self.pids.items()}
+        self.times_before = os.times()
         self.sample()
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
@@ -408,6 +433,21 @@ class RSSSamples:
         self.stop.set()
         self.thread.join()
         self.sample()
+        self.result["observed_wall_seconds"] = time.monotonic() - self.started
+        self.result["process_cpu_seconds"] = {}
+        self.result["cpu_identity_missing_or_changed"] = []
+        for role, pid in self.pids.items():
+            before, after = self.cpu_before[role], self.cpu(pid)
+            if (before is None or after is None or before["start_ticks"] != after["start_ticks"]
+                    or after["cpu_seconds"] < before["cpu_seconds"]):
+                self.result["cpu_identity_missing_or_changed"].append(role)
+            else:
+                self.result["process_cpu_seconds"][role] = after["cpu_seconds"] - before["cpu_seconds"]
+        times_after = os.times()
+        self.result["reaped_child_cpu_seconds"] = {
+            "user": times_after.children_user - self.times_before.children_user,
+            "system": times_after.children_system - self.times_before.children_system,
+            "scope": "All child processes reaped by this controller during the batch, including native proof commands; not send-only CPU."}
 
 
 def _transfer(directory, config, parameters, index):

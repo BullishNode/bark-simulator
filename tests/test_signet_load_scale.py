@@ -9,7 +9,7 @@ from unittest.mock import patch
 import unittest
 
 from simulator.signet import Campaign
-from simulator.signet_load import Load, funding_batches
+from simulator.signet_load import Load, RSSSamples, funding_batches
 from simulator.signet_load_phase import import_load_window
 from simulator.model import canonical
 from tests import test_signet
@@ -70,6 +70,22 @@ class FundedScaleTests(unittest.TestCase):
         self.assertEqual(len({i%250 for i in result['indices']}),20)
         self.assertEqual(worker.call_count,20)
         self.assertEqual(result['stage'],'LOAD_BATCH_RECONCILED')
+
+    def test_restarted_pid_is_not_reported_as_same_process_cpu(self):
+        with patch.object(RSSSamples,'cpu',side_effect=[{'start_ticks':1,'cpu_seconds':10},
+                                                      {'start_ticks':2,'cpu_seconds':12}]):
+            with RSSSamples({}) as samples:pass
+        self.assertEqual(samples.result['cpu_identity_missing_or_changed'],['controller'])
+        self.assertNotIn('controller',samples.result['process_cpu_seconds'])
+        self.assertGreaterEqual(samples.result['observed_wall_seconds'],0)
+        self.assertGreaterEqual(samples.result['reaped_child_cpu_seconds']['user'],0)
+
+    def test_cpu_parser_uses_kernel_tick_units_and_handles_spaces_in_comm(self):
+        fields=['S']+['0']*19
+        fields[11]='40';fields[12]='10';fields[19]='12345'
+        with patch('simulator.signet_load.Path.read_text',return_value='123 (native worker (test)) '+' '.join(fields)), \
+             patch('simulator.signet_load.os.sysconf',return_value=100):
+            self.assertEqual(RSSSamples.cpu(123),{'start_ticks':12345,'cpu_seconds':.5})
 
     def funding_fixture(self):
         p=Load(self.campaign,funding_sat_per_actor=40000)

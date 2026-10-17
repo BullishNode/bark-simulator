@@ -1,0 +1,52 @@
+{
+  "kind": "load_resource_instrumentation_receipt",
+  "base_commit": "a53f68f88b7b92af054fd8630931d6f43154a5f2",
+  "python_tests": {
+    "command": "python3 -m unittest tests.test_signet_load tests.test_signet_load_scale tests.test_signet_phase -v",
+    "passed": 29,
+    "failed": 0,
+    "seconds": 62.443,
+    "test_log_sha256": "e886d185dc374a5be85faba041af94df933b1219c3d31645ad9f8ae2f32b4b2b",
+    "scope": "Controller logic with stub native/Core; CPU PID/tick parsing and identity-change handling. No new native/live scale proof."
+  },
+  "source_sha256": {
+    "simulator/signet_load.py": "d727a15e6ec0903a0a95fa0717124bdf48a30fda68a49b04dba42ba50de3d494",
+    "tests/test_signet_load_scale.py": "3aa579fae989c9a4f26ac3211c295f69e0147878f5d4ac6b1046a6ccd7cb1ad3",
+    "integration/signet-load-metrics.sql": "504a95d7dfa4668086ee4f0ea4d41a5f8c7032dd8cf250a47bc3b8fed09b1e66"
+  },
+  "readonly_existing_pg_compatibility": {
+    "kind": "readonly_pg_metric_query",
+    "sql_sha256": "504a95d7dfa4668086ee4f0ea4d41a5f8c7032dd8cf250a47bc3b8fed09b1e66",
+    "result": {
+      "at": "2026-10-17T20:44:53.796337+00:00",
+      "database": "fresh_signet_ln_failed_send",
+      "database_bytes": 11918359,
+      "database_stats_reset": null,
+      "xact_commit": 52522,
+      "xact_rollback": 51790,
+      "blks_read": 100,
+      "blks_hit": 850946,
+      "temp_bytes": 0,
+      "deadlocks": 0,
+      "connections": 5,
+      "active": 0,
+      "idle_in_transaction": 0,
+      "unknown_state_connections": 0,
+      "lock_waiters": 0,
+      "cluster_wal_bytes": "268755093",
+      "cluster_wal_stats_reset": "2026-10-16T20:16:31.039047+00:00",
+      "scope": "Target database counters; cluster-wide WAL. No transaction contents or isolated capacity assertion."
+    },
+    "native_actor_opened": false,
+    "financial_action_dispatched": false
+  },
+  "live_200_or_500_wallet_campaign_started": false,
+  "live_continuous_pg_sampler_started": false,
+  "limits": [
+    "PG snapshot is not capacity or money-flow proof; rollback counters can include intentional/read-only worker rollbacks",
+    "WAL is cluster-wide and includes other profiles",
+    "CPU includes all observed process activity; child CPU includes proof commands, not only sends",
+    "RSS and host memory are sampled; host memory includes other services",
+    "No new service, actor, funding, invoice, send or recovery operation was invoked"
+  ]
+}
