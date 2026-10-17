@@ -89,6 +89,28 @@ test does not prove this entire public expiry occurred. Report prompt monetary
 integration, controlled native ownership tests and the separate ordinary short
 S02 lifecycle with their actual scopes and heights.
 
-The old deployment has been retired. Until a real compatible backend is supplied
-and this path runs on public Signet, report S09 `BLOCKED: owned compatible backend
-not deployed`, retaining the source-level findings above. It does not block S01.
+## Actual preparation, not a completed receive
+
+The old deployment is retired. On the fresh owned VM the coordinator prepared
+stock backend `8e68ba5c3f032d9fd55e2f2f1f2af1441395eff0` with its own Postgres
+and Redis, controlled HTTPS origin `https://noah-fresh-signet.test` and a retained
+private CA. This is a locally trusted controlled origin, not public DNS/TLS.
+A genuine single-use-k1/Bitcoin-message authentication registered the test
+identity. The real backend API attached its recipient Ark address.
+
+Separate native provider and recipient wallets were created on the long 7055
+endpoint. Both have authenticated BIP84 fallback records; provider barkd has
+real bearer authentication, and the recipient command exited. The private
+native-preparation manifest SHA256 is
+`ae9da3bb2fd149347736b6c10af2f6b644ac9e6a071f3bb845bd089abf5d56fb`.
+Forwarding remained disabled; no invoice, Lightning payment, recipient claim or
+mailbox delivery has been qualified by this preparation.
+
+Two actual CLN peers have a confirmed private 200,000-sat channel and a reconciled
+100,000-sat balancing payment. Those are CLN infrastructure results, not Bark
+or offline-LNURL results. A separate Lightning-enabled product profile on the
+same VM awaits the coordinator's checked backend/configuration/pool handoff;
+it must not repin either running campaign. S09 is therefore **not executed**,
+with strict invoice description-hash compatibility still to be established
+from the real callback before any payment. The independent verifier's five
+unit tests are not live callback proof. This gap does not block ordinary traffic.

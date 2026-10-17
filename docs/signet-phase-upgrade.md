@@ -130,11 +130,14 @@ They establish controller behavior, not a successful live product upgrade.
 
 ## Later Lightning and Noah phase
 
-Once the same candidate's Lightning parser and runtime are admitted, record a
-separate configuration phase enabling the actual internal CLN and funded pool.
-Use the existing long-lived deployment, not another Ark service/profile. Record
-new configuration hashes and actual pool issuance/funding receipts; node plugin
-startup or a CLN-only payment cannot substitute for native Bark Lightning tests.
+The coordinator subsequently selected a separate isolated Lightning-enabled Ark
+profile on the same owned VM. Stage its own data, database, ports, configuration
+and checked executable manifest; do not mutate the ordinary or short campaign
+pins. Actual activation waits for its qualified backend handoff, native parser
+admission, usable confirmed fee funds and genuine pool issuance/funding receipts.
+The existing CLN/Noah infrastructure alone does not establish that this product
+profile is deployed. Node plugin startup or a CLN-only payment cannot substitute
+for native Bark Lightning tests.
 
 The existing private CLN bootstrap has a confirmed 200,000-sat channel and an
 independently reconciled 100,000-sat balancing payment. This is infrastructure

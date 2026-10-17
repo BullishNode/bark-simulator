@@ -55,3 +55,7 @@ regression; neither that fix nor a live repair is claimed here.
 The original S02 confirmed recovery and the completed 12/50-wallet workloads
 remain immutable. This failure is additional evidence about a different path,
 not a reason to rewrite their receipts or claim overall production readiness.
+
+The [short-only repair and recovery procedure](signet-s03-repair.md) records the
+backup, candidate admission and original-seed recovery steps. It is prepared,
+not deployed, and cannot turn this historical grouping failure into a PASS.

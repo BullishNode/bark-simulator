@@ -95,6 +95,26 @@ actor wallet, and prints a public JSON proof to stdout. An external observer can
 independently check the listed transaction bytes and amounts on public Signet;
 seed-only methodology also requires the retained controller/native artifacts.
 
+## Continued traffic and maintenance reconciliation
+
+A later [read-only maintenance projection](evidence/public-signet-maintenance-20261017.json)
+records the continuing long 7055 traffic separately from the immutable S01 and
+load windows. Customer value declined from 59,340 to 59,150 sat between transfer
+observations. Actual accepted round 1 consumes a 5,000-sat coin and produces
+4,810 sat with a stored signed forfeit: the 190-sat difference is a customer
+round fee. It is separate from the zero observed off-chain send fees.
+
+The completed S02 controller was stopped gracefully after continued post-PASS
+maintenance exhausted its bounded budget. Its read-only native wallet movements
+show nine successful 150-sat refreshes: **1,350 sat cumulative**, including the
+150 sat already present at first PASS. Thus additional completed cost since
+first PASS is 1,200 sat. Movement 11 remains pending with another declared
+150-sat fee, no completed output receipt and a locked **28,320-sat input**
+(29,670 minus the completed 1,350). That pending fee is not counted as realized.
+Zero spendable balance is not zero retained value. Its pending operation needs
+later authentic reconciliation; the original absent-wallet fence and immutable
+S02 first-PASS bytes remain preserved. No wallet was opened for this audit.
+
 ## Bounded 12-wallet load
 
 Twelve fresh native wallets each received 100,000 sat and boarded 30,000 sat.

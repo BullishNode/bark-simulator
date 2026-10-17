@@ -20,7 +20,7 @@ Categories identify the highest relevant evidence, including partial subcases. T
 | failed | 1 |
 | needs adaptation | 12 |
 
-The measured failure is D39: at 10,000 authenticated accounts, the positive owner search with no verified mailbox missed its 120-second budget. The 10,000 wrong-mailbox case was not run. Registration count is not payout-coin capacity. Twelve rows contain replaced legacy expectations, principally hints, mandatory per-key admission and old carrier terminology. Their new expectations and concrete execution recipes are defined below; none is dropped or counted as passed.
+D39 remains failed: the first 10,000-account absent-mailbox search missed its 120-second budget. A separately pinned indexed rerun passed that absent-mailbox case in 103.265 s, but the 10,000-account wrong-mailbox case failed in 120.139 s after 9,902 records. Both runs remain preserved. Registration count is not payout-coin capacity. Twelve rows contain replaced legacy expectations, principally hints, mandatory per-key admission and old carrier terminology. Their new expectations and concrete execution recipes are defined below; none is dropped or counted as passed.
 
 ## Revision-5 expectation overlay
 
@@ -129,7 +129,7 @@ The behavior column is copied verbatim. `complete` means the full named behavior
 | D36 | Malicious prepared receive never completes while honest sender and unrelated sibling share backing. | native regtest / **partial**; [MIX](#mix), [LIGHT](#light) | A real ordinary sibling pays while a grant-only HTLC sibling waits, then later refunds. Not the complete malicious prepared-receive plus honest-sender same-backing scenario. |
 | D37 | 101+ and >10,000 tiny coins to absent owner; 253+ distinct recipients and wallet fragmentation; repeated failed batch construction. | native regtest / **partial**; [MIX](#mix), [SIG](#sig) | Small genuine mixed-tree progress and bounded 12-wallet traffic execute. No 101+/10000-tiny-coin and253-recipient/fragmentation repeated-build capacity campaign; registration count is not coin count. |
 | D38 | Abandon successive delegated rounds at acceptance/tree/forfeit/unlock boundaries. | native regtest / **partial**; [K3](#k3), [W2](#w2) | Actual pre-forfeit cancellation and accepted lost-forfeit reply preserve state. Successive delegated rounds at every boundary with measured lock/dependency costs remain. |
-| D39 | Bounded repeated authenticated/unauthenticated derivation requests; high-index hints and account-registration amplification. | failed / **failed**; [SCALE](#scale) | Authenticated 100/1,000-account cases passed; 10,000 missing-mailbox positive search missed the 120-second budget. Wrong-mailbox 10,000 was not run; hints are obsolete; no production bound/capacity claim. |
+| D39 | Bounded repeated authenticated/unauthenticated derivation requests; high-index hints and account-registration amplification. | failed / **failed**; [SCALE](#scale), [SCALE_INDEXED](#scale_indexed) | Original 10,000 absent-mailbox failure retained. Indexed rerun: absent-mailbox 103.265 s PASS; wrong-mailbox 120.139 s FAIL after 9,902 records. No production capacity or complete amplification proof. |
 | D40 | Malformed/truncated oversized hint/record, integer overflow, unsupported child encoding; supplemental fee input conflict and stale carrier callback variants. | needs adaptation / **needs_adaptation**; [UNIT](#unit), [FEE](#fee) | Malformed record units and genuine fee-child replacement have separate evidence. Hints/legacy carriers are removed; overflow, current fee-input conflict and stale callback/orphan cases need adaptation and actual runs. |
 
 ## Evidence references
@@ -278,3 +278,16 @@ The behavior column is copied verbatim. `complete` means the full named behavior
 H26 is deliberately partial: the actual seed restore and confirmed payout spend succeeded, but neither forced gap20 nor recovery independent of Ark-state/server hints was established. H27 sequential second-device restoration does not prove concurrent devices or an older backup. H34 has genuine partial-exit/regroup proof but no conflict-reorg variant. H36 is native regtest evidence, not public-Signet Lightning qualification.
 
 The 50-wallet phase subsequently completed 200/200 transfers and its final audit; this does not independently complete another composite 80-ID behavior. S03 subsequently executed its transfer and absence but reached a confirmed source-geometry liveness blocker; its required grouped payout has not completed. Real grouped payouts, applicable settlement/interruption/scale cases and strict Noah offline LNURL remain separate execution work. No new readiness gate or framework is introduced by this inventory.
+
+### SCALE_INDEXED
+
+- source: [exact indexed scheduler evidence](https://github.com/BullishNode/abandon-ship-bark/blob/fb85d9a9c3b31b3eab1eb2113d2caec89c7f10dd/docs/evidence/owner-scheduler-indexed-20261017.json).
+- run id: `7562d5ea-279e-4dbc-9a8c-1abf3086639c`.
+- build source manifest SHA256: `4af4b54efb5079b87379a7322bc7d58c5bcb483e720a5d248c1de7a5fe9a4d80`.
+- result: FAIL in 358.637 s overall; 10,000 absent-mailbox PASS in 103.265 s,
+  10,000 wrong-mailbox FAIL in 120.139 s after 9,902 records. Smaller cases retained.
+- limits: real authenticated registrations and production owner scanner, positive
+  low-index matches on a shared debug host. These are not 10,000 payout coins,
+  a production capacity result or a complete D39 PASS. The same product packet's
+  nine native regressions and 789 passing unit tests do not qualify the live
+  S03 geometry repair, which is still pending its own checked handoff.

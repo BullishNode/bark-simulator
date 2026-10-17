@@ -1,6 +1,8 @@
 # Fresh public-Signet campaign
 
 Current design and execution order are recorded in [the revision-5 runbook](#revision-5-execution-order). The [80-case map](80-case-coverage.md) preserves the original risks and records current expectations, exact evidence and remaining work. Historical source-contract notes below remain scoped to their named revision.
+The measured S03 blocker and its prepared short-only [repair procedure](signet-s03-repair.md)
+remain separate from completed lifecycle/load results.
 
 The entry point is `python3 -m simulator.signet`. It invokes the product's native
 `bark` CLI, built from the same fresh source as the server. It does not build the
