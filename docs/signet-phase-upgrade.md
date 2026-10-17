@@ -1,6 +1,6 @@
 # Upgrading the live native traffic phase
 
-This is a preparation runbook. The coordinator supplies the exact checked paired
+The executable handoff is `python -m simulator.signet_phase`. The coordinator supplies the exact checked paired
 client/server candidate and admits the deployment. No live upgrade is implied by
 publishing this document. The separate short S02 server, database, wallet cohort
 and configuration remain independent on the same owned public-Signet VM.
@@ -66,6 +66,67 @@ does not qualify the new one. Publish the new named phase and its own pins, then
 resume the bounded ordinary traffic on the next new real height after handoff.
 Record its fees and outcomes separately while preserving cross-phase continuity
 of the same funds and registrations. Do not resume the old runner concurrently.
+
+## Executable handoff
+
+Use a separate controller checkout at the newly checked controller commit. Keep
+the original S01 and short S02 checkouts pinned. Prepare a private new campaign
+configuration and runtime-pin JSON before stopping anything. The new configuration
+retains the old Ark/Core endpoints and declares the new client source, client ELF
+SHA256 and aggregate service-config SHA256. Its state and archive directories must
+be new, disjoint paths. No command overwrites an existing destination.
+
+The private runtime-pin file has exactly these fields:
+
+```json
+{
+  "binary_directory": "/opt/abandon-fresh/bin",
+  "elf_sha256": {"bark": "SHA256", "barkd": "SHA256", "captaind": "SHA256", "watchmand": "SHA256"},
+  "elf_source": {"bark": "CLIENT_COMMIT", "barkd": "CLIENT_COMMIT", "captaind": "SERVER_COMMIT", "watchmand": "SERVER_COMMIT"},
+  "configuration_directory": "/var/lib/abandon-fresh/config",
+  "config_hashes": {"captaind": "SHA256", "watchmand": "SHA256"},
+  "runtime_manifest": "/opt/abandon-fresh/runtime-manifest.json",
+  "runtime_manifest_sha256": "SHA256"
+}
+```
+
+Replace every placeholder with exact measured hashes and full source commits.
+The service-config aggregate is SHA256 of canonical JSON of `config_hashes`.
+The coordinator retains original source and ELF bundles separately; the handoff
+archives the original journal, wallet bytes, private action artifacts and first-PASS
+bytes. Do not copy these private archives into GitHub.
+
+After the original runner has exited gracefully, but before replacing its runtime:
+
+```sh
+python -m simulator.signet_phase --state OLD_STATE --config OLD_CONFIG stage \
+  --new-state NEW_STATE --new-config NEW_CONFIG --archive PRIVATE_ARCHIVE \
+  --handoff-id long-7055-ordinary --stop-file OLD_STOP --lock-file OLD_LOCK \
+  --pid-file OLD_PID --first-pass-file ORIGINAL_PASS --runtime-pins NEW_RUNTIME_PINS
+```
+
+This acquires the original runner lock, rejects live/unknown actions and symlinks,
+observes the actual old native wallets and stages the cold copies. Staging creates
+no initialization acknowledgements and dispatches no money. The coordinator then
+backs up the server database/data, deploys the declared candidate and verifies
+service identity. After that:
+
+```sh
+python -m simulator.signet_phase --state NEW_STATE --config NEW_CONFIG admit
+python -m simulator.signet_phase --state NEW_STATE --config NEW_CONFIG traffic-step
+```
+
+Admission performs genuine candidate reads and signature/backing checks against
+the baseline. `traffic-step` checks all four ELF hashes, service configurations,
+manifest and retained actor-config hashes before wallet activity. Call it under
+one runner lock on a bounded polling schedule; it waits for a new real block and
+then performs at most one alternating 5,000-sat transfer for that height. An
+unfinished send is reconciled first; failed accounting cannot dispatch it again.
+Keep the original stop flag in place. Any unknown, mismatch or failed reconciliation
+holds this phase and preserves the actual state for diagnosis.
+
+Python fault tests exercise these gates with explicitly stubbed native proofs.
+They establish controller behavior, not a successful live product upgrade.
 
 ## Later Lightning and Noah phase
 

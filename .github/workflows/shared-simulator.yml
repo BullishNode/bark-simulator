@@ -68,7 +68,7 @@ jobs:
           mkdir ci-results
           git rev-parse HEAD > ci-results/simulator-commit.txt
           echo 'Local supervisor tests with stubbed process/Core; no public Signet or native cryptographic qualification.' > ci-results/scope.txt
-          python -m unittest tests.test_signet tests.test_signet_checks tests.test_signet_s01 tests.test_signet_s02 tests.test_signet_s02_case tests.test_signet_proof tests.test_signet_discovery tests.test_chain_privacy -v 2>&1 | tee ci-results/fresh-signet.log
+          python -m unittest tests.test_signet tests.test_signet_checks tests.test_signet_s01 tests.test_signet_s02 tests.test_signet_s02_case tests.test_signet_proof tests.test_signet_discovery tests.test_signet_phase tests.test_chain_privacy -v 2>&1 | tee ci-results/fresh-signet.log
       - name: Retain the actual fresh controller result
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

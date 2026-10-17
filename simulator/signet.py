@@ -339,6 +339,11 @@ class Campaign:
         profile_pin = self.db.execute("""SELECT json_extract(reply,'$.wallet_config_sha256')
             FROM action WHERE actor=? AND operation IN ('create','restore') AND state='acknowledged'
             AND json_extract(reply,'$.wallet_config_sha256') IS NOT NULL LIMIT 1""", (actor,)).fetchone()
+        if profile_pin is None:
+            # A cold-copied existing actor has no fabricated create receipt in
+            # its new phase. Its actual configuration is pinned by staging.
+            profile_pin = self.db.execute("SELECT value FROM meta WHERE key=?",
+                                          ("existing_wallet_config:" + actor,)).fetchone()
         if profile_pin:
             wallet_config = path / "config.toml"
             if (wallet_config.is_symlink() or not wallet_config.is_file()
