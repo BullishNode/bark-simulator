@@ -259,3 +259,14 @@ historical grouping result remains **NOT_QUALIFIED**. Fee children paid 363 and
 net subsidy and from the user's single recovery fee. The repaired root's
 21,000-sat operator output includes 19,670 sat earlier forfeited principal and
 330 sat carried board residual as well as the new 1,000-sat output fee.
+
+### Later recovery depth
+
+The [separate immutable depth receipt](evidence/public-signet-s03-recovery-depth-six-20261017.json)
+records six canonical confirmations at 17:00:47 UTC, height 326780. Its exact
+bytes have SHA256 `33c2f7454f164b647fe0acb69ef8642f6c0ec659b173901ee0c51195f2372cbe`.
+The read-only observer exited after this observation; it performed no financial
+actions. The original first-PASS artifact SHA256 remains
+`97400b3f1374575230213fb1120f1f52b6ec4aeed3fd071343f28e1ccd67f822`,
+with its original one-confirmation recovery depth. This later observation does
+not change the historical grouping result or add Lightning qualification.
