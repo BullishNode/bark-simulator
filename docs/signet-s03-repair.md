@@ -206,3 +206,26 @@ Unknown actions require reconciliation and are never retried. A later step
 rechecks canonical payouts/recovery without dispatching completed native actions.
 A repair PASS records 37,670 sat and two fees; historical grouping stays
 `NOT_QUALIFIED`. The command does not fund or create a new campaign cohort.
+
+
+## Observer transport correction
+
+The first deployed repair observer (`2437c07`) incorrectly requested decoded
+blocks with verbosity 2. The real ChainReader intentionally permits only
+verbosity-1 transaction inventories; permissive Core fixtures missed this
+integration mismatch. A separate read-only proof attempt exposed it before any
+recovery wallet was created or native action dispatched. That proof also held
+the inner observation lock while the runner was between steps, causing the
+runner to terminate with a retained `BlockingIOError` HOLD. Its journal, zero-action
+state and subsequently requested STOP remain preserved. The replacement runner
+is the sole writer of its phase; manual proof commands must not contend for its
+inner lock.
+
+The corrected observer inventories transaction IDs, fetches individual public
+transactions through the existing allowed reader, and resumes a bounded
+128-transaction batch. It validates canonical block/transaction identity and
+rewinds its cursor after reorgs. Its regression exercises the real ChainReader
+argument allowlist and JSON transport with a mocked HTTP response, including
+multi-batch progress. No RPC privacy restriction is relaxed. Resume uses a new
+named controller phase with explicit old/new source provenance; historical
+observations never become proof that recovery ran.

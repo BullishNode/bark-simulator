@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 from types import SimpleNamespace
@@ -105,30 +106,57 @@ def _fee_child(campaign, payout, chain):
         raise ValueError('one actual P2A anchor required')
     key = 's03_repair_child:' + parent_id
     previous = campaign.db.execute('SELECT value FROM meta WHERE key=?', (key,)).fetchone()
-    cursor = json.loads(previous[0]) if previous else {'height': height}
-    if cursor.get('blockhash') and campaign.core.call('getblockhash', cursor['height'] - 1) != cursor['blockhash']:
-        cursor = {'height': height}
-    for block_height in range(cursor['height'], min(chain['height'] + 1, cursor['height'] + 8)):
-        blockhash = campaign.core.call('getblockhash', block_height)
-        block = campaign.core.call('getblock', blockhash, 2)
-        for tx in block['tx']:
+    def fresh():
+        return {'height': height, 'offset': 0, 'block_hash': None, 'previous_hash': None}
+    cursor = json.loads(previous[0]) if previous else fresh()
+    # Older controller cursors have no transaction offset. Rewind safely rather
+    # than interpreting their old full-block scan as a completed inventory.
+    if set(cursor) != set(fresh()) or cursor['height'] < height:
+        cursor = fresh()
+    if cursor['height'] > height and (cursor['height'] - 1 > chain['height'] or
+            campaign.core.call('getblockhash', cursor['height'] - 1) != cursor['previous_hash']):
+        cursor = fresh()
+    if cursor['block_hash'] and (cursor['height'] > chain['height'] or
+            campaign.core.call('getblockhash', cursor['height']) != cursor['block_hash']):
+        cursor = fresh()
+    scanned = 0
+    while cursor['height'] <= chain['height'] and scanned < 128:
+        blockhash = campaign.core.call('getblockhash', cursor['height'])
+        block = campaign.core.call('getblock', blockhash, 1)
+        txids = block.get('tx')
+        if (block.get('hash') != blockhash or block.get('height') != cursor['height']
+                or not isinstance(txids, list) or not txids
+                or any(not isinstance(txid, str) or not re.fullmatch('[0-9a-f]{64}', txid) for txid in txids)
+                or not 0 <= cursor['offset'] <= len(txids)):
+            raise ValueError('canonical public fee-child inventory required')
+        cursor['block_hash'] = blockhash
+        while cursor['offset'] < len(txids) and scanned < 128:
+            txid = txids[cursor['offset']]
+            tx = campaign.core.call('getrawtransaction', txid, True)
+            if tx.get('txid') != txid or tx.get('blockhash') != blockhash:
+                raise ValueError('fee-child transaction differs from canonical block')
             if any(v.get('txid', '') + ':' + str(v.get('vout')) in anchors for v in tx['vin']):
-                child, _ = _confirmed_transaction(campaign, tx['txid'], chain)
+                child, _ = _confirmed_transaction(campaign, txid, chain)
                 total = 0
                 for v in child['vin']:
                     prev = campaign.core.call('getrawtransaction', v['txid'], True)
+                    if prev.get('txid') != v['txid']:
+                        raise ValueError('fee-child previous transaction differs')
                     total += btc_to_sat(prev['vout'][v['vout']]['value'])
                 fee = total - sum(btc_to_sat(o['value']) for o in child['vout'])
                 if child.get('version') != 3 or fee <= 0:
                     raise ValueError('actual version-3 positive-fee child required')
-                # Keep cursor at the child's block for independent recheck,
+                # Retain this exact inventory position for independent recheck,
                 # including a replaced/undone child after a public-chain reorg.
-                campaign.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',
-                                    (key, canonical({'height': block_height})))
+                campaign.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', (key, canonical(cursor)))
                 return {'parent_txid': parent_id, 'child_txid': child['txid'],
                         'child_miner_fee_sat': fee, 'parent_miner_fee_sat': 0,
-                        'confirmation_height': block_height, 'confirmations': child['confirmations']}
-        cursor = {'height': block_height + 1, 'blockhash': blockhash}
+                        'confirmation_height': cursor['height'], 'confirmations': child['confirmations']}
+            cursor['offset'] += 1
+            scanned += 1
+        if cursor['offset'] == len(txids):
+            cursor = {'height': cursor['height'] + 1, 'offset': 0,
+                      'block_hash': None, 'previous_hash': blockhash}
     campaign.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', (key, canonical(cursor)))
     return None
 

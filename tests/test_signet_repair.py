@@ -2,6 +2,7 @@
 from decimal import Decimal
 import fcntl
 import hashlib
+import io
 import json
 import subprocess
 import time
@@ -50,9 +51,11 @@ class Core(fixture.LifecycleCore):
     def call(self, method, *args):
         if method == 'getblockhash' and args[0] != 0:return self.blockhash(args[0])
         if method == 'getblock':
+            if len(args) != 2 or args[1] != 1:
+                raise ValueError('public block transaction-id inventory required')
             height=int(args[0],16)
             txs = [self.coinbase(height)] + [tx for k,tx in self.transactions.items() if tx['blockhash']==args[0] and tx['confirmations']>0]
-            return {'hash':args[0],'height':height,'tx':[tx['txid'] for tx in txs] if len(args)==1 or args[1]==1 else txs}
+            return {'hash':args[0],'height':height,'tx':[tx['txid'] for tx in txs]}
         if method=='getrawtransaction' and args[0].startswith('f') and args[0] not in self.transactions:
             return self.coinbase(int(args[0][1:],16))
         return super().call(method,*args)
@@ -248,6 +251,63 @@ class RepairTests(unittest.TestCase):
         with patch('simulator.signet.subprocess.run',side_effect=self.native) as native:
             self.assertEqual(advance(phase)['stage'],'WAITING_FOR_CONFIRMED_RECOVERY')
         self.assertEqual(native.call_count,3)
+
+    def test_fee_child_uses_real_chainreader_allowlist_and_bounded_resumable_inventory(self):
+        from simulator.chain import ChainReader
+        from simulator.signet_repair import _fee_child
+        self.prepare();self.stage();phase=self.open_new()
+        cookie=self.new_directory/'core-cookie';cookie.write_text('test:test')
+        reader=ChainReader('http://127.0.0.1:1234',cookie,'unused')
+        calls=[]
+        # Exercise the actual _call argument validation and JSON transport path;
+        # only the network response is mocked, not ChainReader.call/_call.
+        def transport(request, **kwargs):
+            body=json.loads(request.data);method=body['method'];args=body['params']
+            calls.append((method,args))
+            result=self.core.call(method,*args)
+            if method=='getblock' and result['height']==326715:
+                # More than one bounded batch before the actual child.
+                result={**result,'tx':[self.core.coinbase(326715)['txid']]*130+result['tx'][1:]}
+            return io.BytesIO(json.dumps({'jsonrpc':'2.0','id':1,'result':result,'error':None},default=str).encode())
+        phase.core=reader
+        chain={'height':326800}
+        with patch('urllib.request.urlopen',side_effect=transport):
+            first=_fee_child(phase,{'outpoint':FIRST_PAYOUT},chain)
+            self.assertIsNone(first)
+            cursor=json.loads(phase.db.execute('SELECT value FROM meta WHERE key=?',('s03_repair_child:'+FIRST,)).fetchone()[0])
+            self.assertEqual(cursor['offset'],128)
+            self.assertEqual(cursor['height'],326715)
+            child=_fee_child(phase,{'outpoint':FIRST_PAYOUT},chain)
+            self.assertEqual(child['child_txid'],CHILD1)
+            self.assertEqual(child['child_miner_fee_sat'],1000)
+        self.assertTrue(all(args[1]==1 for method,args in calls if method=='getblock'))
+        self.assertEqual(sum(method=='getrawtransaction' and args[0].startswith('f') for method,args in calls),130)
+        with self.assertRaisesRegex(ValueError,'transaction-id inventory'):
+            reader.call('getblock',self.core.blockhash(326715),2)
+
+    def test_fee_child_rewinds_reorg_and_legacy_cursor_without_native_actions(self):
+        from simulator.signet_repair import _fee_child
+        self.prepare();self.stage();phase=self.open_new()
+        key='s03_repair_child:'+FIRST
+        phase.db.execute('INSERT INTO meta VALUES (?,?)',(key,canonical({'height':326799,'blockhash':'0'*64})))
+        chain={'height':326800}
+        with patch('simulator.signet.subprocess.run') as native:
+            self.assertEqual(_fee_child(phase,{'outpoint':FIRST_PAYOUT},chain)['child_txid'],CHILD1)
+            original=self.core.blockhash
+            self.core.blockhash=lambda height: 'a'*64 if height==326715 else original(height)
+            for txid in [FIRST,CHILD1]:self.core.transactions[txid]['blockhash']='a'*64
+            # Core fixture maps the synthetic new hash back to its actual height.
+            original_call=self.core.call
+            def call(method,*args):
+                if method=='getblock' and args[0]=='a'*64:
+                    return {'hash':'a'*64,'height':326715,'tx':[FIRST,CHILD1]}
+                return original_call(method,*args)
+            self.core.call=call
+            child=_fee_child(phase,{'outpoint':FIRST_PAYOUT},chain)
+            self.assertEqual(child['child_txid'],CHILD1)
+            cursor=json.loads(phase.db.execute('SELECT value FROM meta WHERE key=?',(key,)).fetchone()[0])
+            self.assertEqual(cursor['block_hash'],'a'*64)
+        native.assert_not_called()
 
     def test_changed_runtime_or_missing_stop_prevents_all_recovery_actions(self):
         self.prepare();self.stage();phase=self.open_new();self.stop.unlink()
