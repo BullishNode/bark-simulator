@@ -182,3 +182,15 @@ both CLN peers were `CHANNELD_NORMAL` at height 326769, with 98,000 sat external
 spendable/internal receivable liquidity. This still has no callback invoice or
 payment. The exact metadata hash will be compared against the eventual invoice;
 the pre-existing old-profile recipient binding is not a new-profile handoff.
+
+
+The existing [standalone verifier was rebuilt unchanged](evidence/noah-invoice-verifier-20261017.json)
+inside the project's Nix environment, using its exact lockfile and the shared
+build target. All five offline protocol tests passed. New ELF
+`e97c422b5ee894b3d5486ff139039d46107cc0e723adb9dea5a94ccd501798b1`
+was independently verified and executed on the Signet VM. Its malformed-input
+smoke rejected the input as expected. The earlier reported `f96...` artifact
+was not found; this new binary has its own measured provenance. The verifier
+accepts one JSON policy on stdin and no arguments; it still rejects plain-memo
+invoices without the exact LNURL metadata hash. No live invoice was requested
+by the rebuild or smoke test.
