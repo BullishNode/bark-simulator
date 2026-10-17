@@ -144,6 +144,13 @@ provider listener to the new provider wallet and update the recipient through
 Noah's normal login/register API. Preserve its controlled HTTPS origin/private
 CA and do not bypass TLS. No mobile application is involved.
 
+The first callback needs the new provider/server identity and working hold-node
+connection, but **does not need confirmed wallet funding or issued pool coins**.
+`start_lightning_receive` only creates/stores a hold invoice; the SDK stores
+`AwaitingPayment`. Pool acquisition and ownership proof belong to the later
+claim. Capture this first useful compatibility result while funding confirms;
+actual payment remains gated on confirmed usable funds and eligible pool supply.
+
 The first test does not pay an invoice:
 
 1. GET `https://noah-fresh-signet.test/.well-known/lnurlp/offline-recipient`
