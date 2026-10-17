@@ -1,6 +1,6 @@
 # Public-Signet execution results, 17 October 2026
 
-The first native fallback lifecycle and a bounded 12-wallet load phase completed
+The first native fallback lifecycle and bounded 12-wallet and 50-wallet load phases completed
 on public Signet. These are measured capabilities, not production approval.
 The [public transaction and result projection](evidence/public-signet-s02-load12-20261017.json)
 has SHA256 `3098c5ea78f52742b1e47f491f52f8f408b8eca73d2a935962e9dcca10483481`.
@@ -132,10 +132,51 @@ maxima were controller 266,816 KiB, concurrent native children 120,976 KiB,
 captaind 74,088 KiB and watchmand 37,024 KiB. These are sampled maxima that may
 miss short peaks; they are not isolated capacity measurements.
 
+## Bounded 50-wallet load
+
+The separate 50-wallet phase completed on the same exact product and execution
+controller as load12: product `7055d1fce858f3112aff671d0b2a8a454d6a2214`,
+controller/preparation `9f57c79be0e42028e951a1bb21f4208da3ce78bb`.
+It started its measured window only after the 12-wallet terminal result and final
+audit. All 50 new 30,000-sat boards were mined at height 326697 and reached three
+actual confirmations at 326699. The final audit was at 326700 with four anchor
+confirmations, 100 passing signed-coin proofs and 50 distinct backing anchors.
+The original runner exited and released its lock; it is not restarted.
+
+| Measurement | Actual result |
+|---|---|
+| Financially reconciled transfers | 200 of 200, each 1,000 sat |
+| Failed or unknown transfers | 0 |
+| Opening / closing customer coin value | 1,483,500 / 1,483,500 sat |
+| Observed off-chain fees | 0 sat |
+| Concurrent disjoint actor pairs / minimum batch interval | 5 / 10 seconds |
+| Scheduled workload elapsed, including pacing and pauses | 404.125 seconds |
+| Achieved scheduled transfer rate | 29.694 transfers/minute |
+| Native invocation p50 / p95 | 0.283 / 0.330 seconds |
+| Send intent to observed recipient availability p50 / p95 | 1.096 / 1.193 seconds |
+| Send intent to financial reconciliation p50 / p95 | 1.732 / 2.963 seconds |
+| Treasury funding batch miner fee | 4,980 sat, 1,660 vB |
+| Fifty board funding miner fees | 22,900 sat total, 458 each |
+
+Each board also carried a distinct 330-sat virtual P2A residual, totaling 16,500
+sat. These residuals are separate from the actual on-chain funding miner fees;
+neither principal allocations nor backing are additional revenue. Across 3,105
+50ms RSS samples, observed maxima were controller 442,268 KiB, concurrent native
+children 202,376 KiB, captaind 83,204 KiB and watchmand 56,068 KiB. The same shared
+8-CPU VM ran the previously declared services. These sampled values may miss
+short-lived peaks and are not isolated production capacity measurements.
+
+The immutable final result SHA256 is
+`0bca0b34d4a881f643d09124b5df7aae9e3ce7384c6aa0b3a701a5f1730f9ab3`.
+The [public projection](evidence/public-signet-load50-20261017.json) includes
+all 50 actual board transaction IDs, gross/net board amounts, exact costs,
+parameters and source pins. Its SHA256 is `881c70f97408449a15e22f4c2fe98a4a45de32dd5e2e203b5beb7001299f789b`.
+This scheduled test does not measure saturation or establish maximum TPS. The
+original two smaller campaigns and their immutable receipts remain unchanged.
+
 ## Remaining scope
 
-A separate 50-wallet phase is funded and executing its once-only board admission;
-its 200-transfer, five-worker timed workload has no successful result yet.
+The separate 50-wallet phase has completed its declared 200-transfer workload.
 These results establish neither maximum TPS nor every production scenario.
 Splitting, merged ownership cases, interruptions, controlled regtest reorg/fee
 pressure, external application recovery, and actual Noah offline LNURL remain

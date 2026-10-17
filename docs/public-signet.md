@@ -404,7 +404,8 @@ The map is a union of separately pinned evidence, not a fully retested release.
 Written recipes, Python controller tests, RPC acknowledgements, `Spent` status
 and allocation decisions do not establish completed payment.
 
-1. **Finish the already funded 50-wallet phase on its existing pins.** Admit all
+1. **Complete the funded 50-wallet phase on its existing pins.** This phase has
+   now completed 200/200 transfers and its final audit ([results](signet-results-20261017.md#bounded-50-wallet-load)). Its recorded sequence was to admit all
    boards using genuine confirmations, signed paths and whole-cohort backing,
    then execute the declared 200 transfers with concurrency 5 and paced batches.
    Preserve its final audit, unknown outcomes, latency samples, fees and resource

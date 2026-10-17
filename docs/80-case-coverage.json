@@ -36,7 +36,10 @@
       "public_projection": "evidence/public-signet-s02-load12-20261017.json",
       "projection_sha256": "3098c5ea78f52742b1e47f491f52f8f408b8eca73d2a935962e9dcca10483481",
       "s02_first_pass_sha256": "18c876d882211e62fb748ce5bd4f153fc349bdcc78797488554bc0a5e99d9de5",
-      "load12_first_pass_sha256": "036e753725b6872c87faf6c0c829818bfec3475f8ce2e17e1d2f049c0ce779d5"
+      "load12_first_pass_sha256": "036e753725b6872c87faf6c0c829818bfec3475f8ce2e17e1d2f049c0ce779d5",
+      "additional_load50_projection": "evidence/public-signet-load50-20261017.json",
+      "additional_load50_projection_sha256": "881c70f97408449a15e22f4c2fe98a4a45de32dd5e2e203b5beb7001299f789b",
+      "load50_first_pass_sha256": "0bca0b34d4a881f643d09124b5df7aae9e3ce7384c6aa0b3a701a5f1730f9ab3"
     },
     "REG": {
       "level": "native_regtest",
