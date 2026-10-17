@@ -1,7 +1,7 @@
 from decimal import Decimal
 import unittest
 
-from simulator.signet_checks import confirmed_backing, transfer_values
+from simulator.signet_checks import ChainObservationChanged, confirmed_backing, transfer_values
 from tests.test_signet import Core
 
 
@@ -63,6 +63,21 @@ class SignetCheckTests(unittest.TestCase):
                 return super().call(method, *args)
         with self.assertRaisesRegex(ValueError, "exceed"):
             confirmed_backing(BackingCore(), [self.snapshots()[3]])
+
+    def test_tip_drift_is_typed_but_missing_or_insufficient_backing_is_not(self):
+        class DriftCore(Core):
+            output = {"value": Decimal("0.0001"), "confirmations": 2, "bestblock": "ef" * 32}
+            def call(self, method, *args):
+                return self.output if method == "gettxout" else super().call(method, *args)
+        c = DriftCore()
+        with self.assertRaises(ChainObservationChanged):
+            confirmed_backing(c, [self.snapshots()[3]])
+        for output in [None, {"value": Decimal("0.00001"), "confirmations": 2,
+                             "bestblock": c.info["bestblockhash"]}]:
+            c.output = output
+            with self.assertRaises(ValueError) as failure:
+                confirmed_backing(c, [self.snapshots()[3]])
+            self.assertNotIsInstance(failure.exception, ChainObservationChanged)
 
 
 if __name__ == "__main__":

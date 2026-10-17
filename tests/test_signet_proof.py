@@ -98,6 +98,24 @@ class ProofTests(unittest.TestCase):
             result = verify_coin(self.campaign, "alice", self.coin())
         self.assertNotEqual(result["status"], "PASS")
 
+    def test_tip_drift_retains_unavailable_proof_then_reverifies_without_wallet_reopen(self):
+        self.campaign.core = ProofCore()
+        self.override, self.exit_code = {}, 0
+        def moving_native(argv, **kwargs):
+            result = self.native(argv, **kwargs)
+            if argv[3] == "dev":
+                self.campaign.core.info["bestblockhash"] = "ef" * 32
+            return result
+        with patch("subprocess.run", side_effect=moving_native) as native:
+            failed = verify_coin(self.campaign, "alice", self.coin())
+            self.assertEqual(failed["status"], "UNAVAILABLE")
+            self.assertTrue(failed["retryable_chain_observation"])
+            passed = verify_coin(self.campaign, "alice", self.coin())
+        self.assertEqual(passed["status"], "PASS")
+        self.assertEqual(native.call_count, 3)
+        self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action WHERE operation='raw_vtxo'").fetchone()[0], 1)
+        self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM result WHERE json_extract(payload,'$.retryable_chain_observation')=1").fetchone()[0], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,10 @@ from .model import btc_to_sat, integer
 from .signet import network_identity
 
 
+class ChainObservationChanged(ValueError):
+    """The tip moved during a read; no conclusion about payment or backing."""
+
+
 def coin_map(coins: list[dict]) -> dict[str, dict]:
     result = {}
     for coin in coins:
@@ -82,14 +86,15 @@ def confirmed_backing(core, snapshots: list[list[dict]]) -> dict:
     for anchor, row in anchors.items():
         txid, index = anchor.split(":")
         output = core.call("gettxout", txid, int(index), True)
-        if (not output or integer(output["confirmations"], "anchor confirmations") < 1
-                or output["bestblock"] != chain["hash"]):
-            raise ValueError("anchor is missing, unconfirmed, spent or observed at another tip")
+        if not output or integer(output["confirmations"], "anchor confirmations") < 1:
+            raise ValueError("anchor is missing, unconfirmed or spent")
+        if output["bestblock"] != chain["hash"]:
+            raise ChainObservationChanged("chain changed during backing observation")
         row["anchor_value_sat"] = btc_to_sat(output["value"])
         row["confirmations"] = output["confirmations"]
         if row["cohort_value_sat"] > row["anchor_value_sat"]:
             raise ValueError("cohort coin values exceed their backing output")
     if network_identity(core) != chain:
-        raise ValueError("chain changed during backing observation; observe again")
+        raise ChainObservationChanged("chain changed during backing observation; observe again")
     return {"backing": "PASS", "chain": chain, "anchors": anchors,
             "note": "Backing coverage does not prove off-chain signatures or current ownership."}

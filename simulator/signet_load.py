@@ -8,11 +8,12 @@ import time
 import math
 import os
 import threading
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .model import btc_to_sat, canonical, integer
 from .signet import network_identity
-from .signet_checks import confirmed_backing
+from .signet_checks import ChainObservationChanged, confirmed_backing
 from .signet_proof import verify_coin
 
 
@@ -24,6 +25,47 @@ def funding_batches(actors):
              "principal_sat": sum(row["amount_sat"] for row in pending[offset:offset + 90]),
              "maximum_miner_fee_sat": 10000}
             for offset in range(0, len(pending), 90)]
+
+
+def _retry_observation(campaign, prefix, operation, *, retry_permitted=True):
+    count = campaign.db.execute("SELECT count(*) FROM result WHERE id LIKE ?", (prefix + "-retry-%",)).fetchone()[0]
+    campaign.db.execute("INSERT INTO result VALUES (?,?,?)", (
+        prefix + f"-retry-{count}", time.time(), canonical({"kind": "load_observation_retry",
+        "operation": operation, "reason": "ChainObservationChanged",
+        "retry_permitted": retry_permitted,
+        "scope": "Retained drift observation; any new read preserves the original money action."})))
+
+
+def _observed_backing(campaign, snapshots, prefix, deadline=None):
+    deadline = time.monotonic() + 60 if deadline is None else deadline
+    while True:
+        try:
+            return confirmed_backing(campaign.core, snapshots)
+        except ChainObservationChanged:
+            remaining = deadline - time.monotonic()
+            _retry_observation(campaign, prefix, "confirmed_backing", retry_permitted=remaining > 0)
+            if remaining <= 0:
+                raise
+            time.sleep(min(1, remaining))
+            if time.monotonic() >= deadline:
+                raise ChainObservationChanged("chain observation retry budget exhausted")
+
+
+def _verified_coin(campaign, actor, coin, *, expected_address=None, deadline=None):
+    deadline = time.monotonic() + 60 if deadline is None else deadline
+    token = hashlib.sha256((actor + coin["id"] + (expected_address or "")).encode()).hexdigest()
+    while True:
+        proof = verify_coin(campaign, actor, coin, expected_address=expected_address)
+        if (proof.get("status") != "UNAVAILABLE" or proof.get("diagnostic") != "ChainObservationChanged"
+                or proof.get("retryable_chain_observation") is not True):
+            return proof
+        remaining = deadline - time.monotonic()
+        _retry_observation(campaign, "load-signature-" + token, "verify_coin", retry_permitted=remaining > 0)
+        if remaining <= 0:
+            return proof
+        time.sleep(min(1, remaining))
+        if time.monotonic() >= deadline:
+            return proof
 
 
 class Load:
@@ -154,7 +196,12 @@ class Load:
                 continue
             row = c.db.execute("SELECT state FROM action WHERE id=?", (actor + "-board",)).fetchone()
             if row is None:
-                self.preflight_actor(actor, [v for v in funded if v["actor"] == actor])
+                try:
+                    self.preflight_actor(actor, [v for v in funded if v["actor"] == actor])
+                except ChainObservationChanged:
+                    _retry_observation(c, "load-admit-funding-" + actor, "funding_inventory")
+                    return {"stage": "WAITING_FOR_COHORT_CHAIN_OBSERVATION", "actor": actor,
+                            "scope": "Funding read crossed a tip; no new board for this actor was dispatched."}
             boards[actor] = self.native(actor + "-board", actor, "board", {"amount_sat": 30000})
             costs[actor] = self.board_cost(actor, boards[actor]["funding_txid"])
         chain = network_identity(c.core)
@@ -170,16 +217,18 @@ class Load:
                         "height": chain["height"], "snapshot_intent": intent}
             snapshots.append(coins)
             intents[actor] = intent
-        proofs = [verify_coin(c, actor, coin) for actor, coins in zip(self.actors, snapshots)
+        proofs = [_verified_coin(c, actor, coin) for actor, coins in zip(self.actors, snapshots)
                   for coin in coins if coin["state"] == "spendable"]
         owned_ids = [coin["id"] for coins in snapshots for coin in coins if coin["state"] == "spendable"]
         if len(owned_ids) != len(set(owned_ids)):
             raise ValueError("same spendable coin attributed to multiple load actors")
         if not proofs or any(proof["status"] != "PASS" for proof in proofs):
             raise ValueError("actual native load signature proof unavailable")
-        backing = confirmed_backing(c.core, snapshots)
+        backing = _observed_backing(c, snapshots, "load-admit-backing")
         if network_identity(c.core) != chain:
-            raise ValueError("chain changed during load cohort admission")
+            _retry_observation(c, "load-admit-tip", "cohort_admission")
+            return {"stage": "WAITING_FOR_COHORT_CHAIN_OBSERVATION",
+                    "scope": "Retain original board ACKs; observe the cohort again without replaying them."}
         admitted = {"stage": "LOAD_NATIVE_COHORT_ADMITTED", "chain": chain,
                     "snapshots": intents, "signature_proofs": proofs, "backing": backing,
                     "board_costs": costs,
@@ -208,16 +257,18 @@ class Load:
             txid, index = point.split(":")
             output = c.core.call("gettxout", txid, int(index), True)
             owned = next(v for v in native if v["outpoint"] == point)
-            if (not output or output.get("confirmations", 0) < 1 or output.get("bestblock") != chain["hash"]
+            if (not output or output.get("confirmations", 0) < 1
                     or output["scriptPubKey"]["hex"] != script["scriptPubKey"]
                     or btc_to_sat(output["value"]) != receipt["amount_sat"]
                     or owned["amount_sat"] != receipt["amount_sat"] or owned["confirmation_height"] is None):
                 raise ValueError("allocated native funding is spent, unconfirmed, misdirected or has different value")
+            if output.get("bestblock") != chain["hash"]:
+                raise ChainObservationChanged("chain changed during funding inventory preflight")
             total += receipt["amount_sat"]
         if total != self.parameters["funding_sat_per_actor"] or total <= self.parameters["board_sat_per_actor"]:
             raise ValueError("declared actor allocation and board fee headroom required")
         if network_identity(c.core) != chain:
-            raise ValueError("chain changed during funding inventory preflight")
+            raise ChainObservationChanged("chain changed during funding inventory preflight")
         result = {"kind": "load_actor_funding_preflight", "actor": actor, "chain": chain,
                   "outpoints": sorted(expected), "allocated_sat": total,
                   "board_principal_sat": self.parameters["board_sat_per_actor"],
@@ -335,11 +386,11 @@ class Load:
             raise ValueError("same spendable coin attributed to multiple load actors")
         if closing + fees != baseline["opening_coin_sat"]:
             raise ValueError("whole-cohort load conservation differs from isolated pair results")
-        proofs = [verify_coin(c, actor, coin) for actor, coins in zip(self.actors, snapshots)
+        proofs = [_verified_coin(c, actor, coin) for actor, coins in zip(self.actors, snapshots)
                   for coin in coins if coin["state"] == "spendable"]
         if not proofs or any(proof["status"] != "PASS" for proof in proofs):
             raise ValueError("final load native signed path unavailable")
-        backing = confirmed_backing(c.core, snapshots)
+        backing = _observed_backing(c, snapshots, "load-final-backing")
         first = c.db.execute("SELECT min(created) FROM action WHERE operation='send' AND id LIKE 'load-transfer-%-send'").fetchone()[0]
         elapsed = max(observed for observed, _ in completed) - first
         def timing(field):
@@ -481,7 +532,7 @@ def _transfer(directory, config, parameters, index):
         if (any(coin["state"] not in {"spent", "spendable"} for coin in sb + rb)
                 or sum(coin["amount_sat"] for coin in sb if coin["state"] == "spendable") < parameters["transfer_sat"] + parameters["maximum_offchain_fee_sat"]):
             raise ValueError("settled native pair and bounded fee headroom required")
-        confirmed_backing(c.core, [sb, rb])
+        _observed_backing(c, [sb, rb], prefix + "-before-backing")
         if c.db.execute("SELECT 1 FROM action WHERE state='unknown'").fetchone():
             raise ValueError("another load outcome became unknown; no new send")
         native(prefix + "-send", sender, "send", {"destination": address, "amount_sat": parameters["transfer_sat"]})
@@ -496,11 +547,11 @@ def _transfer(directory, config, parameters, index):
                                      prefix + "-sender-before", after_s, prefix + "-receiver-before", after_r,
                                      parameters["maximum_offchain_fee_sat"])
             if check.get("arithmetic") == "PASS" and check.get("backing") == "PASS":
-                proofs = [verify_coin(c, actor, coin, expected_address=(address if actor == receiver and coin["id"] in check["new_receiver_coins"] else None))
+                proofs = [_verified_coin(c, actor, coin, expected_address=(address if actor == receiver and coin["id"] in check["new_receiver_coins"] else None), deadline=deadline)
                           for actor, snapshot in [(sender, sa), (receiver, ra)] for coin in snapshot if coin["state"] == "spendable"]
                 if not proofs or any(proof["status"] != "PASS" for proof in proofs):
                     raise ValueError("load signed-path reconciliation failed")
-                backing = confirmed_backing(c.core, [sa, ra])
+                backing = _observed_backing(c, [sa, ra], prefix + "-after-backing", deadline=deadline)
                 result = {"kind": "load_transfer_observation", "index": index, "sender": sender, "receiver": receiver,
                           "amount_sat": parameters["transfer_sat"], "status": "RECONCILED",
                           "native_ack_seconds": payment["updated"] - payment["created"],

@@ -9,7 +9,8 @@ from unittest.mock import patch
 import unittest
 
 from simulator.signet import Campaign
-from simulator.signet_load import Load, RSSSamples, funding_batches
+from simulator.signet_load import Load, RSSSamples, _observed_backing, _verified_coin, funding_batches
+from simulator.signet_checks import ChainObservationChanged
 from simulator.signet_load_phase import import_load_window
 from simulator.model import canonical
 from tests import test_signet
@@ -86,6 +87,23 @@ class FundedScaleTests(unittest.TestCase):
         with patch('simulator.signet_load.Path.read_text',return_value='123 (native worker (test)) '+' '.join(fields)), \
              patch('simulator.signet_load.os.sysconf',return_value=100):
             self.assertEqual(RSSSamples.cpu(123),{'start_ticks':12345,'cpu_seconds':.5})
+
+    def test_only_typed_tip_drift_can_retry_and_expired_budget_stops(self):
+        with patch('simulator.signet_load.confirmed_backing',side_effect=ValueError('spent anchor')) as read, \
+             patch('simulator.signet_load.time.sleep') as sleep:
+            with self.assertRaisesRegex(ValueError,'spent'):_observed_backing(self.campaign,[],'bad-anchor')
+        read.assert_called_once();sleep.assert_not_called()
+        with patch('simulator.signet_load.confirmed_backing',side_effect=ChainObservationChanged('tip moved')) as read, \
+             patch('simulator.signet_load.time.sleep') as sleep:
+            with self.assertRaises(ChainObservationChanged):_observed_backing(self.campaign,[],'drift',deadline=0)
+        read.assert_called_once();sleep.assert_not_called()
+        event=json.loads(self.campaign.db.execute("SELECT payload FROM result WHERE id='drift-retry-0'").fetchone()[0])
+        self.assertFalse(event['retry_permitted'])
+        for result in [{'status':'FAILED'},{'status':'UNAVAILABLE','diagnostic':'TimeoutExpired'},
+                       {'status':'UNAVAILABLE','reason':'raw native receipt unresolved'}]:
+            with patch('simulator.signet_load.verify_coin',return_value=result) as read:
+                self.assertEqual(_verified_coin(self.campaign,'actor',{'id':'coin'}),result)
+                read.assert_called_once()
 
     def funding_fixture(self):
         p=Load(self.campaign,funding_sat_per_actor=40000)

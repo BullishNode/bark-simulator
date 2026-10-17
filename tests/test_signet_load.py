@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from simulator.signet_load import Load, _transfer
 from simulator.signet import Campaign
+from simulator.signet_checks import ChainObservationChanged, confirmed_backing
 from tests import test_signet
 
 
@@ -158,6 +159,33 @@ class LoadTests(unittest.TestCase):
                     _transfer(self.campaign.root, self.config, phase.parameters, 0)
         self.assertEqual(native.call_count, 3)
         self.assertEqual(self.campaign.db.execute("SELECT state FROM action WHERE operation='send'").fetchone()[0], "unknown")
+
+    def test_block_during_post_ack_proofs_reobserves_without_another_send(self):
+        phase = self.worker_fixture(transfers=1)
+        self.campaign.db.execute("INSERT INTO meta VALUES ('load_admitted','{}')")
+        calls = 0
+        def backing(core, snapshots):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise ChainObservationChanged("forward block during final read")
+            return confirmed_backing(core, snapshots)
+        proofs = 0
+        def proof(*args, **kwargs):
+            nonlocal proofs
+            proofs += 1
+            return ({"status": "UNAVAILABLE", "diagnostic": "ChainObservationChanged", "retryable_chain_observation": True}
+                    if proofs == 1 else {"status": "PASS"})
+        with patch("simulator.signet.Campaign", side_effect=self.child_campaign), \
+             patch("simulator.signet_phase._verify_runtime"), \
+             patch("simulator.signet_load.verify_coin", side_effect=proof), \
+             patch("simulator.signet_load.confirmed_backing", side_effect=backing), \
+             patch("simulator.signet_load.time.sleep"), \
+             patch("simulator.signet.subprocess.run", side_effect=self.native) as native:
+            result = _transfer(self.campaign.root, self.config, phase.parameters, 0)
+        self.assertEqual(result["status"], "RECONCILED")
+        self.assertEqual(sum(c.args[0][5] == "send" for c in native.call_args_list), 1)
+        self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM result WHERE json_extract(payload,'$.kind')='load_observation_retry'").fetchone()[0], 2)
 
     def test_failure_finishes_original_disjoint_batch_then_holds_future_dispatch(self):
         phase = self.worker_fixture()

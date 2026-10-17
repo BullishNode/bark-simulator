@@ -1,0 +1,34 @@
+{
+  "kind": "load_chain_observation_retry_checks",
+  "base_commit": "5fd9fe58e6a5a8a7c093279b4038df4054b5cfb9",
+  "python_tests": {
+    "command": "python3 -m unittest tests.test_signet_checks tests.test_signet_proof tests.test_signet_load tests.test_signet_load_scale tests.test_signet_phase -v",
+    "passed": 44,
+    "failed": 0,
+    "seconds": 83.936,
+    "test_log_sha256": "9909b9a04d4308b8dcbda64e08c116cf8342be9eb581553c880382e01f5372eb",
+    "scope": "Controller/native-proof contract tests using stub native/Core, including actual ChainReader classification; not new live money or product qualification."
+  },
+  "source_sha256": {
+    "simulator/signet_checks.py": "cc4b1c284e9bf22efad3cef5856cedcb03d7ea44d7e498ac3fcd2a3356a5f806",
+    "simulator/signet_proof.py": "c0908447e82e7064fbf6513f6ce8490ca89fa485662e03589a765f7d7dd05f04",
+    "simulator/signet_load.py": "d0641e5a2d6d4565e5df0d6b0dccdbe0724093cb6b52d7586d6f264e11ab06c5",
+    "tests/test_signet_checks.py": "0753cb6a2947b0c3418f0d5455a8dbbcf60234cdcd0485bdd6538b56144a34d6",
+    "tests/test_signet_proof.py": "436712b04412e3778f6e5616f23aa6068456d597f7745cb78f21a929889f42fb",
+    "tests/test_signet_load.py": "c3955379dba515a2913973a0eb291f5a652315b67a8a0b659e9ffe01affbe99f",
+    "tests/test_signet_load_scale.py": "0a5b2498412f0201548f9695d555b70c9c1de4f952b2e42f4a1d3d3e1b9d5363",
+    "docs/signet-load.md": "a31f0a99bee2a241e7f3a617cec20d3b95dd400c3ed31e8557d9bac8ca4be683"
+  },
+  "verified_boundaries": [
+    "Only typed moving-chain observation retries; fixed 60-second reconciliation deadline",
+    "Original acknowledged native send exactly once; raw VTXO wallet read cached while signature proof observes fresh Core",
+    "No retry of signature FAILED, bad backing, timeout, unknown raw action, or expired deadline",
+    "Each failed/unavailable observation and retry permission remains in the journal"
+  ],
+  "live_new_campaign_started": false,
+  "existing_campaign_runtime_changed": false,
+  "limits": [
+    "No new public-Signet funded scale result",
+    "No new product API, fee cap, funds, actor, invoice, send or recovery operation"
+  ]
+}

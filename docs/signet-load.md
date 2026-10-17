@@ -87,6 +87,16 @@ An acknowledged send may be reconciled with fresh observation intents for up to
 60 seconds; the send is never replayed. Unknown or failed reconciliation stops
 new batches. Already dispatched independent workers finish and retain results.
 
+Tip changes during a backing/signature observation have a specific
+`ChainObservationChanged` classification. Only that observation can be repeated
+inside the existing reconciliation retry budget, retaining the unavailable proof
+and drift receipt. Signature rejection, malformed/wrong signed fields, missing or
+unconfirmed backing, unknown native actions and other verification errors are
+not reclassified as drift. A retry permission is not evidence that another read
+ran or that payment completed. Reconciliation still needs a stable actual Core
+view and the same original acknowledged send. Funding/cohort admission crossing
+a tip returns an incomplete observation stage; its original board ACKs persist.
+
 The worker records native invocation duration (including wallet opening and
 journaling) separately from send-through-financial-reconciliation duration. RSS
 sampling records 50ms observed maxima for the controller, concurrent native

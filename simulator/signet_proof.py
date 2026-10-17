@@ -12,6 +12,7 @@ import time
 
 from .model import canonical, public_payload
 from .signet import digest, network_identity
+from .signet_checks import ChainObservationChanged
 
 
 def verify_coin(campaign, actor: str, coin: dict, *, expected_address: str | None = None) -> dict:
@@ -60,8 +61,10 @@ def verify_coin(campaign, actor: str, coin: dict, *, expected_address: str | Non
         chain = network_identity(campaign.core)
         txid, index = coin["chain_anchor"].split(":")
         output = campaign.core.call("gettxout", txid, int(index), True)
-        if not output or output["confirmations"] < 1 or output["bestblock"] != chain["hash"]:
+        if not output or output["confirmations"] < 1:
             raise ValueError("confirmed unspent backing required at the observed tip")
+        if output["bestblock"] != chain["hash"]:
+            raise ChainObservationChanged("chain changed during signature observation")
         funding = campaign.core.call("getrawtransaction", txid, False)
         if not isinstance(funding, str) or not re.fullmatch(r"(?:[0-9a-f]{2})+", funding):
             raise ValueError("raw funding transaction required from independent Core")
@@ -95,7 +98,7 @@ def verify_coin(campaign, actor: str, coin: dict, *, expected_address: str | Non
             if any(verified["vtxo"][field] != coin[field] for field in fields):
                 raise ValueError("verified signed coin differs from native wallet observation")
             if network_identity(campaign.core) != chain:
-                raise ValueError("chain changed during signature observation")
+                raise ChainObservationChanged("chain changed during signature observation")
             if "path_outpoints" in verified:
                 path = verified["path_outpoints"]
                 if (not isinstance(path, list) or not path or len(path) > 10000
@@ -107,6 +110,8 @@ def verify_coin(campaign, actor: str, coin: dict, *, expected_address: str | Non
                 result["path_outpoints"] = path
             result.update({"status": "PASS", "verified_coin": {key: coin[key] for key in fields},
                            "chain": chain, "anchor_confirmations": output["confirmations"]})
+    except ChainObservationChanged:
+        result.update({"diagnostic": "ChainObservationChanged", "retryable_chain_observation": True})
     except Exception as error:
         # Native stderr stays protected; Core/Rust errors may contain secrets.
         result["diagnostic"] = type(error).__name__
