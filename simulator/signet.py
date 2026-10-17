@@ -57,12 +57,13 @@ def command(operation: str, args: dict, config: dict) -> list[str]:
         if set(args) != expected | {"wallet_profile"}:
             raise ValueError("unexpected operation arguments")
         profile = args["wallet_profile"]
-        if not isinstance(profile, dict) or set(profile) != {
-                "vtxo_refresh_expiry_threshold", "vtxo_exit_margin"}:
+        required_profile = {"vtxo_refresh_expiry_threshold", "vtxo_exit_margin"}
+        if (not isinstance(profile, dict) or not required_profile <= set(profile)
+                or set(profile) - required_profile - {"fallback_fee_rate"}):
             raise ValueError("explicit wallet refresh threshold and exit margin required")
         for key, value in profile.items():
             if integer(value, key, 1) > 65535:
-                raise ValueError("wallet block delta exceeds native range")
+                raise ValueError("wallet profile value exceeds the controller's bounded native range")
         if profile["vtxo_refresh_expiry_threshold"] <= profile["vtxo_exit_margin"]:
             raise ValueError("wallet refresh threshold must precede the exit margin")
         # Native create accepts an existing config.toml only WITHOUT config
