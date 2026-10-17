@@ -2,7 +2,7 @@
 
 No: all 80 original behaviors have not been tested. **Two IDs are fully demonstrated on public Signet (H03, H07), and one additional ID on a pinned fresh native-regtest snapshot (H36). The other 77 are not fully demonstrated as written.**
 
-These are ID-specific claims, not a count of completed S-campaigns. The 81 automated Python tests check controller logic; they are not 81 live product behaviors. The [machine-readable rows](80-case-coverage.json) preserve every original ID, behavior, expected outcome and driver from [the catalogue](../simulator/scenarios.json). Its SHA256 is `fd01b08c72abb9cf61c5f93aa2c43362fa7e8b58788a7fbc54d0e1ab85de86b4`.
+These are ID-specific claims, not a count of completed S-campaigns. The 81 automated Python tests at controller c669 check controller logic; subsequent controller tests also add no live product-behavior credit. The [machine-readable rows](80-case-coverage.json) preserve every original ID, behavior, expected outcome and driver from [the catalogue](../simulator/scenarios.json). Its SHA256 is `fd01b08c72abb9cf61c5f93aa2c43362fa7e8b58788a7fbc54d0e1ab85de86b4`.
 
 The table combines evidence from **separately pinned fresh snapshots**, not one fully retested release candidate: live Signet 7055, specific native backend manifests, and client 626dcc28d against archived 7055 servers. No old A/B/C PASS is inherited. A later branch HEAD does not inherit every older execution result.
 
@@ -56,7 +56,7 @@ The behavior column is copied verbatim. `complete` means the full named behavior
 | H03 | Board, finish registration, and never return. | public signet / **complete**; [SIG](#sig) | Absent registered board expired and paid its exact registered script once; public history checked and recovery spent it. Only the pinned 7055 simple-board cohort, not every candidate or ownership class. |
 | H04 | Fund pending board, stop before final registration; expiry consumes exact funded backing into owner output. | not run / **unproven**; [SOURCE](#source) | No fresh native execution of funded pending-board abandonment is established. Upstream cosign does not persist the required pending-board ownership record; full funded/unfunded cases remain. |
 | H05 | Get board cosign/proposal but never broadcast its funding transaction. | not run / **unproven**; [SOURCE](#source) | No fresh captured cosign-only/unbroadcast-board run is established. Prove absence of invented principal and operator-funded gifts on actual pending proposals. |
-| H06 | Several boards of same wallet expire in the same eligible claim batch; repeat with different expiry batches. | source only / **unproven**; [GROUP](#group), [UNIT](#unit) | S03 source and stub tests require one output/fee across two ready same-expiry roots. Neither real grouped payout nor different-expiry repeat has executed in the new Signet cohort. |
+| H06 | Several boards of same wallet expire in the same eligible claim batch; repeat with different expiry batches. | source only / **unproven**; [GROUP](#group), [UNIT](#unit), [EPOCHS](#epochs) | S03 and S05 source/stub tests define same-expiry grouping and deliberately separated real-height settlement. Neither real grouped payout nor different-expiry repeat has executed in the new Signet cohort. |
 | H07 | Send arkoor to an online recipient. | public signet / **complete**; [SIG](#sig) | Online native sends reconcile recipient value, sender change, signatures and backing; load12 completed 60/60. Measured bounded ordinary workload, not maximum throughput or future fallback coverage. |
 | H08 | Pay absent recipient at advertised child 25 and child 50 without its database. | needs adaptation / **needs_adaptation**; [FLOW](#flow), [SOURCE](#source) | Native250-key scan evidence is related to high-index attribution. Hints were removed; offline child 25/50 ownership must be retested with mailbox verification/full xpub fallback. |
 | H09 | Receive at all eight previously advertised addresses while permanently offline, then return only after direct payouts. | not run / **unproven**; none | No eight-advertised-address offline receive campaign executed. All receipts, rightful payouts and stale original-wallet adoption remain. |
@@ -261,6 +261,11 @@ The behavior column is copied verbatim. `complete` means the full named behavior
 - reference: [reference](../tests/test_signet_s02.py).
 - controller commit: `c669367aef254ed2ba9ebf396a44a5bc01951d2e`.
 - limits: 81 Python controller tests, including negative chain/payee checks; never 80 live behavior cases.
+
+### EPOCHS
+
+- reference: [S05 sequence](signet-epochs.md).
+- limits: Source and stub tests only; no actual S05 funding, launch, payout or recovery execution.
 
 ## Interpretation and next work
 

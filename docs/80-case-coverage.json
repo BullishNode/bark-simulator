@@ -175,6 +175,11 @@
       "ci_run": "38999331166",
       "reference": "../tests/test_signet_s02.py",
       "limits": "81Python controller tests, including negative chain/payee checks; never80live behavior cases."
+    },
+    "EPOCHS": {
+      "level": "source_only",
+      "reference": "signet-epochs.md",
+      "limits": "S05 small controller wrapper and stub tests only; no public Signet funding, launch, distinct-expiry payout or recovery execution."
     }
   },
   "rows": [
@@ -284,9 +289,10 @@
       "whole_id_pass": false,
       "evidence_refs": [
         "GROUP",
-        "UNIT"
+        "UNIT",
+        "EPOCHS"
       ],
-      "demonstrated": "S03 source and stub tests require one output/fee across two ready same-expiry roots.",
+      "demonstrated": "S03 and S05 source/stub tests define same-expiry one-output grouping and deliberately separated real-height settlement; neither live case has passed.",
       "remaining_or_adaptation": "Neither real grouped payout nor different-expiry repeat has executed in the new Signet cohort.",
       "design_expectation": "Independently ready roots at the same expiry opportunistically group by actual payout script, charging 1,000 sat per actual output; different expiries settle separately without indefinite waiting.",
       "required_proof": "Execute S03 same-expiry two-root one-output recovery, then S05 different-expiry separate payouts; include an unrelated unresolved root without withholding ready outputs.",

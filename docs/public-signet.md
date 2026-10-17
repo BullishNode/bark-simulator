@@ -431,11 +431,13 @@ and allocation decisions do not establish completed payment.
    reconciliation. Its first post-expiry native fixture reached revoke/register
    but failed payout because an enabled client daemon protected the backing;
    no complete cleanup PASS is claimed. Preserve the real deadline as fallback.
-4. **S05: different-expiry and continuing receipts.** Create a deliberately new
+4. **S05: different-expiry receipts.** The [small S05 sequence](signet-epochs.md)
+   is source-prepared only; it covers two pre-absence receipts. Create a deliberately new
    cohort with two actual expiry heights. Earlier eligible roots settle without
    waiting for later receipts, each actual payout output charging 1,000 sat.
-   Observe all rightful outputs and a confirmed recovery spend without allowing
-   perpetual incoming payments to postpone earlier obligations. S03 alone does
+   Observe both rightful outputs and a confirmed recovery spend, including an
+   earlier payout before later eligibility. Continuing post-absence receipts
+   remain a separate extension; no infinite-stream liveness is inferred. S03 alone does
    not qualify this case or complete the combined H06 behavior.
 5. **Source-specific Lightning and offline Noah receive.** Root admits a separate
    explicitly pinned Lightning-enabled runtime after the load window. Use actual
