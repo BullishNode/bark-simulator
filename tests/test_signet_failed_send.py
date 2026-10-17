@@ -134,6 +134,21 @@ name='fresh_owned_failed_send'
         with self.assertRaisesRegex(ValueError, 'bind exact request'):
             self.stage()
 
+    def test_actual_root_receipt_public_signet_label_and_other_network_refusal(self):
+        self.prepare(execute_stage=False)
+        value = json.loads(self.receipt_path.read_text())
+        value['network'] = 'regtest'
+        self.receipt_path.write_text(canonical(value))
+        with self.assertRaisesRegex(ValueError, 'selected funding/source'):
+            self.stage()
+        self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM actor').fetchone()[0], 0)
+        value['network'] = 'public signet'
+        self.receipt_path.write_text(canonical(value))
+        with patch('simulator.signet.subprocess.run') as native:
+            result = self.stage()
+        native.assert_not_called()
+        self.assertEqual(result['stage'], 'STAGED_EXISTING_REAL_SENDER_NO_NATIVE_OPEN')
+
     def test_no_native_board_before_actual_funding_confirmation(self):
         self.prepare()
         self.campaign.core.transactions[TXID]['confirmations'] = 0

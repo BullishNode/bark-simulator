@@ -98,7 +98,7 @@ def stage(campaign, request_path, receipt_path, admission_path, runtime_pins,
     registration = json.loads(Path(registration_path).read_text())
     source = _protected(source_path)
     if (request.get('allocation_sat') != 100000 or request.get('funding_dispatched') is not False
-            or request.get('network') != 'signet' or receipt.get('network') != 'signet'
+            or request.get('network') != 'signet' or receipt.get('network') not in {'signet', 'public signet'}
             or request['source_manifest_sha256'] != 'c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b'):
         raise ValueError('original selected funding/source proposal required')
     if (receipt.get('request_sha256') != digest(Path(request_path))
