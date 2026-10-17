@@ -1,0 +1,83 @@
+{
+  "all_channel_principal_balances_restored": true,
+  "at": 1792266641.6633666,
+  "height": 326796,
+  "kind": "owned_channels_after_real_failed_send",
+  "native_BOLT11_only": true,
+  "nodes": {
+    "external": {
+      "after": {
+        "channel_id": "ca2601f3211dee290e17d682c383eb83b6587505171e0170ff48e9adecf20bc7",
+        "funding_txid": "c70bf2ecade948ff70011e17057558b683eb83c382d6170e29ee1d21f30126ca",
+        "in_payments_fulfilled": 1,
+        "in_payments_offered": 2,
+        "out_payments_fulfilled": 1,
+        "out_payments_offered": 1,
+        "private": true,
+        "receivable_msat": 98694000,
+        "spendable_msat": 93000000,
+        "state": "CHANNELD_NORMAL",
+        "to_us_msat": 95000000,
+        "total_msat": 200000000
+      },
+      "before": {
+        "channel_id": "ca2601f3211dee290e17d682c383eb83b6587505171e0170ff48e9adecf20bc7",
+        "funding_txid": "c70bf2ecade948ff70011e17057558b683eb83c382d6170e29ee1d21f30126ca",
+        "in_payments_fulfilled": 1,
+        "in_payments_offered": 1,
+        "out_payments_fulfilled": 1,
+        "out_payments_offered": 1,
+        "private": true,
+        "receivable_msat": 98694000,
+        "spendable_msat": 93000000,
+        "state": "CHANNELD_NORMAL",
+        "to_us_msat": 95000000,
+        "total_msat": 200000000
+      },
+      "node_id": "03f10014941a28fde31d767753cf7667e25164a2346406ab88ca90cbb4c67e29b3",
+      "post_artifact_sha256": "0a356aa269cf926a843dd73b7fbcdfd333dd1a6b500eab629aed9b9c28e7c147",
+      "post_htlc_count": 0,
+      "pre_artifact_sha256": "7ce37c15f305b198efd1267e319a53ab6bd57b62b87c925faf4ff500b6e61dec",
+      "pre_source_intent": "failed-peer-1-external",
+      "same_to_us_msat": true
+    },
+    "internal": {
+      "after": {
+        "channel_id": "ca2601f3211dee290e17d682c383eb83b6587505171e0170ff48e9adecf20bc7",
+        "funding_txid": "c70bf2ecade948ff70011e17057558b683eb83c382d6170e29ee1d21f30126ca",
+        "in_payments_fulfilled": 1,
+        "in_payments_offered": 1,
+        "out_payments_fulfilled": 1,
+        "out_payments_offered": 2,
+        "private": true,
+        "receivable_msat": 93000000,
+        "spendable_msat": 98694000,
+        "state": "CHANNELD_NORMAL",
+        "to_us_msat": 105000000,
+        "total_msat": 200000000
+      },
+      "before": {
+        "channel_id": "ca2601f3211dee290e17d682c383eb83b6587505171e0170ff48e9adecf20bc7",
+        "funding_txid": "c70bf2ecade948ff70011e17057558b683eb83c382d6170e29ee1d21f30126ca",
+        "in_payments_fulfilled": 1,
+        "in_payments_offered": 1,
+        "out_payments_fulfilled": 1,
+        "out_payments_offered": 1,
+        "private": true,
+        "receivable_msat": 93000000,
+        "spendable_msat": 98694000,
+        "state": "CHANNELD_NORMAL",
+        "to_us_msat": 105000000,
+        "total_msat": 200000000
+      },
+      "node_id": "02de1325fcc41c085c12e9fee5997a4d9afa78cc96ce5c1d4d97b01e0d2929f8eb",
+      "post_artifact_sha256": "f69d3cd8f213ab12431e91034342ac3d9c11174193c5193f14cc189a071edef3",
+      "post_htlc_count": 0,
+      "pre_artifact_sha256": "3e8f9519a541c2675cac6f9c7c0b334f1dc75a9e8f3266010a5450d951993e3c",
+      "pre_source_intent": "failed-peer-1-internal",
+      "same_to_us_msat": true
+    }
+  },
+  "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+  "scope": "Exact actual retained controller pre-send channel receipts versus independent post-cancel own-node observations; no fallback payment credit."
+}

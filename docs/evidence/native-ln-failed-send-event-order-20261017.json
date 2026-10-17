@@ -1,0 +1,74 @@
+{
+  "accepted_observations": [
+    {
+      "chain_height": 326794,
+      "htlcs": [
+        {
+          "cltv_expiry": 326801,
+          "msat": 5000000,
+          "state": "accepted"
+        }
+      ],
+      "observed_at": 1792266322.2897308,
+      "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+      "result_id": "failed-hold-0",
+      "state": "accepted"
+    },
+    {
+      "chain_height": 326794,
+      "htlcs": [
+        {
+          "cltv_expiry": 326801,
+          "msat": 5000000,
+          "state": "accepted"
+        }
+      ],
+      "observed_at": 1792266324.566666,
+      "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+      "result_id": "failed-hold-1",
+      "state": "accepted"
+    },
+    {
+      "chain_height": 326794,
+      "htlcs": [
+        {
+          "cltv_expiry": 326801,
+          "msat": 5000000,
+          "state": "accepted"
+        }
+      ],
+      "observed_at": 1792266328.9505165,
+      "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+      "result_id": "failed-hold-2",
+      "state": "accepted"
+    },
+    {
+      "chain_height": 326794,
+      "htlcs": [
+        {
+          "cltv_expiry": 326801,
+          "msat": 5000000,
+          "state": "accepted"
+        }
+      ],
+      "observed_at": 1792266331.389015,
+      "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+      "result_id": "failed-hold-3",
+      "state": "accepted"
+    }
+  ],
+  "at": 1792266830.2425542,
+  "cancellation_ack_at": 1792266331.4089158,
+  "cancellation_intent_at": 1792266330.1542163,
+  "fence": {
+    "observed_at": 1792266328.9576075,
+    "permanent_actor_absent": true,
+    "result_id": "failed-send-absence-0"
+  },
+  "kind": "native_failed_send_actual_absence_event_order",
+  "original_actor_actions_after_fence": [],
+  "original_native_wallet_processes_at_observation": [],
+  "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+  "scope": "Actual recorded Accepted observations precede permanent sender fence and one external cancellation; no subsequent actor actions/processes at observation. Not fallback/recovery completion.",
+  "source_controller": "b948a3d384303657a7599f2ed40bb2420918cff1"
+}

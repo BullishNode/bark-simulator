@@ -17,6 +17,14 @@
       "reference": "https://github.com/BullishNode/abandon-ship-bark/blob/fb85d9a9c3b31b3eab1eb2113d2caec89c7f10dd/docs/evidence/owner-scheduler-indexed-20261017.json",
       "scope": "Unfunded signedRPC registration and direct realPG scanner; wrongmailbox10k timeout preserved"
     },
+    "FAILED_SEND_EXECUTED_PARTIAL": {
+      "controller_source": "b948a3d384303657a7599f2ed40bb2420918cff1",
+      "event_order_reference": "docs/evidence/native-ln-failed-send-event-order-20261017.json",
+      "liquidity_reference": "docs/evidence/native-ln-failed-send-liquidity-20261017.json",
+      "reference": "docs/evidence/native-ln-failed-send-accepted-cancelled-20261017.json",
+      "scope": "Actual one5000sat invoice/nativeattempt, Accepted then originalsenderfenced before Cancelled; exactownnode/label/index2 failed, channelbalancesrestored. D326812/E326823, full29670cut/expected28670fallback; payoutandrecoverypending. No legacy state/unfinishedrefresh fault executed.",
+      "source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b"
+    },
     "FAILED_SEND_FUNDED_PREPARATION": {
       "receipt_sha256": "b8613b98e2af7c4f671bf5254baa8629124f688ae9fb1340590aaed50784eac5",
       "reference": "docs/evidence/native-ln-failed-send-board-observation-20261017.json",
@@ -277,13 +285,14 @@
       "contribution_status": "NOT_RUN",
       "evidence_ids": [
         "FAILED_SEND_PREP",
-        "FAILED_SEND_FUNDED_PREPARATION"
+        "FAILED_SEND_FUNDED_PREPARATION",
+        "FAILED_SEND_EXECUTED_PARTIAL"
       ],
       "id": "ML077",
       "missing_full_scenario_proof": "Trace actual failed source through unfinished participation cancellation; preserve original owner and unrelated root.",
       "original_oracle": "Enumerate all participation inputs/outputs and original refund source; sender99k once, canceled outputs customer0; other-tree valid owner preserved.",
       "original_oracle_sha256": "8f7c1d1a9d1b5b09e4f94e42cda2fd24c73cc656b62ad55c63933f8334870e31",
-      "public_signet_contribution": "Separate18/32 profile is funded and one native30k board broadcast; no failed external send, refund, unfinished cancellation or cross-root race has executed at this checkpoint.",
+      "public_signet_contribution": "Separate18/32 profile executed real nativeAccepted\u2192senderoffline\u2192Cancelled with source-specific failure; eventualfallback/recovery stillpending. No unfinishedparticipation cancellation or cross-root refresh race was executed.",
       "required_test_lane": "Native regtest composition; later separate failed-send Signet observation.",
       "title": "Incomplete refresh cancellation loses the original failed-swap refund source",
       "whole_scenario_pass_claimed": false

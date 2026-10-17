@@ -87,3 +87,21 @@ refresh exchange. **ML073 and ML077 remain NOT_RUN.** A later normal failed-send
 PASS would still leave their complete legacy/cancellation oracles unmet. All38
 selected IDs, original oracle hashes, counts and zero whole-scenario PASS claims
 are preserved; the coordinator's200-ID ledger/research snapshot is unchanged.
+
+
+## Actual failed-send phase, fallback pending
+
+[The later native checkpoint](evidence/native-ln-failed-send-accepted-cancelled-20261017.json)
+records actual one5,000-sat invoice/send at326794, externalAccepted, original
+sender fenced before onecancel, then the exact own-node/label/positive-index2
+failure. Actual signed D=326812 and tree E=326823. Three verified source/change
+coins total29,670sat: locked5,075 and spendable12,298+12,297. The75sat in the
+HTLC is a reserve, not a settled send fee. Expected one-output fallback28,670sat
+is still unconfirmed/unobserved here; native original-seed recovery has not run.
+
+[Independent post-cancel channel observations](evidence/native-ln-failed-send-liquidity-20261017.json)
+use the controller's retained actual pre-send snapshots. Internal/external
+channel principal balances remain105,000,000/95,000,000msat; offered counts
+increase, fulfilled counts do not, and neither side has pending HTLCs. This is
+normal failed-send financial evidence, not satisfaction of ML073/ML077 legacy
+or unfinished-refresh scenarios, nor any Noah/LNURL functional receive.

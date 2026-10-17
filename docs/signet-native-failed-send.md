@@ -313,3 +313,46 @@ sequence; no additional routine approval is pending.
 No invoice, send, external cancellation, source-specific failure or refund is
 claimed at this checkpoint. The native receive observer, its absent recipient,
 and the ordinary workload remain on their original runtime/configuration pins.
+
+
+## Actual Accepted→offline→Cancelled, awaiting fallback
+
+The [immutable actual native checkpoint](evidence/native-ln-failed-send-accepted-cancelled-20261017.json)
+records one invoice and native send at326794. Its exact hash is
+`556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99`.
+The external hold was genuinelyAccepted. The original native sender remained
+parked atPaymentInitiated; full signed source/change verification passed, then
+the sender was permanently fenced before the one external cancellation. No
+cooperative client revocation was used.
+
+Actual signed grant deadline is326812, backing expiry326823, and the observed
+external HTLC expiry326801. The native SDK generated two change leaves rather
+than one:12,298+12,297sat, plus the5,075-sat conditional grant. All three paths
+were natively signature-verified against the actual three-confirmed board
+anchor; the complete cut totals29,670sat. The75sat send-fee reserve is part of
+that conditional claim; it is not recorded as a settled fee or successful debit.
+
+The actual backend/source join and owned CLN records match node, hash, dispatch
+label and positivecreated_index2/updated_index2. All same-hash groups failed;
+there is no observed preimage or external-success receipt. The marker has no
+JSON-RPC205/207 code: this is genuine attempted-group failure on stock transport,
+not a typed no-attempt shortcut. [Independent channel proof](evidence/native-ln-failed-send-liquidity-20261017.json)
+shows both channel principal balances restored, offered counters increasing
+without fulfilled counters increasing, and no remaining channel HTLCs.
+
+The phase transition preserved the original wallet/journal and took a protected
+cold backup, verified the live cap/watch ELFs and unchanged configurations, and
+passed92 focused tests on the VM. The original board supervisor exited0. The
+new bounded observer now waits for actual D/E, one rightful28,670-sat fallback,
+parent/fee-child each at least six confirmations, and a genuine original-seed-only
+restore plus one confirmed drain. **That fallback/recovery has not completed.**
+These observations do not qualify the default258-block profile, stockNoah,
+legacy-state restoration, interrupted refresh or any complete200-ID oracle.
+
+
+[The recorded event order](evidence/native-ln-failed-send-event-order-20261017.json)
+contains actual Accepted observations at326794 before the permanent sender
+fence, followed by cancellation intent and ACK. At the retained read-only
+observation there are no subsequent original-actor action updates and no native
+wallet process for that original directory. These observations supplement the
+fence mechanism; they are not inferred from an ACK or a synthesized owner state.
