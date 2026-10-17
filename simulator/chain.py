@@ -1,6 +1,6 @@
 """Independent read-only Bitcoin evidence; exact satoshis, bounded RPC calls."""
 from __future__ import annotations
-import base64,json,urllib.request
+import base64,json,re,urllib.request
 from decimal import Decimal
 from pathlib import Path
 from .model import SIGNET_GENESIS,btc_to_sat,integer,transaction_fee
@@ -30,7 +30,13 @@ class ChainReader:
             max_response_bytes=MAX_RESPONSE_BYTES,activity_scripts=set(scripts),timeout=timeout)
     def _call(self,method,*args,timeout=12,max_response_bytes=16*1024*1024,activity_scripts=None):
         self.last_capture=None
-        if method not in {'getrawtransaction','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress','scantxoutset','getrawmempool','getdescriptoractivity'}:raise ValueError('read-only RPC required')
+        if method not in {'getrawtransaction','getblock','getblockhash','getblockchaininfo','gettxout','getmempoolinfo','estimatesmartfee','getdescriptorinfo','deriveaddresses','validateaddress','scantxoutset','getrawmempool','getdescriptoractivity'}:raise ValueError('read-only RPC required')
+        # The campaign needs public transaction IDs for independent payout
+        # discovery. Other verbosity levels would expose whole block witnesses
+        # to the generic capture path, including unrelated Lightning preimages.
+        if method=='getblock' and (len(args)!=2 or not isinstance(args[0],str)
+                or not re.fullmatch('[0-9a-f]{64}',args[0]) or type(args[1]) is not int or args[1]!=1):
+            raise ValueError('public block transaction-id inventory required')
         if method=='getdescriptoractivity':
             from .owned_mempool import validate_arguments,MAX_RESPONSE_BYTES
             validate_arguments(args)
@@ -79,11 +85,11 @@ class ChainReader:
         return r['result']
     def _capture(self,method,args,result,error,raw):
         if self.capture is None:return
-        if method=='getrawtransaction':
+        if method in {'getrawtransaction','getblock'}:
             # Unparsed/error replies may contain witness or scriptSig bytes too.
             raw=None
             if error is None:
-                try:result=public_transaction(result)
+                try:result=public_transaction(result) if method=='getrawtransaction' else public_block_inventory(result)
                 except ValueError:result={'public_projection_gap':True,'signed_bytes_omitted':True}
             else:
                 result={'public_projection_gap':True,'signed_bytes_omitted':True}
@@ -120,6 +126,17 @@ class ChainReader:
         if self.capture is not None:
             self.capture({'kind':'chain.derived','payload':{'txid':txid,'derived':tx,'consumer':self.consumer},'raw':None})
         return tx
+
+
+def public_block_inventory(value):
+    """Project only the block identity and public transaction identifiers."""
+    if (not isinstance(value,dict) or not isinstance(value.get('hash'),str)
+            or not re.fullmatch('[0-9a-f]{64}',value['hash'])
+            or type(value.get('height')) is not int or value['height']<0
+            or not isinstance(value.get('tx'),list) or not 1<=len(value['tx'])<=100000
+            or any(not isinstance(txid,str) or not re.fullmatch('[0-9a-f]{64}',txid) for txid in value['tx'])):
+        raise ValueError('invalid public block inventory')
+    return {key:value[key] for key in ['hash','height','tx']}
 
 
 def public_transaction(value):

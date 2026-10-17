@@ -1,0 +1,406 @@
+{
+  "kind": "ACTUAL_FIRST50_FUNDING_AND_BOARD_BROADCAST",
+  "observed_at": "2026-10-17T22:12:06.924658+00:00",
+  "chain": {
+    "height": 326814,
+    "hash": "0000001528d1f29b61587b860d04ff519833981ef4a6097beacb6c979ad275eb",
+    "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+    "network": "signet",
+    "signet_challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae"
+  },
+  "controller_source": "36cefa12fceab6f5ec496d727208f94efcc38f46",
+  "wrapper_sha256": "be177b6b30d8b4273b188a198baa17409c49d6142db6dfa066d793de78729aee",
+  "wrapper_process": {
+    "boot_id": "867e5761-a3f3-4e26-9361-39abba613d1a",
+    "pid": 228597,
+    "source": "36cefa12fceab6f5ec496d727208f94efcc38f46",
+    "start_ticks": 9315930
+  },
+  "runtime_manifest_sha256": "162964716588566b084c7d768b7401816625998774a28d3dc3bbaaedfcc008a8",
+  "runtime_pins_sha256": "6c70aa3afa82fb11f4607b83a412fcff9141f3a073617022536a36a1cd930d73",
+  "funding": {
+    "txid": "b9cbce6fb9b6ebb0f89e3f4952d7caf095ccc637e462c24bc1458b6cc70268a7",
+    "confirmations": 3,
+    "requested_outputs": 56,
+    "principal_sat": 2300000,
+    "actual_miner_fee_sat": 5760,
+    "vsize": 1920,
+    "receipt_sha256": "0ea05d54bc7bda6ff707958c2c6954cb0ac5d3260a3b8f889fa2bdf943e98b6b",
+    "request_sha256": "8eb60f71baa6dc5e79ce78e925b48eebcb756b6b3aaf37dceab320ad8ec267eb"
+  },
+  "operator_funding_admission": {
+    "actual_outputs": [
+      {
+        "amount_sat": 200000,
+        "confirmations": 3,
+        "outpoint": "b9cbce6fb9b6ebb0f89e3f4952d7caf095ccc637e462c24bc1458b6cc70268a7:51",
+        "role": "rounds"
+      },
+      {
+        "amount_sat": 20000,
+        "confirmations": 3,
+        "outpoint": "b9cbce6fb9b6ebb0f89e3f4952d7caf095ccc637e462c24bc1458b6cc70268a7:52",
+        "role": "watchman_fee_0"
+      },
+      {
+        "amount_sat": 20000,
+        "confirmations": 3,
+        "outpoint": "b9cbce6fb9b6ebb0f89e3f4952d7caf095ccc637e462c24bc1458b6cc70268a7:53",
+        "role": "watchman_fee_1"
+      },
+      {
+        "amount_sat": 20000,
+        "confirmations": 3,
+        "outpoint": "b9cbce6fb9b6ebb0f89e3f4952d7caf095ccc637e462c24bc1458b6cc70268a7:54",
+        "role": "watchman_fee_2"
+      },
+      {
+        "amount_sat": 20000,
+        "confirmations": 3,
+        "outpoint": "b9cbce6fb9b6ebb0f89e3f4952d7caf095ccc637e462c24bc1458b6cc70268a7:55",
+        "role": "watchman_fee_3"
+      },
+      {
+        "amount_sat": 20000,
+        "confirmations": 3,
+        "outpoint": "b9cbce6fb9b6ebb0f89e3f4952d7caf095ccc637e462c24bc1458b6cc70268a7:56",
+        "role": "watchman_fee_4"
+      }
+    ],
+    "chain": {
+      "chain": "signet",
+      "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+      "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+      "hash": "0000001528d1f29b61587b860d04ff519833981ef4a6097beacb6c979ad275eb",
+      "height": 326814
+    },
+    "stage": "ACTUAL_OPERATOR_FUNDS_CONFIRMED"
+  },
+  "boards": [
+    {
+      "actor": "load-000",
+      "funding_txid": "9d1b2120fa2af5d081647032db57c71a05fbbc710963b9864842813ff605fa49",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-001",
+      "funding_txid": "832871a5a2b103e131c3c9c84043a548061f028ade898f917f09e2e7bf9b7b6a",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-002",
+      "funding_txid": "83692f379725a1c7b2e5e7dfb4d9f611485983025c33dfbd33dc02364f0db03a",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-003",
+      "funding_txid": "5b5f2127401cfa9f2427f1e6595d43fbe2b292f6bba85fe2cb2d4adcc8e66a9b",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-004",
+      "funding_txid": "e4c7631d2230ecc5834fd46bdd4436e116fe58a39e7573931395c5851d656e88",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-005",
+      "funding_txid": "1d786a09a18e62803bc8946d18875a782d54f0ca0c5ebd4db69b697e5b596b6f",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-006",
+      "funding_txid": "f5de80e658777432356a3d8cd8a4b4504cb785d88d3cba15fd969a9020bfa347",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-007",
+      "funding_txid": "167a2b9aa3728f86db86922327c18819584c01ba71c9fe21e346ad38733ea782",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-008",
+      "funding_txid": "b4f72d1de282bf39a1213dc796802b91213bead02d59db355eb91c369c372bbf",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-009",
+      "funding_txid": "2753b63c04797ac15173261e4c4372a29db4595a634735ed6fdd154f14af545b",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-010",
+      "funding_txid": "f85007ad30d74f80bb89955057953f75ef10edb7aab2ad1c207edf9d764b1bbf",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-011",
+      "funding_txid": "c4cd1733b052ac11a93e621e391aa65ee36d55365b09c616eb9ce0a649d7541e",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-012",
+      "funding_txid": "75dc23e141142719947bb4011e0151ca6d05fad9777960bd3cfc612b1c6df073",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-013",
+      "funding_txid": "52593a92f5e52562abb4cacd66e2afa4abd1155951825e0e8b7977d70307f3e1",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-014",
+      "funding_txid": "0339ed671b9271383f3c03b431011b512a0cf1ea805c1edd061245374060bcb3",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-015",
+      "funding_txid": "fb961303d97fcb955fa6b9c6b07432f3979dcf4af12d45641aba94b3c862711b",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-016",
+      "funding_txid": "ee140590cc73779ffce2c60c47eec34c6fee4722ff94316b2fb9e56f2f0ca8f5",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-017",
+      "funding_txid": "b8c76fedc7bf705f66981ba234b73d9d801b0bb6fb00f075340dbe6b1ddcb489",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-018",
+      "funding_txid": "8afa78b04a37b5e55c7937640728acf2507de48a9b65073f592714c6d5f9527a",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-019",
+      "funding_txid": "0122b7e6b1eec63890de609d53aa68fefba02789bcd02e45ee78bb145ac770c9",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-020",
+      "funding_txid": "fb49fcac43cea7c768fb86d3454c2cf67e0a46e235d3ecbf759b7d41b504bcb4",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-021",
+      "funding_txid": "d2366eaee119d7e246fde2b3042f1da8cf215b88599c4bd4c60e494dfdc76a65",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-022",
+      "funding_txid": "9aac41372a658f84272aecfc745281edb5063018631c7d903ed12f59efd96dd7",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-023",
+      "funding_txid": "0bbce64d3ce699015473d019a1369ef385354070cf36ef3f2a151ca4aba74f88",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-024",
+      "funding_txid": "1146dc613de2f679e052647cce178439c1ee4fc91e40ba0d2dd1829df0d39347",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-025",
+      "funding_txid": "d9e0f77ce212fa043ceae3d37281b3bfd702b839257e550e2a7202a89fc135f6",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-026",
+      "funding_txid": "904ade035c76604f1529ac968580222475b758842d852c874050c793e8ab0b16",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-027",
+      "funding_txid": "2e5c5d5cf66f93e106e31281717e05e3cab234a8b12d99fbdacfae7ba13ba4cc",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-028",
+      "funding_txid": "c732c28754da0edc80d1d9e43b2ae2a2077a67f44b48ef420f65de1b6c1918d7",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-029",
+      "funding_txid": "4b585e15d1755bf5975f870f7c40e6ff78ddf9dff8142de805203fa3de7a1cb5",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-030",
+      "funding_txid": "4d4120ac2f2e0d5c90554e9a84bf59340d1bf7ba8fee086e5d9eafed6090ac9b",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-031",
+      "funding_txid": "0d86acb7be5852a9933e7ffdf496b1ff3312ddc8b80458af7b3a956225e9185c",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-032",
+      "funding_txid": "43ae20f4c14cc50ee66cc0c8c0474cf945104be098a1393a26cb026fa6557712",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-033",
+      "funding_txid": "9f43790a02cdf81a2f86a629ade772a3812f67ebe144f27d7411bc6ed3695218",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-034",
+      "funding_txid": "b654ff5febb34f2b1fb183637ab1be3410af64648744c8f9cb2530316a56ad13",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-035",
+      "funding_txid": "231416ee0cd1ac41a25647c5c82f847e4359d04a05c3c31ecf282b6c0c8a7a2f",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-036",
+      "funding_txid": "96eb5c3efa66090556d2081e5c34f86478757489c0337a3a514a8080d16c2274",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-037",
+      "funding_txid": "dabf9256db86aafd1b7698b955fbb0644c6ecec17a90ad45a4811252ce67dc24",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-038",
+      "funding_txid": "e7dd2022f039ef6587904a107832eb7929199dde89c294578103ca674ca76bd3",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-039",
+      "funding_txid": "b79031c8d89551a992e84dbb3c265784573dc6150d36300643a67d341f7d25f8",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-040",
+      "funding_txid": "26b7e7d6f38de855560f92501be7774ffbfcc64dcf0aa578bdacf77f0b2e264a",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-041",
+      "funding_txid": "095bb37fa6fc6afa2bb2c47e806e7cc68a704d8a90e126a9668a721c89ad4884",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-042",
+      "funding_txid": "de04c98ea22e755295da428095948c0173109058c1c58a99bc47fbde1e95e5cb",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-043",
+      "funding_txid": "7f3ba1fd278c4c56d85c21c41409cca407b2d10ae6b373768a5ef1b50d257d28",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-044",
+      "funding_txid": "acabb0ddb86e1047bf05c9b3e0de890d718dbc0e172b8a80265088b4305cfaea",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-045",
+      "funding_txid": "2565fb89f8719d49c6e93d9f42b657a5d646e0ea35297fee09db67155766308a",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-046",
+      "funding_txid": "378502181954962d867134cff620001b00714907f9f329486f6cca282e724aae",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-047",
+      "funding_txid": "9fe26b53865072253b56921d5065c69794e651a1a2d247190e2b2ff180e86a35",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-048",
+      "funding_txid": "ecad3998ee78ecf3a8bdf0f8a374f086d38e667c07769a2e124f6e9647ee5432",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    },
+    {
+      "actor": "load-049",
+      "funding_txid": "dd4fba613c908f1ba8067ba5f5dfd8ef070237470a570c69261a1abeef90e5db",
+      "confirmations": 0,
+      "native_coin_amount_sat": 29670
+    }
+  ],
+  "board_miner_fees": {
+    "actual_count": 50,
+    "total_sat": 22900
+  },
+  "actual_send_actions": 0,
+  "unknown_or_dispatched_actions": 0,
+  "progress": {
+    "actor": "load-000",
+    "height": 326814,
+    "snapshot_intent": "load-admit-326814-load-000",
+    "stage": "WAITING_FOR_GENUINE_NATIVE_BOARD_ADMISSION"
+  },
+  "planned_workload": {
+    "transfers": 600,
+    "amount_sat": 1000,
+    "concurrency": 5,
+    "batch_interval_seconds": 10,
+    "maximum_dispatch_window_seconds": 1200
+  },
+  "load_result": null,
+  "retained_failures": [
+    "First receipt-access PermissionError before Popen/native action; exact admitted receipt subsequently copied. Root treasury permissions unchanged.",
+    "First read-only projection expected JSON for bitcoin-cli getblockhash, which returns a bare hash. Failed before artifact write; parser corrected."
+  ],
+  "scope": "Actual funding and one-shot board broadcasts; no timed-load, LN, Noah/LNURL, maximum-TPS or production-readiness claim."
+}

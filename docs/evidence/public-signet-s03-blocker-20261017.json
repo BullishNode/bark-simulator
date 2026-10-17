@@ -1,0 +1,75 @@
+{
+  "kind": "S03_incomplete_grouping_geometry_blocker",
+  "observed_at": "2026-10-17T13:34:02.515828+00:00",
+  "source_commit": "7055d1fce858f3112aff671d0b2a8a454d6a2214",
+  "controller_commit": "c669367aef254ed2ba9ebf396a44a5bc01951d2e",
+  "operational_runner_sha256": "5ad2ed8aa7509fae7ba7d4769a503fb271357cb5d1fd1d328ac628ee334aea18",
+  "chain_height": 326761,
+  "chain_hash": "00000006224b06e8b87601fbda3ff9c14290eb7d62eb541ceabc97d4d79a7859",
+  "absence_height": 326706,
+  "expiry_height": 326714,
+  "expected_grouped_payout_sat": 38670,
+  "frozen_customer_coins": [
+    {
+      "id": "8af1c53dd7117fe43a053e812ca341824bd32271124ca1b6ef48fe216f28c325:0",
+      "amount_sat": 29670,
+      "anchor": "59c167960d877e941ca3a47963dc017a957e29397e64e32daa15c54a2269f4c9:0"
+    },
+    {
+      "id": "571510ee844d77cc452e9611fb26afdc00169153d857957d2679c82814640f87:0",
+      "amount_sat": 10000,
+      "anchor": "6c3b62e9d8f3d3146d95577fde60778155114a2af7d3f91e0843cba116438ce4:0"
+    }
+  ],
+  "observed_partial_payout": {
+    "txid": "08247b6a71e60f2bdac4730c05476669f1e1c6e72b1bbc5e6cfc60ba958582ef",
+    "vout": 0,
+    "amount_sat": 28670,
+    "confirmation_height": 326715,
+    "confirmations_at_observation": 47,
+    "registered_script": "00142829de6aa80964963fce80fc9826662ccab04e75"
+  },
+  "unpaid_customer_entitlement_sat": 10000,
+  "second_root_confirmed_unspent_sat": 30000,
+  "second_root_confirmations": 58,
+  "no_htlc_or_offboard_rows": true,
+  "accepted_control_change_refresh": {
+    "participation_id": 5,
+    "two_original_change_leaves_sat": [
+      9835,
+      9835
+    ],
+    "forfeit_terminal_ids": [
+      "5af621f581286ad66a441e39aee0c40c72d8ac0ea11ee4217b1096e8e80d8cb7:0",
+      "02f4ffdf2a0acc1f6278229bf724e84a6711ac8feebc93e4ccd7535a81b85100:0"
+    ]
+  },
+  "recipient_attribution": {
+    "recorded_mailbox_matches_authenticated_record": true,
+    "independent_core_descriptor_derivation_matches_actual_coin_key": true,
+    "child_index": 2,
+    "not_in_pending_or_verified_owner_cache_at_snapshot": true
+  },
+  "readiness_error": {
+    "source": "server/src/expiry_readiness.rs:128",
+    "message": "Expiry anchor remains unready; other anchors continue",
+    "error": "expiry source geometry is invalid"
+  },
+  "exact_byte_backend_diagnostic": {
+    "all_eight_root_board_checkpoint_recipient_and_change_paths": "validate_unsigned PASS",
+    "two_historical_hark_forfeit_paths": "Invalid(\"point doesn't match computed exit outpoint\")",
+    "result_log_sha256": "52b00c44b8db9023586b25efba91e91040048a17686eafddb1e0f2c17ca6c050",
+    "scope": "Offline exact-byte diagnosis against retained funding; no live source patch or payout completion."
+  },
+  "controller_pause": {
+    "at": "2026-10-17T13:24:03.287293+00:00",
+    "height": 326761,
+    "graceful": true,
+    "lock_released": true,
+    "original_absent_actor_fence_retained": true
+  },
+  "case_verdict": "INCOMPLETE_WITH_CONFIRMED_LIVENESS_BLOCKER",
+  "grouping_pass": false,
+  "seed_recovery_for_this_case_completed": false,
+  "scope": "Real public-Signet transfer/absence and a partial payout; not S03 grouping PASS. Prior S01/S02/load results remain unchanged. Source fix/native regression/live repair/new grouping proof remain separate."
+}

@@ -1,0 +1,600 @@
+{
+  "canonical_ledger": "https://github.com/BullishNode/abandon-ship-bark/blob/82d341c16/docs/money-loss-acceptance-20261017/ACCEPTANCE.csv",
+  "canonical_ledger_modified": false,
+  "catalogue_sha256": "8633330602d3d8d848b21115c36f080a7edc5948187e12f1a1ab004119625267",
+  "contribution_status_counts": {
+    "BLOCKED_POLICY": 2,
+    "FAIL": 1,
+    "NOT_RUN": 13,
+    "PARTIAL": 22
+  },
+  "evidence": {
+    "ATTR_NEW": {
+      "reference": "docs/evidence/attribution-scale-scope-review-20261017.json",
+      "scope": "Independent review of root004601e9 exactreportb924fd; all9 unfunded low-index lookupcases pass; no paid owner/capacity oracle"
+    },
+    "ATTR_OLD": {
+      "reference": "https://github.com/BullishNode/abandon-ship-bark/blob/fb85d9a9c3b31b3eab1eb2113d2caec89c7f10dd/docs/evidence/owner-scheduler-indexed-20261017.json",
+      "scope": "Unfunded signedRPC registration and direct realPG scanner; wrongmailbox10k timeout preserved"
+    },
+    "FAILED_SEND_EXECUTED_PARTIAL": {
+      "controller_source": "b948a3d384303657a7599f2ed40bb2420918cff1",
+      "event_order_reference": "docs/evidence/native-ln-failed-send-event-order-20261017.json",
+      "liquidity_reference": "docs/evidence/native-ln-failed-send-liquidity-20261017.json",
+      "reference": "docs/evidence/native-ln-failed-send-accepted-cancelled-20261017.json",
+      "scope": "Actual one5000sat invoice/nativeattempt, Accepted then originalsenderfenced before Cancelled; exactownnode/label/index2 failed, channelbalancesrestored. D326812/E326823, full29670cut/expected28670fallback; payoutandrecoverypending. No legacy state/unfinishedrefresh fault executed.",
+      "source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b"
+    },
+    "FAILED_SEND_FUNDED_PREPARATION": {
+      "receipt_sha256": "b8613b98e2af7c4f671bf5254baa8629124f688ae9fb1340590aaed50784eac5",
+      "reference": "docs/evidence/native-ln-failed-send-board-observation-20261017.json",
+      "scope": "Actual separate18/32 fresh profile100k allocation and one30k board; at326792 board1conf/native3conf admission pending, no invoice/send/cancel/failure/refund/cancellation-refresh proof.",
+      "source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b"
+    },
+    "FAILED_SEND_PREP": {
+      "reference": "https://github.com/BullishNode/bark-simulator/blob/13351f7e7a22e6fda629169b5d83dd32a89f0e80/docs/signet-native-failed-send.md",
+      "scope": "Historical original258-block source/config preparation; no actor/fund/invoice/send/cancel at that immutable milestone. Separate18/32 funded preparation is not retroactive execution credit."
+    },
+    "LOAD12": {
+      "reference": "docs/evidence/public-signet-s02-load12-20261017.json",
+      "scope": "Actual12 funded wallets/60 reconciled1000sat sends; paced schedule, no maximumTPS"
+    },
+    "LOAD50": {
+      "reference": "docs/evidence/public-signet-load50-20261017.json",
+      "scope": "Actual50 funded wallets/200 reconciled1000sat sends; source7055; no attribution search or lifetime history stress"
+    },
+    "NATIVE_RECEIVE": {
+      "reference": "docs/evidence/public-signet-native-ln-receive-20261017.json",
+      "scope": "Actual5000 payment,4890 signed recipient coin, E326816/D326833; fallback/recovery pending at immutable milestone"
+    },
+    "NOAH_FAIL": {
+      "reference": "docs/evidence/noah-actual-invoice-rejection-20261017.json",
+      "scope": "Actual stock Noah prepayment callback failure; no payer debit or funded swap"
+    },
+    "S02": {
+      "reference": "docs/evidence/root-s02-challenge-verified-proof-20261017.json",
+      "scope": "Small-cohort original-seed-only actual payout discovery and confirmed spend; source7055"
+    },
+    "S03": {
+      "depth_reference": "docs/evidence/public-signet-s03-recovery-depth-six-20261017.json",
+      "reference": "docs/evidence/public-signet-s03-repair-20261017.json",
+      "scope": "Original failed grouping retained; repaired separate9000 plus prior28670, total37670/twofees; recoveryconfirmed>=6 separately"
+    },
+    "SPLIT327": {
+      "receipt_name": "batch16-corrected-multilevel-split-financial-summary.json",
+      "reference": "https://github.com/BullishNode/abandon-ship-bark/blob/82d341c16/docs/money-loss-acceptance-20261017/research/MONEY_LOSS_SCENARIOS.md",
+      "run_id": "63a761b8-7f82-4f73-9bd5-3433e6912403",
+      "scope": "Native regtest327realowners/635path/twolevels,1308000sat customeroutputs>=7conf; not arbitrary shareddepth or productioncapacity",
+      "source_manifest_sha256": "704179331e4f672ac09f5dad6dc564d42fa36707dc32bad5b6889c831848cf06"
+    }
+  },
+  "rows": [
+    {
+      "contribution_status": "FAIL",
+      "evidence_ids": [
+        "NOAH_FAIL"
+      ],
+      "id": "ML061",
+      "missing_full_scenario_proof": "Compatible exact-metadata-hash callback and real paid Noah recipient/fallback/recovery remain absent.",
+      "original_oracle": "Exact original metadata hash must match original invoice description hash; only afterward can original-hash settlement, recipient claim and fallback earn credit.",
+      "original_oracle_sha256": "a279fedd49ce05f8e4befa7b2a797c419e4ea48ff3cce139e8ef877e410271ac",
+      "public_signet_contribution": "Actual stock Noah callback returned one plain-memo invoice; strict verifier rejected its missing metadata hash before any payment.",
+      "required_test_lane": "Actual stock Noah callback; no mobile; native SDK flow cannot substitute.",
+      "title": "Offline Noah recipient gets an invoice that strict LNURL payers cannot pay",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [],
+      "id": "ML062",
+      "missing_full_scenario_proof": "Request-owner binding plus independent Alice receipt/Bob zero.",
+      "original_oracle": "Two controlled users, original amount10k: onlyAlice invoice may be returned; independent node receipt must creditAlice and Bob0.",
+      "original_oracle_sha256": "0441ab7e6eb5cb729e7219e4a9751f58c42fe554159201237f6ecd2eccc7e850",
+      "public_signet_contribution": "No two-account Noah request misdelivery exercised.",
+      "required_test_lane": "Controlled owned Noah backend API test before any funded Signet variant.",
+      "title": "Misdelivered Noah request ID accepts another authenticated user invoice",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [],
+      "id": "ML063",
+      "missing_full_scenario_proof": "Original10k request must reject20k invoice and no mismatched debit.",
+      "original_oracle": "Compare original callback amount10000000msat with independently decoded invoice and actual debit; a mismatch cannot become payment/entitlement.",
+      "original_oracle_sha256": "c363742333c9343c68fdbd2a3d2ec16b4e97525f7bfe50c837db101561145589",
+      "public_signet_contribution": "The native receive exact5000 amount check does not exercise concurrent Noah request IDs.",
+      "required_test_lane": "Controlled Noah backend amount-correlation test.",
+      "title": "A second device submits the amount from the wrong receive request",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [],
+      "id": "ML064",
+      "missing_full_scenario_proof": "Two original hashes, immutable request choice, actual debit at mostonce and safely canceled unused obligation.",
+      "original_oracle": "Record both actual created hashes; request chooses one immutable hash, payer debit<=10k once, other hold/grant safely cancels.",
+      "original_oracle_sha256": "0e0fbea10a550f6c4ed2e5e39bb9aebfd910f852cf5b41ead79f90b1de385f91",
+      "public_signet_contribution": "One-shot native journal is a campaign safeguard, not a concurrent Noah cache test.",
+      "required_test_lane": "Controlled Noah cache/device-API concurrency test; no mobile build.",
+      "title": "Two Noah devices overwrite one request while invoice retrieval is in progress",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "BLOCKED_POLICY",
+      "evidence_ids": [
+        "NATIVE_RECEIVE"
+      ],
+      "id": "ML065",
+      "missing_full_scenario_proof": "Resolve unintended-update versus authorized-forwarding contract, then prove intended seed/script continuity.",
+      "original_oracle": "Compare actual claim policy with independently declaredAlice address/seed and fallback script; reject or explicitly resolve unintended mismatch.",
+      "original_oracle_sha256": "bd9e38dbfe02fc4bdd59b0581c06a323d3d05615a031495846cb4bdd56930506",
+      "public_signet_contribution": "Actual native flow verifies exact intended recipient address, but no unintended Noah restore/update has been exercised.",
+      "required_test_lane": "Policy/reachability review then controlled Noah address update and native monetary proof.",
+      "title": "Stored Noah forwarding address belongs to a stale external wallet",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "BLOCKED_POLICY",
+      "evidence_ids": [],
+      "id": "ML066",
+      "missing_full_scenario_proof": "Define in-flight account identity; original metadata must preserve identity or reject before debit.",
+      "original_oracle": "Freeze original user identity and metadata response; after reassignment callback must preserve original obligation or reject before payer debit.",
+      "original_oracle_sha256": "38640a9a506e39e577cbee948b99495a8d37af0776bc0cd7cb87f35609b0f28f",
+      "public_signet_contribution": "No hosted-name rename/reassignment interleaving exercised.",
+      "required_test_lane": "Policy/reachability review then controlled Noah username race.",
+      "title": "Hosted username is reassigned between metadata and payment callback",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "NATIVE_RECEIVE"
+      ],
+      "id": "ML067",
+      "missing_full_scenario_proof": "Original destination must survive failed/lost claim reply, provider source exit and terminal state; inspect every actual payout and provider zero.",
+      "original_oracle": "Retain frozen Alice destination, real incoming payment and source grants. Inspect every actual exit and fallback outpoint; Alice receives the correct amount once, provider receives none of her principal, and destination survives terminal records.",
+      "original_oracle_sha256": "2e30d4fc311a4b7439a6cfb9111d6950d9158d92bffb20a6c75f6eedd829243c",
+      "public_signet_contribution": "Native Signet proves happy-path paid forward and authentic4890 recipient Pubkey; no provider recovery escalation or interrupted claim.",
+      "required_test_lane": "Controlled native regtest escalation boundary, then separately admitted compatible Noah backend flow.",
+      "title": "Forwarded receive escalation drains recipient-bound principal to the provider",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "NATIVE_RECEIVE"
+      ],
+      "id": "ML068",
+      "missing_full_scenario_proof": "Restore original paid action after wall-clock expiry; rightful original payout once, no replacement debit.",
+      "original_oracle": "Independently prove H paid before expiry; after wall-clock expiry and backend restoration, its original 10,000-sat right still yields rightful 9,000-sat fallback once, without another payer debit.",
+      "original_oracle_sha256": "8b0bc2bc23d98a5a1cafc1c85b6ffe1ec2ea3214823bb1e5ec74cea3f1727691",
+      "public_signet_contribution": "Actual native paid hash and registered final coin are retained, but no paid-cache restoration after invoice expiry.",
+      "required_test_lane": "Controlled native/Noah backend backup-and-expiry test; later Signet continuity.",
+      "title": "Paid cached invoice is discarded as expired when backend action is recreated",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "NATIVE_RECEIVE"
+      ],
+      "id": "ML069",
+      "missing_full_scenario_proof": "Inject owned misassociation; actual paid hash must discharge only original recipient, regardless of Lightning node.",
+      "original_oracle": "Compare actual paid hash and signed final-recipient policy to frozen Alice intent and source anchors, regardless of invoice node. Only Alice's correct claim/fallback discharges her payment.",
+      "original_oracle_sha256": "88142874c52360749c26537ac518a43f7ce5023d0b749821e4f422e29bc40910",
+      "public_signet_contribution": "Happy-path public signed proof binds final coin to declared recipient; no substituted action/response.",
+      "required_test_lane": "Controlled owned provider/Noah response mix-up; signed policy and monetary oracle.",
+      "title": "Valid invoice response is associated with another forwarding destination",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "NOAH_FAIL",
+        "NATIVE_RECEIVE"
+      ],
+      "id": "ML070",
+      "missing_full_scenario_proof": "Actual inbound under absent pool/unusable sponsors must refundpayer or deliver valid recipient proceeds, without false health-based receipt.",
+      "original_oracle": "Real inbound10k either safely refunded10k or becomes signed recipient proceeds with eventual9k; no paid flag from health response.",
+      "original_oracle_sha256": "4e9f647b6d965bcea2754e1639cd5d14b7363179f170653fb08120f3cbc072bc",
+      "public_signet_contribution": "Stock Noah returned invoice on zero-funded profile but strict prepayment rejection prevented inbound; native financial campaign has confirmed funds.",
+      "required_test_lane": "Controlled regtest unfunded/illiquid profile, then separately admitted safe Signet lifecycle.",
+      "title": "Healthy Noah backend accepts invoices while pool and watchman are unusable",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [
+        "NATIVE_RECEIVE"
+      ],
+      "id": "ML071",
+      "missing_full_scenario_proof": "Actual proof-required profile with accepted inbound must grant correctly or return actual payer funds.",
+      "original_oracle": "Actual required-proof profile, original inbound hash and deadline: valid proof leads real recipient9k, absent proof returns payer10k without false receipt.",
+      "original_oracle_sha256": "a9221d16dd30712fc29d9c7ffa9b5bdbcb1fa1108a0b91fa7062686cb17be234",
+      "public_signet_contribution": "Current native receive profile explicitly disables receive anti-DoS requirement.",
+      "required_test_lane": "Native regtest required-proof admission/refund test; no production-configuration inference.",
+      "title": "Offline backend cannot supply required anti-DoS proof after inbound acceptance",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "NOAH_FAIL"
+      ],
+      "id": "ML072",
+      "missing_full_scenario_proof": "Original advertised bytes must match invoice hash; changed serialization must reject.",
+      "original_oracle": "Independent SHA256 of unchanged advertised string equals invoice hash; changed whitespace/order/identifier must not be silently accepted.",
+      "original_oracle_sha256": "19aeac3ef130edbc1c822829808ce14bbb9419dd5a0416323c90ec9baabb8ca4",
+      "public_signet_contribution": "Strict verifier and actual missing-hash rejection exist; no positive compatible exact-byte callback.",
+      "required_test_lane": "Offline protocol mutations plus actual compatible Noah callback, before payment.",
+      "title": "LNURL metadata changes serialization between first response and invoice commitment",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [],
+      "id": "ML073",
+      "missing_full_scenario_proof": "Authentic pre-V9 source/node history must resolve old liabilities without invented markers.",
+      "original_oracle": "Restore actual pre-V9 source and node history; every100k liability is independently discharged once, failed source99k pays without client.",
+      "original_oracle_sha256": "eb33d0b7f08726773ad981aa8a55da157dd13c934c5804de0c9778770152373e",
+      "public_signet_contribution": "All new native campaigns use fresh databases with their own source markers.",
+      "required_test_lane": "Isolated authentic archive restore/regtest; do not restore retired live VMs.",
+      "title": "Legacy failed send has no source-provenance markers after upgrade",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [],
+      "id": "ML074",
+      "missing_full_scenario_proof": "Remove actual supporting block; retain gross liability/fence and correct eventual canonical owner.",
+      "original_oracle": "Actual fork removes supporting block; stable gross100k persists, no wrong-owner payout; later canonical recipient/refund exactly once.",
+      "original_oracle_sha256": "ca7df3d829c1397e26221a23a2d861b226abaccf65b613229e00e3c8b089799c",
+      "public_signet_contribution": "Public Signet cannot supply a controlled fork removing a chosen HTLC fulfillment.",
+      "required_test_lane": "Controlled native regtest reorg, separate from Signet simulation.",
+      "title": "Chain-only HTLC fulfillment is reorged out after ownership proposal",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [],
+      "id": "ML075",
+      "missing_full_scenario_proof": "Stored cryptographic knowledge survives while chain-derived confirmations roll back; no unsafe source refund.",
+      "original_oracle": "Without exposing secret in report, verify durable knowledge retained across reorg; paid/claimable source refund0 until safe terminal resolution.",
+      "original_oracle_sha256": "44c1a706e549e51c17e1c292307ab15ae65c11357faedd7923cf2e6bf6d35902",
+      "public_signet_contribution": "No controlled preimage-revealing block disconnect in this Signet campaign.",
+      "required_test_lane": "Controlled native regtest with secret-safe preimage-knowledge oracle.",
+      "title": "Known Lightning preimage is forgotten when its revealing block is reorged",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "S03",
+        "NATIVE_RECEIVE"
+      ],
+      "id": "ML076",
+      "missing_full_scenario_proof": "Lightning-origin accepted-forfeit/lost-reply cross-root successor must remain rightful and recoverable once.",
+      "original_oracle": "Trace10k actual swap principal through both roots; rightful replacement9k or justified policy outputs, no duplicate old refund.",
+      "original_oracle_sha256": "8deb4574b4f2a52ec32fb1c3c712f54f0af9149e910e74b8cc1679a365049fce",
+      "public_signet_contribution": "S03 proves ordinary transferred descendant recovery after accepted refresh forfeit; current swap cohort intentionally remains absent without refresh.",
+      "required_test_lane": "Controlled native regtest cross-tree swap refresh, then declared Signet lifecycle.",
+      "title": "Accepted refresh forfeit retires a Lightning-created coin before replacement is usable",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [
+        "FAILED_SEND_PREP",
+        "FAILED_SEND_FUNDED_PREPARATION",
+        "FAILED_SEND_EXECUTED_PARTIAL"
+      ],
+      "id": "ML077",
+      "missing_full_scenario_proof": "Trace actual failed source through unfinished participation cancellation; preserve original owner and unrelated root.",
+      "original_oracle": "Enumerate all participation inputs/outputs and original refund source; sender99k once, canceled outputs customer0; other-tree valid owner preserved.",
+      "original_oracle_sha256": "8f7c1d1a9d1b5b09e4f94e42cda2fd24c73cc656b62ad55c63933f8334870e31",
+      "public_signet_contribution": "Separate18/32 profile executed real nativeAccepted\u2192senderoffline\u2192Cancelled with source-specific failure; eventualfallback/recovery stillpending. No unfinishedparticipation cancellation or cross-root refresh race was executed.",
+      "required_test_lane": "Native regtest composition; later separate failed-send Signet observation.",
+      "title": "Incomplete refresh cancellation loses the original failed-swap refund source",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [],
+      "id": "ML078",
+      "missing_full_scenario_proof": "Actual external debit and canonical timeout winner; operator deficit explicit and zero additional fallback refund.",
+      "original_oracle": "Observe actual 90,000-sat Lightning debit and canonical source timeout outpoint; enumerate all later fallback outputs (zero for already-refunded source), record operator deficit explicitly and recipient payment once.",
+      "original_oracle_sha256": "d5f2f3588b7f868f0dc311c18a0676e6ec82ee34261243f6fe4d79f299afe084",
+      "public_signet_contribution": "No successful debit plus sponsor starvation/near-timeout race attempted.",
+      "required_test_lane": "Controlled native regtest fee pressure/claim race; never manufacture pressure on public Signet.",
+      "title": "Successful Lightning debit outruns confirmed fee sponsorship before source timeout",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "NATIVE_RECEIVE"
+      ],
+      "id": "ML079",
+      "missing_full_scenario_proof": "Paid bound intent with no VTXO row and late recipient registration must create zero-start scan pairs and pay rightful owner.",
+      "original_oracle": "Show no materialized VTXO row and real Paid source; register Alice afterward, observe zero-start pair creation and eventual correct 9,000-sat output, provider zero.",
+      "original_oracle_sha256": "349adcad60f6edf88af8f2134d96bca7d855af407fdc19e8aba467840e6c3fce",
+      "public_signet_contribution": "Current Signet recipient registered before invoice; final Pubkey body materialized and signature-verified.",
+      "required_test_lane": "Controlled native regtest missing-row/late-registration integration first.",
+      "title": "Unmaterialized final-output ID loses attribution hint before late xpub registration",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "NATIVE_RECEIVE"
+      ],
+      "id": "ML080",
+      "missing_full_scenario_proof": "Genuine old provider backup must retain original destination and rightful payout without self-claim/new invoice.",
+      "original_oracle": "Use genuine old provider backup and exact original invoice destination; recipient9k, provider0, no second invoice or rewritten claim intent.",
+      "original_oracle_sha256": "d47b8eaebeeae1d55272142f17d4d79c9ff0c89032fc5f96148de2f863cb3353",
+      "public_signet_contribution": "Recipient seed-only recovery is planned after actual final registration; provider backup rollback is not tested.",
+      "required_test_lane": "Controlled native regtest provider/server backup mismatch, then compatible backend lifecycle.",
+      "title": "Forwarded receive restored without backend action state loses original destination",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "ATTR_OLD",
+        "ATTR_NEW"
+      ],
+      "id": "ML093",
+      "missing_full_scenario_proof": "High-index owned key under many records, actual covered intervals, oldest funded-liability age and rightful payout.",
+      "original_oracle": "Independent high-index key oracle, per-pair actual covered intervals and oldest liability age; eventualAlice99k rather than a timeout-to-operator classification.",
+      "original_oracle_sha256": "1050d4ee70951a0c5182e2bbe1e3cfbe45650427c8c9cdd835a60bbeddb6030f",
+      "public_signet_contribution": "Authenticated scanner cases use child indices17/18/19, not genuinely high-index funded liabilities.",
+      "required_test_lane": "Funded native regtest attribution envelope; sustained workload before any production capacity claim.",
+      "title": "Absent mailbox plus high-index owner exhausts practical recovery capacity",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "ATTR_OLD",
+        "ATTR_NEW"
+      ],
+      "id": "ML099",
+      "missing_full_scenario_proof": "Measure aged funded key progress and actual payout while arrivals continue at declaredrate.",
+      "original_oracle": "Under declared arrival rate trackAlice covered-prefix advance and funded entitlement age; eventually99k while newer workload continues.",
+      "original_oracle_sha256": "832558e3ab68dd02649194035fd7e710c85e3d6a09e9ba8fdf5887baf024ea17",
+      "public_signet_contribution": "Finite scheduler tests and low-index benchmark do not establish continuous-arrival fairness.",
+      "required_test_lane": "Controlled sustained funded native workload with explicit service/arrival rates.",
+      "title": "Continuous low-index arrivals repeatedly preempt an older high-index entitlement",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "ATTR_NEW"
+      ],
+      "id": "ML100",
+      "missing_full_scenario_proof": "Measure record-by-pending-key storage/work and oldest funded debt with growth, no abandoned accounting.",
+      "original_oracle": "Record actual pending-pair count, disk growth and oldest funded source; conservation preserved across low-disk stop and resumed payout drain.",
+      "original_oracle_sha256": "b6a69dc9a29b8d799679e9bb084ea17899fc1bf8f77c4269ecbf8a31ac767fe9",
+      "public_signet_contribution": "Benchmark measures one pending key per lookup case and cursor storage, not many concurrent pending keys.",
+      "required_test_lane": "Controlled funded attribution/storage workload; source metrics alone insufficient.",
+      "title": "Permanent registration growth multiplies pending cursor storage until recovery stops",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "ATTR_OLD",
+        "ATTR_NEW"
+      ],
+      "id": "ML101",
+      "missing_full_scenario_proof": "Full scenario oracle adds actual funded100k source and rightful99k within stated bound, plus distinct interval/owner metrics.",
+      "original_oracle": "Track distinct pair intervals and real fundedAlice100k, not operation counter; require actual owner match and99k within stated tested bound.",
+      "original_oracle_sha256": "65668f541fbff365346d0b3829c01368ca364d1f0e027e80755a7e0a0027659e",
+      "public_signet_contribution": "Original wrong-mailbox10k120.139sFAIL preserved; later same120s benchmark lookupPASS116.875s. Both unfunded.",
+      "required_test_lane": "Funded native attribution workload; retain both historical timeout and later bounded lookup pass.",
+      "title": "Ten-thousand-account wrong-mailbox search misses its bounded deadline",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [],
+      "id": "ML102",
+      "missing_full_scenario_proof": "Authentic unregistered legacy coin must retain explicit debt and have a reviewed eventual claimant/recovery path; safe Hold alone is insufficient.",
+      "original_oracle": "Maintain explicit100k unpaid liability indefinitely without operator appropriation; acceptance needs identified rightful claimant and actual spend, not merely safe Hold.",
+      "original_oracle_sha256": "cd2415dddb5a7e444792e125b57e2340f0785f12d2ace1b480465c5e2ce7ddf3",
+      "public_signet_contribution": "Current native actors authenticate permanent registrations before issuance.",
+      "required_test_lane": "Reachability/legacy archive review then isolated native recovery; no timeout-to-operator.",
+      "title": "True unregistered owner remains unpaid after every registered xpub is exhausted",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "S03"
+      ],
+      "id": "ML105",
+      "missing_full_scenario_proof": "Reconcile complete catalogue oracle and exact candidate provenance with coordinator; repair does not erase original live failure.",
+      "original_oracle": "Replay retained original geometry later: all39670 customer gross conserved as real payouts plus1000 per actual output; original recipient script only, no duplicate descendants.",
+      "original_oracle_sha256": "31cf80e26b25e6184ec6f2fb160ac7fd04d7ea281ad71a337b3db16499ff822d",
+      "public_signet_contribution": "Actual S03 failed on historical forfeit geometry, then short-only repair paid remaining9000 and seed-recovered both payouts; original grouping remains NOT_QUALIFIED.",
+      "required_test_lane": "Retained public Signet failure/repair plus native exact-byte reproduction; no new campaign needed merely for documentation.",
+      "title": "Historical forfeit paths block a valid transferred entitlement under the same anchor",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "SPLIT327"
+      ],
+      "id": "ML107",
+      "missing_full_scenario_proof": "Independently valid above-budget inventory must make conservative eventual progress for every funded owner.",
+      "original_oracle": "At genuine oversized retained anchor, every entitlement remains accounted and frontier/payout progresses without deleting evidence; actual totals and max memory measured.",
+      "original_oracle_sha256": "1a176814de456028dd67288cfef6c23d43a9b1eebf6cb99189e7cf4975791a08",
+      "public_signet_contribution": "327-owner real regtest split fits its measured inventory budgets; not maximum whole-anchor rows/bytes before decomposition.",
+      "required_test_lane": "Native regtest authentic oversized inventory/path workload.",
+      "title": "Whole-anchor inventory exceeds its limits before any split can reduce work",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "SPLIT327"
+      ],
+      "id": "ML115",
+      "missing_full_scenario_proof": "Valid deep repeated histories must decompose within work budgets and pay every owner once.",
+      "original_oracle": "Generate independently valid shared-path workload in future; measure actual budget and prove all owners receive correct net via conserving progress.",
+      "original_oracle_sha256": "4b5748a6349a97fcffae810557d0f3634efb0a3f212cc56e61276f868bba3c39",
+      "public_signet_contribution": "Funded327-owner split proves two physical levels, not depth100 shared-history proof-work cap.",
+      "required_test_lane": "Native regtest large shared-depth workload; ordinary Signet load does not substitute.",
+      "title": "Shared ancestor encodings make a valid tree exceed the path-work budget",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [],
+      "id": "ML142",
+      "missing_full_scenario_proof": "Malformed owned saved group plus valid canonical customer payout; isolate without financial SQL injection.",
+      "original_oracle": "Preserve damaged evidence, verify validA99k confirms and damagedB is not swept/omitted from unpaid report.",
+      "original_oracle_sha256": "129d682421845cf031e96d7d3be887f5c2c011999cc5362ec1991c1041fc3def",
+      "public_signet_contribution": "S03 unready root did not establish malformed serialized saved-group loader isolation.",
+      "required_test_lane": "Native regtest corruption/recovery boundary with retained original real obligations.",
+      "title": "Malformed pending payout prevents every other group from reaching broadcaster isolation",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "S02",
+        "S03"
+      ],
+      "id": "ML186",
+      "missing_full_scenario_proof": "Above authentic page limit, assess complete authenticated protection/history separately from exact chain-only recovery spend.",
+      "original_oracle": "Above the authentic single-entitlement history limit, independently test both complete authenticated history/protection progress and chain-only BIP84 discovery/spend of exact paid outpoints; report these separate outcomes.",
+      "original_oracle_sha256": "368f8a12b9db1e1d018993f4eca091b85cd0021f7050491115b2bbacc760031a",
+      "public_signet_contribution": "S02/S03 seed-only chain discovery/spend proven at small history; no single oversized entitlement history page.",
+      "required_test_lane": "Controlled regtest large-history/account projection; ordinary Signet recovery is a baseline.",
+      "title": "One entitlement accumulates too much history to fit any recovery page",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "LOAD50",
+        "S02"
+      ],
+      "id": "ML187",
+      "missing_full_scenario_proof": "Complete stable snapshot under unrelated writes and separately prove chain-only discovery/spend, no partial-page false adoption.",
+      "original_oracle": "Measure complete stable-account snapshot latency under unrelated writes, and separately prove chain-only discovery/real spend of confirmed customer outpoints. No partial-page false paid adoption.",
+      "original_oracle_sha256": "a430b58d0d1839a132bbab063b596b14db975efb4792f4d350fe921682daecff",
+      "public_signet_contribution": "50-wallet Signet traffic is ordinary transfers, not concurrent global payout-ledger churn during multi-page restore.",
+      "required_test_lane": "Native regtest multi-page recovery with declared concurrent payout churn.",
+      "title": "Global ledger churn invalidates every page of one absent user recovery",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "S02",
+        "S03"
+      ],
+      "id": "ML188",
+      "missing_full_scenario_proof": "Restore documented backup with birthday after payout; discover exact payout without hints or explicitly establish required missing metadata.",
+      "original_oracle": "With only documented backup, discover exact99k outpoint without hints then confirm spend; report missing birthday requirement honestly.",
+      "original_oracle_sha256": "8c5f224c9f105b8bc4a1c913ee301b957a948e37ed0c851def923ea3e35255fe",
+      "public_signet_contribution": "S02 and S03 preserve actual pre-create birthdays and confirm seed-only spends; no wrong/later-birthday restore.",
+      "required_test_lane": "Native regtest wrong-birthday restoration; preserve successful Signet original-birthday baseline.",
+      "title": "Restoration birthday starts after the actual fallback payout",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [
+        "LOAD50"
+      ],
+      "id": "ML191",
+      "missing_full_scenario_proof": "Large real history plus controlled slow owned chain backend must preserve live signed protection before deadline.",
+      "original_oracle": "Measure actual act-by with many retained receipts and slow owned chain backend; live100k initiates signable protection before deadline without dropping history.",
+      "original_oracle_sha256": "d8365036d20f788691eafc59d46249e8431bc2bc2e201c35d4a8ec1ff48e0659",
+      "public_signet_contribution": "Bounded Signet wallet histories and normal Core do not exercise slow history checks against act-by.",
+      "required_test_lane": "Controlled native regtest chain/history scheduling; no global live Core degradation.",
+      "title": "Large cached history chain checks monopolize the protection deadline budget",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "S03"
+      ],
+      "id": "ML195",
+      "missing_full_scenario_proof": "Fresh isolated documented-backup-only restore must sign/fund valid package, confirm rightful payout and recoveryspend.",
+      "original_oracle": "Fresh isolated restore using documented backups only; produce actual valid parent/sponsor and confirmed99k then seed recovery spend; never print key material.",
+      "original_oracle_sha256": "6e3f6722196e3c2aa7f6062b2eac76b9bceaf31780eb7d1eda51ad93b419830d",
+      "public_signet_contribution": "Short-only S03 repair retained cold PG/server/wallet backups, but never restored an incomplete signing-key backup.",
+      "required_test_lane": "Isolated native regtest backup completeness and actual recovery.",
+      "title": "Backup omits watchman signing keys although ledger and raw transactions restore cleanly",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "NOT_RUN",
+      "evidence_ids": [],
+      "id": "ML196",
+      "missing_full_scenario_proof": "Per-owner historical pre/post ledger and actual rightful scripts/spendability; treasury recovery cannot discharge customer rights.",
+      "original_oracle": "Per-owner pre/post retirement ledger, actual rightful scripts/spendability; recovered treasury value never counts as customer-paid amount.",
+      "original_oracle_sha256": "2dcb16dab792fc7861ea61049c744e8333a708c419e4aed7a10f11b14cfb94b6",
+      "public_signet_contribution": "Treasury consolidation of retired environments is never customer payout credit here.",
+      "required_test_lane": "Read-only archive/treasury reconciliation; no retired infrastructure resurrection.",
+      "title": "Historical treasury consolidation is mistaken for settlement of retired customer rights",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "LOAD12",
+        "LOAD50"
+      ],
+      "id": "ML197",
+      "missing_full_scenario_proof": "Declare retained history/resources/change-arrivalrate; drain backlog and pay oldest new actual entitlement while preserving reorg evidence.",
+      "original_oracle": "Measure backlog drain and oldest new entitlement under declared retained history/hardware; actual99k pays while deep-reorg evidence remains intact.",
+      "original_oracle_sha256": "150777034779914c542c3cb4d08dd42e569e5bdb3bc23693be23599bdb0ffa68",
+      "public_signet_contribution": "12/50-wallet short ordinary workloads do not measure large lifetime payout rebuilds under changed chain views.",
+      "required_test_lane": "Sustained funded native regtest load; later public Signet bounded observation on admitted pins.",
+      "title": "Changed financial view repeatedly rebuilds lifetime history",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "S02",
+        "S03"
+      ],
+      "id": "ML198",
+      "missing_full_scenario_proof": "Trace every sponsor, urgency cost and oldest fallback age under finite usable funding shapes; rightful payout eventually confirms.",
+      "original_oracle": "Track each sponsor prevout, urgency cost and oldest fallback age; reserve sufficient actual confirmed throughput so original99k eventually confirms.",
+      "original_oracle_sha256": "2300fc109b02e656b78a2e1cd06d37dfcb921ac7e5900e86415de310c882966b",
+      "public_signet_contribution": "Successful funded ordinary fallbacks have usable sponsors; no sustained competing urgent claims.",
+      "required_test_lane": "Controlled native regtest fee/priority workload; real Signet sponsors remain operational baseline.",
+      "title": "Urgent watchman work repeatedly consumes every new confirmed fallback sponsor",
+      "whole_scenario_pass_claimed": false
+    },
+    {
+      "contribution_status": "PARTIAL",
+      "evidence_ids": [
+        "S03"
+      ],
+      "id": "ML199",
+      "missing_full_scenario_proof": "Verify monitoring denominator includes authentic funded root before entitlement rows exist; zero obligations-only count cannot mean zero unpaid money.",
+      "original_oracle": "Inject no financial state: later test uses genuine unpaid root; total funded gross100k must remain in unpaid/unknown denominator until99k+fee observed.",
+      "original_oracle_sha256": "2b6c4b4810af6e5010ba2a0cbc2313e9fece6031185de458d8aa429892ef1c48",
+      "public_signet_contribution": "S03 preserved genuine unpaid10000 economic descendant when readiness failed before its payout; repair later paid9000.",
+      "required_test_lane": "Read-only historical live packet plus native regression of observability denominator.",
+      "title": "No entitlement row exists yet, so an obligations-only monitor reports nothing unpaid",
+      "whole_scenario_pass_claimed": false
+    }
+  ],
+  "schema_version": 1,
+  "scope": "SIM-owned contribution map for ML061\u2013080 and selected attribution/operational-load scenarios; not a replacement acceptance ledger",
+  "selected_ids": 38,
+  "total_catalogue_ids": 200,
+  "whole_scenario_passes_claimed": 0
+}

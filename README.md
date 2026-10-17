@@ -4,6 +4,15 @@ Bark Simulator exercises Ark and Lightning wallet behavior against a compatible 
 
 The maintained source is on the default `master` branch.
 
+The fresh xpub/sweep implementation uses the [public-Signet native campaign
+path](docs/public-signet.md), invoked with `python3 -m simulator.signet` or
+`bark-signet-simulation` after installation. It uses the product's fresh native
+CLI. The older Rust driver and qualification machinery described below do not
+establish compatibility with that product. Controlled reorg and fee-pressure
+tests belong in the product's regtest suite; continuous campaigns use public
+Signet. [Offline Noah backend scope](docs/noah-fresh-signet.md) excludes mobile
+wallet builds.
+
 ## Features
 
 - Independent client wallets with persistent online and offline state.

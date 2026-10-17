@@ -1,0 +1,181 @@
+{
+  "kind": "public_Signet_S03_historical_liability_repair_and_seed_recovery",
+  "case_verdict": "PASS",
+  "scope": "Repair/recovery of two historical payouts. Original merged grouping test remains NOT_QUALIFIED.",
+  "first_pass_at": "2026-10-17T16:25:09.584454+00:00",
+  "first_pass_chain": {
+    "chain": "signet",
+    "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+    "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+    "hash": "0000000d3cec71375a2b9bf55ce73ba2ea49118d72da30379e83a281a2419a79",
+    "height": 326775
+  },
+  "first_pass_private_artifact_sha256": "97400b3f1374575230213fb1120f1f52b6ec4aeed3fd071343f28e1ccd67f822",
+  "independent_handoff_sha256": "bd4e5c0b9d3d6a465383ae6a074db76795d1a6d253ddb51b98b9345be39de705",
+  "controller": {
+    "source": "17103e999e744a2bdb460acca1e1fe9f77dfb30d",
+    "runner_sha256": "caa620d226e8ab51b37aed5e5622603976b852232add57f8b63541705645f921",
+    "terminal": "COMPLETE",
+    "lock_released": true,
+    "focused_tests_passed": 100,
+    "actual_VM_reader_and_repair_tests_passed": 14,
+    "full_CI_success": 39045431758
+  },
+  "runtime": {
+    "native_client_source": "7055d1fce858f3112aff671d0b2a8a454d6a2214",
+    "native_client_ELF_sha256": "8f2aff06b0edfa9427b1fa7894e13da8e8d471a57836031455d3924ae7b9ff04",
+    "server_actual_build_HEAD": "fb85d9a9c3b31b3eab1eb2113d2caec89c7f10dd",
+    "server_dirty_source": true,
+    "server_captured_source_manifest_sha256": "0ff7819dc89062aef8c6ce43b81d99c851fd813ef0ac75f0d462ef457deb6b69",
+    "published_equivalent_geometry_code": "f809bc2410b40648823caea671fe52dd0c86f11b",
+    "cap_ELF_sha256": "32ea16685558bf44e55c110d3574c3bd9e93285e8ba27115b57fb3f1ae98aaf4",
+    "watch_ELF_sha256": "b154eabb3a22d8f9ac60953466e7627c86a0815385c1149d90d71c3534268b06",
+    "runtime_manifest_sha256": "a64b0e314ba2069ca5372474bb19f302a3d78bfcd7e2570e4192591a8633d2ff",
+    "note": "Native geometry regression used a separately pinned operation client; this live recovery used the original archived7055 CLI."
+  },
+  "payouts": {
+    "actual_total_sat": 37670,
+    "actual_output_fees_sat": 2000,
+    "registered_script": "00142829de6aa80964963fce80fc9826662ccab04e75",
+    "original_28670": {
+      "blockhash": "00000012f820ef900472acb5f3d920d40ef621bb37cd5299329099ef64456983",
+      "confirmation_height": 326715,
+      "confirmations": 61,
+      "inputs": [
+        {
+          "txid": "59c167960d877e941ca3a47963dc017a957e29397e64e32daa15c54a2269f4c9",
+          "vout": 0
+        }
+      ],
+      "output0": {
+        "scriptPubKey": "00142829de6aa80964963fce80fc9826662ccab04e75",
+        "value_btc": "0.0002867"
+      },
+      "txid": "08247b6a71e60f2bdac4730c05476669f1e1c6e72b1bbc5e6cfc60ba958582ef"
+    },
+    "repair_9000": {
+      "blockhash": "00000008553904c2686c9eefe739c28af1cb6486623bb092405258faee3363c1",
+      "confirmation_height": 326769,
+      "confirmations": 7,
+      "inputs": [
+        {
+          "txid": "6c3b62e9d8f3d3146d95577fde60778155114a2af7d3f91e0843cba116438ce4",
+          "vout": 0
+        }
+      ],
+      "output0": {
+        "scriptPubKey": "00142829de6aa80964963fce80fc9826662ccab04e75",
+        "value_btc": "9e-05"
+      },
+      "txid": "1c31cb0cdaa7173eae83b78c063052cdc5b28c708b4b3020c5445142afbffa32"
+    },
+    "historical_grouping_verdict": "NOT_QUALIFIED",
+    "intended_single_output_not_demonstrated_sat": 38670,
+    "fee_children": [
+      {
+        "child_miner_fee_sat": 363,
+        "child_txid": "4a54d2a6a7c2329e438816b14d8cd3dd9151eaa85eef19774475db64d99b33bb",
+        "confirmation_height": 326715,
+        "confirmations": 61,
+        "parent_miner_fee_sat": 0,
+        "parent_txid": "08247b6a71e60f2bdac4730c05476669f1e1c6e72b1bbc5e6cfc60ba958582ef"
+      },
+      {
+        "child_miner_fee_sat": 489,
+        "child_txid": "ac570a0e603737c2b44a5a6ad7953b6528704e109c697c38f758103a3f5b8a11",
+        "confirmation_height": 326769,
+        "confirmations": 7,
+        "parent_miner_fee_sat": 0,
+        "parent_txid": "1c31cb0cdaa7173eae83b78c063052cdc5b28c708b4b3020c5445142afbffa32"
+      }
+    ],
+    "actual_child_miner_cash_payment_sat": 852,
+    "net_operator_subsidy_sat": 0,
+    "operator_outputs": {
+      "first_parent_sat": 1330,
+      "second_parent_sat": 21000,
+      "second_parent_components_sat": {
+        "earlier_accepted_forfeit_principal": 19670,
+        "earlier_board_residual": 330,
+        "new_output_fee": 1000
+      },
+      "note": "Earlier principal and carried board residuals are not new fallback-fee revenue."
+    }
+  },
+  "native_recovery": {
+    "seed_only": true,
+    "birthday_height": 326700,
+    "original_wallet_database_copied": false,
+    "transaction_hints_supplied_to_restore": false,
+    "native_dispatch_height_for_all_three_actions": 326774,
+    "payout_and_child_minimum_confirmations_before_native_actions": 6,
+    "actions": [
+      {
+        "actor": "restored",
+        "id": "s03-repair-seed-restore",
+        "operation": "restore",
+        "state": "acknowledged"
+      },
+      {
+        "actor": "restored",
+        "id": "s03-repair-utxos-0",
+        "operation": "onchain_utxos",
+        "state": "acknowledged"
+      },
+      {
+        "actor": "restored",
+        "id": "s03-repair-drain",
+        "operation": "onchain_drain",
+        "state": "acknowledged"
+      }
+    ],
+    "unresolved_actions": [],
+    "recovery": {
+      "blockhash": "0000000d3cec71375a2b9bf55ce73ba2ea49118d72da30379e83a281a2419a79",
+      "confirmation_height": 326775,
+      "confirmations": 1,
+      "inputs": [
+        {
+          "txid": "59c167960d877e941ca3a47963dc017a957e29397e64e32daa15c54a2269f4c9",
+          "vout": 1
+        },
+        {
+          "txid": "1c31cb0cdaa7173eae83b78c063052cdc5b28c708b4b3020c5445142afbffa32",
+          "vout": 0
+        },
+        {
+          "txid": "08247b6a71e60f2bdac4730c05476669f1e1c6e72b1bbc5e6cfc60ba958582ef",
+          "vout": 0
+        }
+      ],
+      "output0": {
+        "scriptPubKey": "0014e401edc4d85cbf4c41231d0414890ff8201282ba",
+        "value_btc": "0.00107271"
+      },
+      "txid": "477d917ff7948b05214b7d7c1e62fb8209b7b8f11ea2f83aa445182e69a49ecf"
+    },
+    "physical_spend": {
+      "delivered_sat": 107271,
+      "miner_fee_sat": 246,
+      "note": "One physical recovery spend; do not sum its repeated per-payout checks or fees.",
+      "ordinary_other_inputs": [
+        {
+          "amount_sat": 69847,
+          "outpoint": "59c167960d877e941ca3a47963dc017a957e29397e64e32daa15c54a2269f4c9:1"
+        }
+      ],
+      "payout_inputs": [
+        "08247b6a71e60f2bdac4730c05476669f1e1c6e72b1bbc5e6cfc60ba958582ef:0",
+        "1c31cb0cdaa7173eae83b78c063052cdc5b28c708b4b3020c5445142afbffa32:0"
+      ],
+      "txid": "477d917ff7948b05214b7d7c1e62fb8209b7b8f11ea2f83aa445182e69a49ecf"
+    },
+    "destination": "tb1qusq7m3xctjl5csfrr5zpfzg0lqsp9q46z5pa5p",
+    "accounting": "28670 +9000 +69847 ordinarychange -246 physicalrecoveryfee =107271 delivered. Count the single recovery fee once.",
+    "recovery_confirmation_depth_at_first_PASS": 1,
+    "recovery_six_confirmations_at_first_PASS": false,
+    "later_six_confirmation_observation": "Pending separate read-only proof; immutable firstPASS preserved."
+  },
+  "original_absent_wallet_fence_and_STOP_preserved": true,
+  "remaining_scope": "Fresh correct grouping, native Lightning swap-created/refundable rightful fallback, and remaining readiness gates stay separate."
+}

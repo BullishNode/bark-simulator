@@ -1,0 +1,204 @@
+{
+  "benchmark": {
+    "captured_source_test_file_hash_verified": true,
+    "counter_interpretation": "records_scanned is a sum of per-pass work visits, not distinct registry records or paid owners: wrong-mailbox cases report116/1016/10016 for100/1000/10000 registered accounts.",
+    "debug_assertions": true,
+    "lookup_cases": [
+      {
+        "budget_seconds": 120,
+        "case": "verified_mailbox_priority",
+        "child_index": 17,
+        "children_derived": 64,
+        "elapsed_seconds": 0.106871122,
+        "owner_sorted_position": 99,
+        "passes": 1,
+        "records": 100,
+        "records_scanned": 2,
+        "resolved": true
+      },
+      {
+        "budget_seconds": 120,
+        "case": "absent_mailbox_fallback",
+        "child_index": 18,
+        "children_derived": 3200,
+        "elapsed_seconds": 1.3614670709999999,
+        "owner_sorted_position": 99,
+        "passes": 50,
+        "records": 100,
+        "records_scanned": 100,
+        "resolved": true
+      },
+      {
+        "budget_seconds": 120,
+        "case": "wrong_mailbox_fallback",
+        "child_index": 19,
+        "children_derived": 111008,
+        "elapsed_seconds": 5.029204698,
+        "owner_sorted_position": 99,
+        "passes": 58,
+        "records": 100,
+        "records_scanned": 116,
+        "resolved": true
+      },
+      {
+        "budget_seconds": 120,
+        "case": "verified_mailbox_priority",
+        "child_index": 17,
+        "children_derived": 64,
+        "elapsed_seconds": 0.051861139,
+        "owner_sorted_position": 999,
+        "passes": 1,
+        "records": 1000,
+        "records_scanned": 2,
+        "resolved": true
+      },
+      {
+        "budget_seconds": 120,
+        "case": "absent_mailbox_fallback",
+        "child_index": 18,
+        "children_derived": 32000,
+        "elapsed_seconds": 9.702520912,
+        "owner_sorted_position": 999,
+        "passes": 500,
+        "records": 1000,
+        "records_scanned": 1000,
+        "resolved": true
+      },
+      {
+        "budget_seconds": 120,
+        "case": "wrong_mailbox_fallback",
+        "child_index": 19,
+        "children_derived": 139808,
+        "elapsed_seconds": 15.631339932,
+        "owner_sorted_position": 999,
+        "passes": 508,
+        "records": 1000,
+        "records_scanned": 1016,
+        "resolved": true
+      },
+      {
+        "budget_seconds": 120,
+        "case": "verified_mailbox_priority",
+        "child_index": 17,
+        "children_derived": 64,
+        "elapsed_seconds": 0.325656294,
+        "owner_sorted_position": 9999,
+        "passes": 1,
+        "records": 10000,
+        "records_scanned": 2,
+        "resolved": true
+      },
+      {
+        "budget_seconds": 120,
+        "case": "absent_mailbox_fallback",
+        "child_index": 18,
+        "children_derived": 320000,
+        "elapsed_seconds": 117.384831411,
+        "owner_sorted_position": 9999,
+        "passes": 5000,
+        "records": 10000,
+        "records_scanned": 10000,
+        "resolved": true
+      },
+      {
+        "budget_seconds": 120,
+        "case": "wrong_mailbox_fallback",
+        "child_index": 19,
+        "children_derived": 427808,
+        "elapsed_seconds": 116.875138548,
+        "owner_sorted_position": 9999,
+        "passes": 5008,
+        "records": 10000,
+        "records_scanned": 10016,
+        "resolved": true
+      }
+    ],
+    "native_run_log_sha256": "9f5f67b9f27be30f5078ab34e00f93ac0a2cba9886e5b37b8ddfa62dafcccbdd",
+    "not_measured": [
+      "exhaustive 2^31-key negative search",
+      "payout throughput",
+      "concurrent user traffic",
+      "Postgres/Core RSS"
+    ],
+    "raw_report_sha256": "b924fd5731a0c531df808b022124d7b6e45b92dab83334ad21b28745bb419ad1",
+    "raw_summary_sha256": "e8cc45d61d4dd67dfba5f0f70151fe73d4c34fbf9a7978eba28dedebe08418ed",
+    "real_protocol_observations": [
+      "Authenticated signed SetFallback RPC with exact echoed record bytes",
+      "Production bounded owner-scanner method against real PostgreSQL",
+      "Verified actual mailbox/xpub child result for the expected account"
+    ],
+    "reported_native_test_seconds": 411.83,
+    "root_phase_wall_seconds": 412.88816823100206,
+    "rss_scope": "test/scanner process and isolated captaind; HWM is process lifetime, not phase delta",
+    "run_id": "004601e9-a35e-42ad-bede-46bf3f84d6de",
+    "scope": "real signed SetFallback RPC; real bounded owner scanner; no user/server funding or payouts",
+    "source_manifest_sha256": "704179331e4f672ac09f5dad6dc564d42fa36707dc32bad5b6889c831848cf06",
+    "source_test_sha256": "3cc296282ecf020be15888122b3b6691fbf6590a8c0541f4a00277dff20d064b",
+    "synthetic_workload_limits": [
+      "Deterministic generated test-account keys and one hardcoded payout script; not native funded wallets",
+      "Only low child indices17/18/19; owner sorted last",
+      "After registration, captaind is stopped and the harness directly queues keys and invokes DB scanner",
+      "One pending target per case; no sustained competing arrivals or authentic funded liability",
+      "No actual tree, swap, payout, recovery spend or user/server funding in this benchmark"
+    ],
+    "ten_thousand_budget_headroom_seconds": {
+      "absent_mailbox_fallback": 2.6151685890000067,
+      "verified_mailbox_priority": 119.674343706,
+      "wrong_mailbox_fallback": 3.1248614520000046
+    },
+    "ten_thousand_registration": {
+      "records": 10000,
+      "records_per_second": 83.88300133954331,
+      "registration_seconds": 119.213664751,
+      "rpc_p50_seconds": 0.010340219,
+      "rpc_p95_seconds": 0.017878641,
+      "rpc_p99_seconds": 0.041770809
+    },
+    "test": "expiry_registration_scale::expiry_registration_authenticated_scale"
+  },
+  "distinct_funded_evidence": [
+    {
+      "actual_reconciled_sends": 200,
+      "closing_sat": 1483500,
+      "limit": "Ordinary transfers, not funded attribution or fallback throughput; paced bounded workload, not maximum TPS.",
+      "measured_paced_sends_per_minute": 29.69380449922679,
+      "network": "public Signet",
+      "opening_sat": 1483500,
+      "product_source": "7055d1fce858f3112aff671d0b2a8a454d6a2214",
+      "reference": "public-signet-load50-20261017.json",
+      "wallets": 50
+    },
+    {
+      "actual_customer_payout_sat": 1308000,
+      "actual_owners": 327,
+      "limit": "Actual funded two-level split and rightful payouts; not high-index attribution, arbitrary-shape recovery or production capacity.",
+      "minimum_confirmations": 7,
+      "network": "controlled native regtest",
+      "reference": "batch16-corrected-multilevel-split-financial-summary.json",
+      "run_id": "63a761b8-7f82-4f73-9bd5-3433e6912403",
+      "source_manifest_sha256": "704179331e4f672ac09f5dad6dc564d42fa36707dc32bad5b6889c831848cf06"
+    }
+  ],
+  "historical_result_preserved": {
+    "run_id": "7562d5ea-279e-4dbc-9a8c-1abf3086639c",
+    "source_manifest_sha256": "4af4b54efb5079b87379a7322bc7d58c5bcb483e720a5d248c1de7a5fe9a4d80",
+    "ten_thousand": [
+      {
+        "case": "absent_mailbox_fallback",
+        "elapsed_seconds": 103.265352759,
+        "records_scanned": 10000,
+        "resolved": true
+      },
+      {
+        "case": "wrong_mailbox_fallback",
+        "elapsed_seconds": 120.138570792,
+        "records_scanned": 9902,
+        "resolved": false
+      }
+    ],
+    "warning": "The later changed-source pass supplements the earlier wrong-mailbox timeout; it does not relabel that failure."
+  },
+  "required_next_measurement": "An admitted funded attribution workload with actual owner obligations, independent scripts/outpoints, diverse indices and missing/wrong mailboxes; sustained declared arrivals plus oldest unpaid entitlement age and actual payout/recovery. No such workload was executed by this review.",
+  "review_scope": "Independent artifact and source-method review; no new test executed by this review",
+  "schema_version": 1
+}

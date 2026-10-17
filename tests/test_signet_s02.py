@@ -1,0 +1,218 @@
+"""Adversarial stubbed lifecycle tests; no public-Signet qualification."""
+from decimal import Decimal
+import json
+import os
+import shutil
+import subprocess
+import time
+import unittest
+from unittest.mock import patch
+
+from simulator.model import canonical
+from simulator.signet_s02 import begin_absence, observe_payout, check_recovery, check_control, reconcile, _backup_recovery_source
+from tests import test_signet
+
+
+ANCHOR, PAYOUT, RECOVERY, CHANGE = [char * 64 for char in "abcd"]
+SCRIPT = "0014" + "1" * 40
+DESTINATION = "0014" + "2" * 40
+
+
+def output(amount, script=SCRIPT, index=0):
+    return {"n": index, "value": Decimal(amount) / 100000000, "scriptPubKey": {"hex": script}}
+
+
+class LifecycleCore(test_signet.Core):
+    def __init__(self):
+        super().__init__(blocks=200)
+        self.transactions = {
+            ANCHOR: {"txid": ANCHOR, "version": 3, "confirmations": 101, "blockhash": "1" * 64,
+                     "vin": [], "vout": [output(20000)]},
+            PAYOUT: {"txid": PAYOUT, "version": 3, "confirmations": 11, "blockhash": "2" * 64,
+                     "vin": [{"txid": ANCHOR, "vout": 0}],
+                     "vout": [output(9000), output(11000, "0014" + "3" * 40, 1)]},
+            CHANGE: {"txid": CHANGE, "version": 2, "confirmations": 51, "blockhash": "4" * 64,
+                     "vin": [], "vout": [output(10000)]},
+            RECOVERY: {"txid": RECOVERY, "version": 2, "confirmations": 1, "blockhash": "3" * 64,
+                       "vin": [{"txid": PAYOUT, "vout": 0}, {"txid": CHANGE, "vout": 0}],
+                       "vout": [output(18000, DESTINATION)]}}
+
+    def call(self, method, *args):
+        if method == "validateaddress":
+            return {"isvalid": True, "scriptPubKey": DESTINATION if args[0] == "tb1qrecovered" else SCRIPT}
+        if method == "getrawtransaction":
+            return self.transactions[args[0]]
+        if method == "gettxout":
+            return {"confirmations": 30, "bestblock": self.info["bestblockhash"], "value": Decimal("0.00020000")}
+        if method == "getblockhash" and args[0] != 0:
+            return {100: "1" * 64, 150: "4" * 64, 190: "2" * 64, 200: "3" * 64}.get(args[0], "f" * 64)
+        return super().call(method, *args)
+
+
+class S02Tests(unittest.TestCase):
+    setUp = test_signet.SignetTests.setUp
+    tearDown = test_signet.SignetTests.tearDown
+
+    def receipt(self, intent, operation, reply, args=None, actor="absent", created=1):
+        self.campaign.db.execute("INSERT INTO action VALUES (?,?,?,?,?,?,?,?,?,?)", (
+            intent, actor, operation, canonical(args or {}), "acknowledged", created, created,
+            canonical({"height": self.campaign.core.info["blocks"]}), canonical(reply), None))
+
+    def source(self):
+        path = self.campaign.actor_path("absent")
+        path.mkdir(parents=True, mode=0o700, exist_ok=True)
+        words = ("abandon " * 11 + "about").encode()
+        (path / "mnemonic").write_bytes(words)
+        os.chmod(path / "mnemonic", 0o600)
+        (path / "wallet.sqlite").write_bytes(b"must never be copied into recovery wallet")
+        return words
+
+    def freeze(self):
+        self.source()
+        self.campaign.core = LifecycleCore()
+        coin = {"id": "e" * 64 + ":0", "amount_sat": 10000, "chain_anchor": ANCHOR + ":0",
+                "user_pubkey": "02" + "1" * 64, "expiry_height": 180, "state": "spendable"}
+        self.receipt("snapshot", "sync_vtxos", [coin])
+        self.receipt("registration", "fallback_record", {"payout_address": "tb1qpayout", "record": {"spk": SCRIPT}})
+        proof = {"status": "PASS", "coin_id": coin["id"], "path_outpoints": [ANCHOR + ":0", coin["id"]]}
+        self.campaign.core.info["blocks"] = 170
+        with patch("simulator.signet_s02.verify_coin", return_value=proof):
+            result = begin_absence(self.campaign, "absent", "snapshot", "registration")
+        self.campaign.core.info["blocks"] = 200
+        return result
+
+    def payout(self):
+        frozen = self.freeze()
+        result = observe_payout(self.campaign, "absent", PAYOUT, 0, [frozen["coins"][0]["id"]])
+        return frozen, result
+
+    def test_absence_freezes_signed_paths_and_blocks_all_native_wallet_opens(self):
+        frozen = self.freeze()
+        self.assertEqual(frozen["stage"], "ABSENT_WAITING_FOR_REAL_EXPIRY")
+        with patch("simulator.signet.subprocess.run") as native:
+            with self.assertRaisesRegex(ValueError, "absent actor"):
+                self.campaign.execute("no-reopen", "absent", "vtxos", {})
+        native.assert_not_called()
+        with patch("simulator.signet_s02.verify_coin") as proof:
+            self.assertEqual(begin_absence(self.campaign, "absent", "snapshot", "registration"), frozen)
+        proof.assert_not_called()
+
+    def test_stale_snapshot_cannot_declare_absence(self):
+        self.source()
+        self.campaign.core = LifecycleCore()
+        self.campaign.core.info["blocks"] = 170
+        coin = {"id": "e" * 64 + ":0", "amount_sat": 10000, "expiry_height": 180,
+                "chain_anchor": ANCHOR + ":0", "state": "spendable"}
+        self.receipt("snapshot", "sync_vtxos", [coin])
+        self.receipt("registration", "fallback_record", {"payout_address": "tb1qpayout", "record": {"spk": SCRIPT}})
+        self.receipt("refresh", "refresh", {}, created=2)
+        with patch("simulator.signet_s02.verify_coin", return_value={"status": "PASS", "path_outpoints": [ANCHOR + ":0"]}):
+            with self.assertRaisesRegex(ValueError, "actor changed"):
+                begin_absence(self.campaign, "absent", "snapshot", "registration")
+        self.assertIsNone(self.campaign.db.execute("SELECT * FROM actor WHERE id='absent'").fetchone())
+
+    def test_restore_uses_only_protected_source_file_and_never_exposes_words_in_argv_or_report(self):
+        self.campaign.core = LifecycleCore()
+        words = self.source()
+        _backup_recovery_source(self.campaign, "absent")
+        shutil.rmtree(self.campaign.actor_path("absent"))
+        def native(argv, **kwargs):
+            self.assertNotIn(words.decode(), argv)
+            self.assertIn("--mnemonic-file", argv)
+            self.assertNotIn("--mnemonic", argv)
+            self.assertNotIn("--force", argv)
+            restored = self.campaign.actor_path("restored")
+            self.assertFalse(restored.exists())
+            from pathlib import Path
+            backup = Path(argv[argv.index("--mnemonic-file") + 1])
+            self.assertEqual(backup.read_bytes(), words)
+            return subprocess.CompletedProcess(argv, 0)
+        with patch("simulator.signet.subprocess.run", side_effect=native) as run:
+            result = self.campaign.execute("restore-native", "restored", "restore", {
+                "source_actor": "absent", "birthday_height": 100})
+            self.assertEqual(result["state"], "acknowledged")
+            self.campaign.execute("restore-native", "restored", "restore", {
+                "source_actor": "absent", "birthday_height": 100})
+        self.assertEqual(run.call_count, 1)
+        self.assertNotIn(words.decode(), json.dumps(self.campaign.report()))
+        with self.assertRaisesRegex(ValueError, "prior native history"):
+            self.campaign.execute("restore-again", "restored", "restore", {
+                "source_actor": "absent", "birthday_height": 100})
+
+    def test_exact_payout_requires_actual_signed_path_and_preserves_failed_observations(self):
+        frozen, good = self.payout()
+        self.assertEqual(good["payout_check"], "PASS")
+        self.assertEqual(good["case_verdict"], "INCOMPLETE")
+        # Sending the exact expected value to the correct script is insufficient.
+        self.campaign.core.transactions[PAYOUT]["vin"][0]["txid"] = CHANGE
+        self.campaign.core.transactions[PAYOUT]["vout"][1]["value"] = Decimal("0.00001000")
+        wrong = observe_payout(self.campaign, "absent", PAYOUT, 0, [frozen["coins"][0]["id"]])
+        self.assertNotEqual(wrong["payout_check"], "PASS")
+        self.assertIn("signed path", wrong["reason"])
+        self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM result WHERE id LIKE 's02-payout-%'").fetchone()[0], 2)
+
+    def test_wrong_payee_wrong_value_and_reorg_are_not_payouts(self):
+        frozen, _ = self.payout()
+        tx = self.campaign.core.transactions[PAYOUT]
+        for field, bad in (("value", Decimal("0.00009001")), ("scriptPubKey", {"hex": DESTINATION})):
+            old = tx["vout"][0][field]
+            tx["vout"][0][field] = bad
+            result = observe_payout(self.campaign, "absent", PAYOUT, 0, [frozen["coins"][0]["id"]])
+            self.assertNotEqual(result["payout_check"], "PASS")
+            tx["vout"][0][field] = old
+        tx["blockhash"] = "f" * 64
+        result = observe_payout(self.campaign, "absent", PAYOUT, 0, [frozen["coins"][0]["id"]])
+        self.assertIn("canonical", result["reason"])
+
+    def test_confirmed_restored_spend_must_consume_payout_not_ordinary_change(self):
+        frozen, _ = self.payout()
+        self.receipt("restore", "restore", {}, {"source_actor": "absent"}, actor="restored")
+        self.receipt("drain", "onchain_drain", {"txid": RECOVERY}, {"destination": "tb1qrecovered"}, actor="restored")
+        result = check_recovery(self.campaign, "absent", "restored", "drain", "s02-payout-absent-0", "tb1qrecovered")
+        self.assertEqual(result["recovery_check"], "PASS")
+        self.assertEqual(result["recovered_payout_sat"], 9000)
+        self.assertEqual(result["other_inputs"], [{"outpoint": CHANGE + ":0", "amount_sat": 10000}])
+        self.assertEqual(result["miner_fee_sat"], 1000)
+        self.assertEqual(result["case_verdict"], "INCOMPLETE")
+        self.campaign.core.transactions[RECOVERY]["vin"] = [{"txid": CHANGE, "vout": 0}]
+        self.campaign.core.transactions[RECOVERY]["vout"][0]["value"] = Decimal("0.00009000")
+        bad = check_recovery(self.campaign, "absent", "restored", "drain", "s02-payout-absent-0", "tb1qrecovered")
+        self.assertNotEqual(bad["recovery_check"], "PASS")
+        self.assertIn("actual fallback payout", bad["reason"])
+
+    def test_complete_lifecycle_needs_all_payouts_and_refreshed_control_and_rechecks_reorg(self):
+        frozen, _ = self.payout()
+        self.receipt("restore", "restore", {}, {"source_actor": "absent"}, actor="restored")
+        self.receipt("drain", "onchain_drain", {"txid": RECOVERY}, {"destination": "tb1qrecovered"}, actor="restored")
+        original = {**frozen["coins"][0], "id": "f" * 64 + ":0"}
+        replacement = {**original, "id": "0" * 64 + ":0", "expiry_height": 220, "amount_sat": 9900}
+        self.receipt("control-before", "sync_vtxos", [original], actor="control", created=1)
+        self.receipt("maintenance", "maintain", {}, actor="control", created=2)
+        self.receipt("control-after", "sync_vtxos", [{**original, "state": "spent"}, replacement], actor="control", created=3)
+        with patch("simulator.signet_s02.verify_coin", return_value={"status": "PASS"}):
+            control = check_control(self.campaign, "control", "control-before", "control-after", 100)
+            self.assertEqual(control["control_check"], "PASS")
+            pending = reconcile(self.campaign, "absent", "s02-control-control-0")
+            self.assertEqual(pending["pending_coin_ids"], [original["id"].replace("f", "e")])
+            self.assertEqual(pending["case_verdict"], "INCOMPLETE")
+            check_recovery(self.campaign, "absent", "restored", "drain", "s02-payout-absent-0", "tb1qrecovered")
+            complete = reconcile(self.campaign, "absent", "s02-control-control-0")
+            self.assertEqual(complete["case_verdict"], "PASS")
+            self.assertEqual(complete["confirmed_recovered_payout_sat"], 9000)
+            self.campaign.core.transactions[RECOVERY]["confirmations"] = 0
+            undone = reconcile(self.campaign, "absent", "s02-control-control-0")
+            self.assertEqual(undone["case_verdict"], "INCOMPLETE")
+            self.assertEqual(undone["confirmed_recovered_payout_sat"], 0)
+
+    def test_expired_or_unrefreshed_control_cannot_satisfy_lifecycle(self):
+        frozen = self.freeze()
+        original = frozen["coins"][0]
+        self.receipt("control-before", "sync_vtxos", [original], actor="control", created=1)
+        self.receipt("maintenance", "maintain", {}, actor="control", created=2)
+        self.receipt("control-after", "sync_vtxos", [original], actor="control", created=3)
+        result = check_control(self.campaign, "control", "control-before", "control-after", 100)
+        self.assertNotEqual(result["control_check"], "PASS")
+
+
+if __name__ == "__main__":
+    unittest.main()

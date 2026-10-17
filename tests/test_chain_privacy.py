@@ -29,3 +29,15 @@ class ChainPrivacyTests(unittest.TestCase):
         raw=b'{"result":{"chain":"regtest"}}'
         reader._capture('getblockchaininfo',[],{'chain':'regtest'},None,raw)
         self.assertEqual(raw,captured[0]['raw'])
+
+    def test_block_inventory_omits_extra_signed_fields_and_other_verbosity_is_rejected(self):
+        captured=[]
+        reader=ChainReader('http://127.0.0.1:1234','unused','unused',capture=captured.append)
+        value={'hash':'11'*32,'height':10,'tx':['22'*32],'unexpected_witness':['private preimage']}
+        reader._capture('getblock',['11'*32,1],value,None,json.dumps(value).encode())
+        self.assertNotIn('private preimage',json.dumps(captured))
+        self.assertIsNone(captured[0]['raw'])
+        self.assertEqual({'hash','height','tx'},set(captured[0]['payload']['result']))
+        for args in [('11'*32,2),('11'*32,0),('11'*32,True),('bad',1)]:
+            with self.assertRaisesRegex(ValueError,'transaction-id inventory'):
+                reader.call('getblock',*args)
