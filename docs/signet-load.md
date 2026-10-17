@@ -87,6 +87,38 @@ An acknowledged send may be reconciled with fresh observation intents for up to
 60 seconds; the send is never replayed. Unknown or failed reconciliation stops
 new batches. Already dispatched independent workers finish and retain results.
 
+For a **future reviewed runner**, optional pacing can run immediately before
+dispatch, after the previous report and current runtime preflight:
+
+```python
+progress = load.advance_batch(
+    monitor_pids=actual_backend_pids,
+    wait_until_due=True,
+    stop_requested=lambda: owned_stop_file.exists(),
+)
+# Persist this result and its report. Do not add the previous fixed outer sleep.
+```
+
+The `batch --wait-until-due` CLI option uses the same path. Remaining delay is
+computed from the durable previous **actual** start; completed reporting/work
+consumes that interval. Slow work records lateness and never causes a catch-up
+burst. Stop requests and original unknown/HOLD state are rechecked during the
+wait, and the original dispatch deadline remains unchanged. Each new batch
+records controller request time, nominal scheduled time, minimum permitted time
+and actual start separately. CPU figures still separate the controller, native
+children and backend; this timing correction changes no monetary oracle.
+
+This follows a real first50 observation: its first 19 starts spanned 189.5255
+seconds across 18 intervals. The admitted private wrapper computed its delay
+before event/report writing, adding that overhead to the interval. The original
+live source, 600-request/1,200-second window and all ACKs remain unchanged; a
+shortfall is preserved as an incomplete offered workload. The new fake-clock
+tests use real SQLite scheduling with stub transfers, including reporting cost,
+late work, deadline expiry, unknown actions and a stop during waiting. They are
+included in the [27 focused checks](evidence/funded-scale-pacing-checks-20261017.json).
+These are controller regression evidence, not a new funded load result. A future launch
+requires source review and its own explicit controller provenance.
+
 Tip changes during a backing/signature observation have a specific
 `ChainObservationChanged` classification. Only that observation can be repeated
 inside the existing reconciliation retry budget, retaining the unavailable proof

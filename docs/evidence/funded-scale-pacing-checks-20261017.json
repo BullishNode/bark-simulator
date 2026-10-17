@@ -1,0 +1,39 @@
+{
+  "kind": "LOAD_PACING_CONTROLLER_REGRESSION",
+  "base_commit": "5b5acf53e499e68d90e8384bc2c06a089608e984",
+  "tested_as_uncommitted_source": true,
+  "source_sha256": {
+    "simulator/signet_load.py": "f0984233126de93f5ff889660499d94e5d7446b9f76f7679e424bed5cf36601d",
+    "tests/test_signet_load.py": "c3955379dba515a2913973a0eb291f5a652315b67a8a0b659e9ffe01affbe99f",
+    "tests/test_signet_load_scale.py": "0a5b2498412f0201548f9695d555b70c9c1de4f952b2e42f4a1d3d3e1b9d5363",
+    "tests/test_signet_load_pacing.py": "2564915b54503e1cac2901951f8d7ed909011902e92d6154acd51f24d13b49c6"
+  },
+  "tests": {
+    "command": "python3 -m unittest tests.test_signet_load tests.test_signet_load_scale tests.test_signet_load_pacing -v",
+    "passed": 27,
+    "failed": 0,
+    "reported_seconds": 79.931,
+    "log_sha256": "7bfa1f7629f0d79dee905b2f267e222cb28a1446529744ee945695948d3e0197"
+  },
+  "specific_pacing_regressions": [
+    "600 stub transfers/120 real SQLite batch records stay on10-second starts despite6.5-second synthetic work/report cost",
+    "Slow work records lateness without a catchup burst",
+    "Original window expires while waiting, no dispatch or extension",
+    "Unknown original action introduced during wait prevents next batch",
+    "Owned stop request during wait leaves next intent undispatched"
+  ],
+  "scope": "Fake clock, stub transfers/Core/native and stub resource sampler. Controller scheduling/guards only; no public-Signet capacity or financial conservation proof.",
+  "live_window_changed": false,
+  "live_window_source": "36cefa12fceab6f5ec496d727208f94efcc38f46",
+  "live_wrapper_sha256": "be177b6b30d8b4273b188a198baa17409c49d6142db6dfa066d793de78729aee",
+  "live_finding": {
+    "first_batch_unix": 1792278019.0515606,
+    "nineteenth_batch_unix": 1792278208.5770895,
+    "intervals": 18,
+    "span_seconds": 189.52552890777588,
+    "minimum_interval_seconds": 10,
+    "original_dispatch_window_seconds": 1200,
+    "deadline_extended": false
+  },
+  "next_launch_requires": "Peer review and explicit new controller provenance/admission. No deployed code or old results changed."
+}

@@ -314,8 +314,7 @@ class Load:
             "load-board-cost-" + actor, time.time(), canonical(result)))
         return result
 
-    def advance_batch(self, monitor_pids=None):
-        """At most one disjoint batch; the external runner owns pacing/its lock."""
+    def _require_batch_admission(self):
         c = self.campaign
         if c.db.execute("SELECT 1 FROM meta WHERE key='load_hold'").fetchone():
             raise ValueError("load phase is held for original-outcome reconciliation")
@@ -323,6 +322,16 @@ class Load:
             raise ValueError("original load action requires reconciliation")
         if not c.db.execute("SELECT 1 FROM meta WHERE key='load_admitted'").fetchone():
             raise ValueError("actual native load cohort admission required")
+
+    def advance_batch(self, monitor_pids=None, *, wait_until_due=False, stop_requested=None):
+        """One disjoint batch; optional pacing starts after the caller's reporting.
+
+        The caller retains its writer lock. A waiting call rechecks the same
+        admission/unknown guards before dispatch and never extends the window.
+        It must replace an outer fixed sleep, not be added to one.
+        """
+        c = self.campaign
+        self._require_batch_admission()
         completed = {row[0] for row in c.db.execute("SELECT id FROM result WHERE id LIKE 'load-transfer-%-complete'")}
         pending = [index for index in range(self.parameters["transfers"])
                    if f"load-transfer-{index:06d}-complete" not in completed]
@@ -333,9 +342,21 @@ class Load:
         if len(set(pairs)) != len(pairs):
             raise ValueError("batch would overlap an active actor pair")
         last = c.db.execute("SELECT observed FROM result WHERE json_extract(payload,'$.kind')='load_batch_started' ORDER BY observed DESC LIMIT 1").fetchone()
-        now = time.time()
-        if last and now - last[0] < self.parameters["batch_interval_seconds"]:
+        requested_at = now = time.time()
+        not_before = last[0] + self.parameters["batch_interval_seconds"] if last else now
+        while wait_until_due and now < not_before:
+            if stop_requested is not None and stop_requested():
+                return {"stage": "LOAD_STOP_REQUESTED", "money_dispatched": False,
+                        "successful_reconciled_transfers": len(completed)}
+            time.sleep(min(1, not_before - now))
+            self._require_batch_admission()
+            now = time.time()
+        if stop_requested is not None and stop_requested():
+            return {"stage": "LOAD_STOP_REQUESTED", "money_dispatched": False,
+                    "successful_reconciled_transfers": len(completed)}
+        if now < not_before:
             return {"stage": "WAITING_FOR_LOAD_BATCH_INTERVAL", "money_dispatched": False,
+                    "next_batch_not_before": not_before,
                     "successful_reconciled_transfers": len(completed)}
         first = c.db.execute("SELECT min(observed) FROM result WHERE json_extract(payload,'$.kind')='load_batch_started'").fetchone()[0]
         window = self.parameters.get("window_seconds")
@@ -344,9 +365,14 @@ class Load:
                       "intended_transfers": self.parameters["transfers"], "money_dispatched": False}
             c.db.execute("INSERT OR IGNORE INTO meta VALUES ('load_hold',?)", (canonical(result),))
             return result
+        scheduled_at = (first + (len(completed) // self.parameters["concurrency"]) *
+                        self.parameters["batch_interval_seconds"]) if first is not None else now
+        pacing = {"controller_requested_at": requested_at, "scheduled_start_at": scheduled_at,
+                  "minimum_interval_not_before": not_before, "actual_started_at": now,
+                  "schedule_lateness_seconds": max(0, now - scheduled_at)}
         c.db.execute("INSERT OR IGNORE INTO result VALUES (?,?,?)", (
             f"load-batch-{indices[0]:06d}-started", now,
-            canonical({"kind": "load_batch_started", "indices": indices})))
+            canonical({"kind": "load_batch_started", "indices": indices, "pacing": pacing})))
         results, failures = [], []
         with RSSSamples(monitor_pids or {}) as resources, ThreadPoolExecutor(max_workers=self.parameters["concurrency"]) as workers:
             futures = {workers.submit(_transfer, c.root, c.config, self.parameters, index): index for index in indices}
@@ -360,6 +386,7 @@ class Load:
         result = {"stage": "LOAD_BATCH_HOLD" if failures else "LOAD_BATCH_RECONCILED",
                   "indices": indices, "results": sorted(results, key=lambda value: value["index"]),
                   "failures": failures, "successful_reconciled_transfers": len(completed) + len(results),
+                  "pacing": pacing,
                   "resource_observation": resources.result}
         if failures:
             c.db.execute("INSERT OR IGNORE INTO meta VALUES ('load_hold',?)", (canonical(result),))
@@ -584,8 +611,12 @@ def main():
     parser.add_argument("--funding-sat-per-actor", type=int, choices=[40000, 100000], default=100000)
     parser.add_argument("--batch-interval-seconds", type=int, default=10)
     parser.add_argument("--window-seconds", type=int)
+    parser.add_argument("--wait-until-due", action="store_true",
+                        help="For batch only: subtract completed reporting/work from the next interval")
     parser.add_argument("command", choices=["prepare", "admit", "batch", "finish"])
     args = parser.parse_args()
+    if args.wait_until_due and args.command != "batch":
+        parser.error("--wait-until-due applies only to batch")
     campaign = Campaign(args.state, json.loads(args.config.read_text()))
     try:
         pins = canonical(json.loads(args.runtime_pins.read_text()))
@@ -596,7 +627,8 @@ def main():
         load = Load(campaign, wallets=args.wallets, concurrency=args.concurrency, transfers=args.transfers,
                     funding_sat_per_actor=args.funding_sat_per_actor,
                     batch_interval_seconds=args.batch_interval_seconds, window_seconds=args.window_seconds)
-        result = getattr(load, {"prepare": "prepare", "admit": "admit", "batch": "advance_batch", "finish": "finish"}[args.command])()
+        method = getattr(load, {"prepare": "prepare", "admit": "admit", "batch": "advance_batch", "finish": "finish"}[args.command])
+        result = method(wait_until_due=args.wait_until_due) if args.command == "batch" else method()
         print(json.dumps(result, indent=2))
     finally:
         campaign.close()
