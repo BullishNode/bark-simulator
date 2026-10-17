@@ -309,7 +309,6 @@ def _transfer(directory, config, parameters, index):
         confirmed_backing(c.core, [sb, rb])
         if c.db.execute("SELECT 1 FROM action WHERE state='unknown'").fetchone():
             raise ValueError("another load outcome became unknown; no new send")
-        started = time.monotonic()
         native(prefix + "-send", sender, "send", {"destination": address, "amount_sat": parameters["transfer_sat"]})
         payment = c.db.execute("SELECT * FROM action WHERE id=?", (prefix + "-send",)).fetchone()
         attempt = c.db.execute("SELECT count(*) FROM result WHERE id LIKE ?", (prefix + "-check-%",)).fetchone()[0]
@@ -331,7 +330,7 @@ def _transfer(directory, config, parameters, index):
                           "amount_sat": parameters["transfer_sat"], "status": "RECONCILED",
                           "native_ack_seconds": payment["updated"] - payment["created"],
                           "observed_receiver_available_seconds": c.db.execute("SELECT updated FROM action WHERE id=?", (after_r,)).fetchone()[0] - payment["created"],
-                          "reconciliation_seconds": time.monotonic() - started,
+                          "reconciliation_seconds": time.time() - payment["created"],
                           "check": check, "backing": backing, "signature_proofs": proofs,
                           "scope": "Actual isolated pair send, native invocation timing and independent financial reconciliation; no claimed maximum TPS."}
                 c.db.execute("INSERT INTO result VALUES (?,?,?)", (prefix + "-complete", time.time(), canonical(result)))
