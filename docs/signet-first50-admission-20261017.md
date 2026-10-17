@@ -1,18 +1,24 @@
 # First sustained 50-wallet phase: admission proposal
 
-Prepared 2026-10-17. This is a proposed new ordinary-traffic phase, with no new
-service, actor or funding dispatched at this checkpoint. Existing Signet
-campaigns retain their runtime pins, absent-wallet fences and immutable results.
+The original proposal and its admission boundaries are retained below. Stage A
+subsequently completed: [the actual zero-funded preparation receipt](evidence/first50-native-preparation-20261017.json)
+records the new isolated services, 50 native wallets and authenticated
+registrations, 56 genuine funding destinations, and verified off-VM backups.
+There were no boards, sends or treasury funding in that snapshot. Stage B and
+any subsequent traffic need their own actual receipts. Existing campaigns retain
+their runtime pins, absent-wallet fences and immutable results.
 
 The coordinator selected four captured products whose source bytes match
 published product commit `e443d415ee7b0d512203bd56f85e22cdec69d35f`. The actual
-build label remains **2f070b60a870b5d02edd8b5b0a5b0289a2edd11c, dirty**;
+captured build source HEAD remains **2f070b60a870b5d02edd8b5b0a5b0289a2edd11c, dirty**;
 source-manifest SHA256 is
 `1e28b175d8ee83aed24246b229831cfb926dc8003e4a40a049f262e5fa3f6dff` and
 build-manifest SHA256 is
 `a36140cbc86bdc395b0b9524b9731d80daea044db19a0ccf198ccbd894586264`.
-Those facts must remain separate: source equivalence does not make the original
-build clean or turn native qualification into public-Signet execution.
+All four actual binaries separately report executable version label
+`9ea05f9680be2757e875ee81f4546fd24e5b6354`. That label does not identify the
+captured source HEAD. Source equivalence does not make the original build clean
+or turn native qualification into public-Signet execution.
 
 The phase uses a new server identity, database and actor set, with lifetime
 4,320, exit delta 144 and three board confirmations. Its pool and CLN lists are
