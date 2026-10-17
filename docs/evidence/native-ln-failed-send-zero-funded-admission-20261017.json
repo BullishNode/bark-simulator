@@ -1,0 +1,145 @@
+{
+  "actual_services": {
+    "captaind": {
+      "ActiveState": "active",
+      "MainPID": "203114",
+      "NRestarts": "0",
+      "actual_elf_sha256": "592df297c9b58b22261b7487c57a4076bba72b735232707d98275f84981642a8",
+      "unit_sha256": "8ee1e6c91f5f959b9ec51a1456ee3c353c2e579b59f078f20d85e27dd449978b"
+    },
+    "watchmand": {
+      "ActiveState": "active",
+      "MainPID": "203234",
+      "NRestarts": "0",
+      "actual_elf_sha256": "edf59b0b352f8aa0a5ef76e8cc306b3c591836b73181baf48b3ce46da0764bbf",
+      "unit_sha256": "80a85d61c51771ce24a9583da0090e057d0b5a494d3ee06655cfdce78ad7ce53"
+    }
+  },
+  "case_verdict": "INCOMPLETE",
+  "existing_receive_observer_alive_and_lock_owned": true,
+  "funding_proposal": {
+    "funding_dispatched_at_this_receipt": false,
+    "miner_fee_separate": true,
+    "sender_sat": 60000,
+    "total_principal_sat": 100000,
+    "watchman_distinct_outputs_sat": [
+      20000,
+      20000
+    ]
+  },
+  "native_operators": {
+    "rounds_confirmed_utxos": 0,
+    "rounds_total_sat": 0,
+    "watchman_confirmed_utxos": 0,
+    "watchman_total_sat": 0
+  },
+  "network": "public Signet",
+  "observed_at": "2026-10-17T18:37:52.859653+00:00",
+  "original_receive_expiry_height": 326816,
+  "original_receive_profile_unchanged": true,
+  "profile": {
+    "htlc_expiry_delta": 6,
+    "htlc_send_expiry_delta": 18,
+    "max_htlc_expiry_delta": 288,
+    "pool_targets": [],
+    "vtxo_exit_delta": 12,
+    "vtxo_lifetime": 32
+  },
+  "protected_existing_services_unchanged": true,
+  "pure_public_ArkInfo": {
+    "grpc_status": 0,
+    "htlc_expiry_delta": 6,
+    "htlc_send_expiry_delta": 18,
+    "mailbox_pubkey": "033241f36d3df87149667a8a1f3017a6e8191e9f8a52745ea0f62f9178be23794c",
+    "method": "bark_server.ArkService/GetArkInfo",
+    "min_board_amount_sat": 20000,
+    "network": "signet",
+    "reply_sha256": "de6aa0f6cd14091e833e31666796df1946d0ecb44c213aa9481e6ab09afe72d0",
+    "required_board_confirmations": 3,
+    "server_pubkey": "038aa70456a7bdc18872fd89bca78c9b3f4c8ee548b7c36a3f9eccbc79ae3ae61f",
+    "state_mutation_requested": false,
+    "transport": "gRPC-Web binary over HTTP/1 loopback",
+    "vtxo_exit_delta": 12,
+    "vtxo_lifetime": 32,
+    "wallet_opened": false
+  },
+  "remaining": [
+    "Root independent funding/admission",
+    "Actual native30000sat board+3confirmations and signature/backing/sourcevalue",
+    "One original existingmTLSInvoice with minfinalCLTV6, one original native send, matchingAccepted hold",
+    "Originalsenderclosed/fenced before one external cancellation; actual source-specific stockCLNfailed-group proof",
+    "ActualsignedD/E, rightful fallbackparent/child6conf, originalseed-onlyfreshDB and confirmed recoveryspend"
+  ],
+  "schema_version": 1,
+  "scope": "Isolated18-block native failed-send preparation; no invoice/send/cancel or money result",
+  "sender": {
+    "authentic_registration": true,
+    "created_once": true,
+    "manual_sync_no_background_daemon": true,
+    "native_sdk_actual18_32_handshake": true,
+    "native_wallet_closed": true,
+    "original_birthday_height": 326787,
+    "original_phrase_backup_hash_verified_privately": true,
+    "zero_vtxos_balance_at_admission": true
+  },
+  "server_pubkey": "038aa70456a7bdc18872fd89bca78c9b3f4c8ee548b7c36a3f9eccbc79ae3ae61f",
+  "setup_failure_retained": "Read-only onchain-address preflight passed a JSON object string to Core; corrected cached-reply parsing after original createACK, no create/address replay or money action.",
+  "source": {
+    "actual_build_head": "6950be5a6855625d76d04e33c86a6b030cd9406e",
+    "captured_source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b",
+    "config_hashes": {
+      "captaind": "5423e5edd57c7b22748fea98badd139bed465a2cdfaad8ba398dafb50fba2299",
+      "watchmand": "2d31a38685979b6a02062d0f6890db6bfd92e51010cd505bb3fb3e89ad1c3e03"
+    },
+    "dirty": true,
+    "elf_sha256": {
+      "bark": "7a240c143bb103b67c360a75316034211d6212947e0b65571ceaebe19fc06ba4",
+      "barkd": "570ecf6cbbdc441b1262e68ee84035718ac9f72a5f881038b9ca51812a342218",
+      "captaind": "592df297c9b58b22261b7487c57a4076bba72b735232707d98275f84981642a8",
+      "watchmand": "edf59b0b352f8aa0a5ef76e8cc306b3c591836b73181baf48b3ce46da0764bbf"
+    },
+    "runtime_manifest_sha256": "e0e3c82b40e74cde24ddef6dae0146014f41d90770e0e9bec9c2c8cdb6764e29"
+  },
+  "stage": "HISTORICAL_ZERO_FUNDED_ADMISSION",
+  "stock_hold_prerequisites": {
+    "actual_readonly_getroutes": {
+      "probability_ppm": 1000000,
+      "routes": [
+        {
+          "amount_msat": 5000000,
+          "final_cltv": 6,
+          "path": [
+            {
+              "amount_in_msat": 5000000,
+              "amount_out_msat": 5000000,
+              "cltv_in": 6,
+              "cltv_out": 6,
+              "node_id_in": "02de1325fcc41c085c12e9fee5997a4d9afa78cc96ce5c1d4d97b01e0d2929f8eb",
+              "node_id_out": "03f10014941a28fde31d767753cf7667e25164a2346406ab88ca90cbb4c67e29b3",
+              "short_channel_id_dir": "326669x214x0/0"
+            }
+          ],
+          "probability_ppm": 1000000
+        }
+      ]
+    },
+    "actual_version": "0.3.3",
+    "at": 1792262349.164585,
+    "body_sha256": "25348ff198e6c40f9041d3b440d02db4200490fcc26226d709e19d4fe32c06ab",
+    "financial_mutation": false,
+    "grpc_status": 0,
+    "headers_sha256": "34083505171576ad0b33945629d32308c431e749e93f7d77688ab497f4e12466",
+    "hold_cancelled": false,
+    "invoice_created": false,
+    "method": "hold.Hold/GetInfo",
+    "payment_sent": false,
+    "proposed_invoice_fields": {
+      "amount_msat": 5000000,
+      "expiry": 3600,
+      "min_final_cltv_expiry": 6
+    },
+    "proposed_invoice_method": "hold.Hold/Invoice",
+    "scope": "Protocol/route prereqs only; not an accepted HTLC or failed-swap result",
+    "transport": "HTTP2 verified mTLS, localhost SAN, actual private owned external hold peer"
+  }
+}
