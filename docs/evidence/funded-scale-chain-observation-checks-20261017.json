@@ -7,7 +7,7 @@
     "failed": 0,
     "seconds": 83.936,
     "test_log_sha256": "9909b9a04d4308b8dcbda64e08c116cf8342be9eb581553c880382e01f5372eb",
-    "scope": "Controller/native-proof contract tests using stub native/Core, including actual ChainReader classification; not new live money or product qualification."
+    "scope": "Controller/native-proof contract tests using stub native/Core and the production backing-observation helper's classification; not live ChainReader transport, new live money or product qualification."
   },
   "source_sha256": {
     "simulator/signet_checks.py": "cc4b1c284e9bf22efad3cef5856cedcb03d7ea44d7e498ac3fcd2a3356a5f806",
