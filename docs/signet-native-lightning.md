@@ -249,3 +249,25 @@ actual public Signet heights. Fallback parent and fee child each need six
 confirmations before original-seed-only restore and one recovery drain. This
 milestone proves the native swap and signed rightful owner; fallback, recovery,
 failed-send refunds and Noah/LNURL success remain unproven by this receipt.
+
+## Actual fallback broadcast at expiry
+
+[The later public-Core observation](evidence/native-ln-receive-fallback-broadcast-20261017.json)
+records a real 3,890-sat payout to the cached authenticated recipient script at
+height 326816. The parent spends the original 20,000-sat pool root, pays 16,110
+sat to the operator, and has zero miner fee. Its actual fee child pays 363 sat.
+Both were **unconfirmed** in this immutable observation; no recovery wallet had
+opened and no completed-payment or scenario PASS is claimed.
+
+The operator output includes 15,110 sat already attributed to the operator and
+the new 1,000-sat fallback output fee. It is not all new revenue. The watchman
+cash payment of 363 sat is distinct from net subsidy, which is zero under the
+existing remainder-based accounting. The new fallback fee less this miner fee
+is 637 sat, separate from the earlier 110-sat receive fee and pool issuance cost.
+
+This broadcast occurs at the backing expiry, before the old receive HTLC
+deadline of 326833, after genuine settlement into the recipient's Pubkey coin.
+The original recipient remains absent. The existing observer still requires
+six canonical confirmations on both parent and fee child before the separate
+original-seed-only restore and one drain. Noah/LNURL, failed-send recovery and
+controlled interrupted-settlement scenarios remain separate.

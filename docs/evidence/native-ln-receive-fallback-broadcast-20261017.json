@@ -1,0 +1,103 @@
+{
+  "at": 1792277424.0775268,
+  "height": 326816,
+  "registered_payout_script": "0014f6cb317634543f8564334d7262a98dd402f066a5",
+  "payout": {
+    "txid": "20f119e07cbe1f9949f75813ef705671dee4c8ae81fd665317c26ac920a7247a",
+    "vout": 0,
+    "value_sat": 3890,
+    "confirmations": 0,
+    "version": 3,
+    "vsize": 174
+  },
+  "fee_child_reference": [
+    {
+      "txid": "20f119e07cbe1f9949f75813ef705671dee4c8ae81fd665317c26ac920a7247a",
+      "vout": 2,
+      "spendingtxid": "a3f00c0ef1f037d0d71c105237107fa576b74fc3629d56feb6b02aac7181b94a"
+    }
+  ],
+  "recipient_original_wallet_opened": false,
+  "scope": "Actual public mempool broadcast and cached authenticated script match only; no payment finality/recovery.",
+  "fee_child": {
+    "txid": "a3f00c0ef1f037d0d71c105237107fa576b74fc3629d56feb6b02aac7181b94a",
+    "confirmations": 0,
+    "actual_miner_fee_sat": 363,
+    "vsize": 153
+  },
+  "kind": "ACTUAL_NATIVE_BOLT11_RECEIVE_FALLBACK_BROADCAST",
+  "parent_input_sat": 20000,
+  "parent_operator_output_sat": 16110,
+  "parent_miner_fee_sat": 0,
+  "previously_operator_attributed_value_sat": 15110,
+  "new_fallback_output_fee_sat": 1000,
+  "operator_fee_wallet_cash_miner_payment_sat": 363,
+  "operator_net_subsidy_sat": 0,
+  "operator_remainder_after_actual_miner_fee_sat": 15747,
+  "new_fallback_fee_less_actual_miner_fee_sat": 637,
+  "source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b",
+  "actual_signed_recipient_coin_sat": 4890,
+  "actual_native_receive_invoice_sat": 5000,
+  "actual_receive_fee_sat": 110,
+  "actual_tree_expiry": 326816,
+  "old_htlc_deadline": 326833,
+  "case_verdict": "INCOMPLETE",
+  "recovery_dispatched": false,
+  "noah_lnurl_qualification": false,
+  "notes": [
+    "Fully settled recipient Pubkey proceeds have reached actual fallback broadcast at backing expiry, before the old receive HTLC deadline.",
+    "The16110sat operator output includes previously attributed15110sat; it is not all new revenue. Watchman cash minerpayment363sat is distinct from net subsidy0.",
+    "Payout and feechild0confirmations in this immutable observation. Wait actual6confirmation guards before any original-seed-only recovery.",
+    "Original recipient has remained closed throughout actual invoice/payment/claim/expiry. This is nativeBOLT11, not Noah/LNURL."
+  ],
+  "observer_script_sha256": "0f981670ed11fbacf76c586b1eea2329c27e3b604f921689f2ca2a4cc58c329c",
+  "prior_native_receive_evidence": "public-signet-native-ln-receive-20261017.json",
+  "payment_hash": "04be8c9c55e6a0cc25ae5fd159c99b5a3ff63440a7a330330cc676a8e9909f6c",
+  "chain_identity": {
+    "chain": "signet",
+    "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+    "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6"
+  },
+  "originating_native_operation_source": {
+    "build_head": "6950be5a6855625d76d04e33c86a6b030cd9406e",
+    "captured_source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b",
+    "config_hashes": {
+      "captaind": "7723b3567063b0c644b58602981e67e409bed2bb5a720a18cf6a869745f377a0",
+      "watchmand": "a5f374b091f26f3bc2db3eee4c02534253890c7df515bc90f5a614501bb9edd7"
+    },
+    "controller_code_milestone": "45b5aaa0af3547e816027011aceac73efea36d02",
+    "controller_source": "d8cdb3b66c44df62cd946c57d18c3ffa8c544fab",
+    "dirty_source": true,
+    "elf_sha256": {
+      "bark": "7a240c143bb103b67c360a75316034211d6212947e0b65571ceaebe19fc06ba4",
+      "barkd": "570ecf6cbbdc441b1262e68ee84035718ac9f72a5f881038b9ca51812a342218",
+      "captaind": "592df297c9b58b22261b7487c57a4076bba72b735232707d98275f84981642a8",
+      "watchmand": "edf59b0b352f8aa0a5ef76e8cc306b3c591836b73181baf48b3ce46da0764bbf"
+    },
+    "final_preinvoice_admission_sha256": "6c40b13f79dfe7b5dd75d7d6805ba86b3127a35c2912ee7f9ae4a02751d2191b",
+    "runtime_manifest_sha256": "e6bd3f928220637dfe81796bf95895755a331cc96ae4568e5a44a14c083019d0"
+  },
+  "source_note": "Product ELFs/configuration unchanged from original native receive; original controller source belongs to invoice/claim phase. Continuing observer is separately identified by exact script SHA256.",
+  "observed_at": "2026-10-17T22:50:24.077527+00:00",
+  "parent_inputs": [
+    {
+      "outpoint": "52aa108da2b8341e03b7b6b050aaabb7ee0f2513b22810d730de1d6dd26ea000:0",
+      "value_sat": 20000
+    }
+  ],
+  "readiness_log_events": [
+    {
+      "at": "2026-10-17T22:47:04.674Z",
+      "level": "WARN",
+      "message": "Expiry readiness pass failed; no incomplete payout authorized: tx body error: expiry view token does not identify the rebuilt view"
+    },
+    {
+      "at": "2026-10-17T22:47:07.825Z",
+      "level": "INFO",
+      "allocation_id": 1,
+      "inputs": 1,
+      "dropped": 0,
+      "message": "Expiry payout decision committed"
+    }
+  ]
+}

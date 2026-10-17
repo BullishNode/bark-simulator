@@ -45,7 +45,9 @@
     },
     "NATIVE_RECEIVE": {
       "reference": "docs/evidence/public-signet-native-ln-receive-20261017.json",
-      "scope": "Actual5000 payment,4890 signed recipient coin, E326816/D326833; fallback/recovery pending at immutable milestone"
+      "scope": "Actual5000 payment,4890 signed recipient coin, E326816/D326833; fallback/recovery pending at immutable milestone",
+      "broadcast_reference": "docs/evidence/native-ln-receive-fallback-broadcast-20261017.json",
+      "broadcast_scope": "Additive actual3890sat registered-script fallback+363sat feechild broadcast atE326816,0conf; recipientclosed/no recovery yet. Original invoice/grant/claim evidence remains immutable. No whole-scenario or Noah/LNURL credit."
     },
     "NOAH_FAIL": {
       "reference": "docs/evidence/noah-actual-invoice-rejection-20261017.json",
