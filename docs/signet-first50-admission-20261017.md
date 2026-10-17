@@ -8,6 +8,16 @@ There were no boards, sends or treasury funding in that snapshot. Stage B and
 any subsequent traffic need their own actual receipts. Existing campaigns retain
 their runtime pins, absent-wallet fences and immutable results.
 
+The later [funding and board-broadcast receipt](evidence/first50-funded-board-broadcast-20261017.json)
+records the one 2,300,000-sat funding batch, its 5,760-sat miner fee, and all 50
+native boards acknowledged exactly once. At public Signet height 326814 the
+funding had three confirmations and the boards had zero. Their independently
+measured miner fees total 22,900 sat. The same admitted runner is waiting for
+native board admission before the timed workload; that snapshot contains no
+off-chain sends, unknown actions or load-performance result. A separate read-only
+PostgreSQL sampler uses the [published counter query](../integration/signet-load-metrics.sql);
+its WAL measurements include other profiles on the same database cluster.
+
 The coordinator selected four captured products whose source bytes match
 published product commit `e443d415ee7b0d512203bd56f85e22cdec69d35f`. The actual
 captured build source HEAD remains **2f070b60a870b5d02edd8b5b0a5b0289a2edd11c, dirty**;
@@ -62,8 +72,9 @@ observations can be repeated within the original reconciliation budget; the
 acknowledged money action is never repeated. These checks are not live scale
 proof. The private deployment packet additionally verified actual captured
 captaind/watchmand help and complete `-C CONFIG start --help` parsing after
-correcting missing `start` subcommands in the first draft. Runtime configuration
-validation and service admission still must happen on the owned VM.
+correcting missing `start` subcommands in the first draft. The later stage-A
+receipt records actual configuration validation and service admission on the
+owned VM; those checks are separate from controller tests and workload results.
 
 Collect actual CPU/process identity, sampled memory, read-only PostgreSQL metrics,
 latencies, board miner costs, isolated transfer conservation and signed backing.
