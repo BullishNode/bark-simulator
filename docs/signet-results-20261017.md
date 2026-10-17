@@ -64,6 +64,11 @@ confirmations** and one recovery-spend confirmation. Its SHA256 is
 The later independent public projection at **326696** observes 12 payout and 11
 recovery confirmations. This preserves the original evidence depth.
 
+The [independent public output scan](evidence/s02-public-payout-history-20261017.json)
+checked all 6,147 transactions at heights 326684–326696 against both authenticated
+registered scripts. It found exactly one absent-user payout and no control payout
+in that interval. This bounded observation is not a permanent no-duplicate guarantee.
+
 The active control refreshed beyond its original expiry, retained independently
 verified signed backing, and paid 150 sat of observed refresh fees by first pass
 (300 sat by height 326696). Restore received only the protected original phrase
@@ -77,6 +82,18 @@ The concrete checks are implemented in
 and the [native lifecycle sequence](../simulator/signet_s02_case.py).
 [Native signature verification](../simulator/signet_proof.py) invokes the actual
 product verifier with signed coin and funding transaction bytes.
+
+The coordinator independently rechecked the canonical scripts, actual payout input,
+recovery destination, fee child and gross/net economics. Its [original proof](evidence/root-s02-current-chain-proof-20261017.json)
+is preserved unchanged (SHA256 `8b01950d72d63d0caa2e451b87b65cdedeb9e25f9b0314913556ee1ebeb40b53`).
+The [standalone verifier](evidence/verify-s02-public-chain.py) also explicitly checks
+the default Signet challenge; its [separate rerun](evidence/root-s02-challenge-verified-proof-20261017.json)
+does not replace the original receipt. Run the verifier on the owned target with
+its retained campaign journal and Core data: `python3 verify-s02-public-chain.py`.
+It reads the cookie only in memory, opens the journal read-only, never opens an
+actor wallet, and prints a public JSON proof to stdout. An external observer can
+independently check the listed transaction bytes and amounts on public Signet;
+seed-only methodology also requires the retained controller/native artifacts.
 
 ## Bounded 12-wallet load
 

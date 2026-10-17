@@ -1,0 +1,40 @@
+{
+  "at": "2026-10-17T03:23:13.504239+00:00",
+  "observer": "root read-only Bitcoin Core31 RPC; no actor wallet opened",
+  "network": "public signet",
+  "observed_height": 326696,
+  "first_pass_sha256": "18c876d882211e62fb748ce5bd4f153fc349bdcc78797488554bc0a5e99d9de5",
+  "original_first_pass_height": 326686,
+  "original_first_pass_payout_confirmations": 2,
+  "registered_script_verified_from_native_journal_intent": "s02-absent-registration",
+  "payout": {
+    "txid": "7e6fc92a2dd6a7422eacf340d1555f45bfa7945c22027de6b92672b2b200cea7",
+    "vout": 0,
+    "amount_sat": 28670,
+    "customer_coin_sat": 29670,
+    "output_fee_sat": 1000,
+    "block_height": 326685,
+    "confirmations_now": 12,
+    "parent_miner_fee_sat": 0
+  },
+  "recovery": {
+    "txid": "4147d72db6958f05705d3d4386597d6a06168ac72e119fdc1b88b485c1679c0b",
+    "block_height": 326686,
+    "confirmations_now": 11,
+    "exact_payout_consumed": true,
+    "other_ordinary_change_input_sat": 69847,
+    "destination_received_sat": 98339,
+    "miner_fee_sat": 178
+  },
+  "fee_accounting": {
+    "child_txid": "ee22e1a94127f9917251e1813f7198f07e8bb3ad60ab852b717573d2a6c5c467",
+    "gross_watchman_funded_miner_fee_sat": 916,
+    "operator_parent_remainder_sat": 1330,
+    "earlier_board_residual_sat": 330,
+    "new_fallback_output_fee_sat": 1000,
+    "operator_chain_net_sat": 414,
+    "fallback_fee_less_miner_fee_excluding_board_residual_sat": 84,
+    "net_operator_subsidy_sat": 0
+  },
+  "scope": "independent current canonical chain/script/value/spend/cost proof; seed-only methodology is separately attested by original controller/native artifacts"
+}
