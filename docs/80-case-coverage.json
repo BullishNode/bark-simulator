@@ -1,0 +1,1727 @@
+{
+  "schema": "original-80-case-coverage-v2",
+  "recorded_at": "2026-10-17T04:01:03.501114+00:00",
+  "catalogue": "simulator/scenarios.json",
+  "catalogue_sha256": "fd01b08c72abb9cf61c5f93aa2c43362fa7e8b58788a7fbc54d0e1ab85de86b4",
+  "candidate_policy": "Evidence is a union of explicitly pinned fresh snapshots. No result silently qualifies a later HEAD, old-track results or a production release. Whole-ID credit applies only to named executions and their pinned source.",
+  "category_count_meaning": "Highest related evidence level including partial subcases; NOT passed scenario totals. needs_adaptation marks a replaced legacy expectation with an explicit new recipe, not dropped coverage or a passed case.",
+  "evidence_category_counts": {
+    "needs_adaptation": 12,
+    "public_signet": 8,
+    "not_run": 9,
+    "source_only": 16,
+    "native_regtest": 24,
+    "unit_only": 10,
+    "failed": 1
+  },
+  "whole_id_passes": [
+    "H03",
+    "H07",
+    "H36"
+  ],
+  "whole_id_public_signet": [
+    "H03",
+    "H07"
+  ],
+  "whole_id_native_regtest": [
+    "H36"
+  ],
+  "not_fully_demonstrated": 77,
+  "evidence_catalogue": {
+    "SIG": {
+      "level": "public_signet",
+      "product_commit": "7055d1fce858f3112aff671d0b2a8a454d6a2214",
+      "controller_commit": "9f57c79be0e42028e951a1bb21f4208da3ce78bb",
+      "reference": "signet-results-20261017.md",
+      "public_projection": "evidence/public-signet-s02-load12-20261017.json",
+      "projection_sha256": "3098c5ea78f52742b1e47f491f52f8f408b8eca73d2a935962e9dcca10483481",
+      "s02_first_pass_sha256": "18c876d882211e62fb748ce5bd4f153fc349bdcc78797488554bc0a5e99d9de5",
+      "load12_first_pass_sha256": "036e753725b6872c87faf6c0c829818bfec3475f8ce2e17e1d2f049c0ce779d5"
+    },
+    "REG": {
+      "level": "native_regtest",
+      "product_commit": "cf32afccb8582e915c39cc20b6d830f1d5aecc5a",
+      "run_id": "88496753-505d-438d-8c31-1cd6008b0556",
+      "result": "4/4 PASS",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/cf32afccb8582e915c39cc20b6d830f1d5aecc5a/testing/tests/bark_sdk/fallback.rs",
+      "limits": "Sequential second-device/reopen and immutable registration, not concurrent devices/older backup."
+    },
+    "K3": {
+      "level": "native_regtest",
+      "client_commit": "626dcc28dc0250df38f73cc7594b35b179a0de74",
+      "backend_commit": "7055d1fce858f3112aff671d0b2a8a454d6a2214",
+      "run_id": "00f209ef-79b0-4985-b23f-f5d2826d7c2f",
+      "result": "5/5 PASS70.483s",
+      "source_manifest_sha256": "59a19dbf25ae1a76e81b98fcbdcfe100cb191549b29456daa6ad0f5b1275edb6",
+      "sdk_test_elf_sha256": "24abc47b3c1ff759308d9f1636f2ce2f1a22e42f18ce9cac2203ceb5003c6dd9",
+      "retained_log": "client-K3a-actions-immutable-native-v4.log",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/626dcc28dc0250df38f73cc7594b35b179a0de74/testing/tests/bark_sdk/fallback_act_by.rs",
+      "limits": "Public protection methods called directly; no autonomous default-daemon end-to-end credit."
+    },
+    "UNIT": {
+      "level": "unit_only",
+      "run_id": "de10affd-1f6d-4a91-845f-96c51e4864f0",
+      "result": "785 PASS/1skip reported in client handoff",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/626dcc28dc0250df38f73cc7594b35b179a0de74/lib/src/fallback.rs",
+      "limits": "Record byte/network/role/signature/decoder tests; not raw hostile endpoint scenarios."
+    },
+    "ALLOC": {
+      "level": "unit_only",
+      "run_id": "e48fbe5a-49d3-486f-b497-f93e528c4096",
+      "result": "24 focused units PASS",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/568b30d0c84216111f5344e6fc729ccc2ff4d052/docs/fallback-implementation-evidence.md",
+      "limits": "Conservation, geometry, allocation, dust, remainder/subsidy; not whole native boundary matrix."
+    },
+    "FLOW": {
+      "level": "native_regtest",
+      "run_id": "27d5e036-045e-497a-a376-9692d569d50a",
+      "result": "1 PASS32.313s",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/568b30d0c84216111f5344e6fc729ccc2ff4d052/docs/fallback-implementation-evidence.md",
+      "limits": "Actual250-wallet-key, chunk1 generic ordinary fallback/seed recovery; not offline child25/50 or huge registry scale."
+    },
+    "EXT": {
+      "level": "native_regtest",
+      "run_id": "8f297156-7884-47da-8a19-640730082b72",
+      "result": "1 PASS24.186s",
+      "proof_sha256": "c8171ae2f3e577e284639464a2acd1806807ce923c38897ab36a2d805815d728",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/7055d1fce858f3112aff671d0b2a8a454d6a2214/testing/tests/bark_sdk/fallback_external.rs",
+      "limits": "Distinct app/Ark seeds, new DBs, actual payout and confirmed BIP84 spend. Ark online; no forced gap20/no-hint claim."
+    },
+    "W2": {
+      "level": "native_regtest",
+      "run_id": "b45cad52-44a3-4cf3-829b-09e4d68198e0",
+      "result": "3 PASS25.053s",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/568b30d0c84216111f5344e6fc729ccc2ff4d052/docs/fallback-implementation-evidence.md",
+      "limits": "Generation/restart, typed full/bare RPC refusals using isolated inserted fence, unattempted HTLC deadline; not complete actual payout-operation races."
+    },
+    "MIX": {
+      "level": "native_regtest",
+      "run_id": "9d9ee14a-71c4-41da-a18e-32c6189dc6a6",
+      "result": "1 PASS42.928s",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/7055d1fce858f3112aff671d0b2a8a454d6a2214/testing/tests/server/expiry_split.rs",
+      "limits": "Explicit first split, genuine ordinary49000 and later HTLC49000 confirmed payouts. Not automatic oversized capacity or actual malicious receive."
+    },
+    "LIGHT": {
+      "level": "native_regtest",
+      "published_code": "8127251798752570948b1808d91e01ce0aa8c88f",
+      "run_id": "d3025d92-06ad-44b3-8649-4a0848d3452e",
+      "result": "5/5 PASS99.128s",
+      "source_manifest_sha256": "f41c7d958e3f4acfddf9cf629bbb84f0f4e79b1f6e42a22b27936129b461ce1c",
+      "native_test_elf_sha256": "d606e47e6fb167adfcd4ce7d8f44af2c0496e10bf044cc54384c52e3b74a7012",
+      "retained_log": "runtime-backend-source-discharge-corrected-20261017/native-runtime-d3025d92.log",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/8127251798752570948b1808d91e01ce0aa8c88f/docs/fallback-lightning-evidence.md",
+      "limits": "Specific real source/hash refund/refusal cases, not all Lightning composites or ambiguous transport closure."
+    },
+    "OLDLIGHT": {
+      "level": "native_regtest",
+      "run_id": "d4286ba5-946c-4877-8401-3194cb3cd67c",
+      "result": "6 PASS;2 other tests FAILED on refusal wording in this run",
+      "source_manifest_sha256": "d27d35dd169a3d8fd44109fdd1e657f8ca8ee87456667c56a0c20bcebf852e02",
+      "retained_log": "runtime-backend-source-discharge-20261017/lightning-regression-d4286ba5.log",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/8127251798752570948b1808d91e01ce0aa8c88f/docs/fallback-lightning-evidence.md",
+      "limits": "Passing named failed/no-part offline-refund subtests retain credit only on their pinned earlier fresh snapshot; no8/8 claim or inferred rerun."
+    },
+    "CONFLICT": {
+      "level": "native_regtest",
+      "published_source": "42e33146432f8413bb9d11e498d2de1811b53473",
+      "run_id": "93fd48ad-2b19-47e5-98fd-d88fc9dcd337",
+      "result": "1/1 PASS24.140s",
+      "evidence_manifest_sha256": "7cc997fbe6a659cd1401f66ad233fd4008c4710630a14ac254482860f69d443f",
+      "harness_source_manifest_sha256": "35f8e167f074a67746f85d696879e571218efccb500819e2520db1765056ec6e",
+      "retained_log": "test/root-conflict-native-runtime-20261017.log",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/42e33146432f8413bb9d11e498d2de1811b53473/testing/tests/server/expiry_conflict.rs",
+      "limits": "Real partial user terminal claim, restart/regroup, untouched99k six-confirmation payout. No conflict-reorg variant."
+    },
+    "FEE": {
+      "level": "native_regtest",
+      "product_source": "2ecc7b23967975f04f870c12dca21a9cf2923393",
+      "run_id": "48226daf-0b2d-470b-b354-ca309b8f7de9",
+      "result": "1 PASS18.816s",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/2ecc7b23967975f04f870c12dca21a9cf2923393/testing/tests/server/expiry_reorg.rs",
+      "limits": "Actual Core child RBF, unchanged parent/payees and confirmed-only cost. Not every fee-input/conflict/stale callback variant."
+    },
+    "SCALE": {
+      "level": "failed",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/f1d1947ef322233ae013174dd4610ced96d0de08/docs/fallback-registration-scale.md",
+      "public_report": "https://github.com/BullishNode/abandon-ship-bark/blob/f1d1947ef322233ae013174dd4610ced96d0de08/docs/evidence/registration-scale-first-20261017.json",
+      "run_id": "a8928dcf-a33a-400b-a37e-8306b6e5b4f0",
+      "result": "FAIL250.494s:10k no-mailbox positive search exceeded120s;100/1k positive cases passed;10k wrong-mailbox NOT RUN",
+      "limits": "Account registrations/attribution, not10k payout coins; debug shared-host result, not production capacity."
+    },
+    "SOURCE": {
+      "level": "source_only",
+      "source": "https://github.com/BullishNode/abandon-ship-bark/blob/8127251798752570948b1808d91e01ce0aa8c88f/docs/fallback-implementation-evidence.md",
+      "policy_source": "https://github.com/BullishNode/abandon-ship-bark/blob/8127251798752570948b1808d91e01ce0aa8c88f/server/src/database/expiry_ownership.rs",
+      "limits": "Source is not an execution result; no old A/B/C campaign credit inherited."
+    },
+    "OPSRC": {
+      "level": "source_only",
+      "source_path": "testing/tests/server/expiry_operation_races.rs",
+      "checks": "Mandatory checks55273 PASS reported by backend; runtime UNRUN at snapshot",
+      "limits": "New actual offboard both-winner and post-backing-expiry revoke tests are written/typechecked, not passed."
+    },
+    "GROUP": {
+      "level": "source_only",
+      "controller_commit": "c669367aef254ed2ba9ebf396a44a5bc01951d2e",
+      "reference": "signet-grouping.md",
+      "limits": "S03 controller7stub tests and81focused totalPASS, no live S03 actor initialized at snapshot."
+    },
+    "SIMUNIT": {
+      "level": "unit_only",
+      "controller_commit": "c669367aef254ed2ba9ebf396a44a5bc01951d2e",
+      "ci_run": "38999331166",
+      "reference": "../tests/test_signet_s02.py",
+      "limits": "81Python controller tests, including negative chain/payee checks; never80live behavior cases."
+    }
+  },
+  "rows": [
+    {
+      "id": "H01",
+      "behavior": "Create a wallet, register fallback, then board confirmed funds.",
+      "expected": "Board works only with the valid link/record; principal and actual fees reconcile.",
+      "driver": "SDK",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SIG",
+        "REG"
+      ],
+      "demonstrated": "Native registration and confirmed boards work.",
+      "remaining_or_adaptation": "Old mandatory per-key/link admission is not the new server contract; negative no-record admission must be respecified.",
+      "design_expectation": "Authenticated immutable xpub/application-supplied standard payout registration works before native boarding; principal and actual fees reconcile. The server has no blanket per-key publication prerequisite.",
+      "required_proof": "Create/register/board normally; separately exercise absent, changed and invalid registration states and prove the selected original-owner rule without inventing a mandatory no-record creation refusal.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H02",
+      "behavior": "Attempt boarding while the funding confirmation requirement is unmet, then retry.",
+      "expected": "Expected wait/refusal; one eventual funded board, no duplicate liability.",
+      "driver": "SDK",
+      "evidence_category": "public_signet",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SIG"
+      ],
+      "demonstrated": "Once-only boards waited for genuine three-confirmation native admission.",
+      "remaining_or_adaptation": "No deliberately premature funding-confirmation request and explicit retry/refusal trace.",
+      "design_expectation": "Expected wait/refusal; one eventual funded board, no duplicate liability.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No deliberately premature funding-confirmation request and explicit retry/refusal trace.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H03",
+      "behavior": "Board, finish registration, and never return.",
+      "expected": "Exactly one expiry payout to this owner's registered BIP84 script.",
+      "driver": "SDK",
+      "evidence_category": "public_signet",
+      "coverage_scope": "complete",
+      "whole_id_pass": true,
+      "evidence_refs": [
+        "SIG"
+      ],
+      "demonstrated": "Absent registered board expired and paid its exact registered script once; public history checked and recovery spent it.",
+      "remaining_or_adaptation": "Only the pinned7055 simple-board cohort, not every candidate or ownership class.",
+      "design_expectation": "Exactly one eligible fallback payout reaches the authenticated registered standard script; BIP84 is one client-owned destination, not a server restriction.",
+      "required_proof": "Repeat the real absent-board lifecycle with actual supplied standard-script variants; verify signed entitlement path, exact payout, canonical depth and independent ownership/recovery spend.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H04",
+      "behavior": "Fund pending board, stop before final registration; expiry consumes exact funded backing into owner output.",
+      "expected": "No paid output for unfunded board; rightful funded pending board settles once.",
+      "driver": "Phase",
+      "evidence_category": "not_run",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "No fresh native execution of funded pending-board abandonment is established.",
+      "remaining_or_adaptation": "Upstream cosign does not persist the required pending-board ownership record; full funded/unfunded cases remain.",
+      "design_expectation": "No paid output for unfunded board; rightful funded pending board settles once.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Upstream cosign does not persist the required pending-board ownership record; full funded/unfunded cases remain.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H05",
+      "behavior": "Get board cosign/proposal but never broadcast its funding transaction.",
+      "expected": "No fictitious principal, sweep or payout; no server-funded gift.",
+      "driver": "Phase",
+      "evidence_category": "not_run",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "No fresh captured cosign-only/unbroadcast-board run is established.",
+      "remaining_or_adaptation": "Prove absence of invented principal and operator-funded gifts on actual pending proposals.",
+      "design_expectation": "No fictitious principal, sweep or payout; no server-funded gift.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Prove absence of invented principal and operator-funded gifts on actual pending proposals.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H06",
+      "behavior": "Several boards of same wallet expire in the same eligible claim batch; repeat with different expiry batches.",
+      "expected": "Exactly 1,000 sat per actual recipient output; cross-batch repeat charges are reported, never silently merged.",
+      "driver": "SDK",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "GROUP",
+        "UNIT"
+      ],
+      "demonstrated": "S03 source and stub tests require one output/fee across two ready same-expiry roots.",
+      "remaining_or_adaptation": "Neither real grouped payout nor different-expiry repeat has executed in the new Signet cohort.",
+      "design_expectation": "Independently ready roots at the same expiry opportunistically group by actual payout script, charging 1,000 sat per actual output; different expiries settle separately without indefinite waiting.",
+      "required_proof": "Execute S03 same-expiry two-root one-output recovery, then S05 different-expiry separate payouts; include an unrelated unresolved root without withholding ready outputs.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H07",
+      "behavior": "Send arkoor to an online recipient.",
+      "expected": "Recipient owns transferred value; sender change remains sender's.",
+      "driver": "SDK",
+      "evidence_category": "public_signet",
+      "coverage_scope": "complete",
+      "whole_id_pass": true,
+      "evidence_refs": [
+        "SIG"
+      ],
+      "demonstrated": "Online native sends reconcile recipient value, sender change, signatures and backing; load12 completed60/60.",
+      "remaining_or_adaptation": "Measured bounded ordinary workload, not maximum throughput or future fallback coverage.",
+      "design_expectation": "Recipient owns transferred value; sender change remains sender's.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Measured bounded ordinary workload, not maximum throughput or future fallback coverage.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H08",
+      "behavior": "Pay absent recipient at advertised child 25 and child 50 without its database.",
+      "expected": "Bounded on-demand hint validates the exact registered account child; rightful recipient paid.",
+      "driver": "SDK",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "FLOW",
+        "SOURCE"
+      ],
+      "demonstrated": "Native250-key scan evidence is related to high-index attribution.",
+      "remaining_or_adaptation": "Hints were removed; offline child25/50 ownership must be retested with mailbox verification/full xpub fallback.",
+      "design_expectation": "An absent registered recipient at child 25/50 is attributed by verified mailbox plus exact xpub derivation, falling back to resumable complete search; no payer hint is required.",
+      "required_proof": "Capture genuine high-index addresses while active, close the recipient, register real signed transfers, remove no evidence artificially, and prove mailbox and missing/wrong-mailbox attribution plus rightful payout without recipient opens.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H09",
+      "behavior": "Receive at all eight previously advertised addresses while permanently offline, then return only after direct payouts.",
+      "expected": "All independent receipts once; no sender attribution; return removes stale Ark balances.",
+      "driver": "SDK",
+      "evidence_category": "not_run",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [],
+      "demonstrated": "No eight-advertised-address offline receive campaign executed.",
+      "remaining_or_adaptation": "All receipts, rightful payouts and stale original-wallet adoption remain.",
+      "design_expectation": "Every registered recipient receipt is counted once after authentic signed transfer registration, even while the wallet stays offline; pre-registration input-owner attribution is a separate boundary.",
+      "required_proof": "Record eight real native addresses before absence; distinguish sender cosign from actual signed registration/mailbox delivery; prove final recipient payouts and returning-wallet discharge adoption.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H10",
+      "behavior": "Spend only part of a coin through arkoor.",
+      "expected": "Recipient and change have correct links, amounts, and future payouts.",
+      "driver": "SDK",
+      "evidence_category": "public_signet",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SIG"
+      ],
+      "demonstrated": "Real partial spends preserve recipient and sender change amounts/signatures.",
+      "remaining_or_adaptation": "Future fallback payouts of both resulting entitlements have not been demonstrated.",
+      "design_expectation": "Transferred value and sender change retain their distinct rightful owners through registered lineage, amounts and eventual fallback; no per-key link publication is required.",
+      "required_proof": "Run partial send, independently verify both signed policies and backing, abandon both resulting entitlements and confirm exact final payouts without predecessor duplication.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H11",
+      "behavior": "Forward received value across three owners.",
+      "expected": "Final live entitlement is counted once; predecessors cannot receive it again.",
+      "driver": "SDK",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Ownership/lineage source exists.",
+      "remaining_or_adaptation": "No captured three-owner forwarding chain and final expiry settlement.",
+      "design_expectation": "Final live entitlement is counted once; predecessors cannot receive it again.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No captured three-owner forwarding chain and final expiry settlement.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H12",
+      "behavior": "Many payments to one reused recipient address under one ancestor and across ancestors.",
+      "expected": "One output per script per actual claim, fees counted per output; every receipt accounted.",
+      "driver": "SDK",
+      "evidence_category": "public_signet",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SIG"
+      ],
+      "demonstrated": "Load12 reuses captured native receive addresses for repeated payments.",
+      "remaining_or_adaptation": "No fallback fee/grouping settlement across the requested ancestor geometries.",
+      "design_expectation": "Ready same-expiry entitlements sharing a payout script aggregate when they fit; actual outputs each pay 1,000 sat; different expiries or required splits may create additional charged outputs.",
+      "required_proof": "Exercise reused receive address within/across actual roots, measure grouping and split decisions and reconcile every receipt, output fee and later epoch.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H13",
+      "behavior": "Accept an arkoor, disconnect before local sync finishes, then reconnect.",
+      "expected": "Server/local state converges without duplicate spend or balance.",
+      "driver": "Phase",
+      "evidence_category": "not_run",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [],
+      "demonstrated": "Controller restart is not recipient disconnect during synchronization.",
+      "remaining_or_adaptation": "Inject the actual delivery/sync interruption and reconcile wallet/server state.",
+      "design_expectation": "Server/local state converges without duplicate spend or balance.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Inject the actual delivery/sync interruption and reconcile wallet/server state.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H14",
+      "behavior": "Lose the response to a money-moving request.",
+      "expected": "Driver reconciles IDs/status before retry; actual committed action counted once.",
+      "driver": "Phase",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "K3"
+      ],
+      "demonstrated": "An accepted forfeit with a held/lost reply retained signed replacements durably.",
+      "remaining_or_adaptation": "No general lost-send-response campaign proving driver reconciliation before retry across money APIs.",
+      "design_expectation": "Driver reconciles IDs/status before retry; actual committed action counted once.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No general lost-send-response campaign proving driver reconciliation before retry across money APIs.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H15",
+      "behavior": "Disconnect the sender before signed transfer delivery/posting.",
+      "expected": "Unregistered source follows the input-owner rule unless recipient registration wins first.",
+      "driver": "Phase",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Chosen C4 input-owner handling is implemented in source.",
+      "remaining_or_adaptation": "No fresh captured sender-disconnect-before-delivery race covering both registration outcomes.",
+      "design_expectation": "Unregistered source follows the input-owner rule unless recipient registration wins first.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No fresh captured sender-disconnect-before-delivery race covering both registration outcomes.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H16",
+      "behavior": "Deliver/register that transfer before the expiry settlement commits.",
+      "expected": "Recipient entitlement wins; sender receives only legitimate change.",
+      "driver": "Phase",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Registered recipient ownership is represented in the resolver.",
+      "remaining_or_adaptation": "No captured recipient-registration versus actual allocation-commit race.",
+      "design_expectation": "Recipient entitlement wins; sender receives only legitimate change.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No captured recipient-registration versus actual allocation-commit race.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H17",
+      "behavior": "Perform an ordinary interactive refresh.",
+      "expected": "Replacement appears once; temporary round capital lock is measured.",
+      "driver": "SDK",
+      "evidence_category": "public_signet",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SIG",
+        "K3"
+      ],
+      "demonstrated": "Active control genuinely refreshed and preserved signed backed value.",
+      "remaining_or_adaptation": "Temporary round capital lock is not fully measured for the whole original behavior.",
+      "design_expectation": "Replacement appears once; temporary round capital lock is measured.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Temporary round capital lock is not fully measured for the whole original behavior.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H18",
+      "behavior": "Keep refreshing for several lifetimes.",
+      "expected": "Old/new backing overlaps are measured; fees and reusable principal remain distinct.",
+      "driver": "SDK",
+      "evidence_category": "public_signet",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SIG"
+      ],
+      "demonstrated": "The short-profile control refreshed across successive expiry boundaries; fees are recorded.",
+      "remaining_or_adaptation": "Complete old/new backing-overlap and reusable-principal cost accounting is missing.",
+      "design_expectation": "Old/new backing overlaps are measured; fees and reusable principal remain distinct.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Complete old/new backing-overlap and reusable-principal cost accounting is missing.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H19",
+      "behavior": "Refresh close to the real eligibility boundary.",
+      "expected": "One valid refresh or one payout; stale inputs are never funded twice.",
+      "driver": "SDK",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "K3",
+        "W2"
+      ],
+      "demonstrated": "Early protective refresh, actual late exit and typed decision refusals are exercised.",
+      "remaining_or_adaptation": "No complete native refresh-versus-payout-decision boundary race with both winners.",
+      "design_expectation": "Expired ordinary refresh/offboard remains eligible until an actual binding payout decision wins; normal expired Ark-to-Ark refusal remains; no blanket six-block margin applies.",
+      "required_proof": "Race real refresh completion and decision under both orderings, including expired undecided input, retained signed successor, final Core discharge and no duplicate entitlement.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H20",
+      "behavior": "Delegate then disappear after server acceptance, before client completion. Test both original/new expiry orders.",
+      "expected": "One economic entitlement; completion/cancellation reaches rightful settlement.",
+      "driver": "SDK",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "K3"
+      ],
+      "demonstrated": "Pre-forfeit cancellation and lost accepted-forfeit checkpoint cases execute.",
+      "remaining_or_adaptation": "Not delegated refresh in both original/new expiry orders with full final settlement.",
+      "design_expectation": "Accepted binding forfeits determine replacement ownership; unfinished nonbinding exchanges are atomically cancelled across participations and original inputs remain rightful.",
+      "required_proof": "Interrupt genuine delegated exchanges at acceptance/tree/forfeit/unlock with both expiry orderings; confirm cancellation or bound commitment and exactly one eventual economic discharge.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H21",
+      "behavior": "Schedule delegated refresh for later height, then permanent silence.",
+      "expected": "Scheduled replacement attributed and settled without absent wallet use.",
+      "driver": "SDK",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Delegated scheduling and expiry paths exist in source.",
+      "remaining_or_adaptation": "No future-height scheduled delegation with permanent silence and complete payout.",
+      "design_expectation": "Scheduled replacement attributed and settled without absent wallet use.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No future-height scheduled delegation with permanent silence and complete payout.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H22",
+      "behavior": "Disappear after tree creation before forfeits/unlock; include live accepted-but-unfinished exchange states.",
+      "expected": "No independent payout of original plus replacement; bound measured extra delay.",
+      "driver": "Phase",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "K3",
+        "W2"
+      ],
+      "demonstrated": "Actual unfinished pre-forfeit state and signed-forfeit retention are exercised.",
+      "remaining_or_adaptation": "All accepted/tree/forfeit/unlock windows and bounded final old/new economic discharge are not proven.",
+      "design_expectation": "An unfinished participation cannot veto settlement indefinitely: atomically cancel pre-forfeit state, retain original entitlement, forbid late unlock; accepted forfeits retain binding successor obligations.",
+      "required_proof": "Capture each real interruption boundary, race cancellation versus actual forfeit commit, restart, then confirm original or replacement discharge and measured delay.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H23",
+      "behavior": "Go offline for less than a lifetime and return.",
+      "expected": "Sync/refresh works; no phantom on-chain payment.",
+      "driver": "SDK",
+      "evidence_category": "not_run",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [],
+      "demonstrated": "No fresh captured short-absence-and-return campaign is established.",
+      "remaining_or_adaptation": "Prove normal sync/refresh after that absence and no phantom on-chain payment.",
+      "design_expectation": "Sync/refresh works; no phantom on-chain payment.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Prove normal sync/refresh after that absence and no phantom on-chain payment.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H24",
+      "behavior": "Return after expiry but before authorized allocation commit; repeat after allocation before broadcast.",
+      "expected": "Exactly one rightful successor or direct payout; pending allocation is not reported paid.",
+      "driver": "SDK",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "K3",
+        "W2"
+      ],
+      "demonstrated": "Decision-aware protection/refusal and genuinely unfunded payout retention execute.",
+      "remaining_or_adaptation": "Both actual return windows around allocation commit and broadcast remain incomplete.",
+      "design_expectation": "Before decision, upstream-permitted recovery can win; after decision the spend fence persists, but decision/Spent/RPC success alone is not completed payment.",
+      "required_proof": "Return a genuine stale wallet on each side of decision and broadcast; retain signed recovery evidence until actual successor, paid offboard, user claim or confirmed fallback independently discharges the obligation.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H25",
+      "behavior": "Return after direct payout confirmation and use immutable index 0 again in later expiry epoch.",
+      "expected": "Old Ark balance removed; onchain value visible; address/xpub unchanged.",
+      "driver": "SDK",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "EXT",
+        "K3"
+      ],
+      "demonstrated": "Confirmed payout adoption/history and new-database recovery are exercised.",
+      "remaining_or_adaptation": "No later expiry epoch reusing the original immutable payout destination in the same run.",
+      "design_expectation": "Returning wallets remove unusable Ark balance at decision but retain protection until independent discharge; the immutable application-supplied destination/xpub survives later epochs.",
+      "required_proof": "Execute original-wallet return before/after payout confirmation, verify no premature evidence deletion, then actual later-epoch payout to the same registered destination.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H26",
+      "behavior": "Recover an absent paid owner using the mnemonic alone.",
+      "expected": "Gap-20 BIP84 scan finds and spends the real output with no Ark-state hints.",
+      "driver": "Phase",
+      "evidence_category": "public_signet",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SIG",
+        "EXT"
+      ],
+      "demonstrated": "Actual original-seed/new-database discovery and confirmed payout spend succeeded.",
+      "remaining_or_adaptation": "Forced gap20 and no Ark-state/server hints are not proven; Ark was online.",
+      "design_expectation": "Original seeds restore the actual application-owned payout wallet and spend the real output without Ark-state payout hints; the external BIP84 gap-20 case is explicit client integration acceptance.",
+      "required_proof": "Use separate app/Ark seeds where applicable, fresh databases and original birthday; disable Ark-state assistance, force the stated BIP84 gap condition, independently confirm the spend of the expected payout outpoint.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H27",
+      "behavior": "Same seed on two devices; simultaneous initialization and restored older client backup.",
+      "expected": "Exact index 0/account equality; adopt identical record, reject mismatch; no double issuance.",
+      "driver": "SDK",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "REG"
+      ],
+      "demonstrated": "Sequential same-seed second device and cached reopen preserve the exact record.",
+      "remaining_or_adaptation": "Concurrent initialization and restoration of an older client backup remain unproven.",
+      "design_expectation": "Concurrent same-seed devices adopt the same immutable authenticated application-supplied destination/account; native index-0 reservation applies only to that client integration.",
+      "required_proof": "Race genuine simultaneous registration/open, restore an older backup, compare canonical signed records and actual issuance; sequential opens alone do not pass.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H28",
+      "behavior": "Restart a wallet before the reserved fallback address receives anything.",
+      "expected": "Ordinary receives do not reuse its reservation improperly.",
+      "driver": "SDK",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "REG",
+        "UNIT"
+      ],
+      "demonstrated": "Native reopen preserves reserved coin-key indices; BIP84 reservation units exist.",
+      "remaining_or_adaptation": "The complete ordinary on-chain receive reservation behavior across restart is not separately qualified.",
+      "design_expectation": "The selected native BIP84 client preserves its external index-0 payout reservation across restart; arbitrary supplied standard scripts remain supported by the server.",
+      "required_proof": "Restart before fallback receives funds; derive normal on-chain receives, prove no unintended reuse, then independently spend the eventual reserved-address payout.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H29",
+      "behavior": "Two expiry payout epochs to same immutable index 0, followed by mnemonic-only restore and rejected rotation attempt.",
+      "expected": "All positive rightful outputs found; no rotation/new record; forbidden update refused.",
+      "driver": "SDK",
+      "evidence_category": "unit_only",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "UNIT",
+        "REG"
+      ],
+      "demonstrated": "Immutable record/signature binding and reservation logic have unit evidence.",
+      "remaining_or_adaptation": "Two real payout epochs, mnemonic restore and refused rotation in one lifecycle remain.",
+      "design_expectation": "Immutable registration remains identical across two actual expiry payouts, original-seed restore and refused rotation; no server-wide index-0 restriction is inferred.",
+      "required_proof": "Confirm both actual payout epochs, restore original relevant seeds into fresh databases, find/spend all positive outputs, and attempt authenticated conflicting re-registration without changing the canonical record.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H30",
+      "behavior": "Several individually tiny leaves form payable group; include lowest-ID leaf<1000.",
+      "expected": "Group gross minus1000 equals exact output; no leaf underflow or lost remainder.",
+      "driver": "SDK",
+      "evidence_category": "unit_only",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "ALLOC"
+      ],
+      "demonstrated": "Allocator tests cover conserving grouped values and deductions.",
+      "remaining_or_adaptation": "No native tiny-leaf expiry group including lowest-ID leaf below1000.",
+      "design_expectation": "Group gross minus1000 equals exact output; no leaf underflow or lost remainder.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No native tiny-leaf expiry group including lowest-ID leaf below1000.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H31",
+      "behavior": "Same gross around1000+script-dust−1, =, +1 for all supported script types.",
+      "expected": "Exact boundary pays; sub-dust disposition terminal and recorded, no separate minimum.",
+      "driver": "SDK",
+      "evidence_category": "unit_only",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "ALLOC"
+      ],
+      "demonstrated": "Script-sensitive allocation/dust rules have focused unit evidence.",
+      "remaining_or_adaptation": "All supported script types at each -1/equal/+1 boundary need actual full settlement traces.",
+      "design_expectation": "Exact boundary pays; sub-dust disposition terminal and recorded, no separate minimum.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. All supported script types at each -1/equal/+1 boundary need actual full settlement traces.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H32",
+      "behavior": "Add genuine later receipt after prior small entitlement was forfeited; then expire.",
+      "expected": "New receipt follows own fee rule; prior forfeit never revived as retained balance.",
+      "driver": "SDK",
+      "evidence_category": "not_run",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [],
+      "demonstrated": "No fresh later-receipt-after-forfeiture lifecycle is established.",
+      "remaining_or_adaptation": "Prove the old sub-dust disposition never revives and the new receipt pays its own fee.",
+      "design_expectation": "New receipt follows own fee rule; prior forfeit never revived as retained balance.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Prove the old sub-dust disposition never revives and the new receipt pays its own fee.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H33",
+      "behavior": "Offboard voluntarily while online.",
+      "expected": "One on-chain entitlement; no expiry refund for offboarded predecessors.",
+      "driver": "SDK",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "OPSRC"
+      ],
+      "demonstrated": "Real offboard/decision race tests are written and typechecked only at this checkpoint.",
+      "remaining_or_adaptation": "No completed captured voluntary offboard plus absence of predecessor fallback.",
+      "design_expectation": "A binding registered offboard is discharged by its actual on-chain payment; predecessor fallback cannot pay it again. Offboard registration alone is not payment.",
+      "required_proof": "Race authentic offboard registration versus decision in both orders, interrupt/restart broadcast and verify canonical user output and no duplicate predecessor payout.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H34",
+      "behavior": "Unilateral exit own coin; repeat partial branch exit leaving sibling fallback allocations.",
+      "expected": "No overlapping paid owner; remaining branches settle; watchman progress fees reported.",
+      "driver": "SDK",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "CONFLICT",
+        "K3"
+      ],
+      "demonstrated": "Real terminal user claim, watchman restart and unaffected sibling payout execute.",
+      "remaining_or_adaptation": "Full unilateral/cooperative variants and conflict-reorg variant remain unproven.",
+      "design_expectation": "An intermediate exit only advances the signed path; only the coin terminal claim proves discharge. Partial conflict regroups unaffected entitlements and reorg rebuild preserves spend fences.",
+      "required_proof": "Execute actual terminal and intermediate exits plus unaffected sibling payout, then controlled conflict reorg and replay/restart; verify canonical outpoints, chain generations and no simultaneous discharge.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H35",
+      "behavior": "Pay a controlled external LN invoice successfully, then disappear.",
+      "expected": "Payee paid; no sender refund of successful principal; change still recoverable.",
+      "driver": "SDK/Peer",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "LIGHT"
+      ],
+      "demonstrated": "Actual successful external source cannot receive an extra customer payout/refund.",
+      "remaining_or_adaptation": "No full disappear-with-change recovery lifecycle for this original ID.",
+      "design_expectation": "Successful source-specific Lightning payment discharges that principal once; refunds require terminal source evidence and change retains its own entitlement.",
+      "required_proof": "Execute real controlled external invoice/payment, close the payer, reconcile payment hash/preimage/source IDs and channels, then confirm change fallback without principal refund.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H36",
+      "behavior": "Have an external LN send fail terminally, then disappear before revocation.",
+      "expected": "Failed send is automatically paid back to sender when independently eligible.",
+      "driver": "SDK/Peer",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "complete",
+      "whole_id_pass": true,
+      "evidence_refs": [
+        "OLDLIGHT"
+      ],
+      "demonstrated": "Actual failed external send, no client revocation, automatic99k refund with six confirmations.",
+      "remaining_or_adaptation": "Pinned earlier fresh native snapshot; not public Signet and not a full rerun on every later candidate.",
+      "design_expectation": "A terminally failed source-specific send remains recoverable without the absent client revoking; an HTLC deadline alone is not terminal ownership evidence.",
+      "required_proof": "Use genuine external failure, retain actual source/hash receipt, stop original wallet before revocation, observe settler/watchman terminal resolution and independently confirm rightful automatic refund.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H37",
+      "behavior": "Receive an external LN payment and finish the claim normally.",
+      "expected": "Collected value appears once; channel/on-chain capital changes reconcile.",
+      "driver": "SDK/Peer",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "LIGHT"
+      ],
+      "demonstrated": "Real receive-grant/refusal regressions execute.",
+      "remaining_or_adaptation": "Normal completed external receive and full channel/on-chain capital reconciliation are not demonstrated.",
+      "design_expectation": "Collected value appears once; channel/on-chain capital changes reconcile.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Normal completed external receive and full channel/on-chain capital reconciliation are not demonstrated.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H38",
+      "behavior": "Reveal valid preimage, disappear before subscription settled or claim response delivered.",
+      "expected": "Collected rightful value not forfeited; original hash outcome reconciles once.",
+      "driver": "Phase/Peer",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Receive preimage/claim paths exist.",
+      "remaining_or_adaptation": "No actual valid-preimage interruption before subscription/claim delivery with completed rightful recovery.",
+      "design_expectation": "Collected rightful value not forfeited; original hash outcome reconciles once.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No actual valid-preimage interruption before subscription/claim delivery with completed rightful recovery.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H39",
+      "behavior": "Prepare receive without revealing preimage; external timeout and internal same-ancestor sender/receiver.",
+      "expected": "No unfunded receiver output; safe sender refund eventually settles without same-node cycle.",
+      "driver": "Phase/Peer",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "LIGHT",
+        "MIX"
+      ],
+      "demonstrated": "Granted receive timing/refusal and unresolved sibling behavior have native evidence.",
+      "remaining_or_adaptation": "External timeout plus internal same-ancestor sender/receiver final refund are not fully covered.",
+      "design_expectation": "No receiver payout is created without funded terminal entitlement; sender refund follows actual source/watchman/preimage evidence, and unrelated ready outputs progress independently.",
+      "required_proof": "Execute external timeout and internal same-ancestor cases using real grants and missing preimage, observe actual terminal resolutions and canonical refunds without circular same-node assumptions.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "H40",
+      "behavior": "Internal LN complete; recipient disappears before preimage; repeat sender and receiver under same ancestor.",
+      "expected": "Exactly one outcome; unresolved receiver does not permanently trap honest sender or siblings.",
+      "driver": "Phase",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "LIGHT",
+        "MIX"
+      ],
+      "demonstrated": "Intra-Ark receive commitment/refusal and a waiting HTLC sibling are exercised.",
+      "remaining_or_adaptation": "Both same-ancestor final monetary outcomes and bounded honest-sender release remain incomplete.",
+      "design_expectation": "Exact sender/receiver source obligations settle once; admitted unresolved HTLCs may outlive backing and only their own unready tree waits. Timeout is not proof of discharge.",
+      "required_proof": "Run both internal same-ancestor orderings and recipient absence; prove real terminal receiver claim or sender refund plus independently ready sibling payout and retained secrets.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D01",
+      "behavior": "Register another wallet's fallback using the attacker's signature.",
+      "expected": "Refused; victim record unchanged.",
+      "driver": "Raw",
+      "evidence_category": "unit_only",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "UNIT"
+      ],
+      "demonstrated": "Record field/role/signature binding rejects incorrect authorization in units.",
+      "remaining_or_adaptation": "No fresh raw adversarial RPC trace proving victim database record unchanged.",
+      "design_expectation": "Refused; victim record unchanged.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No fresh raw adversarial RPC trace proving victim database record unchanged.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D02",
+      "behavior": "Alter the script in a signed fallback record.",
+      "expected": "Signature verification rejects it.",
+      "driver": "Raw",
+      "evidence_category": "unit_only",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "UNIT"
+      ],
+      "demonstrated": "Every serialized record byte is mutation-tested against verification.",
+      "remaining_or_adaptation": "Raw server request plus immutable stored-record assertion is not a live scenario result.",
+      "design_expectation": "Signature verification rejects it.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Raw server request plus immutable stored-record assertion is not a live scenario result.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D03",
+      "behavior": "Change signed account xpub bytes while keeping address/mailbox and signatures.",
+      "expected": "Refused, no initialized row or attribution changed.",
+      "driver": "Raw",
+      "evidence_category": "unit_only",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "UNIT"
+      ],
+      "demonstrated": "Account xpub field bytes are cryptographically bound in units.",
+      "remaining_or_adaptation": "No raw changed-xpub request with database/attribution side-effect assertions.",
+      "design_expectation": "Refused, no initialized row or attribution changed.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No raw changed-xpub request with database/attribution side-effect assertions.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D04",
+      "behavior": "Replay a correctly signed record bound to another genesis hash.",
+      "expected": "Refused; no cross-chain record replay.",
+      "driver": "Raw",
+      "evidence_category": "unit_only",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "UNIT"
+      ],
+      "demonstrated": "Cross-network record verification rejects the alternate network/genesis context.",
+      "remaining_or_adaptation": "No raw cross-chain record replay against the deployed candidate.",
+      "design_expectation": "Refused; no cross-chain record replay.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No raw cross-chain record replay against the deployed candidate.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D05",
+      "behavior": "Replay identical valid initialization; replay it after conflicting initialization attempt.",
+      "expected": "Idempotent same record; no record rollback or new attribution.",
+      "driver": "Raw",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "REG"
+      ],
+      "demonstrated": "Native canonical registration and sequential conflict/idempotence behavior execute.",
+      "remaining_or_adaptation": "The exact identical replay after conflicting initialization sequence is not fully captured as this ID.",
+      "design_expectation": "Idempotent same record; no record rollback or new attribution.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. The exact identical replay after conflicting initialization sequence is not fully captured as this ID.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D06",
+      "behavior": "Concurrent correctly signed same-mailbox initializations with different account/address fields.",
+      "expected": "One record; losing request receives consistent existing state or refusal, no partial links.",
+      "driver": "Raw",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE",
+        "REG"
+      ],
+      "demonstrated": "Registry locking and sequential immutable conflict behavior exist.",
+      "remaining_or_adaptation": "No concurrent same-mailbox distinct-account/address initialization race.",
+      "design_expectation": "One record; losing request receives consistent existing state or refusal, no partial links.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No concurrent same-mailbox distinct-account/address initialization race.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D07",
+      "behavior": "Valid registration plus invalid account proof/hint in composite creation request.",
+      "expected": "No unauthorized partial coin creation; record initialization remains explicit and attributable.",
+      "driver": "Raw",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Authenticated registration remains relevant.",
+      "remaining_or_adaptation": "Composite account-proof/hint creation API was removed; specify the new atomic authorization risk.",
+      "design_expectation": "Registration authorization and subsequent native coin creation are checked on their actual separate interfaces; removed hint/proof fields are not a composite creation contract.",
+      "required_proof": "Submit altered authenticated record via actual current RPC; assert no unauthorized canonical record/entitlement, then create through the genuine supported path and reconcile original ownership.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D08",
+      "behavior": "Claim victim public key derives from attacker account using fabricated child index.",
+      "expected": "Derived compressed key equality fails; victim value cannot be redirected.",
+      "driver": "Raw",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Exact policy-key derivation is required in attribution.",
+      "remaining_or_adaptation": "Fabricated caller child-index hints are not accepted by this design; retest hostile mailbox/xpub attribution instead.",
+      "design_expectation": "Mailbox identifies only a candidate; exact compressed policy key must derive from the authenticated xpub, otherwise fallback search continues without attacker redirection.",
+      "required_proof": "Use a genuine victim coin with adversarial candidate mailbox/account and derivation indices; verify wrong candidate rejection, resumable fallback and exact rightful final payout.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D09",
+      "behavior": "Replace mailbox identity in otherwise valid account/address binding.",
+      "expected": "Refused; scoped read grant cannot initialize/replace account record.",
+      "driver": "Raw",
+      "evidence_category": "unit_only",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "UNIT"
+      ],
+      "demonstrated": "Mailbox identity and signing role are cryptographically bound.",
+      "remaining_or_adaptation": "No raw scoped-read-grant substitution with stored-row side-effect assertions.",
+      "design_expectation": "Mailbox/account/script/network/roles remain authenticated and immutable; replacing mailbox identity cannot authorize a different canonical registration.",
+      "required_proof": "Submit actual wrong-mailbox signed-record variants to current RPC and inspect canonical public record/no unauthorized attribution, rather than relying on removed scoped-grant semantics.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D10",
+      "behavior": "Use valid account child hint for a different coin policy key; include x-only parity substitution.",
+      "expected": "Exact derived compressed key matches actual required policy; otherwise refused.",
+      "driver": "Raw",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE",
+        "UNIT"
+      ],
+      "demonstrated": "Compressed policy-key equality remains relevant.",
+      "remaining_or_adaptation": "Hint fields were removed; parity and wrong-policy checks need a new current-interface scenario.",
+      "design_expectation": "Attribution verifies exact derived compressed policy key, including parity, against signed coin policy; no caller child hint is trusted.",
+      "required_proof": "Exercise current mailbox/xpub lookup with a different child and x-only parity lookalike; prove no wrong owner/payout and eventual correct search result.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D11",
+      "behavior": "Reassign known key to another mailbox/account, including concurrent creation.",
+      "expected": "Old ownership survives; no mutable relink.",
+      "driver": "Raw",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "REG",
+        "SOURCE"
+      ],
+      "demonstrated": "Account uniqueness/immutable registration has native evidence.",
+      "remaining_or_adaptation": "No mutable per-key link table exists; adapt concurrency and unauthorized account-rebinding expectations.",
+      "design_expectation": "Canonical account/mailbox registration is immutable and xpub aliases cannot acquire another owner; no mutable per-key link API is required.",
+      "required_proof": "Race authentic conflicting registrations and semantic xpub aliases; assert one canonical record, persistent old entitlement and no wrong payout after restart.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D12",
+      "behavior": "Request board creation without a link/record.",
+      "expected": "Creation refusal; no funded uncovered coin.",
+      "driver": "Raw",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Native client registration precedes ordinary board use.",
+      "remaining_or_adaptation": "Mandatory server link/record refusal is an old expectation; specify original unknown-owner board treatment.",
+      "design_expectation": "An original board without a verified registration is not silently operator-owned or gifted: genuine funding and original ownership must resolve before its own payout decision.",
+      "required_proof": "Create through the actual no-record board interface if supported, fund only declared backing, test late registration before/after decision and confirm rightful outcome or explicit unresolved blocker; no synthetic SQL.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D13",
+      "behavior": "Request a round output without a link/record.",
+      "expected": "Creation refusal.",
+      "driver": "Raw",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "New architecture uses xpub attribution, not mandatory per-key links.",
+      "remaining_or_adaptation": "Old no-record round-output refusal is not the selected contract; retain rightful-owner/no-gift risk.",
+      "design_expectation": "A round output does not require payer-side per-key publication; actual signed policy/registration or original-owner lineage determines rightful settlement.",
+      "required_proof": "Generate a genuine no-recipient-record round output, retain signed forfeits/unlock and mailbox evidence, then prove exact current ownership and no unfunded customer/operator gift.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D14",
+      "behavior": "Request arkoor creation without a link/record.",
+      "expected": "Creation refusal.",
+      "driver": "Raw",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "C4 can preserve the source owner for an unregistered recipient.",
+      "remaining_or_adaptation": "Old mandatory no-record arkoor refusal must be replaced with exact selected ownership rules.",
+      "design_expectation": "Unregistered Ark-to-Ark output preserves its input owner under C4 until an authenticated recipient wins before decision; blanket creation refusal is not expected.",
+      "required_proof": "Capture authentic signed transfer before and after registration, race recipient registration with decision, then verify the selected owner once with real on-chain discharge.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D15",
+      "behavior": "Request a Lightning receive output without a link/record.",
+      "expected": "Creation refusal before unfunded/incorrect entitlement.",
+      "driver": "Raw",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Receive grants use actual mailbox/registration and obligation evidence.",
+      "remaining_or_adaptation": "Do not inherit the old unconditional no-link creation-refusal expectation.",
+      "design_expectation": "A receive grant needs real funded/source-specific obligation and allowed new-grant admission; missing per-key publication is not itself blanket creation refusal.",
+      "required_proof": "Use actual no-record recipient receive API, distinguish provider HTLC from signed recipient claim registration, and prove correct source owner/no unbacked payout for both outcomes.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D16",
+      "behavior": "Request a Lightning-send/change output without a link/record.",
+      "expected": "Creation refusal for the actual output path under test.",
+      "driver": "Raw",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Send/change attribution uses the selected current rules.",
+      "remaining_or_adaptation": "Old mandatory per-key link refusal must be respecified for the actual output path.",
+      "design_expectation": "Send/change ownership follows actual registered source and change policy; new grants on expired backing are refused, but admitted safe retries/revocations remain recoverable.",
+      "required_proof": "Exercise the genuine no-record output path, narrow send admission and eventual source-specific resolution; verify unchanged source on refusal and rightful change/refund.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D17",
+      "behavior": "Race two arkoor spends of the same input to different owned recipients.",
+      "expected": "At most one accepted successor path.",
+      "driver": "Phase",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Shared spend/decision writer fences exist.",
+      "remaining_or_adaptation": "No captured two-recipient same-input arkoor race on the fresh candidate.",
+      "design_expectation": "At most one accepted successor path.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No captured two-recipient same-input arkoor race on the fresh candidate.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D18",
+      "behavior": "Race arkoor against interactive refresh of the same input.",
+      "expected": "One winner; losing request cannot claim another payout.",
+      "driver": "Phase",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE",
+        "W2"
+      ],
+      "demonstrated": "Shared writer fencing and typed refusals exist.",
+      "remaining_or_adaptation": "No complete actual arkoor-versus-refresh race and losing-entitlement payout proof.",
+      "design_expectation": "One winner; losing request cannot claim another payout.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No complete actual arkoor-versus-refresh race and losing-entitlement payout proof.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D19",
+      "behavior": "Race offboard against refresh of the same input.",
+      "expected": "One paid/successor entitlement.",
+      "driver": "Phase",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "OPSRC"
+      ],
+      "demonstrated": "Offboard decision-race source is typechecked, not run at this checkpoint.",
+      "remaining_or_adaptation": "Actual offboard-versus-refresh race is a different additional case.",
+      "design_expectation": "One paid/successor entitlement.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Actual offboard-versus-refresh race is a different additional case.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D20",
+      "behavior": "Race unilateral exit against cooperative spending.",
+      "expected": "Chain and protocol arbitration prevent two funded claims; exact path recorded.",
+      "driver": "Phase",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "CONFLICT",
+        "K3"
+      ],
+      "demonstrated": "Real user exit and actual fallback conflict/regroup have monetary evidence.",
+      "remaining_or_adaptation": "Not all direct cooperative-spend versus unilateral-exit race variants.",
+      "design_expectation": "Chain and protocol arbitration prevent two funded claims; exact path recorded.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Not all direct cooperative-spend versus unilateral-exit race variants.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D21",
+      "behavior": "Replay spend after frozen allocation, after broadcast, and after confirmed claim on restored stale DB.",
+      "expected": "Replay cannot create successor against consumed backing; all actual admission sites covered.",
+      "driver": "Raw",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "W2",
+        "K3"
+      ],
+      "demonstrated": "Typed full/bare decision refusals and actual client protection execute.",
+      "remaining_or_adaptation": "All post-decision/broadcast/confirmed stale-database replay admission sites remain unproven; use decision boundary wording.",
+      "design_expectation": "A committed decision durably fences conflicting writers, including stale restore and post-reorg state; Spent is not discharge and must not erase protective client evidence.",
+      "required_proof": "Replay genuine operations before/after decision, broadcast, confirmation and invalidation using stale databases; cover each writer API, retained recovery and actual canonical final outpoint.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D22",
+      "behavior": "Replay a delivered chain/mailbox message.",
+      "expected": "No duplicate credit, liability, or future payout.",
+      "driver": "Raw",
+      "evidence_category": "not_run",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [],
+      "demonstrated": "No captured duplicate delivered-chain/mailbox-message replay is established.",
+      "remaining_or_adaptation": "Assert no second wallet credit, liability and eventual payout.",
+      "design_expectation": "No duplicate credit, liability, or future payout.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Assert no second wallet credit, liability and eventual payout.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D23",
+      "behavior": "Submit an altered/incomplete signed transfer chain for registration.",
+      "expected": "Invalid proof rejected; no payee change.",
+      "driver": "Raw",
+      "evidence_category": "unit_only",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SIMUNIT",
+        "UNIT"
+      ],
+      "demonstrated": "Native verifier unit negatives reject altered signatures/unrelated funding and malformed records.",
+      "remaining_or_adaptation": "Not a full raw server registration request with immutable payee/side-effect assertions.",
+      "design_expectation": "Invalid proof rejected; no payee change.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Not a full raw server registration request with immutable payee/side-effect assertions.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D24",
+      "behavior": "Deliver unregistered signed recipient transfer after input-owner allocation or direct claim confirms.",
+      "expected": "Existing input-owner ownership ruling enforced; no second recipient entitlement.",
+      "driver": "Phase",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Durable source-owner decisions and registration fences exist.",
+      "remaining_or_adaptation": "No late actual signed-recipient delivery after source-owner allocation or confirmed claim.",
+      "design_expectation": "A durable input-owner decision fences later signed-recipient registration; pre-decision recipient registration may win, without ever creating two entitlements.",
+      "required_proof": "Deliver the genuine signed recipient chain in both orders around allocation and actual claim; inspect immutable decision provenance and independently confirmed sole discharge.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D25",
+      "behavior": "Combine independent input-owner chains and try to attribute all outputs to one owner.",
+      "expected": "Each actual parent controls its entitlement; attacker cannot collect another parent's amount.",
+      "driver": "Raw",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Ownership resolver tracks actual lineage and conserving backing.",
+      "remaining_or_adaptation": "No malicious combined multi-input-owner native request with rightful terminal outcomes.",
+      "design_expectation": "Each actual parent controls its entitlement; attacker cannot collect another parent's amount.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No malicious combined multi-input-owner native request with rightful terminal outcomes.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D26",
+      "behavior": "Race two delegated refresh requests on identical inputs.",
+      "expected": "One exchange or consistent refusal, never duplicated replacements.",
+      "driver": "Phase",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Native action/decision serialization is implemented.",
+      "remaining_or_adaptation": "No actual concurrent delegated refresh requests on identical inputs.",
+      "design_expectation": "One exchange or consistent refusal, never duplicated replacements.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No actual concurrent delegated refresh requests on identical inputs.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D27",
+      "behavior": "Late delegated forfeit/completion after cancellation or original owner settlement.",
+      "expected": "No revived replacement credit; exchange arbitration settles economically once.",
+      "driver": "Phase",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "K3",
+        "W2"
+      ],
+      "demonstrated": "Real pre-forfeit cancellation/late-forfeit checkpoint and status refusal cases execute.",
+      "remaining_or_adaptation": "Late delegated completion after cancellation or original settlement is not fully discharged.",
+      "design_expectation": "Atomic unfinished-exchange cancellation prevents late forfeits/unlock from reviving replacements; an already binding commitment retains its rightful successor.",
+      "required_proof": "Submit authentic late delegated completion before/after cancellation and original settlement, race transaction commits and restart; prove sole final economic entitlement.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D28",
+      "behavior": "Present another branch claim, registered-script lookalike outputs, or unrelated backing as this entitlement carrier.",
+      "expected": "Wrong backing/amount/provenance refused; common destination alone never proves settlement.",
+      "driver": "Raw/Phase",
+      "evidence_category": "unit_only",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SIMUNIT"
+      ],
+      "demonstrated": "Independent payout verifier has wrong-payee/value/backing negatives in controller tests.",
+      "remaining_or_adaptation": "No complete raw branch/lookalike/unrelated-backing hostile native campaign.",
+      "design_expectation": "Only a verified entitlement path and exact registered script/value prove a payout; common destination or intermediate tree spend is insufficient.",
+      "required_proof": "Present actual wrong branch, same-script unrelated deposit and wrong amount/backing to independent checker, then execute genuine terminal claim and unaffected sibling settlement.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D29",
+      "behavior": "Request a refund for a successful Lightning send.",
+      "expected": "Refused even if a client missed its successful response/preimage.",
+      "driver": "Raw",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "LIGHT"
+      ],
+      "demonstrated": "Actual paid-source refund is refused, including coarse-status regression.",
+      "remaining_or_adaptation": "The exact lost-success-response/preimage client scenario is not separately injected and fully captured.",
+      "design_expectation": "Refused even if a client missed its successful response/preimage.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. The exact lost-success-response/preimage client scenario is not separately injected and fully captured.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D30",
+      "behavior": "Pending/unknown Lightning status, silent node, or temporarily ineligible refund later terminal failure.",
+      "expected": "Silence not failure; temporary refusal not permanent success/forfeit; later safe refund terminates.",
+      "driver": "Raw/Peer",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "LIGHT",
+        "OLDLIGHT"
+      ],
+      "demonstrated": "Real terminal failures, source-specific receipts and behind-watchman refusal are exercised.",
+      "remaining_or_adaptation": "Silent-node/ambiguous transport and all temporarily ineligible-to-terminal transitions remain incomplete.",
+      "design_expectation": "Unavailable LN/watchman or ambiguous reply is not terminal failure; held admitted liabilities remain protected until actual source-specific terminal evidence allows safe refund.",
+      "required_proof": "Inject real service/transport interruption, preserve original hash/attempt ID, reconcile without re-payment, then complete actual terminal failure/refund after services recover.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D31",
+      "behavior": "Replay a completed receive claim.",
+      "expected": "No second credit/payout.",
+      "driver": "Raw",
+      "evidence_category": "not_run",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [],
+      "demonstrated": "No captured completed receive-claim replay is established.",
+      "remaining_or_adaptation": "Assert no second credit or fallback payment after a genuine completed receive.",
+      "design_expectation": "No second credit/payout.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Assert no second credit or fallback payment after a genuine completed receive.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D32",
+      "behavior": "Submit a wrong preimage for a prepared receive.",
+      "expected": "Cannot collect or redirect value; rightful resolution remains possible.",
+      "driver": "Raw",
+      "evidence_category": "not_run",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [],
+      "demonstrated": "No captured wrong-preimage receive request is established.",
+      "remaining_or_adaptation": "Exercise the actual current server request and preserve rightful later resolution.",
+      "design_expectation": "Cannot collect or redirect value; rightful resolution remains possible.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Exercise the actual current server request and preserve rightful later resolution.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D33",
+      "behavior": "Late valid receive claim after sender refund allocated/broadcast/confirmed.",
+      "expected": "No late recipient credit over refunded value; retained preimage veto respected.",
+      "driver": "Phase",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Receive/refund decision and retained-secret rules exist.",
+      "remaining_or_adaptation": "No full late valid claim after allocated/broadcast/confirmed sender refund.",
+      "design_expectation": "No late recipient credit over refunded value; retained preimage veto respected.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. No full late valid claim after allocated/broadcast/confirmed sender refund.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D34",
+      "behavior": "Race sender refund with receiver preimage/subscription commit, both orders.",
+      "expected": "One economic outcome; stale cached allowed fact cannot beat collected preimage.",
+      "driver": "Phase",
+      "evidence_category": "source_only",
+      "coverage_scope": "unproven",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SOURCE"
+      ],
+      "demonstrated": "Atomic source/receive state transitions are implemented.",
+      "remaining_or_adaptation": "Both actual refund-versus-preimage/subscription commit race winners remain unproven.",
+      "design_expectation": "One economic outcome; stale cached allowed fact cannot beat collected preimage.",
+      "required_proof": "Execute the original behavior through actual current native SDK/RPC paths; preserve exact pins, all failures and unknowns. Both actual refund-versus-preimage/subscription commit race winners remain unproven.",
+      "expectation_changed": false,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D35",
+      "behavior": "Request an excessive or invalid block-height expiry on a legitimately collected receive.",
+      "expected": "Bounded refusal, no panic; no attacker-chosen far-future reclaim lock.",
+      "driver": "Raw",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "W2",
+        "LIGHT"
+      ],
+      "demonstrated": "Actual excessive HTLC-send duration is refused without spending the input.",
+      "remaining_or_adaptation": "That does not prove the original legitimately collected receive's excessive-expiry path.",
+      "design_expectation": "New send/receive durations are bounded by advertised policy and expired backing cannot fund a new grant/first external attempt; admitted liabilities may legitimately outlive their tree.",
+      "required_proof": "Exercise real send and receive exact minimum/maximum/skew bounds and expired first-attempt refusal, proving no source mutation on refusal and preserving previously admitted recoverable attempts.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D36",
+      "behavior": "Malicious prepared receive never completes while honest sender and unrelated sibling share backing.",
+      "expected": "Bounded resolution/progression; neither sender nor sibling stranded.",
+      "driver": "Phase",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "MIX",
+        "LIGHT"
+      ],
+      "demonstrated": "A real ordinary sibling pays while a grant-only HTLC sibling waits, then later refunds.",
+      "remaining_or_adaptation": "Not the complete malicious prepared-receive plus honest-sender same-backing scenario.",
+      "design_expectation": "An unresolved HTLC blocks its own tree output, not every root at the same expiry; terminal sender recovery uses actual source/watchman evidence.",
+      "required_proof": "Create authentic uninitiated registered grant or real controlled held payment, leave its future deadline intact, confirm unrelated same-expiry ordinary payout, then genuinely revoke/settle and recover its own liability.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D37",
+      "behavior": "101+ and >10,000 tiny coins to absent owner; 253+ distinct recipients and wallet fragmentation; repeated failed batch construction.",
+      "expected": "No starvation; output fees stable under retry; real standard weight/counts and rightful terminal outcomes.",
+      "driver": "SDK",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "MIX",
+        "SIG"
+      ],
+      "demonstrated": "Small genuine mixed-tree progress and bounded12-wallet traffic execute.",
+      "remaining_or_adaptation": "No101+/10000-tiny-coin and253-recipient/fragmentation repeated-build capacity campaign; registration count is not coin count.",
+      "design_expectation": "Oversized ready groups first regroup; a single oversized output progresses through genuine signed tree transactions, conserving entitlements and real fees until terminal outputs fit.",
+      "required_proof": "Execute actual 101+/10,000 tiny coins and 253+ scripts where feasible, exact standard/V3 weight limits and signed progress, failed-build restart, no starvation and real canonical per-output fees; small manual split is partial only.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D38",
+      "behavior": "Abandon successive delegated rounds at acceptance/tree/forfeit/unlock boundaries.",
+      "expected": "Bounded lock/dependency cost; honest users continue; no old/new double obligation.",
+      "driver": "Phase",
+      "evidence_category": "native_regtest",
+      "coverage_scope": "partial",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "K3",
+        "W2"
+      ],
+      "demonstrated": "Actual pre-forfeit cancellation and accepted lost-forfeit reply preserve state.",
+      "remaining_or_adaptation": "Successive delegated rounds at every boundary with measured lock/dependency costs remain.",
+      "design_expectation": "Nonbinding unfinished rounds are atomically cancellable while accepted forfeits remain binding; independent honest users progress and old/new principal is not duplicated.",
+      "required_proof": "Abandon successive real delegated rounds at each boundary, measure dependency/capital locks, race cancellation and accepted forfeits, then confirm final rightful discharges.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D39",
+      "behavior": "Bounded repeated authenticated/unauthenticated derivation requests; high-index hints and account-registration amplification.",
+      "expected": "Measured bounded DB/CPU work, no dense billion-child scan or unauthorized growth.",
+      "driver": "Raw",
+      "evidence_category": "failed",
+      "coverage_scope": "failed",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "SCALE"
+      ],
+      "demonstrated": "Authenticated100/1000-account cases passed;10000 missing-mailbox positive search missed the120-second budget.",
+      "remaining_or_adaptation": "Wrong-mailbox10000 was not run; hints are obsolete; no production bound/capacity claim.",
+      "design_expectation": "No hints are required. Verified mailbox fast path and resumable per-pending-key full xpub fallback must have measured CPU/DB/storage/lock costs without treating unfinished search as no owner.",
+      "required_proof": "Measure actual absent/wrong/verified mailbox at 100/1,000/10,000 authenticated records, late keys and new registrations, restart/cursor continuity and unauthorized amplification; preserve the observed 10,000-record failure and prove any fix by rerun.",
+      "expectation_changed": true,
+      "adaptation_status": "see_evidence_scope",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    },
+    {
+      "id": "D40",
+      "behavior": "Malformed/truncated oversized hint/record, integer overflow, unsupported child encoding; supplemental fee input conflict and stale carrier callback variants.",
+      "expected": "Controlled refusal; no daemon failure or recipient amount change; orphan carrier recovered.",
+      "driver": "Raw",
+      "evidence_category": "needs_adaptation",
+      "coverage_scope": "needs_adaptation",
+      "whole_id_pass": false,
+      "evidence_refs": [
+        "UNIT",
+        "FEE"
+      ],
+      "demonstrated": "Malformed record units and genuine fee-child replacement have separate evidence.",
+      "remaining_or_adaptation": "Hints/legacy carriers are removed; overflow, current fee-input conflict and stale callback/orphan cases need adaptation and actual runs.",
+      "design_expectation": "Current malformed record/amount/encoding is refused safely; immutable payout parent survives fee-child conflict/replacement, stale notifications and reorgs. No legacy carrier/hint API is assumed.",
+      "required_proof": "Inject malformed current RPC payloads and overflow boundaries, real confirmed-fee-input conflicts/child RBF and stale/orphan callbacks; independently prove unchanged recipient parent/amount and recoverable canonical allocation.",
+      "expectation_changed": true,
+      "adaptation_status": "recipe_defined_execution_unproven",
+      "evidence_scope_warning": "The original whole_id_pass flag applies only to the named original behavior and pinned execution; this design overlay does not extend it to unexecuted variants."
+    }
+  ],
+  "design_baseline": {
+    "plan": "abandon-ship-final-plan-2026-10-16.md",
+    "revision": 5,
+    "plan_sha256": "d32c2e67e8ae7b54da6b7edf8cfe34e5ce1d7f935ecbd1f396dc87968db0caa9",
+    "accepted_corrections": [
+      "Application-supplied standard payout script; external BIP84 is client integration.",
+      "Decision-boundary admission; no blanket pre-expiry margin.",
+      "Narrow new Lightning admission; existing liabilities may outlive backing.",
+      "Atomic cancellation of nonbinding unfinished exchanges.",
+      "Irreversible facts separated from rebuilt chain-derived ownership.",
+      "Permanent xpubs; no payer hints or per-key publication prerequisite."
+    ],
+    "original_provenance": "The original id/behavior/expected/driver fields are preserved unchanged. Design expectations are a transparent overlay, not a replacement catalogue or inherited PASS."
+  }
+}

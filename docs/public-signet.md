@@ -1,5 +1,7 @@
 # Fresh public-Signet campaign
 
+Current design and execution order are recorded in [the revision-5 runbook](#revision-5-execution-order). The [80-case map](80-case-coverage.md) preserves the original risks and records current expectations, exact evidence and remaining work. Historical source-contract notes below remain scoped to their named revision.
+
 The entry point is `python3 -m simulator.signet`. It invokes the product's native
 `bark` CLI, built from the same fresh source as the server. It does not build the
 old simulator Rust driver or activate the old three-track financial collectors.
@@ -386,3 +388,95 @@ and the independently checked active control. A new public block triggers at
 most one active-control `maintain` intent; incomplete or unknown native actions
 hold further work. The controller tests use stub native and Core responses;
 publishing this sequence does not constitute an actual Signet fallback result.
+
+## Revision-5 execution order
+
+The baseline is the final implementation plan, revision 5, with accepted
+corrections and the explicitly published fresh implementation. This is one
+xpub-attribution/sweep-to-payout design. Permanent authenticated xpub records and
+application-supplied standard payout scripts replace the old mandatory per-key
+publication and payer hints. BIP84 address reservation and external-app seed
+recovery are client acceptance cases, not restrictions on server scripts.
+
+The original [80 risk IDs](80-case-coverage.json) remain intact. Each row records
+its original expectation, current design expectation and required native proof.
+The map is a union of separately pinned evidence, not a fully retested release.
+Written recipes, Python controller tests, RPC acknowledgements, `Spent` status
+and allocation decisions do not establish completed payment.
+
+1. **Finish the already funded 50-wallet phase on its existing pins.** Admit all
+   boards using genuine confirmations, signed paths and whole-cohort backing,
+   then execute the declared 200 transfers with concurrency 5 and paced batches.
+   Preserve its final audit, unknown outcomes, latency samples, fees and resource
+   measurements. Do not start another measured workload or deploy a profile
+   during this window. S01, S02 and the 12-wallet results remain immutable.
+2. **S03: independently ready same-expiry grouping.** Use the existing short
+   profile and [specific sequence](signet-grouping.md). Prepare fresh actors only
+   after the 50-wallet timed window and final audit. Root allocates funding after
+   actual registrations/addresses are captured. Two distinct same-expiry roots
+   must produce one actual recipient output with one 1,000-sat charge, followed
+   by independently verified original-seed discovery and a confirmed recovery
+   spend. Different observed expiries hold S03; they do not justify extra boards
+   or relabelling the result.
+3. **S04: unresolved-tree isolation.** Use a genuine registered but uninitiated
+   HTLC-send grant with its real advertised future deadline, or an independently
+   controlled real held obligation. Prove that an unrelated ready root at the
+   same expiry pays without that HTLC resolving. A transfer to an unregistered
+   recipient is insufficient: the chosen C4 rule can preserve the input owner.
+   The grant-only native helper is source-reviewed but not yet compiled/admitted
+   at this checkpoint. Keep its dedicated wallet fenced after grant creation;
+   the helper does not update native Lightning action bookkeeping. A cooperative
+   revoke is cleanup only after genuine signatures, registration and final
+   reconciliation. Its first post-expiry native fixture reached revoke/register
+   but failed payout because an enabled client daemon protected the backing;
+   no complete cleanup PASS is claimed. Preserve the real deadline as fallback.
+4. **S05: different-expiry and continuing receipts.** Create a deliberately new
+   cohort with two actual expiry heights. Earlier eligible roots settle without
+   waiting for later receipts, each actual payout output charging 1,000 sat.
+   Observe all rightful outputs and a confirmed recovery spend without allowing
+   perpetual incoming payments to postpone earlier obligations. S03 alone does
+   not qualify this case or complete the combined H06 behavior.
+5. **Source-specific Lightning and offline Noah receive.** Root admits a separate
+   explicitly pinned Lightning-enabled runtime after the load window. Use actual
+   source IDs, payment hashes, preimages and channel balances; neither hash-level
+   status alone nor HTLC expiry discharges every grant. Record new-grant and
+   first-attempt refusals on expired backing separately from safe continuation of
+   admitted liabilities. Verify strict LNURL metadata-description hashing before
+   any LNURL-qualified payment. Distinguish the provider's conditional obligation
+   from genuine signed recipient claim registration and mailbox delivery; only
+   the rightful recipient's registered policy authorizes its final fallback.
+   Use the stock Noah backend only, with no mobile/Android builds.
+6. **Complete targeted interruptions, splitting and scale cases.** Use existing
+   native regtest for controlled decision races, partial conflicts, reorgs and
+   fee pressure. Real oversized fallback must use genuine signed tree progress;
+   a smaller round cap or manual first split alone is not this proof. Run the
+   applicable ordinary/adversarial risk recipes against exact fresh builds and
+   preserve original failures. The measured 10,000-record missing-mailbox owner
+   lookup failure remains open; registrations are not a payout-coin capacity
+   measurement. Continuous workload campaigns remain public Signet only.
+
+Before each new absence cohort, independently check the watchman's **current
+confirmed usable** fee funds and rounds funding through native/Core observations.
+An old funding receipt or a positive unconfirmed balance is insufficient. Record
+actual zero-fee V3 payout parent bytes, canonical inputs and outputs, fee-child
+miner payment, operator remainder and net subsidy separately. Child replacement
+must leave parent bytes, recipient scripts and amounts unchanged. Policy has no
+miner-subsidy cap; configured warnings and usable-fund alerts remain operational
+requirements. Controller workload bounds are not an undisclosed subsidy cap.
+
+Decision-boundary tests must retain upstream-permitted expired ordinary
+refresh/offboard until an actual competing decision commits, preserve normal
+expired Ark-to-Ark refusal, and avoid the superseded six-block spend margin.
+Unfinished nonbinding participations are cancelled atomically across their
+inputs; accepted forfeits/registered offboards retain binding obligations. A
+returning client keeps signed protection until independently demonstrated
+successor/offboard/user claim/fallback discharge. An intermediate tree spend is
+not a terminal customer claim. Reorgs invalidate and rebuild chain-derived facts
+after completed sync while preserving irreversible facts and spend fences.
+
+A new source, binary or configuration starts an explicitly named phase with
+new pins. Existing wallet/result histories are retained, and no deployment is
+silently repinned to make a test pass. Funding, unknown dispatches, real block
+waits and engineering blockers are reported separately. Production readiness
+requires the remaining correctness/operation evidence; no elapsed campaign time
+or count of controller tests substitutes for it.
