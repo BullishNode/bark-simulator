@@ -29,6 +29,7 @@ class ReceiveTests(unittest.TestCase):
     tearDown=test_signet.SignetTests.tearDown
 
     def prepare(self):
+        self.invoice_created_at = int(time.time())
         test_signet_phase.PhaseTests.fixture(self)
         self.campaign.close()
         config_path=self.root/'service-config/captaind.toml'
@@ -65,7 +66,7 @@ ppm=2000
 
     def decoded(self):
         return {'type':'bolt11 invoice','valid':True,'currency':'tbs','amount_msat':5000000,
-                'payee':PUB,'payment_hash':HASH,'created_at':int(time.time()),'expiry':3600,
+                'payee':PUB,'payment_hash':HASH,'created_at':self.invoice_created_at,'expiry':3600,
                 'min_final_cltv_expiry':56,'payment_secret':'never public'}
 
     def cln(self,campaign,spec,intent,kind,*args):

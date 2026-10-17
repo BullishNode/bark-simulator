@@ -221,3 +221,69 @@ when the payment fails. Confirm the actual full economic cut and any split
 outputs before fixing an expectation. Actor onchain change, board miner fee,
 fallback fee, operator fee-child cash payment and one physical recovery fee
 must remain separate amounts.
+
+## Funding and controller preparation checkpoint
+
+Root broadcast exactly one separate allocation transaction,
+`8e60b79edef0d909c8008c3a1f1eb68384b47058a21edfae1be2254880fd7103`:
+sender vout0 is60,000sat; watchman vouts2 and3 are20,000sat each. The actual
+funding miner fee is612sat. At the retained controller observation at326790 it
+had **zero confirmations**. Allocation is not board admission or a Lightning
+proof. The [additive receipt](evidence/native-ln-failed-send-controller-preparation-20261017.json)
+keeps this separate from the earlier zero-funded receipt.
+
+Published controller03a5b57 was frozen separately, passed81 focused tests on
+the VM and imported only the actual cached registration and protected original
+phrase. It fabricated no create ACK and opened no sender wallet. The original
+bdefb5c stage refusal is retained: the root funding receipt spells its network
+`public signet`, while the initial parser expected `signet`. The narrow fix
+accepts those two labels and still requires independently synced Core with the
+exact default public-Signet challenge and genesis; a regtest receipt is refused.
+
+The reviewed03a5b57 supervisor waits for actual canonical funding inclusion and
+both selected watchman inputs to be confirmed and natively usable. Only then
+may it journal one30,000-sat board. It waits for three actual board confirmations
+before one manual SDK/signature/backing readiness observation. It exits there.
+It has **no invoice/send/cancel authorization**. Existing receive and ordinary
+runners, original actors, configurations and source pins are unchanged.
+
+The continuation in `simulator.signet_failed_send` is a new source phase, pending
+coordinator review and separate live admission. Its commands are deliberately
+sequential: `transport`, `invoice`, `send`, `observe-hold`, `fence`, `cancel`,
+`observe-failure`, `recover`. The same original journal persists across the
+explicit controller phase transition; the existing03a5b57 checkout stays intact.
+
+- `transport` pins the actual stock CLN/plugin executables and owned mTLS files.
+  A single protected random preimage fixes the original invoice hash; it is
+  never sent to the payment receiver or copied into public reports.
+- `invoice` journals before one original hold gRPC request, requires strict
+  successful framing, and checks the original BOLT11 using actual CLN decode.
+  `send` journals one native nonwaiting CLI call. Empty stdout and zero exit
+  acknowledge initiation only. Unknown outcomes stop without another effect.
+- `fence` requires the original external Accepted state, parked original SDK
+  checkpoint, full signed grant/change paths, conservation, and the actual
+  registered grant/hash/direction/deadline join. It records actual D/E and
+  permanently fences the original sender before cancellation. No subsequent
+  original native status, sync, maintenance or wallet open is allowed.
+- `cancel` journals one original external cancellation. `observe-failure`
+  requires the exact own dispatch label, positive observed-group index, all
+  same-hash payer groups failed, no external success, and no preimage. Coarse
+  `failed` or a typed no-attempt shortcut cannot qualify this experiment.
+- `recover` waits for actual D/E and independently discovers one correct
+  registered-script payout of the complete frozen source/change amount minus
+  one1,000-sat fee. Both the immutable parent and actual positive-fee child must
+  have six confirmations before fresh original-seed-only restore, with the
+  original326787 birthday and no payout/outpoint hints. One journaled drain
+  must consume the actual payout and confirm. Ordinary onchain change and the
+  physical recovery miner fee are accounted separately.
+
+The added tests exercise controller faults and guards. They are not public
+Signet failed-send, fallback, Noah or LNURL success. Live invoice/send/cancel
+remain unexecuted at this source checkpoint.
+
+Local focused validation passed92 tests after the continuation was added. One
+first aggregate run failed an existing receive test because its fake invoice
+creation timestamp changed between successive decode calls across a wall-clock
+second. The fixture now retains the original timestamp, like a real immutable
+invoice; production identity comparisons and live receive code were unchanged.
+The failed local run is not a Signet payment failure or evidence of a refund.
