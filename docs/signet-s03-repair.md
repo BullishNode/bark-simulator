@@ -21,8 +21,12 @@ path. The nine tests in product checkpoint `fb85d9a9c` are separate evidence;
 they do not by themselves qualify this S03 repair. Record the full checked code
 commit, captured source manifest, executable hashes and native run/result.
 
-The replacement source, bundle and native run are **unresolved until the
-coordinator's qualified handoff**. Do not substitute latest HEAD for a checked
+Backend repair `f809bc2410b40648823caea671fe52dd0c86f11b` now has a
+separate native PASS (`74f395eb-f84c-42e7-b27d-3ca483d59746`, 33.658 s),
+following the retained unchanged-server failure (`0abeab28`, 52.881 s). The
+[exact source/evidence packet](https://github.com/BullishNode/abandon-ship-bark/blob/f809bc2410b40648823caea671fe52dd0c86f11b/docs/evidence/s03-current-economic-cut-20261017.json)
+records both. No live repair is implied. The replacement bundle and deployment
+are **unresolved until the coordinator's qualified handoff**. Do not substitute latest HEAD for a checked
 build. Client and server can have distinct commits; record each executable's
 actual build source and BIP84 compatibility.
 
@@ -38,7 +42,7 @@ The short deployment's existing paths are:
 | Runtime manifest | `/var/lib/abandon-fresh/short/runtime-manifest.json` |
 | Postgres database | `fresh_signet_short` |
 | Product units | `abandon-fresh-short-captaind.service`, `abandon-fresh-short-watchmand.service` |
-| S03 journal, frozen public receipts and private artifacts | `/var/lib/abandon-fresh/simulation/s03-7055d1fce` |
+| S03 journal, frozen public receipts and private artifacts | `/var/lib/abandon-fresh/simulation/s03-7055` |
 | Completed S02 journal | `/var/lib/abandon-fresh/simulation/s02-7055d1fce` |
 
 Confirm both campaign processes exited and released their respective locks;
@@ -88,8 +92,13 @@ Do not run the original S03 controller against changed service pins. The repair
 observer must use a separate named evidence phase, with original cached public
 registration and signed-path receipts attributed to their original build, plus
 the actual new service pins. Its reads cannot open the original absent actor.
-A recovery command needs the same durable intent/unknown handling as the existing
-native campaign; this document does not introduce a new executable repair CLI.
+The separate `simulator.signet_repair` entry point now performs this import and
+observation, reusing the existing native campaign journal, public discovery,
+strict payout checks and recovery checker. Its tests use native/Core stubs and
+claim no live execution. It imports no historical action acknowledgements into
+the new phase and never copies an original wallet database. Historical frozen
+signature proofs keep their original provenance; new native restore/drain
+actions receive the new client/runtime context.
 
 ## Reconcile the outstanding entitlement
 
@@ -158,3 +167,40 @@ unresolved roots, then the distinct-expiry S05 recipe. Each receives its own
 source/profile/actual-funding handoff. The original S02 and 12/50-wallet results
 remain immutable. Noah offline LNURL remains separate and unproven until the
 strict real callback, payment, signed recipient claim and delivery trace run.
+
+## Executable observer after coordinator deployment
+
+Prepare private `NEW_CONFIG` and `NEW_RUNTIME_PINS` using the existing paired
+manifest schema in [the phase handoff](signet-phase-upgrade.md). All four actual
+ELF files and their individual sources are pinned, as are both short configs and
+the exact deployment manifest. Keep the new config's original Ark/Core endpoints.
+The new state must not exist. Record the SHA256 of the original canonical frozen
+JSON from the read-only old journal, not a newly constructed cohort. The actual
+original frozen digest read on the owned VM is
+`a8142c92234dd0789b7106e304e7cf2f282c449c9cc9820266dfb534368086a5`;
+its original create receipt confirms birthday 326700.
+
+```sh
+python -m simulator.signet_repair --state NEW_STATE --config NEW_CONFIG stage \
+  --origin /var/lib/abandon-fresh/simulation/s03-7055 \
+  --runtime-pins NEW_RUNTIME_PINS \
+  --stop-file /var/lib/abandon-fresh/simulation/s03-7055-STOP \
+  --lock-file /var/lib/abandon-fresh/simulation/s03-7055-runner.lock \
+  --frozen-sha256 ORIGINAL_FROZEN_SHA256 \
+  --destination tb1qusq7m3xctjl5csfrr5zpfzg0lqsp9q46z5pa5p
+python -m simulator.signet_repair --state NEW_STATE --config NEW_CONFIG step
+```
+
+Each `step` acquires the new phase lock and checks that the original STOP and
+released original lock remain present. Public discovery, exact original
+28,670-sat payout plus separate 9,000-sat payout, signed-path funding and actual
+confirmed fee-child arithmetic precede any restore. Fee-child public-block
+scanning advances in bounded eight-block batches. Unconfirmed/missing payments
+or fee children continue observation without opening a wallet. Only then does
+the genuine native client create a fresh original-seed wallet at birthday
+326700, discover both confirmed outputs without transaction hints, and journal
+one drain. A missing expected UTXO or a changed chain before drain holds it.
+Unknown actions require reconciliation and are never retried. A later step
+rechecks canonical payouts/recovery without dispatching completed native actions.
+A repair PASS records 37,670 sat and two fees; historical grouping stays
+`NOT_QUALIFIED`. The command does not fund or create a new campaign cohort.
