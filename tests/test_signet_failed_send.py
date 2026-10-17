@@ -455,6 +455,7 @@ class FailedSendLightningTests(unittest.TestCase):
         self.campaign.db.execute("UPDATE actor SET absent=1 WHERE id='absent'")
         self.acknowledged('failed-send-cancel', 'external-hold', 'cancel_hold_invoice', {'payment_hash': payment_hash})
         row = {'attempt_id': 1, 'payment_hash': payment_hash, 'status': 'failed', 'lightning_node_id': 1,
+            'lightning_node_pubkey': PUB,
             'subscription_id': None, 'label': 'original-own-dispatch', 'failure_created_index': 8,
             'failure_updated_index': 9, 'jsonrpc_error_code': None, 'success_created_index': None,
             'grant_id': grant, 'direction': 'incoming', 'htlc_expiry': 180,
@@ -474,7 +475,8 @@ class FailedSendLightningTests(unittest.TestCase):
             query = diagnostic.call_args.args[-1][-1]
             self.assertNotIn('preimage', query)
             self.assertIn('BEGIN READ ONLY;', query)
-            for field, value in [('failure_created_index', 0), ('label', 'unrelated'), ('jsonrpc_error_code', 205)]:
+            for field, value in [('failure_created_index', 0), ('label', 'unrelated'), ('jsonrpc_error_code', 205),
+                                 ('lightning_node_pubkey', '03' + '9' * 64)]:
                 original = row[field]; row[field] = value
                 with self.subTest(field=field):
                     self.assertEqual(observe_failure(self.campaign)['source_check'], 'INCOMPLETE')

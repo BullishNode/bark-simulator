@@ -671,6 +671,7 @@ def observe_failure(campaign):
     columns = {
         'attempt_id': 'a.id', 'payment_hash': 'a.payment_hash', 'status': 'a.status::text',
         'lightning_node_id': 'a.lightning_node_id', 'subscription_id': 'a.lightning_htlc_subscription_id',
+        'lightning_node_pubkey': "encode(n.pubkey,'hex')",
         'label': 'd.label', 'failure_created_index': 'f.created_index',
         'failure_updated_index': 'f.updated_index', 'jsonrpc_error_code': 'f.jsonrpc_error_code',
         'success_created_index': 's.created_index', 'grant_id': 'l.vtxo_id',
@@ -681,6 +682,7 @@ def observe_failure(campaign):
     projection = ','.join("'" + name + "'," + value for name, value in columns.items())
     query = ("BEGIN READ ONLY; SELECT coalesce(json_agg(json_build_object(" + projection +
         ")), '[]'::json) FROM lightning_payment_attempt a "
+        "JOIN lightning_node n ON n.id=a.lightning_node_id "
         "JOIN lightning_payment_attempt_htlc_vtxo l ON l.lightning_payment_attempt_id=a.id "
         "JOIN vtxo v ON v.vtxo_id=l.vtxo_id JOIN htlc_vtxo h ON h.id=v.id "
         "LEFT JOIN expiry_lightning_dispatch d ON d.id=a.id "
@@ -705,6 +707,7 @@ def observe_failure(campaign):
         and {r['grant_id'] for r in rows} == set(frozen['grant_ids'])
         and len({r['attempt_id'] for r in rows}) == 1
         and all(r['payment_hash'] == payment_hash and r['status'] == 'failed'
+                and r['lightning_node_pubkey'] == transport['internal_id']
                 and r['subscription_id'] is None and r['direction'] == 'incoming'
                 and r['htlc_expiry'] == frozen['htlc_expiry'] and isinstance(r['label'], str)
                 and type(r['failure_created_index']) is int and r['failure_created_index'] > 0
