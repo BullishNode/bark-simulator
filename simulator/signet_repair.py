@@ -176,6 +176,11 @@ def advance(campaign):
             raise ValueError('chain changed during repair fee observation')
         if any(p is None for p in fees):
             return _save(campaign, 's03-repair', {**base, 'stage': 'WAITING_FOR_CONFIRMED_FEE_CHILDREN'})
+        if any(p['confirmations'] < 6 for _, p in payouts.values()) or any(f['confirmations'] < 6 for f in fees):
+            return _save(campaign, 's03-repair', {**base, 'stage': 'WAITING_FOR_SIX_CONFIRMATIONS',
+                         'minimum_confirmations': 6,
+                         'payout_confirmations': {point: p['confirmations'] for point, (_, p) in payouts.items()},
+                         'fee_children': fees})
         _native(campaign, 's03-repair-seed-restore', 'restored', 'restore', {
             'source_actor': 'absent', 'birthday_height': BIRTHDAY,
             'wallet_profile': {'vtxo_refresh_expiry_threshold': 4, 'vtxo_exit_margin': 2}})

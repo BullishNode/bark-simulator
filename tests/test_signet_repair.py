@@ -222,6 +222,33 @@ class RepairTests(unittest.TestCase):
             self.assertEqual(advance(phase)['stage'],'WAITING_FOR_BOTH_EXACT_PAYOUTS')
         native.assert_not_called()
 
+    def test_both_payout_and_fee_child_need_six_real_confirmations_before_restore(self):
+        self.prepare();self.stage();phase=self.open_new()
+        def tip(height):
+            self.core.info['blocks']=height
+            self.core.info['bestblockhash']=self.core.blockhash(height)
+            for txid,tx in self.core.transactions.items():
+                tx['confirmations']=max(0,height-self.core.heights[txid]+1)
+        tip(326784)
+        with patch('simulator.signet.subprocess.run') as native:
+            first=advance(phase)
+        self.assertEqual(first['stage'],'WAITING_FOR_SIX_CONFIRMATIONS')
+        self.assertEqual(first['payout_confirmations'][SECOND+':0'],5)
+        native.assert_not_called()
+        self.core.heights[CHILD2]=326784
+        self.core.transactions[CHILD2]['blockhash']=self.core.blockhash(326784)
+        tip(326788)
+        with patch('simulator.signet.subprocess.run') as native:
+            child=advance(phase)
+        self.assertEqual(child['stage'],'WAITING_FOR_SIX_CONFIRMATIONS')
+        self.assertTrue(all(c>=6 for c in child['payout_confirmations'].values()))
+        self.assertEqual(min(f['confirmations'] for f in child['fee_children']),5)
+        native.assert_not_called()
+        tip(326789)
+        with patch('simulator.signet.subprocess.run',side_effect=self.native) as native:
+            self.assertEqual(advance(phase)['stage'],'WAITING_FOR_CONFIRMED_RECOVERY')
+        self.assertEqual(native.call_count,3)
+
     def test_changed_runtime_or_missing_stop_prevents_all_recovery_actions(self):
         self.prepare();self.stage();phase=self.open_new();self.stop.unlink()
         with patch('simulator.signet.subprocess.run') as native:

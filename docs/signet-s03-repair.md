@@ -141,7 +141,9 @@ with a private explicit config for the admitted target/Core and client 4/2
 thresholds. Capture the checked client ELF and new recovery-phase pins.
 
 Supply neither payout transaction IDs nor server SQL results to seed discovery.
-Require the native wallet to discover both expected confirmed payout outpoints;
+Require both payout parents and their actual fee children to have **six real
+confirmations** before opening a fresh recovery wallet. Require the native
+wallet to discover both expected confirmed payout outpoints;
 the observer compares the result against independently retained expectations.
 Journal one recovery drain intent to the previously owned destination
 `tb1qusq7m3xctjl5csfrr5zpfzg0lqsp9q46z5pa5p`. After actual broadcast, reconcile
@@ -195,8 +197,8 @@ Each `step` acquires the new phase lock and checks that the original STOP and
 released original lock remain present. Public discovery, exact original
 28,670-sat payout plus separate 9,000-sat payout, signed-path funding and actual
 confirmed fee-child arithmetic precede any restore. Fee-child public-block
-scanning advances in bounded eight-block batches. Unconfirmed/missing payments
-or fee children continue observation without opening a wallet. Only then does
+scanning advances in bounded eight-block batches. Missing payments or fee children, or either with fewer than six confirmations,
+continue observation without opening a wallet. Only then does
 the genuine native client create a fresh original-seed wallet at birthday
 326700, discover both confirmed outputs without transaction hints, and journal
 one drain. A missing expected UTXO or a changed chain before drain holds it.
