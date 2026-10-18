@@ -144,3 +144,5 @@ which process caused the original check to fail. A separately reviewed
 continuation permits only the existing cancellation and recovery sequence,
 subject to fresh exclusivity, original Accepted/fenced receipts and actual
 future deadlines. No cancellation, refund or fallback success is inferred.
+
+The cancellation-only continuation subsequently acknowledged the original one cancellation and proved source-specific failure against the actual own-node group index 3, with no error-code or success substitute. At height 326892 it remained INCOMPLETE, awaiting signed deadline 326909 and tree expiry 326913. [Independent retained-before/fresh-after channel observations](evidence/public-signet-p09-v18-failed-send-liquidity-20261018.json) show unchanged 110,000,000/90,000,000 msat principal, zero pending HTLCs and unchanged fulfilled counters; offered counters increased by the exact 5,000,000 msat attempt. This corroborates failure without treating the 75-sat reserve as a settled send fee.

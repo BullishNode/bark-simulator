@@ -1,0 +1,49 @@
+{
+  "arithmetic": "59340 - (589 + 190) = 58561",
+  "at": "2026-10-18T13:44:25Z",
+  "cohort_sat_at_last_reconciled_transfer": 58561,
+  "cumulative_native_round_fees_sat": 779,
+  "initial_board_deductions_already_excluded_sat": 660,
+  "last_reconciled_transfer": {
+    "amount_sat": 5000,
+    "closing_sat": 58561,
+    "height": 326895,
+    "intent": "traffic-326895-send",
+    "observed_transfer_fee_sat": 0,
+    "opening_sat": 58561,
+    "sequence": 203
+  },
+  "method": "Read-only native wallet public movement amount joins and retained independent traffic check; no wallet open or monetary command.",
+  "new_refresh": {
+    "actor": "receiver",
+    "completed_at": "2026-10-18 11:57:38.909702794+00:00",
+    "created_at": "2026-10-18 11:35:59.406201354+00:00",
+    "effective_balance_sat": -190,
+    "independent_input_output_difference_sat": 190,
+    "inputs": [
+      {
+        "amount_sat": 5000,
+        "expiry_height": 330984,
+        "id": "c35d2eb5756bc50e9a53dbafee04450417affcbccdefe0ce3963d9aab223fd29:0"
+      }
+    ],
+    "movement_id": 200,
+    "movement_kind": "refresh",
+    "offchain_fee_sat": 190,
+    "outputs": [
+      {
+        "amount_sat": 4810,
+        "expiry_height": 331203,
+        "id": "5f4831a421a5d0bca6a5dadb8d472d8a345733dabff058ba719a829ad132888a:0"
+      }
+    ],
+    "status": "successful",
+    "subsystem_name": "bark.round"
+  },
+  "original_customer_value_sat": 59340,
+  "original_gross_board_principal_sat": 60000,
+  "prior_receipt": "ordinary-maintenance-fees-20261018.json",
+  "prior_recorded_round_fees_sat": 589,
+  "product_source": "7055d1fce858f3112aff671d0b2a8a454d6a2214",
+  "scope": "Native completed round movement fees, not miner cash costs, unexplained loss, new operator revenue, V18 lifecycle completion or production capacity. Original589-sat receipt stays unchanged."
+}

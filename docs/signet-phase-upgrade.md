@@ -180,3 +180,5 @@ operator revenue. This receipt reports native round fees, separately from
 onchain miner cash costs and other profiles. No wallet opening, refresh command
 or financial action was used to collect it. The ordinary profile remains on its
 original 7055 source and continues independently.
+
+At the later [read-only additive checkpoint](evidence/ordinary-maintenance-fees-additive-20261018.json), a fourth completed native refresh charged 190 sat (receiver movement 200: 5,000→4,810). Cumulative round charges are 779 sat, exactly reconciling 59,340−779=58,561 sat in transfer 203 at height 326895. The original 589-sat receipt remains unchanged; these charges are separate from miner cash expenses and already excluded board deductions.

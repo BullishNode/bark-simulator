@@ -1,0 +1,45 @@
+{
+  "at": "2026-10-18T13:03:38Z",
+  "fallback_case_verdict": "INCOMPLETE",
+  "method": "Compared retained actual pre-send failed-peer-4 channel artifacts with fresh authenticated own-node listpeerchannels. No invoice/send/cancel, native wallet open or channel mutation.",
+  "payment_hash": "0bbe833ef9829beedd6671dc23fb7daee54dd2f70bcb2c98f7b0ce4cf832969c",
+  "private_post_raw_sha256": "067169d27060ca22dc0f2260e7d79b4179446b746d63201717af8d9e07265482",
+  "profile": "V18 short native failed-send case",
+  "reserved_fee_is_settled_fee": false,
+  "reserved_send_fee_sat": 75,
+  "roles": {
+    "external": {
+      "attempted_direction": "in",
+      "fulfilled_after_msat": 100000000,
+      "fulfilled_before_msat": 100000000,
+      "offered_after_msat": 110000000,
+      "offered_before_msat": 105000000,
+      "pending_htlcs_after": 0,
+      "pending_htlcs_before": 0,
+      "pre_send_artifact_sha256": "2ab527e50994369445a5d6b880f1edeb22f4a730edb23701d841cb7a54939e9b",
+      "private_channel": true,
+      "state_after": "CHANNELD_NORMAL",
+      "state_before": "CHANNELD_NORMAL",
+      "to_us_after_msat": 90000000,
+      "to_us_before_msat": 90000000,
+      "total_msat": 200000000
+    },
+    "internal": {
+      "attempted_direction": "out",
+      "fulfilled_after_msat": 100000000,
+      "fulfilled_before_msat": 100000000,
+      "offered_after_msat": 110000000,
+      "offered_before_msat": 105000000,
+      "pending_htlcs_after": 0,
+      "pending_htlcs_before": 0,
+      "pre_send_artifact_sha256": "27471e2b05db7035ad9b5b8e863162fd3743ee83889d254bca9aa175b60be2f7",
+      "private_channel": true,
+      "state_after": "CHANNELD_NORMAL",
+      "state_before": "CHANNELD_NORMAL",
+      "to_us_after_msat": 110000000,
+      "to_us_before_msat": 110000000,
+      "total_msat": 200000000
+    }
+  },
+  "scope": "Corroborates attempted/cancelled payment with no channel principal or fulfilled-counter change. Does not prove eventual fallback, miner subsidy, seed recovery, multi-source safety or Noah/LNURL."
+}
