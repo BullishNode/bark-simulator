@@ -344,6 +344,11 @@ class Load:
             for transfer in batch.get("results", []):
                 for name, value in transfer.get("timings", {}).items():
                     totals[name] = totals.get(name, 0) + value
+            if "resource_observation" in batch:
+                # RSSSamples is already a bounded per-batch projection. Keep
+                # it with progress; discarded return values cannot later
+                # reconstruct CPU/RSS for a completed fixed window.
+                result["latest_batch"]["resource_observation"] = batch["resource_observation"]
             result["latest_batch"]["timing_scope"] = (
                 "Successful transfers only; worker sums overlap under concurrency. "
                 "Independent-proof wall time includes nested verifier/hash/native receipt work; do not add it twice.")
