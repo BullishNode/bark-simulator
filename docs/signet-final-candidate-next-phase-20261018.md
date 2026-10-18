@@ -1,8 +1,10 @@
 # Existing50: same-candidate upgrade, sustained ordinary traffic, then native Lightning
 
-Prepared 2026-10-18. SOURCE/DEPLOYMENT PREPARATION ONLY. No candidate bytes are
-assumed qualified or staged. No new actor, funding, import, service mutation,
-invoice or payment is authorized by this document.
+Updated 2026-10-18. The scale-only v10 service upgrade completed at 05:51:40 UTC
+with native health, identity, migration and usable-funds checks. Its exact dirty
+source and receipts are recorded in [the upgrade evidence](evidence/public-signet-scale-v10-upgrade-20261018.json).
+No new workload, actor import/open, funding, invoice or payment was dispatched
+by that upgrade; the next workload still requires its own operational admission.
 
 ## Proposed useful next workload
 
@@ -132,7 +134,7 @@ All are observations, not future usability/ownership guarantees.
 
 1. Root hands off one qualified four-ELF archive plus artifact SHA, per-ELF hashes,
    actual build label/source-capture manifest/published equivalence and native
-   qualification receipts. v10 is currently source-only. Stage into a NEW immutable
+   qualification receipts. v10 ordinary qualification and actual upgrade are now recorded above. Stage into a NEW immutable
    candidate directory; never overwrite `/staging/scale-e443-20261017`. Verify Nix
    loader/runtime closure, SQLite dependency and four actual `--version` outputs.
    Copy ordinary TOMLs into a NEW config directory byte-for-byte; retain old files.
@@ -218,9 +220,11 @@ pacing. Do not add a metrics platform, generic scheduler or framework gate.
 
 ## Remaining blockers
 
-* Exact root-qualified v10/source/artifact/CLI/feature handoff; currently source-only.
-* Root runtime/backup/lease admission and actual V12→candidate migration verification.
-* Focused tests/peer/CI for bounded summary + timing, then exact one-writer runner.
+* Controlled v10 upgrade, full off-VM backups, V13/V14 and native funds admission
+  are complete. The new 900-transfer workload wrapper and explicit incomplete-window import
+  still require root operational admission before any actor is opened.
+* Bounded summaries/timing are peer-reviewed at df193c8; 43 focused tests and all CI
+  jobs passed. These source checks are not a new Signet workload result.
 * Explicit reused-inventory Lightning stage and pool-aware failed-send validator,
   plus native command/source-specific terminal oracles, reviewed against the actual
   candidate. No new operation before root admission and confirmed service/pool/
