@@ -71,6 +71,20 @@ and the verified bytes and proof were fsynced. The frozen funding request is
 `ccde1dcac87197c6e8c1d7086c93a6db9c22320d21f868a8c517e7d05bf25b4a`;
 the off-VM proof is
 `158e7d48b7a30c41c0b5b370ecf2459a4a9095a519d46abba8aaf251f6c5b720`.
-Funding and the financial lifecycle remain separately allocated actions.
-The original prepare-only capsule stays immutable; future run authority must
-bind it, the original request, actual funding receipt and backup proof.
+The original prepare-only capsule stays immutable. Separate run authority
+binds it, the original request, actual funding receipt and backup proof.
+
+The exact funding transaction
+`1a4374e8aa1b5b5b533ab86dbb51071a32b77ab2f7c1e92fd30eb2825d2eea56`
+was subsequently broadcast once with zero confirmations at acknowledgement.
+It spends the original 58,034-sat recovered output into 30,000 sat for the
+fresh wallet, 27,611 sat of owned treasury change and a 423-sat fee
+(141 vB at 3 sat/vB). No additional principal was allocated. The treasury
+wallet was unloaded after broadcast.
+
+At 11:20:38 UTC, the separately admitted controller started once. Its first
+observation was `WAITING_FOR_REAL_FUNDING_CONFIRMATION`, with the same three
+setup acknowledgements and no board or Lightning action. It must wait for
+the actual funding confirmation and three actual board confirmations before
+the signed-source and held-payment stages. This is an operation start, not
+a failed-swap, fallback, or recovery success.
