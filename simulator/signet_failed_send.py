@@ -46,6 +46,89 @@ class FailedSendCampaign(Campaign):
             raise ValueError('original real sender directory required')
         return path
 
+    def reconcile_invoice_loader_failure(self, admission_path, expected_sha256):
+        """Resolve this proven pre-execution curl failure, never acknowledge it."""
+        path = Path(admission_path)
+        if digest(path) != expected_sha256:
+            raise ValueError('exact loader reconciliation allocation required')
+        allowed = json.loads(path.read_text())
+        old_id, new_id = 'failed-send-hold-invoice', 'failed-send-hold-invoice-clean-loader-v1'
+        if (allowed.get('scope') != 'P09-invoice-loader-pre-execution-reconciliation'
+                or allowed.get('original_intent') != old_id or allowed.get('new_intent') != new_id
+                or allowed.get('invoice_creation_attempts_authorized') != 1):
+            raise ValueError('only the one original loader failure may be reconciled')
+        row = self.db.execute('SELECT * FROM action WHERE id=?', (old_id,)).fetchone()
+        payment_hash = self.db.execute("SELECT value FROM meta WHERE key='failed_send_hash'").fetchone()[0]
+        expected_args = canonical({'payment_hash': payment_hash, 'amount_msat': 5000000,
+                                   'min_final_cltv_expiry': 6})
+        if (not row or row['state'] != 'unknown' or row['actor'] != 'external-hold'
+                or row['operation'] != 'hold_invoice' or row['arguments'] != expected_args
+                or row['reply'] is not None or row['diagnostic'] != 'ValueError'
+                or hashlib.sha256(canonical(dict(row)).encode()).hexdigest() != allowed['original_action_sha256']
+                or payment_hash != allowed['payment_hash']):
+            raise ValueError('exact original unknown invoice row required')
+        if (self.db.execute("SELECT count(*) FROM action WHERE state IN ('unknown','dispatched')").fetchone()[0] != 1
+                or self.db.execute("SELECT 1 FROM action WHERE id IN ('failed-send-native-pay','failed-send-cancel',?)", (new_id,)).fetchone()
+                or self.db.execute("SELECT absent FROM actor WHERE id='absent'").fetchone()[0]
+                or self.db.execute("SELECT 1 FROM meta WHERE key IN ('s02_absent:absent','failed_send_invoice_intent')").fetchone()):
+            raise ValueError('no send, absence, cancellation or other unknown may exist')
+        artifacts = {}
+        for kind in ['request-frame', 'grpc-stdout', 'grpc-stderr']:
+            item = self.db.execute('SELECT * FROM native_artifact WHERE intent=? AND kind=?', (old_id, kind)).fetchone()
+            if not item or item['truncated']:
+                raise ValueError('complete original curl failure artifacts required')
+            file = self.root / item['relative_path']
+            if (file.is_symlink() or digest(file) != item['sha256']
+                    or item['sha256'] != allowed['artifact_sha256'][kind]):
+                raise ValueError('original curl failure evidence changed')
+            artifacts[kind] = file.read_bytes()
+        if (artifacts['request-frame'] != hold_invoice_frame(payment_hash)
+                or artifacts['grpc-stdout'] != b''
+                or b'GLIBC_ABI_DT_X86_64_PLT' not in artifacts['grpc-stderr']
+                or not artifacts['grpc-stderr'].startswith(b'curl: ')
+                or self.db.execute("SELECT 1 FROM native_artifact WHERE intent=? AND kind IN ('grpc-headers','invoice')", (old_id,)).fetchone()):
+            raise ValueError('known before-execution loader failure, not a network failure, required')
+        if digest(Path(allowed['original_capture_source'])) != '88882fca1d42ebb6faa290882a5d1df8a17f2d47cbacfc34b2ba331a43d3a5ad':
+            raise ValueError('exact captured original subprocess/exit semantics required')
+        ready = _ready_source(self)
+        chain = network_identity(self.core)
+        if (chain['height'] > allowed['last_admission_height']
+                or ready['coin']['id'] != allowed['source_coin_id']
+                or ready['actual_tree_expiry'] != allowed['source_expiry_height']):
+            raise ValueError('original source/headroom admission expired or changed')
+        _sender_idle(self)
+        spec = _lightning_ready(self)
+        prior = _peer(self, spec, 'external', 'failed-send-loader-reconciliation', 'empty-invoice-proof',
+                      'listholdinvoices', 'payment_hash=' + payment_hash)
+        if prior.get('holdinvoices') != [] or network_identity(self.core) != chain:
+            raise ValueError('fresh original owned-node empty lookup and stable chain required')
+        payload = {'kind': 'hold_invoice_failed_before_execution', 'case_verdict': 'INCOMPLETE',
+                   'original_action': dict(row), 'original_context': dict(self.db.execute('SELECT * FROM action_context WHERE intent=?', (old_id,)).fetchone()),
+                   'original_artifact_sha256': allowed['artifact_sha256'], 'chain': chain,
+                   'node_id': spec['external_id'], 'invoice_lookup': prior,
+                   'allocation_sha256': expected_sha256, 'new_intent': new_id,
+                   'payment_hash': payment_hash, 'acknowledged': False,
+                   'exit_proof': 'Retained zero stdout plus exact known loader stderr; original source raises only for nonzero exit or oversized stdout. Numeric exit code was not retained.'}
+        public_payload(payload)
+        self.db.execute('BEGIN IMMEDIATE')
+        try:
+            current = self.db.execute('SELECT * FROM action WHERE id=?', (old_id,)).fetchone()
+            if dict(current) != dict(row):
+                raise ValueError('original unknown changed during reconciliation')
+            if (self.db.execute("SELECT 1 FROM action WHERE id IN ('failed-send-native-pay','failed-send-cancel',?)", (new_id,)).fetchone()
+                    or self.db.execute("SELECT absent FROM actor WHERE id='absent'").fetchone()[0]
+                    or self.db.execute("SELECT 1 FROM meta WHERE key IN ('s02_absent:absent','failed_send_invoice_intent')").fetchone()):
+                raise ValueError('sender or invoice progressed during reconciliation')
+            self.db.execute('INSERT INTO result VALUES (?,?,?)', ('failed-send-loader-reconciliation', time.time(), canonical(payload)))
+            self.db.execute("UPDATE action SET state='failed_before_execution',updated=? WHERE id=?", (time.time(), old_id))
+            _quiescent(self)  # Any other unknown still aborts the transaction.
+            self.db.execute("INSERT INTO meta VALUES ('failed_send_invoice_intent',?)", (new_id,))
+            self.db.execute('COMMIT')
+        except BaseException:
+            self.db.execute('ROLLBACK')
+            raise
+        return payload
+
 
 def hold_invoice_frame(payment_hash):
     """Exact existing hold0.3.3 Invoice; stock CLI defaults CLTV80 instead."""
@@ -434,18 +517,32 @@ def decode_hold_invoice(raw, headers):
     return invoice
 
 
+def _invoice_intent(campaign):
+    row = campaign.db.execute("SELECT value FROM meta WHERE key='failed_send_invoice_intent'").fetchone()
+    if not row:
+        return 'failed-send-hold-invoice'
+    if row[0] != 'failed-send-hold-invoice-clean-loader-v1':
+        raise ValueError('only the explicitly reconciled invoice intent is supported')
+    proof = campaign.db.execute("SELECT payload FROM result WHERE id='failed-send-loader-reconciliation'").fetchone()
+    old = campaign.db.execute("SELECT state FROM action WHERE id='failed-send-hold-invoice'").fetchone()
+    if not proof or not old or old[0] != 'failed_before_execution' or json.loads(proof[0])['new_intent'] != row[0]:
+        raise ValueError('original terminal no-effect proof required')
+    return row[0]
+
+
 def issue_hold_invoice(campaign):
     _quiescent(campaign)
     _ready_source(campaign)
     spec = _lightning_ready(campaign)
+    intent = _invoice_intent(campaign)
     payment_hash = campaign.db.execute("SELECT value FROM meta WHERE key='failed_send_hash'").fetchone()[0]
     def dispatch():
-        prior = _peer(campaign, spec, 'external', 'failed-send-hold-invoice', 'prior',
+        prior = _peer(campaign, spec, 'external', intent, 'prior',
                       'listholdinvoices', 'payment_hash=' + payment_hash)
         if prior.get('holdinvoices') != []:
             raise ValueError('original hold hash already exists; reconcile without replacement')
         frame = hold_invoice_frame(payment_hash)
-        campaign._retain_private('failed-send-hold-invoice', 'request-frame', io.BytesIO(frame))
+        campaign._retain_private(intent, 'request-frame', io.BytesIO(frame))
         tls = Path(spec['tls_directory'])
         with tempfile.TemporaryDirectory(dir=campaign.root) as directory:
             headers = Path(directory) / 'headers'
@@ -456,25 +553,26 @@ def issue_hold_invoice(campaign):
                     '--data-binary', '@-', '--dump-header', str(headers), '--output', '-',
                     f'https://localhost:{spec["hold_port"]}/hold.Hold/Invoice']
             try:
-                raw = _capture(campaign, 'failed-send-hold-invoice', 'grpc', argv, input_bytes=frame)
+                raw = _capture(campaign, intent, 'grpc', argv, input_bytes=frame)
             finally:
                 if headers.exists():
-                    campaign._retain_private('failed-send-hold-invoice', 'grpc-headers', io.BytesIO(headers.read_bytes()))
+                    campaign._retain_private(intent, 'grpc-headers', io.BytesIO(headers.read_bytes()))
             invoice = decode_hold_invoice(raw, headers.read_bytes())
-        campaign._retain_private('failed-send-hold-invoice', 'invoice', io.BytesIO(invoice.encode()))
-        decoded = _peer(campaign, spec, 'internal', 'failed-send-hold-invoice', 'decode', 'decode', invoice)
+        campaign._retain_private(intent, 'invoice', io.BytesIO(invoice.encode()))
+        decoded = _peer(campaign, spec, 'internal', intent, 'decode', 'decode', invoice)
         public = validate_invoice(decoded, {'amount_sat': 5000, 'invoice_payee': spec['external_id']}, int(time.time()))
         if public['payment_hash'] != payment_hash or public['min_final_cltv_expiry'] != 6:
             raise ValueError('actual original hash and explicit final CLTV6 required')
         return {**public, 'invoice_sha256': hashlib.sha256(invoice.encode()).hexdigest(),
                 'scope': 'One native external hold invoice; no payment, acceptance or refund credit.'}
-    return _once(campaign, 'failed-send-hold-invoice', 'external-hold', 'hold_invoice',
+    return _once(campaign, intent, 'external-hold', 'hold_invoice',
                  {'payment_hash': payment_hash, 'amount_msat': 5000000, 'min_final_cltv_expiry': 6}, dispatch)
 
 
 def _invoice(campaign):
-    action = campaign.db.execute("SELECT reply FROM action WHERE id='failed-send-hold-invoice' AND state='acknowledged'").fetchone()
-    artifact = campaign.db.execute("SELECT * FROM native_artifact WHERE intent='failed-send-hold-invoice' AND kind='invoice'").fetchone()
+    intent = _invoice_intent(campaign)
+    action = campaign.db.execute("SELECT reply FROM action WHERE id=? AND state='acknowledged'", (intent,)).fetchone()
+    artifact = campaign.db.execute("SELECT * FROM native_artifact WHERE intent=? AND kind='invoice'", (intent,)).fetchone()
     if not action or not artifact or artifact['truncated']:
         raise ValueError('original acknowledged hold invoice required')
     public = json.loads(action[0])

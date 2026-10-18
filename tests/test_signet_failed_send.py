@@ -1,6 +1,7 @@
 """Failed-send staging/board safety tests; no funded Lightning proof."""
 from decimal import Decimal
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -315,6 +316,119 @@ class FailedSendLightningTests(unittest.TestCase):
     def held(self, state='accepted'):
         return {'payment_hash': self.decoded()['payment_hash'], 'state': state,
             'chain': {'height': 200}, 'kind': 'failed_send_external_hold'}
+
+    def loader_failure(self):
+        from simulator.signet_failed_send import _capture
+        self.transport()
+        def fail(campaign, intent, kind, argv, **kwargs):
+            failure = subprocess.CompletedProcess(argv, 1, b'', b'curl: GLIBC_ABI_DT_X86_64_PLT not found')
+            with patch('simulator.signet_failed_send.subprocess.run', return_value=failure):
+                return _capture(campaign, intent, kind, argv, **kwargs)
+        with self.assertRaisesRegex(ValueError, 'reconcile without replay'):
+            self.invoice(capture=fail)
+        row = dict(self.campaign.db.execute("SELECT * FROM action WHERE id='failed-send-hold-invoice'").fetchone())
+        self.old_invoice = row
+        old_source = self.root / 'original-capture.py'
+        old_source.write_bytes(b'unit fixture for the separately pinned archived source')
+        self.original_capture_source = old_source
+        values = {'scope': 'P09-invoice-loader-pre-execution-reconciliation',
+            'original_intent': row['id'], 'new_intent': 'failed-send-hold-invoice-clean-loader-v1',
+            'invoice_creation_attempts_authorized': 1,
+            'original_action_sha256': hashlib.sha256(canonical(row).encode()).hexdigest(),
+            'payment_hash': self.decoded()['payment_hash'], 'last_admission_height': 210,
+            'source_coin_id': 'original-coin', 'source_expiry_height': 232,
+            'original_capture_source': str(old_source),
+            'artifact_sha256': {r['kind']: r['sha256'] for r in self.campaign.db.execute(
+                "SELECT * FROM native_artifact WHERE intent=? AND kind IN ('request-frame','grpc-stdout','grpc-stderr')", (row['id'],))}}
+        self.loader_authority = self.root / 'loader-reconciliation.json'
+        self.loader_authority.write_text(canonical(values))
+        return values
+
+    def reconcile_loader(self, *, existing_invoice=False, lookup=None):
+        from simulator.signet import digest
+        ready = {'coin': {'id': 'original-coin'}, 'actual_tree_expiry': 232}
+        transport = {'external_id': '03' + '4' * 64}
+        def source_digest(path):
+            if Path(path) == self.original_capture_source:
+                return '88882fca1d42ebb6faa290882a5d1df8a17f2d47cbacfc34b2ba331a43d3a5ad'
+            return digest(path)
+        with patch('simulator.signet_failed_send._ready_source', return_value=ready), \
+             patch('simulator.signet_failed_send._sender_idle'), \
+             patch('simulator.signet_failed_send._lightning_ready', return_value=transport), \
+             patch('simulator.signet_failed_send.digest', side_effect=source_digest), \
+             patch('simulator.signet_failed_send._peer', side_effect=lookup,
+                   return_value={'holdinvoices': [{}] if existing_invoice else []}):
+            return self.campaign.reconcile_invoice_loader_failure(self.loader_authority,
+                hashlib.sha256(self.loader_authority.read_bytes()).hexdigest())
+
+    def test_loader_reconciliation_preserves_unknown_and_never_acknowledges_it(self):
+        self.loader_failure()
+        result = self.reconcile_loader()
+        self.assertEqual(result['original_action'], self.old_invoice)
+        self.assertEqual(result['original_action']['state'], 'unknown')
+        self.assertFalse(result['acknowledged'])
+        row = dict(self.campaign.db.execute("SELECT * FROM action WHERE id=?", (self.old_invoice['id'],)).fetchone())
+        self.assertEqual(row['state'], 'failed_before_execution')
+        for key in row.keys() - {'state', 'updated'}:
+            self.assertEqual(row[key], self.old_invoice[key])
+        invoice = self.invoice()
+        self.assertEqual(invoice['payment_hash'], result['payment_hash'])
+        self.assertEqual(self.campaign.db.execute("SELECT state FROM action WHERE id='failed-send-hold-invoice-clean-loader-v1'").fetchone()[0], 'acknowledged')
+        self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM native_artifact WHERE kind='preimage'").fetchone()[0], 1)
+        with self.assertRaisesRegex(ValueError, 'exact original unknown'):
+            self.reconcile_loader()
+
+    def test_loader_reconciliation_rejects_existing_invoice_without_state_change(self):
+        self.loader_failure()
+        with self.assertRaisesRegex(ValueError, 'empty lookup'):
+            self.reconcile_loader(existing_invoice=True)
+        self.assertEqual(dict(self.campaign.db.execute("SELECT * FROM action WHERE id=?", (self.old_invoice['id'],)).fetchone()), self.old_invoice)
+        self.assertFalse(self.campaign.db.execute("SELECT 1 FROM result WHERE id='failed-send-loader-reconciliation'").fetchone())
+
+    def test_loader_reconciliation_rejects_other_unknown_and_stale_headroom(self):
+        values = self.loader_failure()
+        values['last_admission_height'] = 199
+        self.loader_authority.write_text(canonical(values))
+        with self.assertRaisesRegex(ValueError, 'headroom admission expired'):
+            self.reconcile_loader()
+        values['last_admission_height'] = 210
+        self.loader_authority.write_text(canonical(values))
+        self.campaign.db.execute("INSERT INTO action VALUES ('other','other','anything','{}','unknown',1,1,'{}',NULL,NULL)")
+        with self.assertRaisesRegex(ValueError, 'other unknown'):
+            self.reconcile_loader()
+
+    def test_loader_reconciliation_rejects_response_or_changed_evidence(self):
+        self.loader_failure()
+        self.campaign._retain_private(self.old_invoice['id'], 'grpc-headers', io.BytesIO(b'HTTP/2 200\r\n'))
+        with self.assertRaisesRegex(ValueError, 'before-execution'):
+            self.reconcile_loader()
+
+    def test_loader_reconciliation_rolls_back_if_another_unknown_appears(self):
+        self.loader_failure()
+        def racing_lookup(*args):
+            self.campaign.db.execute("INSERT INTO action VALUES ('other','other','anything','{}','unknown',1,1,'{}',NULL,NULL)")
+            return {'holdinvoices': []}
+        with self.assertRaisesRegex(ValueError, 'requires reconciliation'):
+            self.reconcile_loader(lookup=racing_lookup)
+        self.assertEqual(dict(self.campaign.db.execute("SELECT * FROM action WHERE id=?", (self.old_invoice['id'],)).fetchone()), self.old_invoice)
+        self.assertFalse(self.campaign.db.execute("SELECT 1 FROM result WHERE id='failed-send-loader-reconciliation'").fetchone())
+
+    def test_loader_reconciliation_rejects_altered_captured_stderr(self):
+        self.loader_failure()
+        row = self.campaign.db.execute("SELECT relative_path FROM native_artifact WHERE intent=? AND kind='grpc-stderr'", (self.old_invoice['id'],)).fetchone()
+        (self.campaign.root / row[0]).write_bytes(b'curl: different failure')
+        with self.assertRaisesRegex(ValueError, 'evidence changed'):
+            self.reconcile_loader()
+
+    def test_corrected_invoice_unknown_still_blocks_without_a_second_retry(self):
+        self.loader_failure()
+        self.reconcile_loader()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.invoice(capture=lambda *a, **kw: (_ for _ in ()).throw(subprocess.TimeoutExpired('curl', 30)))
+        with patch('simulator.signet_failed_send._capture') as repeated:
+            with self.assertRaisesRegex(ValueError, 'requires reconciliation'):
+                self.invoice()
+        repeated.assert_not_called()
 
     def test_transport_reopen_preserves_hash_and_private_files(self):
         from simulator.signet_failed_send import prepare_lightning

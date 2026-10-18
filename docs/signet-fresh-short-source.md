@@ -110,3 +110,17 @@ related Python tests passed, with independent source review. A clean-loader
 `curl --version` check passed on the actual VM with HTTP/2 support and zero
 network requests. These checks do not prove successful invoice creation.
 An explicitly reviewed reconciliation and continuation is still required.
+
+The proposed bounded reconciliation records the complete original UNKNOWN row,
+its action context and artifact hashes in an immutable result. It classifies
+that attempt as `failed_before_execution`, never as an acknowledgement. It
+requires the exact retained loader failure, an unchanged signed source with
+more than 18 blocks of headroom, and a fresh authenticated lookup showing that
+no invoice exists for the original hash. Any other unknown action aborts the
+transaction. A separately allocated fixed new intent can then create exactly
+one invoice with the same original hash, preimage and request. A failure of
+that corrected attempt remains UNKNOWN; this mechanism cannot authorize a
+second corrected attempt. Focused controller tests exercise preservation,
+existing-invoice refusal, changed artifacts, stale headroom, concurrent unknowns
+and corrected-attempt failure. This is source-level coverage, not a live
+reconciliation or payment result.
