@@ -1,0 +1,66 @@
+{
+  "Noah_LNURL_success": false,
+  "actual_profile": {
+    "htlc_expiry_delta": 6,
+    "htlc_send_expiry_delta": 18,
+    "max_htlc_expiry_delta": 288,
+    "pool_targets": [],
+    "vtxo_exit_delta": 12,
+    "vtxo_lifetime": 32
+  },
+  "admitted_stage_controller": {
+    "actions_at_staging": 0,
+    "archive_sha256": "35920f0c804b54cdeba4e6860a52f71321aeaf2ac4910b98980a596684959059",
+    "configuration_sha256": "56589ff322a559af77869038fe9a64d899e197a48e15a1d2f3e04f8c776b5c4b",
+    "github_ci": "https://github.com/BullishNode/bark-simulator/actions/runs/39060503080",
+    "runtime_pins_sha256": "ada35f4ddabeca701d6845e94d6f2c435fc812f74a3f748603f0d291c40a2efd",
+    "source": "03a5b570676811e064aa461bdfe7f6225106332e",
+    "stage": "STAGED_EXISTING_REAL_SENDER_NO_NATIVE_OPEN",
+    "stage_receipt_sha256": "57de6e2735635306642cadb0957c81b8972356d86bcc3cee3165909a6f58c363",
+    "vm_tests": {
+      "passed": 81,
+      "seconds": 3.302
+    }
+  },
+  "case_verdict": "INCOMPLETE",
+  "external_hold_cancelled": false,
+  "funding": {
+    "confirmations_observed": 0,
+    "height_observed": 326790,
+    "miner_fee_sat": 612,
+    "outputs": {
+      "sender": {
+        "amount_sat": 60000,
+        "vout": 0
+      },
+      "watchman_fee_0": {
+        "amount_sat": 20000,
+        "vout": 2
+      },
+      "watchman_fee_1": {
+        "amount_sat": 20000,
+        "vout": 3
+      }
+    },
+    "principal_sat": 100000,
+    "root_receipt_sha256": "dd7525c4408d109f53109cae89dcc644cb94290d383967215fb86072d868064b",
+    "txid": "8e60b79edef0d909c8008c3a1f1eb68384b47058a21edfae1be2254880fd7103"
+  },
+  "initial_rejected_controller": {
+    "actions": 0,
+    "actors": 0,
+    "diagnosis": "Original receipt network literal public signet differed from expected signet",
+    "receipt_sha256": "0c37ec16b6a51f559610bbbe519d62279201c6df5a5656a162b9a13911903d4c",
+    "source": "bdefb5c0fcbaccd3adc79514b3f20ca9ab6a6b27"
+  },
+  "live_continuation_authorized": false,
+  "native_sender_payment_dispatched": false,
+  "network": "public Signet",
+  "original_receive_profile_changed": false,
+  "payer_invoice_issued": false,
+  "product_build_head": "6950be5a6855625d76d04e33c86a6b030cd9406e",
+  "product_source_dirty": true,
+  "product_source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b",
+  "qualified_failed_refund": false,
+  "scope": "Additive native failed-send controller preparation; no invoice/send/cancel or failed-refund proof."
+}

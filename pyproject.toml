@@ -11,6 +11,7 @@ dependencies = []
 
 [project.scripts]
 bark-simulator = "simulator.cli:main"
+bark-signet-simulation = "simulator.signet:main"
 
 [tool.setuptools]
 packages = ["simulator"]

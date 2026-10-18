@@ -1,0 +1,108 @@
+{
+  "at": "2026-10-18T03:57:05.993106+00:00",
+  "method": "Read-only native wallet SQLite movements and amount joins, cross-checked against independently reconciled campaign snapshots; no wallet open/maintenance command or server write.",
+  "profile_product_source": "7055d1fce858f3112aff671d0b2a8a454d6a2214",
+  "gross_original_board_principal_sat": 60000,
+  "initial_native_customer_sat": 59340,
+  "original_board_deduction_sat": 660,
+  "successful_native_refresh_fees_sat": 589,
+  "current_cohort_sat": 58751,
+  "latest_reconciled_height": 326843,
+  "latest_send_fee_sat": 0,
+  "round_refreshes": [
+    {
+      "id": 52,
+      "status": "successful",
+      "subsystem_name": "bark.round",
+      "movement_kind": "refresh",
+      "intended_balance": 0,
+      "effective_balance": -190,
+      "offchain_fee": 190,
+      "created_at": "2026-10-17 08:12:17.934086586+00:00",
+      "completed_at": "2026-10-17 08:29:35.848706405+00:00",
+      "actor": "sender",
+      "inputs": [
+        {
+          "id": "dc07617a57f46b64c76fefe049386739b93bb04081e51cf4654e5753dc61297c:0",
+          "amount_sat": 5000,
+          "expiry_height": 330984
+        }
+      ],
+      "outputs": [
+        {
+          "id": "d5aa553348c3843b727f84fa2c9db1d17a368deafb67ca19bd18a88b1e8c0188:0",
+          "amount_sat": 4810,
+          "expiry_height": 331044
+        }
+      ],
+      "independent_input_output_difference_sat": 190
+    },
+    {
+      "id": 151,
+      "status": "successful",
+      "subsystem_name": "bark.round",
+      "movement_kind": "refresh",
+      "intended_balance": 0,
+      "effective_balance": -209,
+      "offchain_fee": 209,
+      "created_at": "2026-10-18 00:36:54.910541185+00:00",
+      "completed_at": "2026-10-18 01:36:36.200326916+00:00",
+      "actor": "sender",
+      "inputs": [
+        {
+          "id": "8bb0b177eb83511b4c97ba886a7b54992b7513d07142fb7823c9e0bee97e5b17:0",
+          "amount_sat": 2335,
+          "expiry_height": 330984
+        },
+        {
+          "id": "e074ee8fe308e34be4763aa877754a763d1c49d62a7089756f36782401106d9f:0",
+          "amount_sat": 3668,
+          "expiry_height": 330984
+        },
+        {
+          "id": "fdf4aeb6da65b6fae4d6feac7e1c7d8edd3ba1f799acdf5fa8dfaab89bd3dac7:0",
+          "amount_sat": 1332,
+          "expiry_height": 330984
+        }
+      ],
+      "outputs": [
+        {
+          "id": "b2a5e32e59382bf4fdc782381163838967a23cf733c383a20f73df61fd2b3d7a:0",
+          "amount_sat": 7126,
+          "expiry_height": 331149
+        }
+      ],
+      "independent_input_output_difference_sat": 209
+    },
+    {
+      "id": 101,
+      "status": "successful",
+      "subsystem_name": "bark.round",
+      "movement_kind": "refresh",
+      "intended_balance": 0,
+      "effective_balance": -190,
+      "offchain_fee": 190,
+      "created_at": "2026-10-17 16:25:11.433193158+00:00",
+      "completed_at": "2026-10-17 16:34:27.402336274+00:00",
+      "actor": "receiver",
+      "inputs": [
+        {
+          "id": "5ffc201333b0dd8e4de9acd20e3acf97cb9190859961199c8d75a3d4811b97ec:0",
+          "amount_sat": 5000,
+          "expiry_height": 330984
+        }
+      ],
+      "outputs": [
+        {
+          "id": "053121227fefd6ed7c12f9430de4cf683ff4113a1026ce5d4013fc798d4f8a4e:0",
+          "amount_sat": 4810,
+          "expiry_height": 331095
+        }
+      ],
+      "independent_input_output_difference_sat": 190
+    }
+  ],
+  "arithmetic": "59340 - (190 + 190 + 209) = 58751",
+  "board_scope": "Two original330sat native board deductions are already excluded from59340. Their carried tree/anchor value is not charged again as maintenance or claimed as new operator revenue.",
+  "scope": "Actual native round refresh input/output differences and movement fees, not unexplained transfer loss or miner-fee cash proof. Shared channel/service costs remain separate."
+}

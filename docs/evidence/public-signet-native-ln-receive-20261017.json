@@ -1,0 +1,158 @@
+{
+  "actual_cln_executables": [
+    {
+      "elf_sha256": "0979efd4a552759c51a6f05d774f85919556d942f926ae3682d1910374a4d2fc",
+      "name": "lightningd",
+      "pid": 39288
+    },
+    {
+      "elf_sha256": "421c19f3b0a2cf1c19b2d2f61737be7264c9ecca673e735f5fcb114198e362ea",
+      "name": "cln-grpc",
+      "pid": 39310
+    },
+    {
+      "elf_sha256": "cef52444d4ae4c7f819a315dc6deb4cfbb2b38d1156e17bf2bac271009e6c7e9",
+      "name": "hold",
+      "pid": 39311
+    },
+    {
+      "elf_sha256": "0979efd4a552759c51a6f05d774f85919556d942f926ae3682d1910374a4d2fc",
+      "name": "lightningd",
+      "pid": 39481
+    },
+    {
+      "elf_sha256": "421c19f3b0a2cf1c19b2d2f61737be7264c9ecca673e735f5fcb114198e362ea",
+      "name": "cln-grpc",
+      "pid": 39505
+    },
+    {
+      "elf_sha256": "cef52444d4ae4c7f819a315dc6deb4cfbb2b38d1156e17bf2bac271009e6c7e9",
+      "name": "hold",
+      "pid": 39507
+    }
+  ],
+  "at": "2026-10-17T17:58:03.679Z",
+  "case_verdict": "INCOMPLETE",
+  "chain": {
+    "chain": "signet",
+    "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+    "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+    "hash": "000000051fbbdfe4361f751e4d38bd2bb6e44d0e3fe102a242e28aa0a96e4938",
+    "height": 326785
+  },
+  "economics": {
+    "actual_receive_fee_sat": 110,
+    "actual_signed_recipient_proceeds_sat": 4890,
+    "allocated_principal_sat": 300000,
+    "fallback_paid": false,
+    "initial_pool_issuance_miner_fee_sat": 233,
+    "invoice_sat": 5000,
+    "prospective_one_output_fallback_fee_sat": 1000,
+    "prospective_one_output_fallback_sat": 3890,
+    "routing_fee_msat": 0,
+    "seed_recovery_proven": false,
+    "treasury_funding_miner_fee_sat": 894
+  },
+  "grant_terms": [
+    {
+      "direction": "outgoing",
+      "grant_id": "9cba82ef75d17bc360ee41bcf84ad3e03788ac09b99253ef1a1d7a59aaad5f5c:0",
+      "htlc_expiry": 326833,
+      "payment_hash": "04be8c9c55e6a0cc25ae5fd159c99b5a3ff63440a7a330330cc676a8e9909f6c"
+    }
+  ],
+  "invoice": {
+    "amount_msat": 5000000,
+    "expires_at": 1792432682,
+    "invoice_sha256": "b78b5dcc9c35ac3baf0d49da2ba505d16a1fbbc9bbd7d260ba09aebec60140ed",
+    "min_final_cltv_expiry": 56,
+    "payee": "02de1325fcc41c085c12e9fee5997a4d9afa78cc96ce5c1d4d97b01e0d2929f8eb",
+    "payment_hash": "04be8c9c55e6a0cc25ae5fd159c99b5a3ff63440a7a330330cc676a8e9909f6c",
+    "scope": "Native BOLT11 validity only; plain memo gives no LNURL credit."
+  },
+  "original_birthday_height": 326782,
+  "payer_settlement": {
+    "amount_msat": 5000000,
+    "amount_sent_msat": 5000000,
+    "payment_hash": "04be8c9c55e6a0cc25ae5fd159c99b5a3ff63440a7a330330cc676a8e9909f6c",
+    "preimage_hash_verified": true,
+    "routing_fee_msat": 0,
+    "state": "PAYER_SETTLED_RECIPIENT_CLAIM_NOT_YET_PROVEN"
+  },
+  "preinvoice_pool_proof": {
+    "method": "Actual native full signature validation of readonly own vtxo_pool full stored inventory, independent confirmed Core anchor. Public locked-body verifier rejection retained. Actual grant/final proofs use public GetVtxo.",
+    "pool": [
+      {
+        "amount_sat": 10000,
+        "anchor": "52aa108da2b8341e03b7b6b050aaabb7ee0f2513b22810d730de1d6dd26ea000:0",
+        "backing_confirmations": 1,
+        "expiry_height": 326816,
+        "id": "4be537e162c2c9b86efbe0b742a9dfd1fe1a5653978e42f694d88a95dfb48346:0",
+        "serialized_sha256": "a7fb14c808c0bba95e712a3673a1b258e40d965033814db789ea6deba05fa98d"
+      },
+      {
+        "amount_sat": 10000,
+        "anchor": "52aa108da2b8341e03b7b6b050aaabb7ee0f2513b22810d730de1d6dd26ea000:0",
+        "backing_confirmations": 1,
+        "expiry_height": 326816,
+        "id": "5b1040de7c332c3b5a077b8804761635958fcb98cafee65ddc645aafbcf7fa01:0",
+        "serialized_sha256": "cc8b8e6d6cc458937afef2ac2be9382650fdbd967f0a09d52683747677f7ac9d"
+      }
+    ]
+  },
+  "recipient_original_wallet_opened": false,
+  "registered_payout_script": "0014f6cb317634543f8564334d7262a98dd402f066a5",
+  "remaining": [
+    "Actual tree expiry326816 and rightful fallback to registered payout script",
+    "Independently confirmed payout parent and positive-fee child each at least6confirmations",
+    "Fresh original-seed-only restore using originalbirthday326782, no oldwalletDB/payoutoutpointhints",
+    "Exactly one journaled drain and confirmed recovery spend consuming actual fallback output"
+  ],
+  "schema_version": 1,
+  "scope": "Public-Signet native BOLT11 receive to offline registered recipient; no Noah/LNURL compatibility credit",
+  "signed_paths": [
+    {
+      "coin_id": "2c69acd1262714386b87c1ad705a3b3ce80bdc5194a987dbe774dc770b239cff:0",
+      "path_outpoints": [
+        "52aa108da2b8341e03b7b6b050aaabb7ee0f2513b22810d730de1d6dd26ea000:0",
+        "8352c064fbbb5f9acf261de747e4a243b01a0b639948b5329dd9b70a9e7516b9:1",
+        "5b1040de7c332c3b5a077b8804761635958fcb98cafee65ddc645aafbcf7fa01:0",
+        "9eb3e359835e0177aded7c68cb018c2fbd7519fa369de2b2a31ee8f33e353bd9:0",
+        "9cba82ef75d17bc360ee41bcf84ad3e03788ac09b99253ef1a1d7a59aaad5f5c:0",
+        "0a35130d02c14009ad15002e7984d945ab5df9cc8ad7f980a4a0439830f9c053:0",
+        "2c69acd1262714386b87c1ad705a3b3ce80bdc5194a987dbe774dc770b239cff:0"
+      ],
+      "status": "PASS"
+    }
+  ],
+  "signed_recipient_coins": [
+    {
+      "amount_sat": 4890,
+      "chain_anchor": "52aa108da2b8341e03b7b6b050aaabb7ee0f2513b22810d730de1d6dd26ea000:0",
+      "expiry_height": 326816,
+      "id": "2c69acd1262714386b87c1ad705a3b3ce80bdc5194a987dbe774dc770b239cff:0",
+      "policy_type": "pubkey",
+      "server_pubkey": "0372ad7b440a693c6c8701f2a7adf79b51f3689c5132e8ea93c627f25db2100764"
+    }
+  ],
+  "source": {
+    "build_head": "6950be5a6855625d76d04e33c86a6b030cd9406e",
+    "captured_source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b",
+    "config_hashes": {
+      "captaind": "7723b3567063b0c644b58602981e67e409bed2bb5a720a18cf6a869745f377a0",
+      "watchmand": "a5f374b091f26f3bc2db3eee4c02534253890c7df515bc90f5a614501bb9edd7"
+    },
+    "controller_code_milestone": "45b5aaa0af3547e816027011aceac73efea36d02",
+    "controller_source": "d8cdb3b66c44df62cd946c57d18c3ffa8c544fab",
+    "dirty_source": true,
+    "elf_sha256": {
+      "bark": "7a240c143bb103b67c360a75316034211d6212947e0b65571ceaebe19fc06ba4",
+      "barkd": "570ecf6cbbdc441b1262e68ee84035718ac9f72a5f881038b9ca51812a342218",
+      "captaind": "592df297c9b58b22261b7487c57a4076bba72b735232707d98275f84981642a8",
+      "watchmand": "edf59b0b352f8aa0a5ef76e8cc306b3c591836b73181baf48b3ce46da0764bbf"
+    },
+    "final_preinvoice_admission_sha256": "6c40b13f79dfe7b5dd75d7d6805ba86b3127a35c2912ee7f9ae4a02751d2191b",
+    "runtime_manifest_sha256": "e6bd3f928220637dfe81796bf95895755a331cc96ae4568e5a44a14c083019d0"
+  },
+  "stage": "SIGNED_RECIPIENT_CLAIM_PROVEN_WAITING_FOR_EXPIRY"
+}

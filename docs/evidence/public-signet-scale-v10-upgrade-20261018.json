@@ -1,0 +1,81 @@
+{
+  "actor_wallet_bytes_unchanged": true,
+  "actual_build_head": "783c0c5c51105b1ec1a5fa1068820ce94e18017e",
+  "backup": {
+    "actor_wallet_file_count": 250,
+    "actor_wallet_sqlite_integrity_checks": 50,
+    "cold_postgres_full_decode_verified": true,
+    "cold_server_manifest_sha256": "279e65bfb27c77874515f02c7d48a1e71ea8b6ea68e320acb6814fd72b757274",
+    "off_vm_actor_archive_sha256": "a0b4247c1fe0bb711449b399090e8c69aa9357432f4ede5d0acd09e1cafefd42",
+    "off_vm_cold_server_proof_sha256": "c74550974e12fd904876cb34a1aee9f7868ada28ed078836bf2b099728ca2702",
+    "server_seed_config_unit_archive_members_independently_verified": 5
+  },
+  "build_manifest_sha256": "db58ea456c1c5e545496514274e62e9d45436ec0503ae3a5016c454ba3b8352c",
+  "completed_at": "2026-10-18T05:51:40.667290+00:00",
+  "dirty_source": true,
+  "elf_sha256": {
+    "captaind": "f7c8fd77d91533a389ef8bb509dce5b2b92295036f93ef5d9a2be5900e9e0156",
+    "watchmand": "920c6a742daae000274f44075e3e674262a4421fe0db0806bd59d0ab301836de"
+  },
+  "limits": [
+    "No new scale workload has been dispatched in this receipt.",
+    "Original fixed-window 580/600 remains INCOMPLETE and held.",
+    "Partial-terminal liveness gap remains open; no production or Lightning qualification inherited.",
+    "Other campaign source/runtime pins are unchanged."
+  ],
+  "native_usable_funds_sat": {
+    "rounds": 200000,
+    "watchman": 100000
+  },
+  "new_migrations": [
+    {
+      "applied_on": "2026-10-18T05:51:36.511069786Z",
+      "checksum": "1881126025923484300",
+      "name": "expiry_scan_fair_service",
+      "version": 13
+    },
+    {
+      "applied_on": "2026-10-18T05:51:36.528923518Z",
+      "checksum": "7107098358597621213",
+      "name": "expiry_fee_sponsor",
+      "version": 14
+    }
+  ],
+  "original580of600_hold_unchanged": true,
+  "original_migration_rows_1_to_12_unchanged": true,
+  "preserved_operational_failure": {
+    "at": "2026-10-18T05:44:33Z",
+    "correction": "New one-shot remaining-step operation reverified the complete marker, fresh leases and all cold hashes, then atomically published the completion marker before serial service start. Original failure is retained.",
+    "error": "JSONDecodeError: receiver observed incomplete off-VM completion marker during upload",
+    "financial_state_restored": false,
+    "new_writer_had_started": false,
+    "stage": "UPGRADE_HOLD"
+  },
+  "profile": {
+    "required_board_confirmations": 3,
+    "vtxo_exit_delta": 144,
+    "vtxo_lifetime": 4320
+  },
+  "receipts": {
+    "post_upgrade_sha256": "a47bd4ae20e02d20ad7d797b23b874b504fee25b5749bdb208313c4372e7e959",
+    "preworkload_all_wallet_hashes_sha256": "3ab2d79715544df0495b987f8003fb8ae32d4f18ba7c33e73ebf8bef34067334",
+    "runtime_manifest_sha256": "4b22d6ed7268d22d6ea064f9b6a3a1fc9ab8dab7ee083b87cf966d9ee8a87b35",
+    "runtime_pins_sha256": "33e35a879592ab62e0bbf6c54fd9eaf937cfd9a5d241e05574bce642ae3df096"
+  },
+  "same_server_identity": true,
+  "scope": "Actual scale-only public-Signet v10 upgrade; zero new workload, actors, principal or LN actions. This is not a production qualification.",
+  "service_health": {
+    "captaind": {
+      "ActiveState": "active",
+      "ExecMainStatus": "0",
+      "NRestarts": "0"
+    },
+    "watchmand": {
+      "ActiveState": "active",
+      "ExecMainStatus": "0",
+      "NRestarts": "0"
+    }
+  },
+  "source_archive_sha256": "03686b6d3e567ee42ebaa6bfc1f8278cafb3e185e9f92c839e52d7af493aba3d",
+  "source_manifest_sha256": "3e0437f1d1c89e554a38d7756f2d89238732cc368882f7b3f382b799487c0f33"
+}

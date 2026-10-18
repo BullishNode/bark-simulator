@@ -1,0 +1,161 @@
+{
+  "actual_build_head": "57f59bf3bc1aaa97a765828726f56e54f69bc59b",
+  "autonomous_view": {
+    "chain": {
+      "default_public_signet": true,
+      "hash": "0000000a3dccdbf4b494cda8bb170de013de805d48251e6dbeafad68db518449",
+      "height": 326879
+    },
+    "current_rebuild_token_matches": true,
+    "manual_trigger": false,
+    "observation": {
+      "acks": [
+        {
+          "generation": 10,
+          "hash": "0000000a3dccdbf4b494cda8bb170de013de805d48251e6dbeafad68db518449",
+          "height": 326879,
+          "process": "captaind"
+        },
+        {
+          "generation": 10,
+          "hash": "0000000a3dccdbf4b494cda8bb170de013de805d48251e6dbeafad68db518449",
+          "height": 326879,
+          "process": "watchmand"
+        }
+      ],
+      "captaind": {
+        "hash": "0000000a3dccdbf4b494cda8bb170de013de805d48251e6dbeafad68db518449",
+        "height": 326879
+      },
+      "ledger": {
+        "count": 16,
+        "revision": 21
+      },
+      "view": {
+        "generation": 10,
+        "id": 1,
+        "invalid": false,
+        "invalid_from": 0,
+        "rebuilt_captaind_hash": "0000000a3dccdbf4b494cda8bb170de013de805d48251e6dbeafad68db518449",
+        "rebuilt_captaind_height": 326879,
+        "rebuilt_ledger_count": 16,
+        "rebuilt_ledger_revision": 21,
+        "rebuilt_watchmand_hash": "0000000a3dccdbf4b494cda8bb170de013de805d48251e6dbeafad68db518449",
+        "rebuilt_watchmand_height": 326879
+      },
+      "watchmand": {
+        "hash": "0000000a3dccdbf4b494cda8bb170de013de805d48251e6dbeafad68db518449",
+        "height": 326879
+      }
+    }
+  },
+  "binary_sha256": {
+    "bark": "b0fdf36592f29d805ebeaf8dd6d2c92dc309d1be3c0499255590b9f36de45779",
+    "barkd": "eb88ab3083e4b4b6197f99874ac1a47eab5fb288251e3b4c35d9d0343b7c1c82",
+    "captaind": "4bc16a305a40d455135bfd2df985d9dcb21a4987523148ec83cfdbae32ce4f25",
+    "watchmand": "1660f365f1fb14909d4aad7975c171db49b0aa4c351b2a07d71513e7ff750366"
+  },
+  "chain": {
+    "default_public_signet": true,
+    "hash": "0000000a3dccdbf4b494cda8bb170de013de805d48251e6dbeafad68db518449",
+    "height": 326879
+  },
+  "cold_backup": {
+    "archive_sha256": "a3cacb3bff596ee10d239c5555e1cb9bbff8916741a7005c1db43388f96868ef",
+    "backup_manifest_sha256": "6030486d0aed1abd778a8a77093734c638f7b59af60e26e1257e66e2fff7dab9",
+    "dump_sha256": "7339680c91c690932f7389d4911711418fd433381b10805f4cd23860fbb1a609",
+    "files": 249,
+    "new_writers_started": false,
+    "roles_sha256": "e502731970644469b54c793d8f3fbf120ce7bc3ef2c42786c4ed4fffed95e65c",
+    "sqlite_integrity": {
+      "scale/p09-v11c/provider049/db.sqlite": "ok",
+      "scale/p09-v11c/sender002/db.sqlite": "ok",
+      "simulation/p09-v11c-failed-send/signet.sqlite": "ok",
+      "simulation/p09-v11c-receive/signet.sqlite": "ok"
+    }
+  },
+  "config_sha256": {
+    "captaind": "5aa6a73d138252a7df3788e48d06d6a733dd9189cd92524879e023598b5a0411",
+    "watchmand": "4340b3c4f6b3bb2d5c0b79f5d212cd84a6f987838cec718f0ac367ad51a8593a"
+  },
+  "dirty_source": true,
+  "independent_off_vm_gate_sha256": "8b096e4a8a8303cd180c76c91bd1ce6d884762873831d43c2942ef6eac8e3053",
+  "migration_versions": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+  ],
+  "new_actor_actions": 0,
+  "new_principal_sat": 0,
+  "noah_lnurl_qualified": false,
+  "observed_utc": "2026-10-18T10:52:26.906988+00:00",
+  "old_cohort_results": {
+    "later_requested900_reconciled720": "INCOMPLETE/HOLD preserved",
+    "original_requested600_reconciled580": "INCOMPLETE/HOLD preserved"
+  },
+  "old_migrations_unchanged": true,
+  "original_paid_receive": {
+    "expiry_height": 326894,
+    "fallback_or_recovery_proved_by_this_upgrade": false,
+    "invoice_payment_claim_runtime": "V11c",
+    "original_wallet_remains_absent": true,
+    "prospective_fallback_sat": 3890,
+    "signed_amount_sat": 4890
+  },
+  "post_upgrade_receipt_sha256": "28436439228d14fd4e92d295a7896da28ca8ffcce1838878ea6d77b56df4158a",
+  "production_qualified": false,
+  "published_equivalent_code": "42c988b99",
+  "scope": "Public Signet scale-profile upgrade only; no new financial campaign or recovery action",
+  "services": {
+    "captaind": {
+      "ActiveState": "active",
+      "ExecMainStatus": "0",
+      "MainPID": "414531",
+      "NRestarts": "0",
+      "SubState": "running",
+      "exe_sha256": "4bc16a305a40d455135bfd2df985d9dcb21a4987523148ec83cfdbae32ce4f25",
+      "start_ticks": "13934589"
+    },
+    "watchmand": {
+      "ActiveState": "active",
+      "ExecMainStatus": "0",
+      "MainPID": "414563",
+      "NRestarts": "0",
+      "SubState": "running",
+      "exe_sha256": "1660f365f1fb14909d4aad7975c171db49b0aa4c351b2a07d71513e7ff750366",
+      "start_ticks": "13934635"
+    }
+  },
+  "source_manifest_sha256": "e0b904e012ad3f07867432762939ba61a3aae8210e168a671407c6b41ce2c8f7",
+  "stage": "V18_P09_SCALE_ONLY_UPGRADE_ADMITTED",
+  "startup_holds": [
+    {
+      "cause": "allocation schema projection and missing uploaded wrapper",
+      "phase": "Original startup",
+      "service_or_actor_effect": "none"
+    },
+    {
+      "cause": "protected root argv substring matched sibling config directory",
+      "effect": "original recipient observer gracefully stopped; product services unchanged; no actor action",
+      "phase": "Reviewed upgrade wrapper"
+    },
+    {
+      "correction": "exact protected root or descendant argv boundary; original HOLD preserved",
+      "outcome": "upgrade passed after independently verified cold backup",
+      "phase": "Reviewed continuation"
+    }
+  ]
+}

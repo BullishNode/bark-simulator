@@ -1,0 +1,44 @@
+{
+  "candidate_build_head": "783c0c5c51105b1ec1a5fa1068820ce94e18017e",
+  "controller_source": "df193c81426d5312464857515cef6c9eba98ea07",
+  "controller_source_files_sha256": "f1c7b633ae0e9206f8535520a40c5360ade37059f863aba7f50e4fe599458fad",
+  "controller_wrapper_sha256": "1c42c90c86090bb738d42faef0ac0a0e46497c43c78b1e3da2e71f5b59cdd232",
+  "dirty_source_manifest_sha256": "3e0437f1d1c89e554a38d7756f2d89238732cc368882f7b3f382b799487c0f33",
+  "limits": [
+    "Fixed window is not reset or extended to make the target green.",
+    "Opening conservation is not final conservation; the entire cohort still needs its terminal native audit.",
+    "Counts are independently reconciled ordinary transfers, not maximum TPS or full Lightning/Noah coverage."
+  ],
+  "native_cohort_admission": {
+    "actual_authenticated_registrations": 50,
+    "cold_wallet_files_independently_rehashed": 250,
+    "confirmed_core_backing_verified": true,
+    "opening_coin_sat": 1483500,
+    "original_580_of_600_hold_unchanged": true,
+    "signed_coin_paths_verified": 100
+  },
+  "observed_at": "2026-10-18T06:10:55.986774Z",
+  "observed_progress": {
+    "dispatched_send_actions": 0,
+    "financially_reconciled_transfers": 290,
+    "first_closed_five_minute_slice_reconciled_transfers": 245,
+    "unknown_actions": 0
+  },
+  "resource_limit": "Controller monetary/proof/timing evidence remains retained. This wrapper did not persist returned per-batch RSS/CPU blocks. A separate read-only observer records later-window resources; missing earlier per-batch samples cannot be reconstructed.",
+  "root_workload_admission_sha256": "96c26ab8f6333fd6972f0b2e1348dcd2c7c7bb8eb3c528abad38ab0ae7acf57f",
+  "runtime_manifest_sha256": "4b22d6ed7268d22d6ea064f9b6a3a1fc9ab8dab7ee083b87cf966d9ee8a87b35",
+  "scope": "RUNNING checkpoint only; no completed workload or production qualification.",
+  "workload": {
+    "amount_sat": 1000,
+    "concurrency": 5,
+    "deadline_at": "2026-10-18T06:20:02.458241Z",
+    "dispatch_window_seconds": 900,
+    "existing_wallets": 50,
+    "first_batch_at": "2026-10-18T06:05:02.458241Z",
+    "minimum_batch_interval_seconds": 5,
+    "new_actor_creations": 0,
+    "new_actor_principal_sat": 0,
+    "new_boards": 0,
+    "transfers_offered_ceiling": 900
+  }
+}

@@ -1,0 +1,535 @@
+{
+  "kind": "load_workload_result",
+  "stage": "LOAD_WORKLOAD_FINANCIALLY_RECONCILED",
+  "controller_source": "9f57c79be0e42028e951a1bb21f4208da3ce78bb",
+  "preparation_controller_source": "9f57c79be0e42028e951a1bb21f4208da3ce78bb",
+  "product_source": "7055d1fce858f3112aff671d0b2a8a454d6a2214",
+  "parameters": {
+    "batch_interval_seconds": 10,
+    "board_sat_per_actor": 30000,
+    "concurrency": 5,
+    "funding_sat_per_actor": 100000,
+    "maximum_offchain_fee_sat": 1000,
+    "transfer_sat": 1000,
+    "transfers": 200,
+    "wallet_profile": {
+      "fallback_fee_rate": 750,
+      "vtxo_exit_margin": 12,
+      "vtxo_refresh_expiry_threshold": 144
+    },
+    "wallets": 50
+  },
+  "successful_reconciled_transfers": 200,
+  "failed_or_unknown_transfers": 0,
+  "opening_coin_sat": 1483500,
+  "closing_coin_sat": 1483500,
+  "observed_offchain_fee_sat": 0,
+  "observed_workload_wall_seconds_including_pacing_and_pauses": 404.1247055530548,
+  "observed_successful_transfers_per_minute": 29.69380449922679,
+  "native_invocation_including_open_and_journal": {
+    "maximum_seconds": 0.37772512435913086,
+    "p50_seconds": 0.28267598152160645,
+    "p95_seconds": 0.33028435707092285,
+    "samples": 200
+  },
+  "send_intent_through_observed_recipient_availability": {
+    "maximum_seconds": 1.3260598182678223,
+    "p50_seconds": 1.096498966217041,
+    "p95_seconds": 1.192725419998169,
+    "samples": 200
+  },
+  "send_through_financial_reconciliation": {
+    "maximum_seconds": 3.0499203205108643,
+    "p50_seconds": 1.731764316558838,
+    "p95_seconds": 2.9628145694732666,
+    "samples": 200
+  },
+  "scope": "Measured bounded workload under these pins and schedule, not maximum TPS or production-scale qualification.",
+  "funding_receipt_sha256": "d5cee6cb038c7373ae179fd86915d324774b59c67e82f8ca06524d509dcf82f9",
+  "result_sha256": "0bca0b34d4a881f643d09124b5df7aae9e3ce7384c6aa0b3a701a5f1730f9ab3",
+  "board_cost_receipt_sha256": "e6f602c9d783004c9e07b02dec212c7357e22a979d924604136c62b7d3e21f6f",
+  "chain": {
+    "chain": "signet",
+    "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+    "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+    "hash": "00000003f99bf37074799e4c9cd135e60b39c1bfae7e96d62caa190f92dda87e",
+    "height": 326700
+  },
+  "confirmed_backing_anchor_count": 50,
+  "minimum_anchor_confirmations_at_final_audit": 4,
+  "final_signed_coin_proofs": {
+    "count": 100,
+    "all_pass": true
+  },
+  "actual_costs": {
+    "board_funding_miner_fee_sat": 22900,
+    "boards": [
+      {
+        "actor": "load-000",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "410ebdbab50330ad0efebe701aca1e49383be360b924015a4f29d5c737eb5541",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-001",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "47ef242513d95c0b67aa7160bbd5bcdb958ba3c5849a7e1ab1a74db295ab80e5",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-002",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "f52bd3c411f362cab53260ed674321187ee020cdbd2e6ef2ee6a84e4d6fde55c",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-003",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "2493726b9012ebd351fe4066660efad98e859e97a690b3970f11e624cef840e7",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-004",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "c7c02425bfb83b9fbe369899c5d4de15e2139bef3843a07e7dc985227530f1fd",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-005",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "89dcba81d14feeddf290436c91267f09d92996ae0f934c1fa429cd40b7f76419",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-006",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "8b384fe5d17b1c127c42e3f2afe2d79a8422b5a34295a23cbbdbf970905e8edc",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-007",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "0635e2fd1de7bfb0249a22c7b611b34aac94ccfd096f10461aa774c3cf748b4d",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-008",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "1b25bc7b2916bf16fb7633f8285c181f539d35b9fcf0430707efa2d128b04358",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-009",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "a0cee384a4b8bb5f151edb46770f60fa353cdafe32a9a8631267a3bcd207a453",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-010",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "ca0efa8cf6ee5b746aa23edaa56fe7405ed02c606dc480c3b118e112c706662f",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-011",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "899266da0731757e0a0e8db8184e8374526dd6f9b9e1363f07a336440edcfdf8",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-012",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "d9e259beafc318aa7b667a3873782684b6f5658ec3c8c4bce026548e01a3f065",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-013",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "e23637fb739f1e388f3526aec956c31891df78a22dd872b0931c8a17d6935569",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-014",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "b5df2d88e9839f729fdaafc9d50717167539c47bdae746aa9ebdbaac4f32b6f1",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-015",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "9550afb4f0964bf3c8b87cfdc023c1ecfe04d0bdfd3d17f5b4d7c6011f0385c9",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-016",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "fd937ac0cbb42e53a4596319afeecd64f6bf60b402967eeabfe78e965c5144ad",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-017",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "d38b131ab67bdc92ea0c8a45b91d329dda5854281bc49327f5f0c64e9c6d5a61",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-018",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "f6704df68ceee09d88dc6bc00b7b31f0b6e097b3715e91b1602a86e7b224591d",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-019",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "9e10df3cee01c89ac418250809efc8d0504283319373f0ba15876da22617cf62",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-020",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "c863427d65b23caf70c81b652179613a68f28a13b5f4f164113e3a79ab57c9cd",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-021",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "f19b862e89e497357a13a28ddf197ad1b36876adf9ed2b72d6d171f42dcfad63",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-022",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "30cae03dbddda31c01c122cf72396500a2d7e2cdc0f1ee85d58b95fd2ea1878d",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-023",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "22c223fa6bb6e8630779d7780bea26961ba8b7a2d4bcd8142d5cf9b91df6289b",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-024",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "057bc6e2357e11d62e89abe6102c85588876b479eace2caecce9bc2cef0dfa30",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-025",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "3a7e82230ba8f8cef89b6c385c67413bd5f0bc7876d82b975426d1935d3e68bb",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-026",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "ae72f7f5e83ca5bdc22b29345ea5566003e34fcda6efe3f39a37c54fdd22b124",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-027",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "38db7b88968ac84379187f685d46258fad395f35f52e80299e473bf7a7af67ea",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-028",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "2bbf75ebb67a99e497e9bf63cccc265d65484fecd751744edbc0f84f603a8a16",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-029",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "1315439da97243911094afaecc777d3da6325834d155b16cbd9e6e2dce094a03",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-030",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "e8855a484a50f7adceedc5e9f0b132ba22a3862683abf66e7a52a21943f2f3e6",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-031",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "4b2953de8861bba087dd85a424b62448139302214154ca3fe3e687261d87b501",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-032",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "e8a84fc61e843d7b1c292c3df1027dd14e2242db04fe9514651130e532cb9593",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-033",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "03012c7cd4939efe82eb2ccf8f6fec7bc0f936ecdd857c1171d3fb91b9ab2d17",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-034",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "1471ef63c8289f0febb42a3030f18af089fccecd3dfd8fb2ad0690158f80a591",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-035",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "1e1d5e910f4dd7bfc85657bf3e277336fc42dcd71a49acbaec84e1d681e8c3ee",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-036",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "d79ac7c8617e6974d8e3eeb9b1d5ee8d8dac45c982b59d59b5694224ae0133e5",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-037",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "a17aef7f2627aa582a3037357b46dbde835b29dd512238728db30d6b16de7126",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-038",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "c26f08c13d93a9af403e3ba1c946e814023fc52dd3e6a08887b88e8a64d1cece",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-039",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "a601b4ccbdd9527157f5a79b826ec7ef5e529f55c0ca4b2326260d4080517617",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-040",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "a6fc51df3eb30d3b0d0ab45834a6728c89cce588e9024beac2decc68f2210f3f",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-041",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "c00d92f394ddf11cc4d073ed85eb0d4b6c2090cec4edcb0e99e54ff448175b8b",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-042",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "d2508fcde843a08df1b618e1fd73b389e830f67bba396192025e0087fe1a0735",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-043",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "59fd2b111122857b76e0f91175ebddd1af1337234e1cf7e63c1e660d5c5d9261",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-044",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "f0cea5b04bf9d7705cf14a14e5394df84c39b7571516be781b6c262eeaf6c24a",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-045",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "938752bf2955abb44cd0a804ae5b3a59f122e08aa01536790a5bc35c75454603",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-046",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "02a431b840357407a6cb4d33a5ade6322c33f5637baca5346d423860e6204988",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-047",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "dbfc3c68380bb555530c56bdd3c524bde0cf174d3ff712ccc40ffdff78bed62b",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-048",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "c10633da15e31f497cea299b4eeac48d81b885b039431694615ef9e7eec88f31",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      },
+      {
+        "actor": "load-049",
+        "confirmations": 3,
+        "funding_miner_fee_sat": 458,
+        "funding_txid": "84a753e4fd80a5d5bb2ba7b472a39332b5006b363eef612fb3a678690f1a2989",
+        "gross_minus_reported_customer_sat": 330,
+        "native_reported_customer_sat": 29670,
+        "vsize": 153
+      }
+    ],
+    "scope": "Funding fees independently measured from actual Core inputs/outputs. Customer/gross difference is native-reported allocation, separate from miner fees.",
+    "treasury_batch_miner_fee_sat": 4980,
+    "treasury_batch_vsize": 1660
+  },
+  "sampled_resources": {
+    "samples": 3105,
+    "sample_interval_seconds": 0.05,
+    "maximum_observed_rss_kib": {
+      "captaind": 83204,
+      "concurrent_native_children": 202376,
+      "controller": 442268,
+      "watchmand": 56068
+    },
+    "scope": "Sampled RSS on a shared VM; short-lived peaks can be missed. Not isolated capacity."
+  },
+  "runner_lock_released": true,
+  "runner_exit_receipt_exists": true
+}

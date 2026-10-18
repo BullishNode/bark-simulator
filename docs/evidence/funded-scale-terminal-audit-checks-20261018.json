@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "kind": "controller_regression_evidence",
+  "date_utc": "2026-10-18",
+  "source_parent": "a7afe467644815230560ac9ae6c479f0db1eec46",
+  "command": "python3 -m unittest tests.test_signet_load tests.test_signet_load_scale tests.test_signet_load_pacing tests.test_signet_load_window_audit -v",
+  "tests_passed": 29,
+  "elapsed_seconds": 50.707,
+  "log_sha256": "b1417eb65cd6d91371ce231bf119c3735a0b462a0f26b079d090196ec98a5581",
+  "new_test_scope": [
+    "Known partial closed window reuses full conservation proof without send or hold mutation",
+    "Other holds, unknown action and unmatched acknowledged send reject before native observation"
+  ],
+  "financial_execution": false,
+  "live_deployment": false,
+  "scope": "Python controller tests use existing SQLite/controller with stub native and Core. Actual FIRST50 source, requested count, deadline and results remain unchanged. The separate audit requires original runner terminal and released writer lock; partial requested workload remains INCOMPLETE."
+}

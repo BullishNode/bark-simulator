@@ -1,0 +1,102 @@
+{
+  "actor_operations": {
+    "failed_send_case": "NOT_STARTED",
+    "invoice": 0,
+    "noah_lnurl_credit": false,
+    "payment": 0,
+    "receive_case": "NOT_STARTED",
+    "recoveries": 0,
+    "refresh": 0,
+    "wallet_open_or_import": 0
+  },
+  "backup": {
+    "actor_wallet_files_unchanged": 250,
+    "cold_manifest_sha256": "89b0400dbeb6992a84345f752b17680f8a78cf9e08851b6a5e11a3d610415c71",
+    "copied_files_and_directories_fsynced_before_gate": true,
+    "full_pg_decode_and_all_archive_file_hashes_verified_off_vm": true,
+    "independent_off_vm_gate_sha256": "b201ad15fdb1d4aa30492d236501d54724afee55e66bf83e7a423493d3a96ad3",
+    "old_580_of_600_and_720_of_900_remain_incomplete": true
+  },
+  "candidate": {
+    "actual_build_head": "0496e057fe8cedde99c9b85edab67035633a8f25",
+    "binary_sha256": {
+      "bark": "43af4775cf42a3e0e628733d71ced959bf4bf20f1a944603ff7ee2f75244401c",
+      "barkd": "3922f56e1a8c59f43789fc0e5ec75759fbed8bce5b54ed519b588c2343f6d537",
+      "captaind": "a06b54abcbba6183220eb4654ef84b523abbcfa432af5105a8911f57bc47010e",
+      "watchmand": "dee9cccd344b44534de33f0ebdd39e922cb53d89195f6b0782cde562686c5802"
+    },
+    "build_manifest_sha256": "42c0642e6fedbeb04ae7273a05df482ed6e6bef3c52d7a76eee0f964d4f15abc",
+    "dirty_source": true,
+    "source_manifest_sha256": "cdedd62efcf1e4f131f8378017cae5facd729d36995419a4ff2e36d0456bf635"
+  },
+  "chain_height": 326862,
+  "controller_source": {
+    "ci_conclusion": "success",
+    "ci_run": 39106505632,
+    "commit": "7f6f749fb14ff535c63a40c64f67901d5b071b1b",
+    "focused_tests": 75,
+    "test_scope": "Stubbed native/Core controller fault tests; no native lifecycle credit."
+  },
+  "deployment": {
+    "both_active_zero_restarts": true,
+    "cap_pid": "390920",
+    "migration_15": {
+      "applied_on": "2026-10-18T07:23:48.4656108Z",
+      "checksum": "1259562674722579274",
+      "name": "expiry_user_claim",
+      "version": 15
+    },
+    "old_migrations_1_through_14_unchanged": true,
+    "receipt_sha256": "ec50a8844b4495a54152087673b9edaf7540343c6838c887ae73af39f7e2ce8e",
+    "runtime_manifest_sha256": "ae72d011e579a2057ffea79e259076178d8d00e60947ad39e035051b687f9679",
+    "runtime_pins_sha256": "0ca4439cf3a58bf750a5873ce61e980da6b4ab834740943cea3943ac9f58f69f",
+    "unchanged_native_fee_wire_sha256": "df76cc8eb61cf1e8017567fa6f006d1ec583409c61e4575ce2faac570b89637e",
+    "unchanged_server_pubkey": "0264e92ccc0051ae9f089117768be08d942919e4552e8d0ec0b3f3ab9d3483510e",
+    "watch_pid": "390954"
+  },
+  "initial_autonomous_pool": {
+    "actual_miner_fee_sat": 173,
+    "existing_rounds_input_sat": 200000,
+    "note": "Actual autonomous issuance from previously allocated funds; pending block confirmation at this receipt. Stored inventory alone is not signed grant/admission proof.",
+    "observed_confirmations": 0,
+    "pool_output_sat": 20000,
+    "rounds_change_sat": 179827,
+    "stored_leaf_amounts_sat": [
+      10000,
+      10000
+    ],
+    "stored_leaf_expiry": 326894,
+    "txid": "b6da22ca986949df8347da1581de2544685a9def213012ae17ed873fadf7d1cb",
+    "vsize": 154
+  },
+  "native_operator_funds": {
+    "new_treasury_principal_sat": 0,
+    "rounds_trusted_sat": 179827,
+    "watchman_trusted_sat": 100000
+  },
+  "network": "PUBLIC_SIGNET",
+  "observed_at": "2026-10-18T07:23:52.882070+00:00",
+  "preserved_failure": {
+    "correction": "Same state/backup/gate, explicit bounded poll for committed15 before watch startup.",
+    "first_wrapper_sha256": "f7a20c77c8f7ff7bdb79283cfc7ba8866fcb0e93487c74122e9bd13fff2ba586",
+    "reason": "Wrapper queried migration readiness immediately after systemd active; committed history was still1..14. It stopped scale services and did not restore the DB.",
+    "resume_sha256": "dab3c3ce13d6dfb9e0e04d466ad3e05ca1a9ba12a5a51e02ea06228f68ff970a",
+    "status": "HOLD"
+  },
+  "qualification_limit": "Deployment and preserved state are proved. No same-candidate receive/refund fallback lifecycle or production readiness is claimed.",
+  "schema": 1,
+  "status": "UPGRADE_COMPLETE_ACTOR_CASES_NOT_STARTED",
+  "test_only_profile": {
+    "exit_delta_blocks": 12,
+    "pool_lifetime_blocks": 32,
+    "pool_pre_expiry_blocks": 12,
+    "pool_targets_sat": [
+      10000,
+      10000
+    ],
+    "production_tree_4320_send_258_proven": false,
+    "receive_delta_blocks": 6,
+    "send_delta_blocks": 18,
+    "tree_lifetime_blocks": 32
+  }
+}

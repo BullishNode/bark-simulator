@@ -1,0 +1,91 @@
+{
+  "backup_manifest_sha256": "e510812655d7f66f560edf7d7e02fcdc42685f786577cf7e9c9aeac13d4c2593",
+  "runtime_manifest_sha256": "162964716588566b084c7d768b7401816625998774a28d3dc3bbaaedfcc008a8",
+  "runtime_pins_sha256": "6c70aa3afa82fb11f4607b83a412fcff9141f3a073617022536a36a1cd930d73",
+  "funding_request_sha256": "8eb60f71baa6dc5e79ce78e925b48eebcb756b6b3aaf37dceab320ad8ec267eb",
+  "config_sha256": {
+    "captaind": "8549584e70553202af42f8a7ac7c2c7eb7884ebe064b9cf214d70c74ff14d3d5",
+    "watchmand": "4340b3c4f6b3bb2d5c0b79f5d212cd84a6f987838cec718f0ac367ad51a8593a"
+  },
+  "source_build_head": "2f070b60a870b5d02edd8b5b0a5b0289a2edd11c",
+  "published_equivalent_code": "e443d415ee7b0d512203bd56f85e22cdec69d35f",
+  "source_manifest_sha256": "1e28b175d8ee83aed24246b229831cfb926dc8003e4a40a049f262e5fa3f6dff",
+  "server_pubkey": "0264e92ccc0051ae9f089117768be08d942919e4552e8d0ec0b3f3ab9d3483510e",
+  "processes": {
+    "captaind": {
+      "MainPID": "222833",
+      "NRestarts": "0",
+      "ActiveState": "active",
+      "start_ticks": 9164011,
+      "actual_elf_sha256": "3f271e4dbf2fb08f4c4cd3f072814c12103e6611cf602ba8d8e79f2991e171d1"
+    },
+    "watchmand": {
+      "MainPID": "223021",
+      "NRestarts": "0",
+      "ActiveState": "active",
+      "start_ticks": 9164103,
+      "actual_elf_sha256": "8bf707d1b26fb019271f1443873d03d3678a52a80635a94557122b674ada4c81"
+    }
+  },
+  "actual_native_actions": [
+    [
+      "address",
+      50
+    ],
+    [
+      "ark_info",
+      1
+    ],
+    [
+      "create",
+      50
+    ],
+    [
+      "fallback_record",
+      50
+    ],
+    [
+      "onchain_address",
+      50
+    ]
+  ],
+  "archive_bytes": 551509,
+  "kind": "ACTUAL_ZERO_FUNDED_FIRST50_NATIVE_PREPARATION",
+  "snapshot_recorded_at": "2026-10-17T21:43:26.791881+00:00",
+  "controller_source": "36cefa12fceab6f5ec496d727208f94efcc38f46",
+  "controller_ci": "https://github.com/BullishNode/bark-simulator/actions/runs/39070077103",
+  "actual_ELF_version_label": "9ea05f9680be2757e875ee81f4546fd24e5b6354",
+  "dirty_source": true,
+  "profile": {
+    "network": "default public Signet",
+    "lifetime_blocks": 4320,
+    "exit_delta_blocks": 144,
+    "board_confirmations": 3,
+    "pool_targets": [],
+    "CLN_nodes": []
+  },
+  "genuine_native_actors": 50,
+  "total_native_acknowledgements": 201,
+  "actual_boards": 0,
+  "actual_offchain_sends": 0,
+  "treasury_funding_dispatched": false,
+  "proposed_principal_sat": 2300000,
+  "off_VM_backups": {
+    "new_cold_server_manifest_sha256": "76629583cd64c759b1332f1ea3ddb5cf728ad70621610c9c680aca71d041337c",
+    "registered_cohort_manifest_sha256": "e510812655d7f66f560edf7d7e02fcdc42685f786577cf7e9c9aeac13d4c2593",
+    "both_independently_hash_verified": true
+  },
+  "retained_failures": [
+    "Missing start subcommands in initial service drafts; corrected before any service start, actual original parse exit2 retained",
+    "First Python finalize invocation import failure before campaign creation; corrected exact frozen-checkout PYTHONPATH, no native action replay"
+  ],
+  "manual_cold_backup_stop_restart": "Only new cap/watch intentionally stopped and restarted; auto NRestarts remain zero. Earlier process IDs are historical, not current admission.",
+  "limits": [
+    "Registration and backup proof only; no new funded load/performance or production readiness",
+    "No LN, Noah/LNURL, browser or full-catalogue qualification",
+    "No old absent wallet or existing campaign modified"
+  ],
+  "snapshot_observed_at": "2026-10-17T21:41:34.883130+00:00",
+  "scope": "Historical zero-funded preparation snapshot; later treasury/traffic receipts must be read separately.",
+  "actual_funded_load_result": false
+}

@@ -1,0 +1,87 @@
+{
+  "counts_after": [
+    4035,
+    2135
+  ],
+  "counts_before": [
+    4035,
+    2135
+  ],
+  "load_source_sha256": "249567d499f3ed0382885ed81d6de0088f175607a25bcf57cac98497459126f8",
+  "method": "Actual report versus new progress on SAME stopped readonly SQLite; no constructor/native/wallet opens. New methods compiled from exact supplied source AST; no live controller changes.",
+  "projection_sha256": "5a1d7748ab650fbd26b4992546a8cfe059e738c41518b7577b6be558d6108853",
+  "samples": [
+    {
+      "bytes": 20658567,
+      "controller_cpu_seconds": 0.588697558,
+      "full": true,
+      "kind": "load_report_cost",
+      "projection_seconds": 0.3545706190052442,
+      "serialization_seconds": 0.2121423600037815,
+      "wall_seconds": 0.6122676840022905,
+      "write_seconds": 0.04555405699647963
+    },
+    {
+      "bytes": 280,
+      "controller_cpu_seconds": 0.007204472000000073,
+      "full": false,
+      "kind": "load_report_cost",
+      "projection_seconds": 0.006505805999040604,
+      "serialization_seconds": 5.275300645735115e-05,
+      "wall_seconds": 0.00893037099740468,
+      "write_seconds": 0.0023713760019745678
+    },
+    {
+      "bytes": 20658567,
+      "controller_cpu_seconds": 0.568088635,
+      "full": true,
+      "kind": "load_report_cost",
+      "projection_seconds": 0.3292877329949988,
+      "serialization_seconds": 0.21398008801043034,
+      "wall_seconds": 0.5919634799938649,
+      "write_seconds": 0.04869507098919712
+    },
+    {
+      "bytes": 280,
+      "controller_cpu_seconds": 0.006914517000000009,
+      "full": false,
+      "kind": "load_report_cost",
+      "projection_seconds": 0.006234040993149392,
+      "serialization_seconds": 4.615601210389286e-05,
+      "wall_seconds": 0.008720643993001431,
+      "write_seconds": 0.002440208991174586
+    },
+    {
+      "bytes": 20658567,
+      "controller_cpu_seconds": 0.569398021,
+      "full": true,
+      "kind": "load_report_cost",
+      "projection_seconds": 0.33391941600712016,
+      "serialization_seconds": 0.20963767998910043,
+      "wall_seconds": 0.593972885995754,
+      "write_seconds": 0.05041521800740156
+    },
+    {
+      "bytes": 280,
+      "controller_cpu_seconds": 0.007154174999999929,
+      "full": false,
+      "kind": "load_report_cost",
+      "projection_seconds": 0.006362738000461832,
+      "serialization_seconds": 4.7883004299364984e-05,
+      "wall_seconds": 0.009181422996334732,
+      "write_seconds": 0.002769810991594568
+    }
+  ],
+  "utc": "2026-10-18T04:37:10.052473+00:00",
+  "scope": "Source-preparation reporting benchmark only; no new funded load, backend capacity, payment qualification or deployment claim.",
+  "source_base": "38bde7d756baf7ae64089c1f147560a32f6a65a2",
+  "raw_receipt_sha256": "78ea61aad4473cd78858c9d54e0aa372b1f0de3120ea79adb45233bccafaa6e0",
+  "count_only_projection": true,
+  "actual_latest_batch_timing_available": false,
+  "focused_tests": {
+    "command": "python3 -m unittest tests.test_signet_load_progress tests.test_signet_load tests.test_signet_load_scale tests.test_signet_load_pacing tests.test_signet_load_window_audit tests.test_signet_proof -q",
+    "passed": 43,
+    "seconds": 63.259,
+    "scope": "Stubbed native/Core process and real SQLite controller tests, not new Signet lifecycle proof."
+  }
+}

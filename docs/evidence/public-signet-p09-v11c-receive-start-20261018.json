@@ -1,0 +1,68 @@
+{
+  "controller_holds": {
+    "latest_hold": "Immediate refresh completion assertion rejected authentic pending locked original inputs",
+    "preserved": true,
+    "provider_cleanly_stopped": true,
+    "same_token_seeds_wallet_copies_and_journals_retained": true,
+    "setup_findings": [
+      "native secret show requires initial secret refresh",
+      "new two-byte debug log was absent from original copied CLI wallet",
+      "protected process executable requires privileged identity hash",
+      "installed service file is root-readable",
+      "SQLite context manager does not close old read-only journal FD"
+    ]
+  },
+  "failed_send": {
+    "cancel_count": 0,
+    "case_verdict": "INCOMPLETE",
+    "invoice_count": 0,
+    "original_principal_sat": 28670,
+    "refresh_count": 1,
+    "refresh_not_replayed": true,
+    "send_count": 0,
+    "stage": "ONE_NATIVE_REFRESH_ACK_INPUTS_LOCKED_PENDING_ROUND",
+    "unknown_actions": 0
+  },
+  "historical_results_preserved": {
+    "first50": "580/600 INCOMPLETE",
+    "v10": "720/900 INCOMPLETE"
+  },
+  "kind": "public_signet_native_bolt11_lifecycle_checkpoint",
+  "observed_at": "2026-10-18T08:18:11Z",
+  "observed_height": 326864,
+  "pending_observation_correction": {
+    "focused_python_tests_passed": 64,
+    "patch_sha256": "093633fc247e88942cb5b6b98f5b4dd33c3481225e5ebcf8c3b059300192a608",
+    "scope": "Exact original locked input observation waits; full new coin/signature/backing/deadline gates retained. Tests use process/Core stubs.",
+    "source_review": "Independent source ACK; no runtime credit for pending continuation."
+  },
+  "product_build_manifest_sha256": "42c0642e6fedbeb04ae7273a05df482ed6e6bef3c52d7a76eee0f964d4f15abc",
+  "profile": {
+    "production_parameter_qualification": false,
+    "receive_htlc_delta": 6,
+    "send_htlc_delta": 18,
+    "vtxo_exit_delta": 12,
+    "vtxo_lifetime": 32
+  },
+  "receive": {
+    "case_verdict": "INCOMPLETE",
+    "chain_anchor": "b6da22ca986949df8347da1581de2544685a9def213012ae17ed873fadf7d1cb:0",
+    "expected_fallback_if_one_output_sat": 3890,
+    "expiry_height": 326894,
+    "fallback_or_seed_recovery_proven": false,
+    "invoice_count": 1,
+    "noah_or_lnurl_credit": false,
+    "paid_sat": 5000,
+    "payer_preimage_hash_verified": true,
+    "payment_count": 1,
+    "payment_hash": "68f9223726122aca9ce375a1aa2826ac7c906c43803a35b7ec21d9ea7deb2ca4",
+    "recipient_address_and_signed_grant_lineage_verified": true,
+    "recipient_amount_sat": 4890,
+    "recipient_coin_id": "be9db05bdf01b879bf0a09d434014a38d0e80e57c50769092ee3323a49e0dab8:0",
+    "recipient_policy": "pubkey",
+    "recipient_wallet_opened": false,
+    "routing_fee_msat": 0,
+    "stage": "RECIPIENT_SIGNED_CLAIM_FROZEN_ABSENT_WAITING_FOR_EXPIRY"
+  },
+  "runtime_manifest_sha256": "ae72d011e579a2057ffea79e259076178d8d00e60947ad39e035051b687f9679"
+}

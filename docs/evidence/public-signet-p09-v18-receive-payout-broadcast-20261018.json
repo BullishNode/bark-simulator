@@ -1,0 +1,67 @@
+{
+  "at": "2026-10-18T14:53:43.797088+00:00",
+  "fee_child": {
+    "actual_miner_fee_sat": 491,
+    "blockhash": null,
+    "confirmations": 0,
+    "txid": "e99b387ef229aabbc5ea8753791fcfea814c5a4f66f47d40ef5c66968576ba18",
+    "version": 3,
+    "vin": [
+      {
+        "amount_sat": 0,
+        "script": "51024e73",
+        "txid": "c3dc1d00f0f9f7866567430f104bc8494f5146955e5b79a25ce292cce00d76d6",
+        "vout": 2
+      },
+      {
+        "amount_sat": 20000,
+        "script": "512040bd08a9405e7c871bb64392eb64f3c648a9a6790df9bcfb6cb1b6978df0835f",
+        "txid": "b9cbce6fb9b6ebb0f89e3f4952d7caf095ccc637e462c24bc1458b6cc70268a7",
+        "vout": 53
+      }
+    ],
+    "vout": [
+      {
+        "amount_sat": 19509,
+        "script": "51203d78a5667f1c134ddbd8aa843bb980df71c528e1e6134bae78415e8eef2c75a5",
+        "vout": 0
+      }
+    ],
+    "vsize": 153
+  },
+  "height": 326903,
+  "parent": {
+    "actual_miner_fee_sat": 0,
+    "blockhash": null,
+    "confirmations": 0,
+    "txid": "c3dc1d00f0f9f7866567430f104bc8494f5146955e5b79a25ce292cce00d76d6",
+    "version": 3,
+    "vin": [
+      {
+        "amount_sat": 20000,
+        "script": "5120aab2e26ee131458b08e13b84e4ade2d3b716138b02c6ddc04a9c1f3c31a2d2f3",
+        "txid": "b6da22ca986949df8347da1581de2544685a9def213012ae17ed873fadf7d1cb",
+        "vout": 0
+      }
+    ],
+    "vout": [
+      {
+        "amount_sat": 3890,
+        "script": "00147a8fb60926f8d94a727d0346c84c3c31a95f8ad2",
+        "vout": 0
+      },
+      {
+        "amount_sat": 16110,
+        "script": "5120cb302d66f90804454590e643639a0b4677e7c82af55e398d54b87fb36f45bb1f",
+        "vout": 1
+      },
+      {
+        "amount_sat": 0,
+        "script": "51024e73",
+        "vout": 2
+      }
+    ],
+    "vsize": 174
+  },
+  "scope": "Independent Core broadcast/value/script/lineage/miner-fee proof only; not six-confirmation discharge or recovery."
+}

@@ -1,0 +1,124 @@
+# Money-loss scenario contributions from simulation
+
+This map covers **38 selected IDs**, including every ML061–ML080 row and selected attribution, load, history and operational recovery risks. The coordinator's [200-ID acceptance ledger](https://github.com/BullishNode/abandon-ship-bark/blob/82d341c16/docs/money-loss-acceptance-20261017/ACCEPTANCE.csv) remains authoritative and unchanged. The original 80-behavior simulator catalogue remains separate; its IDs are not silently replaced by these money-loss IDs.
+
+**No whole-scenario PASS is claimed here.** Contribution states are 1 observed failure, 22 partial, 13 not run and 2 requiring an identity-policy/reachability ruling. PARTIAL means related evidence, not satisfaction of the complete scenario oracle. The [machine-readable map](money-loss-simulation-map-20261017.json) preserves every selected original title and complete oracle, source catalogue hash, evidence references and missing proof.
+
+## Public Signet and controlled tests
+
+Public Signet supplies real native registrations, funding, transfers, aging, independent payout transactions and seed recovery. The native Lightning receive has one actual 5,000-sat payment and a signed 4,890-sat recipient coin. Its later [3,890-sat rightful fallback broadcast](evidence/native-ln-receive-fallback-broadcast-20261017.json) reached actual expiry 326816; both parent and fee child were unconfirmed in that receipt, with recovery still pending. It is native BOLT11 evidence; it proves no stock Noah functional receive. The actual stock Noah callback remains a prepayment compatibility failure.
+
+Controlled native regtest is required for precise reorgs, adversarial fee pressure, claim/forfeit races, mismatched backups, continuous arrival fairness and interrupted-provider boundaries. Reproducing those faults on demand is not a requirement imposed on public Signet block production. Source review, Python protocol tests and native ordinary success do not substitute for a funded fault scenario. The original map was compiled read-only. Later authorized funding and board activity is recorded as a separate additive receipt below; it does not upgrade any complete scenario oracle.
+
+## ML061–ML080
+
+| ID | Contribution | Missing full proof |
+|---|---|---|
+| ML061 | FAIL | Compatible exact-metadata-hash callback and real paid Noah recipient/fallback/recovery remain absent. |
+| ML062 | NOT_RUN | Request-owner binding plus independent Alice receipt/Bob zero. |
+| ML063 | NOT_RUN | Original10k request must reject20k invoice and no mismatched debit. |
+| ML064 | NOT_RUN | Two original hashes, immutable request choice, actual debit at mostonce and safely canceled unused obligation. |
+| ML065 | BLOCKED_POLICY | Resolve unintended-update versus authorized-forwarding contract, then prove intended seed/script continuity. |
+| ML066 | BLOCKED_POLICY | Define in-flight account identity; original metadata must preserve identity or reject before debit. |
+| ML067 | PARTIAL | Original destination must survive failed/lost claim reply, provider source exit and terminal state; inspect every actual payout and provider zero. |
+| ML068 | PARTIAL | Restore original paid action after wall-clock expiry; rightful original payout once, no replacement debit. |
+| ML069 | PARTIAL | Inject owned misassociation; actual paid hash must discharge only original recipient, regardless of Lightning node. |
+| ML070 | PARTIAL | Actual inbound under absent pool/unusable sponsors must refundpayer or deliver valid recipient proceeds, without false health-based receipt. |
+| ML071 | NOT_RUN | Actual proof-required profile with accepted inbound must grant correctly or return actual payer funds. |
+| ML072 | PARTIAL | Original advertised bytes must match invoice hash; changed serialization must reject. |
+| ML073 | NOT_RUN | Authentic pre-V9 source/node history must resolve old liabilities without invented markers. |
+| ML074 | NOT_RUN | Remove actual supporting block; retain gross liability/fence and correct eventual canonical owner. |
+| ML075 | NOT_RUN | Stored cryptographic knowledge survives while chain-derived confirmations roll back; no unsafe source refund. |
+| ML076 | PARTIAL | Lightning-origin accepted-forfeit/lost-reply cross-root successor must remain rightful and recoverable once. |
+| ML077 | NOT_RUN | Trace actual failed source through unfinished participation cancellation; preserve original owner and unrelated root. |
+| ML078 | NOT_RUN | Actual external debit and canonical timeout winner; operator deficit explicit and zero additional fallback refund. |
+| ML079 | PARTIAL | Paid bound intent with no VTXO row and late recipient registration must create zero-start scan pairs and pay rightful owner. |
+| ML080 | PARTIAL | Genuine old provider backup must retain original destination and rightful payout without self-claim/new invoice. |
+
+## Attribution and operational load
+
+[The independent scale scope review](evidence/attribution-scale-scope-review-20261017.json) checks the retained raw report and exact test-source hash. The newer authenticated benchmark passed nine low-index lookup cases at 100/1,000/10,000 signed registrations. At 10,000 records, absent mailbox took 117.384831411 s and wrong mailbox 116.875138548 s against a 120 s bound, leaving 2.615 s and 3.125 s respectively. That single-run margin is not a production service guarantee. The earlier wrong-mailbox 120.138570792 s failure remains unchanged.
+
+The registration phase uses real signed public RPCs. The following lookup phase stops captaind, directly queues deterministic test keys at indices 17/18/19 and invokes the real scanner against real PostgreSQL. It contains no funded native wallets, trees, payouts or competing user traffic. `records_scanned` sums work visits: 116/1,016/10,016 visits are not that many distinct accounts or customers paid. Memory high-water marks are process-lifetime values and exclude PostgreSQL/Core.
+
+The 50-wallet public-Signet campaign is a different measurement: 200 reconciled ordinary 1,000-sat transfers, unchanged 1,483,500-sat cohort value, 29.69 paced sends/minute under source7055. The newer [v10 fixed-window result](evidence/public-signet-scale-v10-window-result-20261018.json) records 720/900 reconciled, 180 not dispatched, 0 unknown and the same 1,483,500 sat after its final native money audit. Its 180 signed current coins remain backed by 50 confirmed anchors. The workload remains INCOMPLETE, with measured 48.14/min, partial resource sampling and actual storage growth; none closes a full money-loss scenario. The 327-owner native-regtest split is also different: actual two-level progress and 327 rightful confirmed outputs totaling 1,308,000 sat, with accelerated test timers. Neither supplies high-index funded attribution fairness, arbitrary-shape recovery or production capacity.
+
+| ID | Contribution | Missing full proof |
+|---|---|---|
+| ML093 | PARTIAL | High-index owned key under many records, actual covered intervals, oldest funded-liability age and rightful payout. |
+| ML099 | PARTIAL | Measure aged funded key progress and actual payout while arrivals continue at declaredrate. |
+| ML100 | PARTIAL | Measure record-by-pending-key storage/work and oldest funded debt with growth, no abandoned accounting. |
+| ML101 | PARTIAL | Full scenario oracle adds actual funded100k source and rightful99k within stated bound, plus distinct interval/owner metrics. |
+| ML102 | NOT_RUN | Authentic unregistered legacy coin must retain explicit debt and have a reviewed eventual claimant/recovery path; safe Hold alone is insufficient. |
+| ML105 | PARTIAL | Reconcile complete catalogue oracle and exact candidate provenance with coordinator; repair does not erase original live failure. |
+| ML107 | PARTIAL | Independently valid above-budget inventory must make conservative eventual progress for every funded owner. |
+| ML115 | PARTIAL | Valid deep repeated histories must decompose within work budgets and pay every owner once. |
+| ML142 | NOT_RUN | Malformed owned saved group plus valid canonical customer payout; isolate without financial SQL injection. |
+| ML186 | PARTIAL | Above authentic page limit, assess complete authenticated protection/history separately from exact chain-only recovery spend. |
+| ML187 | PARTIAL | Complete stable snapshot under unrelated writes and separately prove chain-only discovery/spend, no partial-page false adoption. |
+| ML188 | PARTIAL | Restore documented backup with birthday after payout; discover exact payout without hints or explicitly establish required missing metadata. |
+| ML191 | NOT_RUN | Large real history plus controlled slow owned chain backend must preserve live signed protection before deadline. |
+| ML195 | PARTIAL | Fresh isolated documented-backup-only restore must sign/fund valid package, confirm rightful payout and recoveryspend. |
+| ML196 | NOT_RUN | Per-owner historical pre/post ledger and actual rightful scripts/spendability; treasury recovery cannot discharge customer rights. |
+| ML197 | PARTIAL | Declare retained history/resources/change-arrivalrate; drain backlog and pay oldest new actual entitlement while preserving reorg evidence. |
+| ML198 | PARTIAL | Trace every sponsor, urgency cost and oldest fallback age under finite usable funding shapes; rightful payout eventually confirms. |
+| ML199 | PARTIAL | Verify monitoring denominator includes authentic funded root before entitlement rows exist; zero obligations-only count cannot mean zero unpaid money. |
+
+## Current execution order (V18, 18 October)
+
+1. The original V11c paid receive remains frozen: 4,890 sat, tree expiry326894 and grant deadline326912. Its independent recovery-only observer now uses the explicitly admitted V18 runtime after a verified cold backup and fork migration16. The original invoice/payment ACKs remain only in the old journal. Require the actual registered-script payout and fee child at six canonical confirmations before original-seed-only restore and one drain; require six recovery confirmations. This is a source split between V11c claim and V18 payout/recovery, not a silent repin or completed payout claim.
+2. The reused002 source remains [FAILED_SETUP_GEOMETRY](evidence/public-signet-p09-failed-setup-geometry-20261018.json), with its original entitlement retained and its one refresh still locked. No cancellation, forced forfeit, second refresh, new source substitution or release was performed. Future refresh attempts have an early necessary CSV/margin compatibility guard; it does not repair this existing operation.
+3. The separately funded fresh short-exit source has now reached [actual Accepted, sender absence, one cancellation and source-specific failure](evidence/public-signet-p09-v18-failed-send-cancel-20261018.json). It reuses the existing58,034-sat recovered output, with no new principal. Its verified cut is5,075+7,298+7,297=19,670sat, actual grant deadline326909 and tree expiry326913. At height326892 both this controller and the independent receive observer were live. The failed-send case remains INCOMPLETE while waiting for the real heights and actual payout/child/seed-recovery oracles. The original curl failure and pre-cancel process-check HOLD are preserved with their proof limits; no send or fence was replayed.
+4. Preserve the earlier completed c60c lifecycles separately. Current short receive6/send18/tree32 parameters are test-only and do not qualify production258/4320 or stock Noah. The stock Noah callback remains unpaid and rejected for its actual metadata-hash mismatch. Backend/client/test owners must still close the catalogue's controlled faults; native ordinary success and partial Signet lifecycles cannot satisfy those complete oracles.
+
+All38 selected risk IDs, original oracle hashes, contribution counts and zero whole-scenario PASS claims remain unchanged. The coordinator's canonical200-ID ledger and original research snapshot are untouched. New candidate/controller pins and actual operations are additive; earlier580/600 and720/900 load verdicts remain INCOMPLETE.
+
+## Additive funded-preparation checkpoint
+
+The [independent Core snapshot at326792](evidence/native-ln-failed-send-board-observation-20261017.json)
+records exactly one100,000-sat allocation (60,000 sender plus two20,000 watchman
+outputs), with612sat treasury miner fee. One board spends the original sender
+output:30,000sat tree output,29,542sat other output and458sat miner fee. Native
+ACK reports29,670sat net;330sat remains tree value. Neither ACK nor that carried
+residual establishes completed payment, cash subsidy or new fallback revenue.
+Core alone does not establish ownership of the other output; actual seed-only
+recovery must reconcile it separately from the eventual fallback.
+
+This is a fresh-marker profile, without legacy restoration or an unfinished
+refresh exchange. **ML073 and ML077 remain NOT_RUN.** A later normal failed-send
+PASS would still leave their complete legacy/cancellation oracles unmet. All38
+selected IDs, original oracle hashes, counts and zero whole-scenario PASS claims
+are preserved; the coordinator's200-ID ledger/research snapshot is unchanged.
+
+
+## Actual failed-send phase, fallback pending
+
+[The later native checkpoint](evidence/native-ln-failed-send-accepted-cancelled-20261017.json)
+records actual one5,000-sat invoice/send at326794, externalAccepted, original
+sender fenced before onecancel, then the exact own-node/label/positive-index2
+failure. Actual signed D=326812 and tree E=326823. Three verified source/change
+coins total29,670sat: locked5,075 and spendable12,298+12,297. The75sat in the
+HTLC is a reserve, not a settled send fee. Expected one-output fallback28,670sat
+is still unconfirmed/unobserved here; native original-seed recovery has not run.
+
+[Independent post-cancel channel observations](evidence/native-ln-failed-send-liquidity-20261017.json)
+use the controller's retained actual pre-send snapshots. Internal/external
+channel principal balances remain105,000,000/95,000,000msat; offered counts
+increase, fulfilled counts do not, and neither side has pending HTLCs. This is
+normal failed-send financial evidence, not satisfaction of ML073/ML077 legacy
+or unfinished-refresh scenarios, nor any Noah/LNURL functional receive.
+
+## Additive confirmed native Lightning recoveries
+
+[The independent completed-case receipt](evidence/public-signet-native-ln-recovery-20261018.json)
+now proves both normal native cases through real fallback and original-seed-only
+confirmed spends. At Core 326842 the receive payout/recovery have 26/20
+confirmations; the attempted-failure refund/recovery have 19/10. Both original
+first-PASS recovery depths were one and are preserved. Each case used one
+restore and one drain with no unknown action or original absent-wallet reopen.
+
+These useful completed native lifecycles do not inject the catalogue's provider
+identity, lost reply, legacy backup, reorg or unfinished-refresh faults. Every
+selected original row/oracle and the 1 FAIL / 22 PARTIAL / 13 NOT_RUN / 2 BLOCKED_POLICY
+counts remain unchanged, with zero whole money-loss scenario PASS claims.
+The coordinator's canonical 200-ID ledger and research snapshot are unchanged.

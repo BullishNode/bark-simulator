@@ -1,0 +1,81 @@
+{
+  "actual_costs_sat": {
+    "board_miner_fee": 458,
+    "carried_board_residual": 330,
+    "funding_miner_fee": 423,
+    "net_operator_subsidy": null,
+    "watchman_payout_miner_fee": null
+  },
+  "case_verdict": "INCOMPLETE",
+  "chain": {
+    "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+    "network": "public signet"
+  },
+  "controller": {
+    "cancel_recovery": "d4e54f7441bda3d3780e8f9392d6f8378c65ed1f",
+    "cancel_wrapper_sha256": "e7dd284365e1069bb54a4836c53cc3ddc477aad9838ecb1cd670b94939f9f0d8",
+    "initial_loader_capture": "b7a1078dda611b46931cb737de7c218dd9e98cea",
+    "invoice_send_fence": "d84cdbdf60958bee34fb9f8d453238af2f8bfac5",
+    "root_allocation_sha256": "85ced38eaa134d0dedb969f1959330011f235b0894dd8a546ae149430e7e88cd"
+  },
+  "missing_proof": [
+    "Actual correct payout and fee child at six canonical confirmations",
+    "Fresh original-seed-only restore and one confirmed recovery drain",
+    "Recovery spend at six canonical confirmations",
+    "Whole catalogue-specific fault oracles and production qualification"
+  ],
+  "money_loss_ledger_changed": false,
+  "observed_height": 326892,
+  "operation": {
+    "accepted_htlc_observed": true,
+    "actual_grant_amount_sat": 5075,
+    "actual_grant_deadline": 326909,
+    "actual_tree_expiry": 326913,
+    "cancellation_acknowledgements": 1,
+    "change_amounts_sat": [
+      7298,
+      7297
+    ],
+    "grant_ids": [
+      "b39b1c9acb0966dfd786b7a9e3215cd11beb58f4428722c1ba8c7e9a7b13318a:0"
+    ],
+    "invoice_amount_sat": 5000,
+    "native_send_acknowledgements": 1,
+    "observed_external_htlc_expiry": 326898,
+    "payment_hash": "0bbe833ef9829beedd6671dc23fb7daee54dd2f70bcb2c98f7b0ce4cf832969c",
+    "reserved_send_fee_sat": 75,
+    "same_hash_invoice_acknowledgements": 1,
+    "sender_absent": true,
+    "signed_total_sat": 19670
+  },
+  "preserved_failures": {
+    "explicit_close_regression_passed": true,
+    "local_checkpoint_fd_leak_reproduced": true,
+    "original_guard_HOLD_retained": true,
+    "original_guard_specific_assertion_or_pid_retained": false,
+    "original_invoice_numeric_exit_code_retained": false,
+    "original_invoice_state": "failed_before_execution",
+    "original_unknown_snapshot_retained": true
+  },
+  "runtime": {
+    "captaind_sha256": "4bc16a305a40d455135bfd2df985d9dcb21a4987523148ec83cfdbae32ce4f25",
+    "profile": "test-only life32/exit12/send18; production258/4320 not exercised",
+    "runtime_pins_sha256": "41d4c40efd72dfe1020999da5b7e0e480b671b9a6e4fd45c43984b4875896376",
+    "stage": "V18",
+    "watchmand_sha256": "1660f365f1fb14909d4aad7975c171db49b0aa4c351b2a07d71513e7ff750366"
+  },
+  "schema": 1,
+  "scope": "Native public-Signet attempted failed external send; no Noah/LNURL, production-profile, multi-source or whole-money-loss-scenario qualification.",
+  "source_failure": {
+    "failure_created_index": 3,
+    "failure_updated_index": 3,
+    "first_observed_utc": "2026-10-18T12:49:51Z",
+    "height": 326892,
+    "jsonrpc_error_code": null,
+    "matching_own_payer_group_created_index": 3,
+    "method": "Original node/attempt/grant/hash/label/positive-created-index join and own CLN failed group; not coarse Failed or typed no-attempt.",
+    "source_check": "PASS",
+    "status": "failed",
+    "success_created_index": null
+  }
+}

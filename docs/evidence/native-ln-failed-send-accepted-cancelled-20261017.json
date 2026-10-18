@@ -1,0 +1,246 @@
+{
+  "Noah_LNURL_qualified": false,
+  "actions": [
+    {
+      "chain": {
+        "chain": "signet",
+        "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+        "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+        "hash": "00000008ca0d06ad05f5cb8d2e25a460b4c2aa96a1eb7d6e311b02a75283de5a",
+        "height": 326794
+      },
+      "created_at": 1792266319.4966092,
+      "id": "failed-send-hold-invoice",
+      "reply": {
+        "amount_msat": 5000000,
+        "expires_at": 1792269919,
+        "invoice_sha256": "c75aeadd212f590464a31422b8f45b79e2f1ad1f410401a7e4b915825303e458",
+        "min_final_cltv_expiry": 6,
+        "payee": "03f10014941a28fde31d767753cf7667e25164a2346406ab88ca90cbb4c67e29b3",
+        "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+        "scope": "One native external hold invoice; no payment, acceptance or refund credit."
+      },
+      "state": "acknowledged",
+      "updated_at": 1792266319.5562177
+    },
+    {
+      "chain": {
+        "chain": "signet",
+        "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+        "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+        "hash": "00000008ca0d06ad05f5cb8d2e25a460b4c2aa96a1eb7d6e311b02a75283de5a",
+        "height": 326794
+      },
+      "created_at": 1792266320.8172545,
+      "id": "failed-send-native-pay",
+      "reply": {
+        "completion": "Requires actualAccepted hold and original sender checkpoint; not paid.",
+        "native_exit_zero": true,
+        "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99"
+      },
+      "state": "acknowledged",
+      "updated_at": 1792266321.0815222
+    },
+    {
+      "chain": {
+        "chain": "signet",
+        "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+        "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+        "hash": "00000008ca0d06ad05f5cb8d2e25a460b4c2aa96a1eb7d6e311b02a75283de5a",
+        "height": 326794
+      },
+      "created_at": 1792266330.1542163,
+      "id": "failed-send-cancel",
+      "reply": {
+        "completion": "Cancellation ACK only; observe original hold and actual backend source failure.",
+        "native_exit_zero": true,
+        "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99"
+      },
+      "state": "acknowledged",
+      "updated_at": 1792266331.4089158
+    }
+  ],
+  "actual_HTLC_deadline": 326812,
+  "actual_htlc_amount_sat": 5075,
+  "actual_services_at_transition": {
+    "captaind": {
+      "elf_sha256": "592df297c9b58b22261b7487c57a4076bba72b735232707d98275f84981642a8",
+      "pid": 203114,
+      "restarts": 0
+    },
+    "watchmand": {
+      "elf_sha256": "edf59b0b352f8aa0a5ef76e8cc306b3c591836b73181baf48b3ce46da0764bbf",
+      "pid": 203234,
+      "restarts": 0
+    }
+  },
+  "actual_source_specific_failure": {
+    "case_verdict": "INCOMPLETE",
+    "chain": {
+      "chain": "signet",
+      "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+      "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+      "hash": "0000000d6aaec682e0cba2dfd28c2cbd72be4d8d67c33bd007153e191e61b04c",
+      "height": 326795
+    },
+    "kind": "failed_send_source",
+    "payer_groups": [
+      {
+        "created_index": 2,
+        "label": "da663539-ca70-419a-8867-14ac93286ba0",
+        "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+        "status": "failed",
+        "updated_index": 2
+      }
+    ],
+    "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+    "scope": "Observed-group failure only; no typed no-attempt substitute and no fallback completion yet.",
+    "source_check": "PASS",
+    "sources": [
+      {
+        "attempt_id": 1,
+        "chain_resolution": null,
+        "chain_resolution_height": null,
+        "direction": "incoming",
+        "failure_created_index": 2,
+        "failure_updated_index": 2,
+        "grant_id": "180fc67e4785f2f5a919302ec64617eec0c73a42ee3398fe167640b66bef8a9b:0",
+        "htlc_expiry": 326812,
+        "jsonrpc_error_code": null,
+        "label": "da663539-ca70-419a-8867-14ac93286ba0",
+        "lightning_node_id": 1,
+        "lightning_node_pubkey": "02de1325fcc41c085c12e9fee5997a4d9afa78cc96ce5c1d4d97b01e0d2929f8eb",
+        "offchain_resolution": null,
+        "onchain_spent_height": null,
+        "onchain_spent_txid": null,
+        "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+        "status": "failed",
+        "subscription_id": null,
+        "success_created_index": null
+      }
+    ],
+    "stage": "ACTUAL_SOURCE_SPECIFIC_EXTERNAL_FAILURE"
+  },
+  "actual_tree_expiries": [
+    326823
+  ],
+  "archive_sha256": "93a04b3e0f11e6f1c0da1d8ab897c58af88aecd10fb2ee82ea9df365124a8110",
+  "at": 1792266527.9196846,
+  "case_verdict": "INCOMPLETE",
+  "cold_backup_manifest_sha256": "4148206d7783d5b1c546b3bae5da48661e30a660d52acdd568f4cde0387627a9",
+  "controller_source": "b948a3d384303657a7599f2ed40bb2420918cff1",
+  "expected_one_output_fallback_sat": 28670,
+  "fallback_or_seed_recovery_complete": false,
+  "frozen_coins": [
+    {
+      "amount_sat": 12298,
+      "chain_anchor": "033bb9d8ed94869f86db30207d95019f359d030ca73c0ae85f21f925290299ff:0",
+      "expiry_height": 326823,
+      "id": "87fc2123bde8c35bd7ef45dbf8a68d82235d45f44fd568bd7c29b99aa84ac267:0",
+      "state": "spendable",
+      "user_pubkey": "02683d5e3441e8f5a9e3a782bc8500fdb3e374bdf72001721da50d76c96298a8f1"
+    },
+    {
+      "amount_sat": 12297,
+      "chain_anchor": "033bb9d8ed94869f86db30207d95019f359d030ca73c0ae85f21f925290299ff:0",
+      "expiry_height": 326823,
+      "id": "f477c6ec6c23608e170c4c4beb693df9b8cb84b7e3e2226601069585d352083f:0",
+      "state": "spendable",
+      "user_pubkey": "02683d5e3441e8f5a9e3a782bc8500fdb3e374bdf72001721da50d76c96298a8f1"
+    },
+    {
+      "amount_sat": 5075,
+      "chain_anchor": "033bb9d8ed94869f86db30207d95019f359d030ca73c0ae85f21f925290299ff:0",
+      "expiry_height": 326823,
+      "id": "180fc67e4785f2f5a919302ec64617eec0c73a42ee3398fe167640b66bef8a9b:0",
+      "state": "locked",
+      "user_pubkey": "02683d5e3441e8f5a9e3a782bc8500fdb3e374bdf72001721da50d76c96298a8f1"
+    }
+  ],
+  "frozen_value_sat": 29670,
+  "grant_terms": [
+    {
+      "direction": "incoming",
+      "grant_id": "180fc67e4785f2f5a919302ec64617eec0c73a42ee3398fe167640b66bef8a9b:0",
+      "htlc_expiry": 326812,
+      "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99"
+    }
+  ],
+  "height": 326795,
+  "kind": "native_failed_external_send_actual_accepted_cancelled",
+  "latest_external_hold": {
+    "case_verdict": "INCOMPLETE",
+    "chain": {
+      "chain": "signet",
+      "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+      "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+      "hash": "0000000d6aaec682e0cba2dfd28c2cbd72be4d8d67c33bd007153e191e61b04c",
+      "height": 326795
+    },
+    "htlcs": [
+      {
+        "cltv_expiry": 326801,
+        "msat": 5000000,
+        "state": "cancelled"
+      }
+    ],
+    "kind": "failed_send_external_hold",
+    "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+    "scope": "Owned external hold observation, not sender refund or fallback payment.",
+    "state": "cancelled"
+  },
+  "native_checkpoint_progress": "PaymentInitiated",
+  "native_checkpoint_sha256": "57b76afb0990a52109adb1a7122ed1210eefde887c6a78391aff16c523765d26",
+  "old_supervisor_exit": {
+    "at": 1792266303.8451192,
+    "exit": 0,
+    "status": "STOPPED_OR_READY"
+  },
+  "original_birthday_height": 326787,
+  "original_sender_absent": true,
+  "payment_hash": "556ac7d4ff1d5b187cb7fa9daf681b8cfec035b6a629e269f96bb3bfb9e0bb99",
+  "phase_transition_receipt_sha256": "41b3f0354452b7a6e066deab08ee7a5e460804ec3b167bcc5f143e9c7b1fd0f4",
+  "product_source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b",
+  "registered_payout_script": "0014d1aec760c6412136dd1c5864b60ab2eba31275cc",
+  "reserved_fee_note": "Reserved in conditional signed HTLC; not evidence of a settled fee or successful external debit.",
+  "reserved_send_fee_sat": 75,
+  "scope": "Actual attempted native BOLT11 failure and fenced refundable sources; fallback and original-seed recovery remain unproven.",
+  "signature_proofs": [
+    {
+      "anchor_confirmations": 3,
+      "coin_id": "87fc2123bde8c35bd7ef45dbf8a68d82235d45f44fd568bd7c29b99aa84ac267:0",
+      "path_outpoints": [
+        "033bb9d8ed94869f86db30207d95019f359d030ca73c0ae85f21f925290299ff:0",
+        "3f5c5e905a4555a762f843f631ba9c841f7c0a8c8906a9d6dc195fab558525a1:0",
+        "49d99bf47fed63ca353d3bec3f606ed8ec3ea14eea520cf710ea2e911f9c8105:2",
+        "87fc2123bde8c35bd7ef45dbf8a68d82235d45f44fd568bd7c29b99aa84ac267:0"
+      ],
+      "status": "PASS"
+    },
+    {
+      "anchor_confirmations": 3,
+      "coin_id": "f477c6ec6c23608e170c4c4beb693df9b8cb84b7e3e2226601069585d352083f:0",
+      "path_outpoints": [
+        "033bb9d8ed94869f86db30207d95019f359d030ca73c0ae85f21f925290299ff:0",
+        "3f5c5e905a4555a762f843f631ba9c841f7c0a8c8906a9d6dc195fab558525a1:0",
+        "49d99bf47fed63ca353d3bec3f606ed8ec3ea14eea520cf710ea2e911f9c8105:1",
+        "f477c6ec6c23608e170c4c4beb693df9b8cb84b7e3e2226601069585d352083f:0"
+      ],
+      "status": "PASS"
+    },
+    {
+      "anchor_confirmations": 3,
+      "coin_id": "180fc67e4785f2f5a919302ec64617eec0c73a42ee3398fe167640b66bef8a9b:0",
+      "path_outpoints": [
+        "033bb9d8ed94869f86db30207d95019f359d030ca73c0ae85f21f925290299ff:0",
+        "3f5c5e905a4555a762f843f631ba9c841f7c0a8c8906a9d6dc195fab558525a1:0",
+        "49d99bf47fed63ca353d3bec3f606ed8ec3ea14eea520cf710ea2e911f9c8105:0",
+        "180fc67e4785f2f5a919302ec64617eec0c73a42ee3398fe167640b66bef8a9b:0"
+      ],
+      "status": "PASS"
+    }
+  ],
+  "unknown_actions": [],
+  "vm_focused_test_exit": 0,
+  "vm_focused_test_summary": "............................................................................................\n----------------------------------------------------------------------\nRan 92 tests in 4.527s\n\nOK\n"
+}

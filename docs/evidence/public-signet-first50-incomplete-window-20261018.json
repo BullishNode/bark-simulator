@@ -1,0 +1,290 @@
+{
+  "at": "2026-10-18T03:48:28.067016+00:00",
+  "chain": {
+    "chain": "signet",
+    "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+    "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+    "hash": "00000009f90f61c12c0c9fdfc620a854deea8790c83d2d0c070e5622feccdb00",
+    "height": 326842
+  },
+  "stage": "LOAD_INCOMPLETE_WINDOW_FINANCIALLY_AUDITED",
+  "case_verdict": "INCOMPLETE",
+  "workload_complete": false,
+  "parameters": {
+    "batch_interval_seconds": 10,
+    "board_sat_per_actor": 30000,
+    "concurrency": 5,
+    "funding_sat_per_actor": 40000,
+    "maximum_offchain_fee_sat": 1000,
+    "transfer_sat": 1000,
+    "transfers": 600,
+    "wallet_profile": {
+      "fallback_fee_rate": 750,
+      "vtxo_exit_margin": 12,
+      "vtxo_refresh_expiry_threshold": 144
+    },
+    "wallets": 50,
+    "window_seconds": 1200
+  },
+  "successful_reconciled_transfers": 580,
+  "intended_transfers": 600,
+  "not_dispatched_transfers": 20,
+  "opening_coin_sat": 1483500,
+  "closing_coin_sat": 1483500,
+  "observed_offchain_fee_sat": 0,
+  "native_invocation_including_open_and_journal": {
+    "maximum_seconds": 1.139528512954712,
+    "p50_seconds": 0.3722841739654541,
+    "p95_seconds": 0.5212113857269287,
+    "samples": 580
+  },
+  "send_intent_through_observed_recipient_availability": {
+    "maximum_seconds": 2.3739993572235107,
+    "p50_seconds": 1.2261407375335693,
+    "p95_seconds": 1.5734748840332031,
+    "samples": 580
+  },
+  "send_through_financial_reconciliation": {
+    "maximum_seconds": 3.3002207279205322,
+    "p50_seconds": 1.9146273136138916,
+    "p95_seconds": 2.8389172554016113,
+    "samples": 580
+  },
+  "observed_workload_wall_seconds_including_pacing_and_pauses": 1196.8009827136993,
+  "observed_successful_transfers_per_minute": 29.07751623088775,
+  "original_hold": {
+    "intended_transfers": 600,
+    "money_dispatched": false,
+    "stage": "LOAD_WINDOW_LIMIT_REACHED",
+    "successful_reconciled_transfers": 580
+  },
+  "active_sync": true,
+  "active_sync_scope": "Normal Wallet::sync may progress existing obligations; no new explicit monetary operation or traffic resumption.",
+  "operations_before": [
+    [
+      "address",
+      "acknowledged",
+      50
+    ],
+    [
+      "ark_info",
+      "acknowledged",
+      1
+    ],
+    [
+      "board",
+      "acknowledged",
+      50
+    ],
+    [
+      "create",
+      "acknowledged",
+      50
+    ],
+    [
+      "fallback_record",
+      "acknowledged",
+      50
+    ],
+    [
+      "onchain_address",
+      "acknowledged",
+      50
+    ],
+    [
+      "onchain_utxos",
+      "acknowledged",
+      51
+    ],
+    [
+      "raw_vtxo",
+      "acknowledged",
+      680
+    ],
+    [
+      "send",
+      "acknowledged",
+      580
+    ],
+    [
+      "sync_vtxos",
+      "acknowledged",
+      2423
+    ]
+  ],
+  "operations_after": [
+    [
+      "address",
+      "acknowledged",
+      50
+    ],
+    [
+      "ark_info",
+      "acknowledged",
+      1
+    ],
+    [
+      "board",
+      "acknowledged",
+      50
+    ],
+    [
+      "create",
+      "acknowledged",
+      50
+    ],
+    [
+      "fallback_record",
+      "acknowledged",
+      50
+    ],
+    [
+      "onchain_address",
+      "acknowledged",
+      50
+    ],
+    [
+      "onchain_utxos",
+      "acknowledged",
+      51
+    ],
+    [
+      "raw_vtxo",
+      "acknowledged",
+      680
+    ],
+    [
+      "send",
+      "acknowledged",
+      580
+    ],
+    [
+      "sync_vtxos",
+      "acknowledged",
+      2473
+    ]
+  ],
+  "audit_controller_source": "fb590d95c674b73cc0c23dd856bca296b6e59ae4",
+  "original_controller_source": "36cefa12fceab6f5ec496d727208f94efcc38f46",
+  "original_runner_terminal": {
+    "at": "2026-10-17T23:20:24.779294+00:00",
+    "boot_id": "867e5761-a3f3-4e26-9361-39abba613d1a",
+    "pid": 228597,
+    "source": "36cefa12fceab6f5ec496d727208f94efcc38f46",
+    "start_ticks": 9315930,
+    "status": "HOLD"
+  },
+  "schema_version": 1,
+  "kind": "public_signet_first50_incomplete_window_financial_audit",
+  "source_receipt_sha256": "1bcbf8e5f07d924127c6d2a0fcd7b0aae21b1ac93e90f787a087c3cc629c4ae9",
+  "audit_runner_sha256": "199d21943844cb0421269f79df2fc083f5ed12bab5fed03fa67bc6a1b5969e9a",
+  "peer_review_sha256": "3b4182b39a1ec37c15242eabb4da533279dd22f680c2d784dbfe7782e3c11b21",
+  "product_source": {
+    "actual_build_head": "2f070b60a870b5d02edd8b5b0a5b0289a2edd11c",
+    "dirty_source": true,
+    "captured_source_manifest_sha256": "1e28b175d8ee83aed24246b229831cfb926dc8003e4a40a049f262e5fa3f6dff",
+    "published_equivalent_code": "e443d415ee7b0d512203bd56f85e22cdec69d35f",
+    "actual_elf_version_label": "9ea05f9680be2757e875ee81f4546fd24e5b6354",
+    "runtime_manifest_sha256": "162964716588566b084c7d768b7401816625998774a28d3dc3bbaaedfcc008a8",
+    "runtime_pins_sha256": "6c70aa3afa82fb11f4607b83a412fcff9141f3a073617022536a36a1cd930d73"
+  },
+  "funding_and_board_costs": {
+    "allocated_principal_sat": 2300000,
+    "actor_allocation_sat": 2000000,
+    "operator_allocation_sat": 300000,
+    "treasury_funding_miner_fee_sat": 5760,
+    "boards": 50,
+    "gross_tree_sat": 1500000,
+    "net_customer_coins_sat": 1483500,
+    "carried_tree_residual_sat": 16500,
+    "board_miner_fees_sat": 22900,
+    "board_other_outputs_sat": 477100,
+    "note": "Other board outputs are separate from the native coin cohort. Operator allocations and carried residual are not new revenue or spent miner fees."
+  },
+  "whole_cohort_backing": {
+    "status": "PASS",
+    "chain": {
+      "chain": "signet",
+      "challenge": "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae",
+      "genesis": "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6",
+      "hash": "00000009f90f61c12c0c9fdfc620a854deea8790c83d2d0c070e5622feccdb00",
+      "height": 326842
+    },
+    "anchors": 50,
+    "minimum_anchor_confirmations": 28
+  },
+  "signed_coin_proofs": {
+    "current_spendable_coin_count": 100,
+    "all_status_pass": true,
+    "original_proof_height_min": 326817,
+    "original_proof_height_max": 326842,
+    "scope": "Current native coin IDs match retained exact native signed-path proofs. Cryptographic proofs retain their original observation heights; current backing is independently reread at the audit height."
+  },
+  "active_sync_effects": {
+    "actors_synced": 50,
+    "actors_with_changed_unspent_ids_state_counts_or_spendable_value": 0,
+    "scope": "Wallet::sync may progress existing known obligations. These before/after projections and action counts are not exhaustive internal SDK action/fee attribution. No explicit new send, board, invoice, funding, exit or actor was dispatched."
+  },
+  "telemetry": {
+    "at": "2026-10-18T03:50:26.987227+00:00",
+    "original_controller_source": "36cefa12fceab6f5ec496d727208f94efcc38f46",
+    "schedule": {
+      "requested_transfers": 600,
+      "actual_transfers": 580,
+      "batch_concurrency": 5,
+      "requested_interval_seconds": 10,
+      "fixed_window_seconds": 1200,
+      "actual_batches": 116,
+      "first_actual_batch_started": 1792278019.0515606,
+      "last_actual_batch_started": 1792279213.5662963,
+      "minimum_actual_batch_gap_seconds": 10.016384363174438,
+      "median_actual_batch_gap_seconds": 10.304847002029419,
+      "maximum_actual_batch_gap_seconds": 18.109658002853394,
+      "sum_delay_beyond_10_second_intervals_seconds": 44.51473569869995,
+      "outcome": "INCOMPLETE; original deadline not extended. Controller reporting/close overhead accumulated in old wrapper pacing. This is not measured backend saturation."
+    },
+    "resources": {
+      "batch_samples": 116,
+      "sample_interval_seconds": 0.05,
+      "maximum_observed_rss_kib": {
+        "captaind": 78640,
+        "concurrent_native_children": 207184,
+        "controller": 507888,
+        "watchmand": 37664
+      },
+      "minimum_sampled_host_available_memory_kib": 3878224,
+      "maximum_sampled_host_swap_used_kib": 61912,
+      "summed_sampled_batch_wall_seconds": 501.2029704339511,
+      "summed_process_cpu_seconds": {
+        "captaind": 116.81,
+        "controller": 1684.3800000000003,
+        "watchmand": 0.5699999999999985
+      },
+      "summed_reaped_child_cpu_seconds": 311.2899999999998,
+      "cpu_identity_gaps": 0,
+      "scope": "Batch sampling only, shared host with other live campaigns. Controller includes cryptographic proof work; child CPU includes all proof commands, not send-only. Not isolated maximum-TPS measurement."
+    },
+    "postgres_within_actual_window": {
+      "samples": 236,
+      "first_at": "2026-10-17T23:00:20.687086+00:00",
+      "last_at": "2026-10-17T23:20:16.0258+00:00",
+      "maximum_connections": 9,
+      "maximum_active": 1,
+      "maximum_lock_waiters": 0,
+      "maximum_idle_in_transaction": 2,
+      "deadlocks_delta": 0,
+      "database_bytes_first": 12426263,
+      "database_bytes_last": 49249303,
+      "database_commit_counter_delta": 27673,
+      "database_rollback_counter_delta": 32013,
+      "cluster_wal_bytes_delta": 80133799,
+      "scope": "PG sampler queries contribute to counters. Transaction rollback counter is not failed payments. WAL is cluster-wide and includes other profiles."
+    }
+  },
+  "limits": [
+    "Original580/600 requested workload remains INCOMPLETE and held. No deadline extension or traffic resumption.",
+    "Minimum10s pacing and controller proof/reporting overhead constrain the offered load; not backend saturation or maximumTPS.",
+    "Shared host, other profiles, sample maxima and cluster-wide WAL do not constitute isolated production capacity.",
+    "No Lightning subset or200/500-wallet cohort is executed by this receipt."
+  ]
+}

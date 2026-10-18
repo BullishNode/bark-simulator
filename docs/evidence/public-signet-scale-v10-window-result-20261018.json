@@ -1,0 +1,169 @@
+{
+  "acknowledged_and_financially_reconciled_transfers": 720,
+  "bounded_reporting": {
+    "full_report_final_bytes": 44884364,
+    "full_report_start_bytes": 994292,
+    "maximum_bytes": 1266,
+    "mean_wall_seconds": 0.007340243875032997,
+    "total_wall_seconds": 1.0643353618797846,
+    "writes": 145
+  },
+  "candidate_build_head": "783c0c5c51105b1ec1a5fa1068820ce94e18017e",
+  "case_verdict": "INCOMPLETE",
+  "cold_off_vm_backup": {
+    "independent_full_file_hashes": 11685,
+    "manifest_sha256": "b5b9813e8e4458478738ef4efbbfb13bc904860c80dd62bccabd2d3fb567e1f2",
+    "off_vm_archive_sha256": "73731ab8656c574457afbe01e40592aae39f6d2dbc41b2105dac516d118bb210",
+    "off_vm_journal_integrity": "ok",
+    "source_integrity_checks": 50,
+    "wallet_file_hashes": 250
+  },
+  "completed_at": "2026-10-18T06:20:32.881791+00:00",
+  "controller_source": "df193c81426d5312464857515cef6c9eba98ea07",
+  "controller_wrapper_sha256": "1c42c90c86090bb738d42faef0ac0a0e46497c43c78b1e3da2e71f5b59cdd232",
+  "dirty_source_manifest_sha256": "3e0437f1d1c89e554a38d7756f2d89238732cc368882f7b3f382b799487c0f33",
+  "failed_or_unknown_transfers": 0,
+  "financial_audit": {
+    "actual_final_signed_coin_count": 180,
+    "actual_opening_signed_coin_count": 100,
+    "backing_verdict": "PASS",
+    "closing_coin_sat": 1483500,
+    "core_anchor_minimum_confirmations": 40,
+    "core_height": 326854,
+    "distinct_confirmed_core_anchors": 50,
+    "native_signature_proofs_all_pass": true,
+    "new_actor_creations": 0,
+    "new_boards": 0,
+    "new_treasury_principal_sat": 0,
+    "observed_offchain_fee_sat": 0,
+    "old580of600_hold_unchanged": true,
+    "opening_coin_sat": 1483500
+  },
+  "fixed_dispatch_window": {
+    "actual_batches": 144,
+    "deadline_at": "2026-10-18T06:20:02.458241Z",
+    "final_batch_start_schedule_lateness_seconds": 178.28169870376587,
+    "first_batch_at": "2026-10-18T06:05:02.458241Z",
+    "five_minute_slices_reconciled": [
+      245,
+      240,
+      235
+    ],
+    "window_extended": false
+  },
+  "immutable_receipts_sha256": {
+    "v10-ordinary-900-admission.json": "1b247cc79da817e867d77fa0c7b520b550ee81bb2e9139e566f035fa9a8fec4e",
+    "v10-ordinary-900-events.jsonl": "a5b04b605299740a112e7950aeb3a98983f08ff7136986f176bde99f2cd774f5",
+    "v10-ordinary-900-import.json": "83248ff902d64d747558140b8949dca3744b4882c3d707a0357fd4a6a83b9036",
+    "v10-ordinary-900-report-final.json": "ea33ece0e87435906d359f489e1eb07d32b2d2e71be37539dee1601383ada4ca",
+    "v10-ordinary-900-resources-midwindow.jsonl": "db3eec6a929b162cb7d2a41de18ebc7d3869f022784ce69581b8b8a5e5fef328",
+    "v10-ordinary-900-result.json": "32bada8e7ebd5b711c178930a3094e1f394d09dd5f2f86dad85b85cb54c7b480"
+  },
+  "latency_and_rate": {
+    "native_invocation_including_open_and_journal": {
+      "maximum_seconds": 1.0347156524658203,
+      "p50_seconds": 0.5203197002410889,
+      "p95_seconds": 0.6717734336853027,
+      "samples": 720
+    },
+    "observed_successful_transfers_per_minute": 48.143996794892615,
+    "observed_workload_wall_seconds_including_pacing_and_pauses": 897.308135509491,
+    "send_intent_through_observed_recipient_availability": {
+      "maximum_seconds": 2.128262996673584,
+      "p50_seconds": 1.4834487438201904,
+      "p95_seconds": 1.741776704788208,
+      "samples": 720
+    },
+    "send_through_financial_reconciliation": {
+      "maximum_seconds": 3.7606091499328613,
+      "p50_seconds": 2.229548692703247,
+      "p95_seconds": 2.934074878692627,
+      "samples": 720
+    }
+  },
+  "limited_resource_observation": {
+    "cpu": {
+      "captaind": {
+        "process_cpu_seconds": 214.41,
+        "reaped_children_cpu_seconds": 0.0
+      },
+      "controller": {
+        "process_cpu_seconds": 1446.82,
+        "reaped_children_cpu_seconds": 273.63
+      },
+      "ordinary_cotenant": {
+        "process_cpu_seconds": 50.73,
+        "reaped_children_cpu_seconds": 1.84
+      },
+      "watchmand": {
+        "process_cpu_seconds": 0.7,
+        "reaped_children_cpu_seconds": 0.0
+      }
+    },
+    "cpu_interval": [
+      "2026-10-18T06:10:46.417045+00:00",
+      "2026-10-18T06:20:27.656289+00:00"
+    ],
+    "first_at": "2026-10-18T06:10:46.417045+00:00",
+    "last_at": "2026-10-18T06:20:37.660055+00:00",
+    "maximum_pg_blocked_connections": 0,
+    "maximum_sampled_native_children_rss_kib": 206128,
+    "minimum_host_available_memory_kib": 3892752,
+    "observed_pg_database_bytes": [
+      84925463,
+      163789847
+    ],
+    "peak_sampled_rss_kib": {
+      "captaind": 83060,
+      "controller": 448192,
+      "ordinary_cotenant": 178516,
+      "watchmand": 35800
+    },
+    "samples": 60,
+    "warning": "Per-batch RSS/CPU results were not retained by this wrapper. This separate 10-second observer started mid-window; it cannot recover early samples or exact short-lived peaks. Backend/controller CPU can exceed elapsed time under threads; PG growth is observation, not a leak diagnosis."
+  },
+  "limits": [
+    "The original580/600 and this720/900 window remain separate INCOMPLETE workloads; their acknowledged sends were never synthesized or replayed.",
+    "Observed throughput is achieved closed-loop native CLI/verification workload, not maximum backend TPS. Native CLI action latency includes wallet open and journal work.",
+    "CPU/RSS cover a limited co-resident interval; no persistent wallet-daemon capacity or full-window resource claim.",
+    "No new swap, expiry payout, recovery, fee pressure or reorg was exercised in this ordinary window.",
+    "Partial-terminal backend liveness gap and all unproven whole money-loss scenarios remain open."
+  ],
+  "never_dispatched_transfers": 180,
+  "parameters": {
+    "batch_interval_seconds": 5,
+    "board_sat_per_actor": 30000,
+    "concurrency": 5,
+    "funding_sat_per_actor": 40000,
+    "maximum_offchain_fee_sat": 1000,
+    "transfer_sat": 1000,
+    "transfers": 900,
+    "wallet_profile": {
+      "fallback_fee_rate": 750,
+      "vtxo_exit_margin": 12,
+      "vtxo_refresh_expiry_threshold": 144
+    },
+    "wallets": 50,
+    "window_seconds": 900
+  },
+  "requested_transfers": 900,
+  "root_workload_admission_sha256": "96c26ab8f6333fd6972f0b2e1348dcd2c7c7bb8eb3c528abad38ab0ae7acf57f",
+  "runtime_manifest_sha256": "4b22d6ed7268d22d6ea064f9b6a3a1fc9ab8dab7ee083b87cf966d9ee8a87b35",
+  "scope": "Actual same-candidate public-Signet ordinary fixed window; INCOMPLETE offered workload, completed money audit. No production, maximum-TPS, Lightning or Noah claim.",
+  "successful_worker_timing_sums": {
+    "independent_proof_calls": 2880,
+    "independent_proof_seconds": 576.3548571562133,
+    "runtime_verification_calls": 720,
+    "runtime_verification_seconds": 805.6170612443093,
+    "verifier_binary_hash_calls": 840,
+    "verifier_binary_hash_seconds": 204.6793631749024,
+    "verifier_subprocess_calls": 840,
+    "verifier_subprocess_seconds": 49.934709563051,
+    "wallet_binary_hash_calls": 4400,
+    "wallet_binary_hash_seconds": 1065.058507466587,
+    "wallet_subprocess_calls": 4400,
+    "wallet_subprocess_seconds": 1037.4888376784656
+  },
+  "timing_warning": "Worker sums overlap under concurrency; independent-proof elapsed includes nested verifier/hash/native calls. Do not sum nested values as independent costs.",
+  "workload_complete": false
+}

@@ -1,0 +1,34 @@
+{
+  "kind": "python_controller_test_receipt",
+  "scope": "Controller/SQLite with stub native and Core responses; no native build, deployment, funded 200/500 campaign or production capacity proof.",
+  "base_commit": "6fc9d8f837f92d4eccf5eca127585b66d37ca06c",
+  "command": "python3 -m unittest tests.test_signet_load tests.test_signet_load_scale tests.test_signet_phase -v",
+  "passed": 27,
+  "failed": 0,
+  "seconds": 56.738,
+  "test_log_sha256": "c41c0d4d63414ba0d01fb29dec31784ad3ff1b20985b6649d1c8e6595fa37853",
+  "source_sha256": {
+    "simulator/signet_load.py": "a6eb93f3d5bf9f36085f91ab30b6562c130686aa0d4478cd534e7c7679e35b35",
+    "simulator/signet_load_phase.py": "1ef3b572b3093b348b6194ec6c040438bcd47bdb5ea82c17e3892df2066fedec",
+    "tests/test_signet_load.py": "8b79b510fce6ab5ec947d445c30a1f43b0cd250677381e6fee84b8fa8e3db48b",
+    "tests/test_signet_load_scale.py": "9564aaafb35fb45de9fce10b81e7b12d3a533ebdd955499bcf3e509f9fb2c245"
+  },
+  "asserted_faults": [
+    "Wrong/spent/unconfirmed/misdirected funding and extra native assets refuse preflight",
+    "Actual board miner fee measured independently; >1000 sat warning is not a cap",
+    "Original unknown send cannot replay; failed batch holds following dispatch",
+    "Elapsed dispatch window holds incomplete work",
+    "500 actor pair wrap keeps20 disjoint pairs",
+    "Live/locked/unknown/absent predecessor cannot be cold copied",
+    "Cold copies preserve seed files0600 without fabricated create acknowledgements",
+    "Reused50 request zero funding; changed server identity is refused",
+    "Funding output chunks1/2/4 for50/150/300 new recipients preserve10k per actual PSBT proposal"
+  ],
+  "not_proven": [
+    "Actual combined candidate/runtime admission",
+    "Live native inventory/registration compatibility after upgrade",
+    "Funded200/500 wallets or sustained rates",
+    "CPU/Postgres capacity or Lightning subset performance",
+    "Treasury funding execution for new cohorts"
+  ]
+}

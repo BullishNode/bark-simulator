@@ -1,0 +1,15 @@
+{
+  "kind": "controller_source_regression_evidence",
+  "command": "python3 -m unittest tests.test_signet_load_scale -v",
+  "tests_passed": 14,
+  "elapsed_seconds": 19.508,
+  "log_sha256": "ec7b8d336a9b8d0667be59a276c17d30ee1d0b8f6531696b55ddd0db72c4be65",
+  "new_scope": [
+    "Default retains held-window rejection; only explicit audited-shortfall selection accepts exact terminal window audit",
+    "Original incomplete count/HOLD remains intact in old journal and copied provenance; new journal contains no native acknowledgements",
+    "Wrong verdict, missing active sync/signed proofs/backing, mismatched counts/ACKs/actors or conservation reject before cold copy"
+  ],
+  "actual_handoff_executed": false,
+  "actual_runtime_or_funding_changed": false,
+  "scope": "Real controller/SQLite/private synthetic wallets and stub proof receipts. Source availability only; future campaign still needs root runtime/cold-backup/native admission. It does not turn580/600 into600PASS or justify repeating an entire campaign merely to make600green."
+}

@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "kind": "public_signet_native_lightning_completed_cases",
+  "case_verdicts": {
+    "native_receive_offline_recipient_fallback_seed_recovery": "PASS",
+    "native_attempted_external_send_failure_offline_refund_seed_recovery": "PASS"
+  },
+  "Noah_LNURL_qualified": false,
+  "whole_money_loss_scenario_passes_claimed": 0,
+  "product_source": {
+    "build_head": "6950be5a6855625d76d04e33c86a6b030cd9406e",
+    "captured_source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b",
+    "config_hashes": {
+      "captaind": "7723b3567063b0c644b58602981e67e409bed2bb5a720a18cf6a869745f377a0",
+      "watchmand": "a5f374b091f26f3bc2db3eee4c02534253890c7df515bc90f5a614501bb9edd7"
+    },
+    "controller_code_milestone": "45b5aaa0af3547e816027011aceac73efea36d02",
+    "controller_source": "d8cdb3b66c44df62cd946c57d18c3ffa8c544fab",
+    "dirty_source": true,
+    "elf_sha256": {
+      "bark": "7a240c143bb103b67c360a75316034211d6212947e0b65571ceaebe19fc06ba4",
+      "barkd": "570ecf6cbbdc441b1262e68ee84035718ac9f72a5f881038b9ca51812a342218",
+      "captaind": "592df297c9b58b22261b7487c57a4076bba72b735232707d98275f84981642a8",
+      "watchmand": "edf59b0b352f8aa0a5ef76e8cc306b3c591836b73181baf48b3ce46da0764bbf"
+    },
+    "final_preinvoice_admission_sha256": "6c40b13f79dfe7b5dd75d7d6805ba86b3127a35c2912ee7f9ae4a02751d2191b",
+    "runtime_manifest_sha256": "e6bd3f928220637dfe81796bf95895755a331cc96ae4568e5a44a14c083019d0"
+  },
+  "source_scope": "Same captured C60C product bytes as the original live native operations; newer locally qualified candidates are not credited to these campaigns. Failed-send has its separately recorded18/32 configuration.",
+  "historical_evidence": [
+    "public-signet-native-ln-receive-20261017.json",
+    "native-ln-receive-fallback-broadcast-20261017.json",
+    "native-ln-failed-send-accepted-cancelled-20261017.json",
+    "native-ln-failed-send-liquidity-20261017.json"
+  ],
+  "first_pass_receipts_sha256": {
+    "native-ln-receive-v2-observer-first-pass.json": "1f34b2f1bf094c29d4d470df4ab63de4d8a41c386c22780eb318381469649045",
+    "continuation-b948-supervisor-first-pass.json": "293eb24d5e1de1f0a8483920a7ee7e0cfa2e6c80ace8a89431f3013a3d5f778d"
+  },
+  "independent_core_receipt_sha256": "901049e6cefa7d13ae8453fea23017fab0ac7af2ee01539466ee51a316c981b4",
+  "independent_current_core_observation": {
+    "at": "2026-10-18T03:38:51.834917+00:00",
+    "method": "Read-only independent Core canonical transactions plus original journal operation counts; no native wallet open or financial action.",
+    "height": 326842,
+    "bestblockhash": "00000009f90f61c12c0c9fdfc620a854deea8790c83d2d0c070e5622feccdb00",
+    "recovery_destination": "tb1qusq7m3xctjl5csfrr5zpfzg0lqsp9q46z5pa5p",
+    "recovery_destination_script": "0014e401edc4d85cbf4c41231d0414890ff8201282ba",
+    "cases": {
+      "receive": {
+        "parent": {
+          "txid": "20f119e07cbe1f9949f75813ef705671dee4c8ae81fd665317c26ac920a7247a",
+          "height": 326817,
+          "confirmations": 26,
+          "version": 3,
+          "vsize": 174,
+          "inputs": [
+            {
+              "outpoint": "52aa108da2b8341e03b7b6b050aaabb7ee0f2513b22810d730de1d6dd26ea000:0",
+              "amount_sat": 20000
+            }
+          ],
+          "outputs": [
+            {
+              "vout": 0,
+              "amount_sat": 3890,
+              "script": "0014f6cb317634543f8564334d7262a98dd402f066a5"
+            },
+            {
+              "vout": 1,
+              "amount_sat": 16110,
+              "script": "51209e94aa8ab38ed577aa50a5e7a2c92edb582acab4d4d5654aa1e40e484641c7e3"
+            },
+            {
+              "vout": 2,
+              "amount_sat": 0,
+              "script": "51024e73"
+            }
+          ],
+          "miner_fee_sat": 0
+        },
+        "fee_child": {
+          "txid": "a3f00c0ef1f037d0d71c105237107fa576b74fc3629d56feb6b02aac7181b94a",
+          "height": 326817,
+          "confirmations": 26,
+          "version": 3,
+          "vsize": 153,
+          "inputs": [
+            {
+              "outpoint": "68b1e9569dbd34fcfac02a40df82d15ff679cbb54a90201b76746869a4a1cbcf:5",
+              "amount_sat": 20000
+            },
+            {
+              "outpoint": "20f119e07cbe1f9949f75813ef705671dee4c8ae81fd665317c26ac920a7247a:2",
+              "amount_sat": 0
+            }
+          ],
+          "outputs": [
+            {
+              "vout": 0,
+              "amount_sat": 19637,
+              "script": "5120dd1d074abb5a752b628ac4d3832ac490adda3a5c14f8dd0b8862d2298a492591"
+            }
+          ],
+          "miner_fee_sat": 363
+        },
+        "recovery": {
+          "txid": "43fb70c6396532ce7161cb275986901569045f676947d9a63a508b95e16d64a0",
+          "height": 326823,
+          "confirmations": 20,
+          "version": 2,
+          "vsize": 110,
+          "inputs": [
+            {
+              "outpoint": "20f119e07cbe1f9949f75813ef705671dee4c8ae81fd665317c26ac920a7247a:0",
+              "amount_sat": 3890
+            }
+          ],
+          "outputs": [
+            {
+              "vout": 0,
+              "amount_sat": 3780,
+              "script": "0014e401edc4d85cbf4c41231d0414890ff8201282ba"
+            }
+          ],
+          "miner_fee_sat": 110
+        },
+        "original_seed_birthday": 326782,
+        "operation_counts": {
+          "native_bolt11_invoice": 1,
+          "native_bolt11_xpay": 1,
+          "onchain_drain": 1,
+          "onchain_utxos": 1,
+          "restore": 1
+        },
+        "unknown_actions": 0,
+        "original_first_pass_observed": 1792280514.9057493,
+        "original_first_pass_recovery_height": 326823,
+        "original_first_pass_recovery_confirmations": 1,
+        "original_first_pass_payload_sha256": "e2f421225b3253b85e8aa7841e74974ca1d9fe1f2d152c5a045f81ed2f8cfa17",
+        "operator_parent_remainder_sat": 16110,
+        "watchman_miner_fee_cash_sat": 363,
+        "net_subsidy_sat": 0,
+        "scope": "Native BOLT11 only; no Noah/LNURL, reorg or legacy fault qualification."
+      },
+      "failed_send": {
+        "parent": {
+          "txid": "556ea567cc4a142457c03585af27e8d07a38753aa97c795dc2dc37bf73eb2e2f",
+          "height": 326824,
+          "confirmations": 19,
+          "version": 3,
+          "vsize": 174,
+          "inputs": [
+            {
+              "outpoint": "033bb9d8ed94869f86db30207d95019f359d030ca73c0ae85f21f925290299ff:0",
+              "amount_sat": 30000
+            }
+          ],
+          "outputs": [
+            {
+              "vout": 0,
+              "amount_sat": 28670,
+              "script": "0014d1aec760c6412136dd1c5864b60ab2eba31275cc"
+            },
+            {
+              "vout": 1,
+              "amount_sat": 1330,
+              "script": "5120a674bf9f30e1eab58c3edb0cce91e0b0455ab4302787276f061ccca5b1930ade"
+            },
+            {
+              "vout": 2,
+              "amount_sat": 0,
+              "script": "51024e73"
+            }
+          ],
+          "miner_fee_sat": 0
+        },
+        "fee_child": {
+          "txid": "02f1a1939c3b50392f662953c8a3cc9e0aa526d3418ccd65d8d429daf0af1d11",
+          "height": 326824,
+          "confirmations": 19,
+          "version": 3,
+          "vsize": 153,
+          "inputs": [
+            {
+              "outpoint": "556ea567cc4a142457c03585af27e8d07a38753aa97c795dc2dc37bf73eb2e2f:2",
+              "amount_sat": 0
+            },
+            {
+              "outpoint": "8e60b79edef0d909c8008c3a1f1eb68384b47058a21edfae1be2254880fd7103:2",
+              "amount_sat": 20000
+            }
+          ],
+          "outputs": [
+            {
+              "vout": 0,
+              "amount_sat": 19637,
+              "script": "512006f7de3d966873193731b622ba34fe89dad9f1abf3ce7deb0fd2a21c9ccd6fac"
+            }
+          ],
+          "miner_fee_sat": 363
+        },
+        "recovery": {
+          "txid": "0e4f2b223e99f27fef775a84811269e307fb053f7a6d8f67d1e58930f88f6fa7",
+          "height": 326833,
+          "confirmations": 10,
+          "version": 2,
+          "vsize": 177,
+          "inputs": [
+            {
+              "outpoint": "556ea567cc4a142457c03585af27e8d07a38753aa97c795dc2dc37bf73eb2e2f:0",
+              "amount_sat": 28670
+            },
+            {
+              "outpoint": "033bb9d8ed94869f86db30207d95019f359d030ca73c0ae85f21f925290299ff:1",
+              "amount_sat": 29542
+            }
+          ],
+          "outputs": [
+            {
+              "vout": 0,
+              "amount_sat": 58034,
+              "script": "0014e401edc4d85cbf4c41231d0414890ff8201282ba"
+            }
+          ],
+          "miner_fee_sat": 178
+        },
+        "original_seed_birthday": 326787,
+        "operation_counts": {
+          "ark_info": 1,
+          "board": 1,
+          "cancel_hold_invoice": 1,
+          "hold_invoice": 1,
+          "native_lightning_send": 1,
+          "onchain_drain": 1,
+          "onchain_utxos": 1,
+          "raw_vtxo": 4,
+          "restore": 1,
+          "sync_vtxos": 1,
+          "vtxos": 1
+        },
+        "unknown_actions": 0,
+        "original_first_pass_observed": 1792287383.2933972,
+        "original_first_pass_recovery_height": 326833,
+        "original_first_pass_recovery_confirmations": 1,
+        "original_first_pass_payload_sha256": "1b9793cfa5cc5d27f66056cff903212b41a034f5f9b9647284b2b483b3d9eb37",
+        "operator_parent_remainder_sat": 1330,
+        "watchman_miner_fee_cash_sat": 363,
+        "net_subsidy_sat": 0,
+        "scope": "Native BOLT11 only; no Noah/LNURL, reorg or legacy fault qualification."
+      }
+    }
+  },
+  "economics": {
+    "receive": {
+      "invoice_sat": 5000,
+      "receive_service_fee_sat": 110,
+      "signed_recipient_entitlement_sat": 4890,
+      "fallback_output_fee_sat": 1000,
+      "fallback_sat": 3890,
+      "recovery_miner_fee_sat": 110,
+      "delivered_to_declared_destination_sat": 3780,
+      "treasury_funding_miner_fee_sat": 894,
+      "initial_pool_issuance_miner_fee_sat": 233,
+      "watchman_fee_child_miner_fee_cash_sat": 363,
+      "parent_operator_remainder_sat": 16110,
+      "new_fallback_fee_less_miner_fee_sat": 637,
+      "net_subsidy_sat": 0
+    },
+    "failed_send": {
+      "frozen_customer_source_sat": 29670,
+      "unsettled_send_fee_reserve_included_in_source_sat": 75,
+      "fallback_output_fee_sat": 1000,
+      "fallback_sat": 28670,
+      "ordinary_board_change_separate_sat": 29542,
+      "physical_recovery_miner_fee_sat": 178,
+      "physical_delivered_total_sat": 58034,
+      "treasury_funding_miner_fee_sat": 612,
+      "board_miner_fee_sat": 458,
+      "carried_board_tree_residual_sat": 330,
+      "watchman_fee_child_miner_fee_cash_sat": 363,
+      "parent_operator_remainder_sat": 1330,
+      "new_fallback_fee_less_miner_fee_sat": 637,
+      "net_subsidy_sat": 0
+    },
+    "note": "Watchman miner cash expense is distinct from remainder-based net subsidy. Operator outputs include prior operator value/carried residual and are not all new revenue. Failed-send recovered ordinary onchain change is separate from fallback, not profit or a second fallback."
+  },
+  "limits": [
+    "Both immutable first PASSs had one-confirmation recovery spends; this later independent receipt proves20/10 respectively, without rewriting those first depths.",
+    "Native BOLT11, not Noah/LNURL integration. Stock Noah metadata-hash callback remains rejected and unpaid.",
+    "Short32-block profiles do not qualify the default258-block failed-send profile.",
+    "No injected lost claim reply, provider restart/backup, late registration, reorg, legacy source restoration, unfinished refresh or every200-ID money-loss oracle is proved."
+  ]
+}
