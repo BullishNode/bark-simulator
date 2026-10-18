@@ -162,6 +162,16 @@ confirmed backing, and reports latency quantiles and achieved workload rate from
 real timestamps, including pacing and pauses. Retain the private parent funding
 receipt and independently measured board transaction costs alongside this result.
 
+A dispatch window that ends before the requested count remains incomplete.
+`Load.audit_closed_window()` provides a separate financial audit only after the
+original runner has exited and its writer lock has been released. It requires
+the original `LOAD_WINDOW_LIMIT_REACHED` hold, no unknown/dispatched actions,
+and a reconciled result for every acknowledged send. It applies the same fresh
+whole-cohort conservation, signed-path and Core-backing checks as `finish()` but
+returns `INCOMPLETE`, preserving the original hold, requested count and deadline.
+It neither resumes traffic nor qualifies the unfinished workload. Deployment of
+this source and actual execution of the audit are separate recorded events.
+
 Separate actual preparation-controller and execution-controller commits remain
 part of the trace. Source availability, stubbed Python tests, registrations,
 native acknowledgements and requested rates are never reported as successful
