@@ -64,6 +64,9 @@ def _profile(campaign):
         raise ValueError('separate failed-send staging required')
     spec = json.loads(row[0])
     _verify_runtime(campaign)
+    if spec.get('source_kind') == 'existing_native_refresh':
+        from .signet_existing_ln import failed_profile
+        return failed_profile(campaign, spec)
     for field in ['funding_request', 'funding_receipt', 'financial_admission']:
         if digest(Path(spec[field])) != spec[field + '_sha256']:
             raise ValueError('retained original admission/funding receipt changed')
@@ -161,6 +164,8 @@ def stage(campaign, request_path, receipt_path, admission_path, runtime_pins,
 
 def funding_admission(campaign):
     spec = _profile(campaign)
+    if spec.get('source_kind') == 'existing_native_refresh':
+        raise ValueError('existing funded inventory requires native refresh; no new funding or board')
     request = json.loads(Path(spec['funding_request']).read_text())
     receipt = json.loads(Path(spec['funding_receipt']).read_text())
     chain = network_identity(campaign.core)
@@ -349,17 +354,20 @@ def _lightning_ready(campaign):
 
 
 def _ready_source(campaign):
-    _profile(campaign)
+    spec = _profile(campaign)
     row = campaign.db.execute("SELECT payload FROM result WHERE json_extract(payload,'$.kind')='failed_send_ready' "
         "AND json_extract(payload,'$.stage')='ACTUAL_NATIVE_SOURCE_READY_NO_INVOICE' ORDER BY observed DESC LIMIT 1").fetchone()
     if not row:
         raise ValueError('actual native source readiness proof required')
     ready = json.loads(row[0])
+    if ready.get('source_kind') != spec.get('source_kind'):
+        raise ValueError('source readiness belongs to a different admission recipe')
     chain = network_identity(campaign.core)
     coin = ready['coin']
     txid, index = coin['chain_anchor'].split(':')
     output = campaign.core.call('gettxout', txid, int(index), True)
-    if (not output or output['confirmations'] < 3
+    minimum = 1 if ready.get('source_kind') == 'existing_native_refresh' else 3
+    if (not output or output['confirmations'] < minimum
             or coin['expiry_height'] - chain['height'] <= 18):
         raise ValueError('real source backing and D<E headroom no longer available')
     return ready
@@ -800,6 +808,14 @@ def main():
     for name in ['funding-request', 'funding-receipt', 'financial-admission', 'runtime-pins', 'registration', 'source']:
         start.add_argument('--' + name, type=Path, required=True)
     start.add_argument('--recovery-destination', required=True)
+    existing = commands.add_parser('stage-existing')
+    for name in ['financial-admission', 'runtime-pins', 'terminal-result', 'sender-directory',
+                 'registration', 'inventory', 'source']:
+        existing.add_argument('--' + name, type=Path, required=True)
+    existing.add_argument('--sender-actor', required=True)
+    existing.add_argument('--birthday-height', type=int, required=True)
+    existing.add_argument('--recovery-destination', required=True)
+    commands.add_parser('refresh-existing')
     for name in ['funding', 'board', 'ready', 'invoice', 'send', 'observe-hold', 'fence', 'cancel', 'observe-failure', 'recover']:
         commands.add_parser(name)
     transport = commands.add_parser('transport')
@@ -814,6 +830,16 @@ def main():
                 result = stage(campaign, args.funding_request, args.funding_receipt, args.financial_admission,
                                json.loads(args.runtime_pins.read_text()), args.registration, args.source,
                                args.recovery_destination)
+            elif args.operation == 'stage-existing':
+                from .signet_existing_ln import stage_failed_sender
+                result = stage_failed_sender(campaign, json.loads(args.runtime_pins.read_text()),
+                    args.financial_admission, args.terminal_result, args.sender_directory,
+                    args.sender_actor, json.loads(args.registration.read_text()),
+                    json.loads(args.inventory.read_text()), args.birthday_height, args.source,
+                    args.recovery_destination)
+            elif args.operation == 'refresh-existing':
+                from .signet_existing_ln import refresh_existing_sender
+                result = refresh_existing_sender(campaign)
             elif args.operation == 'board':
                 result = board_once(campaign)
             elif args.operation == 'ready':
