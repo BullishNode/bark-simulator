@@ -2,6 +2,7 @@
 from decimal import Decimal
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import time
@@ -522,6 +523,53 @@ class FailedSendLightningTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'requires reconciliation'):
                 cancel_hold_once(self.campaign)
         replay.assert_not_called()
+
+
+class CaptureEnvironmentTests(unittest.TestCase):
+    def capture(self, argv, result=None):
+        from simulator.signet_failed_send import _capture
+        artifacts = {}
+
+        class PrivateArtifacts:
+            def _retain_private(self, intent, kind, source):
+                artifacts[(intent, kind)] = source.read()
+
+        result = result or subprocess.CompletedProcess(argv, 0, b'reply', b'')
+        with patch.dict(os.environ, {'LD_LIBRARY_PATH': '/nix/runtime:/nix/sqlite',
+                                     'BARK_UNRELATED': 'must not propagate'}), \
+             patch('simulator.signet_failed_send.subprocess.run', return_value=result) as run:
+            value = _capture(PrivateArtifacts(), 'one-intent', 'grpc', argv, input_bytes=b'frame')
+        return value, run.call_args.kwargs, artifacts
+
+    def test_system_curl_excludes_native_loader_libraries(self):
+        for executable in ['curl', '/usr/bin/curl']:
+            with self.subTest(executable=executable):
+                value, arguments, artifacts = self.capture([executable, '--http2'])
+                self.assertEqual(value, b'reply')
+                self.assertNotIn('LD_LIBRARY_PATH', arguments['env'])
+                self.assertNotIn('BARK_UNRELATED', arguments['env'])
+                self.assertEqual(arguments['input'], b'frame')
+                self.assertEqual(artifacts[('one-intent', 'grpc-stdout')], b'reply')
+
+    def test_native_bark_retains_exact_admitted_loader_libraries(self):
+        _, arguments, _ = self.capture(['/admitted/nix/bark', 'lightning'])
+        self.assertEqual(arguments['env']['LD_LIBRARY_PATH'], '/nix/runtime:/nix/sqlite')
+        self.assertNotIn('BARK_UNRELATED', arguments['env'])
+
+    def test_loader_failure_still_retains_proof_and_does_not_return_ack(self):
+        from simulator.signet_failed_send import _capture
+        artifacts = {}
+
+        class PrivateArtifacts:
+            def _retain_private(self, intent, kind, source):
+                artifacts[(intent, kind)] = source.read()
+
+        failure = subprocess.CompletedProcess(['curl'], 1, b'', b'loader mismatch')
+        with patch('simulator.signet_failed_send.subprocess.run', return_value=failure), \
+             self.assertRaisesRegex(ValueError, 'reconcile without replay'):
+            _capture(PrivateArtifacts(), 'original', 'grpc', ['curl'])
+        self.assertEqual(artifacts[('original', 'grpc-stdout')], b'')
+        self.assertEqual(artifacts[('original', 'grpc-stderr')], b'loader mismatch')
 
 
 if __name__ == '__main__':

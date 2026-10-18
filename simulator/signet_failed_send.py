@@ -389,6 +389,10 @@ def _ready_source(campaign):
 
 def _capture(campaign, intent, kind, argv, *, input_bytes=None, timeout=150):
     environment = {k: v for k, v in os.environ.items() if not k.startswith('BARK_')}
+    # Ubuntu curl must use its own loader libraries. Native Nix executables
+    # still need the admitted SQLite/runtime library path.
+    if Path(argv[0]).name == 'curl':
+        environment.pop('LD_LIBRARY_PATH', None)
     try:
         result = subprocess.run(argv, input=input_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 env=environment, timeout=timeout, check=False)

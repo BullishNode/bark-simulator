@@ -88,3 +88,25 @@ setup acknowledgements and no board or Lightning action. It must wait for
 the actual funding confirmation and three actual board confirmations before
 the signed-source and held-payment stages. This is an operation start, not
 a failed-swap, fallback, or recovery success.
+
+At height 326884, the board reached three canonical confirmations and passed
+the full signature, native ownership and accounting checks. Its actual signed
+expiry is 326913 and CSV is 12. The measured cut is
+`30000 = 20000 anchor + 9542 native-owned BDK change + 458 miner fee`, with
+`20000 = 19670 signed customer value + 330 carried board fee`.
+
+The subsequent single hold-invoice intent stopped with UNKNOWN at 11:50 UTC.
+Ubuntu's system curl inherited the native Nix `LD_LIBRARY_PATH`, causing a
+glibc loader error before curl could execute its network request. Captured
+gRPC stdout is empty and no response headers exist. A read-only lookup on the
+owned external CLN at 11:57 UTC found zero invoices for the exact original
+payment hash. No native send, sender fence, or cancellation was dispatched.
+The original intent, artifacts and HOLD remain preserved without an inferred
+acknowledgement or automatic retry.
+
+The source correction clears `LD_LIBRARY_PATH` only for curl, retaining the
+admitted native ELF environment. Three environment/error controls and 49
+related Python tests passed, with independent source review. A clean-loader
+`curl --version` check passed on the actual VM with HTTP/2 support and zero
+network requests. These checks do not prove successful invoice creation.
+An explicitly reviewed reconciliation and continuation is still required.
