@@ -21,6 +21,8 @@
       "controller_source": "b948a3d384303657a7599f2ed40bb2420918cff1",
       "event_order_reference": "docs/evidence/native-ln-failed-send-event-order-20261017.json",
       "liquidity_reference": "docs/evidence/native-ln-failed-send-liquidity-20261017.json",
+      "recovery_reference": "docs/evidence/public-signet-native-ln-recovery-20261018.json",
+      "recovery_scope": "Additive actual28670 refund plus distinct29542ordinary board change recovered via one original-seed-only drain; currentCore842 proves parent19/recovery10 confirmations. Normal native case PASS only; legacy/unfinished-refresh/money-loss fault oracles remain unproved.",
       "reference": "docs/evidence/native-ln-failed-send-accepted-cancelled-20261017.json",
       "scope": "Actual one5000sat invoice/nativeattempt, Accepted then originalsenderfenced before Cancelled; exactownnode/label/index2 failed, channelbalancesrestored. D326812/E326823, full29670cut/expected28670fallback; payoutandrecoverypending. No legacy state/unfinishedrefresh fault executed.",
       "source_manifest_sha256": "c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b"
@@ -44,10 +46,12 @@
       "scope": "Actual50 funded wallets/200 reconciled1000sat sends; source7055; no attribution search or lifetime history stress"
     },
     "NATIVE_RECEIVE": {
-      "reference": "docs/evidence/public-signet-native-ln-receive-20261017.json",
-      "scope": "Actual5000 payment,4890 signed recipient coin, E326816/D326833; fallback/recovery pending at immutable milestone",
       "broadcast_reference": "docs/evidence/native-ln-receive-fallback-broadcast-20261017.json",
-      "broadcast_scope": "Additive actual3890sat registered-script fallback+363sat feechild broadcast atE326816,0conf; recipientclosed/no recovery yet. Original invoice/grant/claim evidence remains immutable. No whole-scenario or Noah/LNURL credit."
+      "broadcast_scope": "Additive actual3890sat registered-script fallback+363sat feechild broadcast atE326816,0conf; recipientclosed/no recovery yet. Original invoice/grant/claim evidence remains immutable. No whole-scenario or Noah/LNURL credit.",
+      "recovery_reference": "docs/evidence/public-signet-native-ln-recovery-20261018.json",
+      "recovery_scope": "Additive actual3890 rightful payout, parent/child>=6 before original-seed-only restore/one drain; currentCore842 proves payout26/recovery20 confirmations. Normal native case PASS only, no full money-loss-ID or Noah/LNURL credit.",
+      "reference": "docs/evidence/public-signet-native-ln-receive-20261017.json",
+      "scope": "Actual5000 payment,4890 signed recipient coin, E326816/D326833; fallback/recovery pending at immutable milestone"
     },
     "NOAH_FAIL": {
       "reference": "docs/evidence/noah-actual-invoice-rejection-20261017.json",

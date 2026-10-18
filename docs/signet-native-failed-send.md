@@ -89,7 +89,7 @@ is explicitly288; the pool target is empty because the source will be an
 actor-funded board, not a receive grant.
 
 The one new sender completed native create, authentic registration and actual
-18/32 SDK handshake, with zero coins/balance and original birthday326787. Its
+18/32 SDK handshake, with zero coins/balance and original birthday 326787. Its
 CLI opens use `run_daemon:false`; no watch/background process was started.
 The protected original phrase was backed up and independently hash checked.
 All15 existing protected services retained their PIDs/restart counts, and the
@@ -346,7 +346,7 @@ passed92 focused tests on the VM. The original board supervisor exited0. The
 new bounded observer now waits for actual D/E, one rightful28,670-sat fallback,
 parent/fee-child each at least six confirmations, and a genuine original-seed-only
 restore plus one confirmed drain. **That fallback/recovery has not completed.**
-These observations do not qualify the default258-block profile, stockNoah,
+These observations do not qualify the default 258-block profile, stockNoah,
 legacy-state restoration, interrupted refresh or any complete200-ID oracle.
 
 
@@ -356,3 +356,27 @@ fence, followed by cancellation intent and ACK. At the retained read-only
 observation there are no subsequent original-actor action updates and no native
 wallet process for that original directory. These observations supplement the
 fence mechanism; they are not inferred from an ACK or a synthesized owner state.
+
+## Confirmed refund and original-seed recovery on 18 October
+
+[The additive completed-case proof](evidence/public-signet-native-ln-recovery-20261018.json)
+now records a real 28,670-sat refund at block 326824 to the sender's original
+registered script. Its zero-fee parent spends the actual 30,000-sat board root;
+the operator output is 1,330 sat (1,000 new output fee plus 330 carried board
+residual). The actual watchman fee child pays 363 sat, distinct from net subsidy,
+which is zero under the existing remainder-based accounting.
+
+After parent and child each exceeded six confirmations, one fresh native DB
+restored only the original seed and birthday 326787. One drain consumed the
+28,670-sat payout **and** 29,542 sat ordinary board change, delivering 58,034 sat
+to the declared owned destination and paying 178 sat miner fee. The change is
+separate principal, not a second fallback or profit. The original sender remained
+fenced; there was no cooperative client revocation, replacement send or retry.
+
+First PASS at 326833 had one recovery confirmation; the supervisor subsequently
+recorded six at 326838 and exited. Independent Core at 326842 now verifies 19
+parent/child confirmations and 10 recovery confirmations. The journal retains
+exactly one invoice, send, cancellation, seed-only restore and drain, with no
+unknown action. This completes the normal native attempted-failure lifecycle on
+the recorded 18/32 profile. Noah/LNURL, default 258-block admission, legacy sources,
+unfinished refreshes and complete money-loss fault scenarios remain unproved.

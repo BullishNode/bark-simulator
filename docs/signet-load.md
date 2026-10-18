@@ -182,3 +182,39 @@ Separate actual preparation-controller and execution-controller commits remain
 part of the trace. Source availability, stubbed Python tests, registrations,
 native acknowledgements and requested rates are never reported as successful
 measured load or a maximum-TPS result.
+
+## FIRST50 fixed window: 580 of 600, financially reconciled
+
+[The immutable window and subsequent admitted audit](evidence/public-signet-first50-incomplete-window-20261018.json)
+record 580 successful 1,000-sat sends, zero unknown actions and zero observed
+transfer fees. The original 600-request, 1,200-second window closed normally;
+20 transfers were never dispatched. Its original `HOLD`, deadline and `36cefa`
+controller provenance remain unchanged. This is **INCOMPLETE**, not a 600-send
+workload PASS.
+
+A separate, reviewed active-sync audit after the original process exited and
+released its lock reread all 50 active wallets. Opening and closing customer
+value both equal 1,483,500 sat. All 100 current spendable coin IDs match retained
+native signed-path proofs, and fresh Core backing covers 50 confirmed anchors.
+The signature receipts retain their original heights; they are not relabelled
+as new cryptographic checks. Before/after state/value/ID projections changed
+for zero actors. Exactly 50 new native sync observations were added; explicit
+send/board/create counts stayed unchanged. These projections do not exhaustively
+attribute internal SDK effects.
+
+Achieved paced throughput was 29.0775 transfers/minute over 1,196.801 seconds from
+first send intent to last reconciliation. Recipient-availability p95 was 1.573 s;
+full financial-reconciliation p95 was 2.839 s. The 116 actual batch starts accumulated
+44.515 seconds beyond their nominal 10-second intervals. The preserved old
+wrapper calculated its remaining delay before reporting/closing, then added
+that overhead. The future pacing correction is source-tested and separately
+published; it was not substituted into this window.
+
+During sampled batches, captaind used 116.81 CPU seconds, the controller 1,684.38,
+and all reaped native/proof children 311.29. Sampled RSS maxima were 78,640 KiB
+for captaind, 37,664 for watchmand and 507,888 for the controller. Controller proof
+work dominates this measurement; it does not establish backend saturation or
+maximum TPS. PostgreSQL sampling observed no deadlock increase or lock waiters;
+rollback counters are not failed payments, and WAL includes other profiles.
+The receipt records real 5,760 sat treasury and 22,900 sat board miner fees separately
+from carried tree residual, unchanged principal and unspent operator allocations.

@@ -271,3 +271,28 @@ The original recipient remains absent. The existing observer still requires
 six canonical confirmations on both parent and fee child before the separate
 original-seed-only restore and one drain. Noah/LNURL, failed-send recovery and
 controlled interrupted-settlement scenarios remain separate.
+
+## Confirmed fallback and seed-only recovery on 18 October
+
+[The additive completed-case proof](evidence/public-signet-native-ln-recovery-20261018.json)
+records the complete native receive path. The real 4,890-sat recipient coin
+became one 3,890-sat fallback output. Parent and fee child each had six canonical
+confirmations before the separate native wallet restored from only the original
+seed and original birthday 326782. No original wallet DB or payout outpoint hint
+was supplied. One drain spent that exact payout output, delivered 3,780 sat to
+the declared owned destination and paid 110 sat miner fee. This miner fee is
+separate from the earlier 110-sat receive service fee.
+
+The immutable first PASS at height 326823 had seven parent/child confirmations
+and one recovery confirmation. A later independent read-only Core proof at
+326842 verifies 26 parent/child confirmations and 20 recovery confirmations.
+The [verification script](evidence/verify-native-ln-current-core-20261018.py)
+checks actual canonical blocks, registered-script constants, input lineage,
+transaction arithmetic, original birthdays and single acknowledged restore/drain
+counts without opening native wallets. The original first-PASS depth remains
+unchanged. No additional invoice, payment, restore or drain was dispatched.
+
+This is a completed **native BOLT11 receive → absent recipient → fallback →
+seed-only recovery** case. Stock Noah/LNURL remains incompatible in its actual
+metadata-hash evaluation; interrupted delivery, provider backup/identity faults,
+controlled reorgs and the complete money-loss catalogue remain separate oracles.

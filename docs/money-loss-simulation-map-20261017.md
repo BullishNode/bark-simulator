@@ -105,3 +105,18 @@ channel principal balances remain105,000,000/95,000,000msat; offered counts
 increase, fulfilled counts do not, and neither side has pending HTLCs. This is
 normal failed-send financial evidence, not satisfaction of ML073/ML077 legacy
 or unfinished-refresh scenarios, nor any Noah/LNURL functional receive.
+
+## Additive confirmed native Lightning recoveries
+
+[The independent completed-case receipt](evidence/public-signet-native-ln-recovery-20261018.json)
+now proves both normal native cases through real fallback and original-seed-only
+confirmed spends. At Core 326842 the receive payout/recovery have 26/20
+confirmations; the attempted-failure refund/recovery have 19/10. Both original
+first-PASS recovery depths were one and are preserved. Each case used one
+restore and one drain with no unknown action or original absent-wallet reopen.
+
+These useful completed native lifecycles do not inject the catalogue's provider
+identity, lost reply, legacy backup, reorg or unfinished-refresh faults. Every
+selected original row/oracle and the 1 FAIL / 22 PARTIAL / 13 NOT_RUN / 2 BLOCKED_POLICY
+counts remain unchanged, with zero whole money-loss scenario PASS claims.
+The coordinator's canonical 200-ID ledger and research snapshot are unchanged.
