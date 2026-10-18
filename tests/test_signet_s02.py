@@ -203,6 +203,7 @@ class S02Tests(unittest.TestCase):
             changed = reconcile(self.campaign, "absent", "s02-control-control-0",
                                 expected_chain=earlier_depth_check)
             self.assertEqual(changed["case_verdict"], "INCOMPLETE")
+            self.assertEqual(changed["stage"], "WAITING_FOR_STABLE_CHAIN_VIEW")
             self.assertIn("since required-depth checks", changed["rechecks"][-1]["reason"])
             self.campaign.core.transactions[RECOVERY]["confirmations"] = 0
             undone = reconcile(self.campaign, "absent", "s02-control-control-0")

@@ -281,13 +281,35 @@ class S02CaseTests(unittest.TestCase):
             with patch.object(case, "_payouts", return_value=([("unused", {**payout, "confirmations": 5})], True)):
                 self.assertEqual(case.advance()["stage"], "WAITING_FOR_SIX_CONFIRMED_PARENTS_AND_CHILDREN")
             self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action WHERE operation IN ('restore','onchain_drain')").fetchone()[0], 0)
+            def advance_chain():
+                self.campaign.core.info["blocks"] += 1
+                for transaction in self.campaign.core.transactions.values():
+                    transaction["confirmations"] += 1
+            def proof_after_new_block(*args):
+                advance_chain()
+                return {"confirmations": 6}
+            fee.side_effect = proof_after_new_block
+            self.assertEqual(case.advance()["stage"], "WAITING_FOR_STABLE_CHAIN_VIEW")
+            def chain_moved_during_proof(*args):
+                advance_chain()
+                raise ValueError("proof crossed a changing canonical view")
+            fee.side_effect = chain_moved_during_proof
+            self.assertEqual(case.advance()["stage"], "WAITING_FOR_STABLE_CHAIN_VIEW")
+            fee.side_effect = ValueError("invalid proof on the unchanged chain")
+            with self.assertRaisesRegex(ValueError, "invalid proof on the unchanged chain"):
+                case.advance()
+            fee.side_effect = None
+            self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action WHERE operation IN ('restore','onchain_drain')").fetchone()[0], 0)
             waiting = case.advance()
             self.assertEqual(waiting["stage"], "WAITING_FOR_SIX_CONFIRMED_RECOVERY_SPEND")
-            self.assertEqual(waiting["confirmations"], 1)
+            self.assertEqual(waiting["confirmations"], 3)
+            with patch("simulator.signet_s02_case._confirmed_transaction", side_effect=chain_moved_during_proof):
+                self.assertEqual(case.advance()["stage"], "WAITING_FOR_STABLE_CHAIN_VIEW")
             self.assertIsNone(self.campaign.db.execute("SELECT 1 FROM result WHERE json_extract(payload,'$.kind')='case_result'").fetchone())
-            self.campaign.core.info["blocks"] = 205
+            increment = 6 - self.campaign.core.transactions[fixture.RECOVERY]["confirmations"]
+            self.campaign.core.info["blocks"] += increment
             for transaction in self.campaign.core.transactions.values():
-                transaction["confirmations"] += 5
+                transaction["confirmations"] += increment
             self.assertEqual(case.advance()["case_verdict"], "PASS")
         self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action WHERE operation='restore'").fetchone()[0], 1)
         self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action WHERE operation='onchain_drain'").fetchone()[0], 1)

@@ -115,7 +115,10 @@ and original journal encoding.
 The production path reuses normal control maintenance and existing signed-path,
 fee-child, payout and seed-recovery checks. It waits for six canonical confirmations
 of every payout parent and fee child before restoration, then six confirmations
-of the exact recovery spend before PASS. Expiry follows recorded public-chain
+of the exact recovery spend before PASS. A changed chain view returns
+`WAITING_FOR_STABLE_CHAIN_VIEW`; the next step rechecks the existing evidence
+and retains the original restore/drain intents. Invalid proofs on an unchanged
+chain still fail. Expiry follows recorded public-chain
 heights: the 4,320-block lifetime is not accelerated or counted as active throughput.
 This admission support does not deploy a candidate, fund actors, qualify a run,
 or change the separate Lightning wrappers' short-profile restrictions.

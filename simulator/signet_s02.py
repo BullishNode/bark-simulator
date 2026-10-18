@@ -372,7 +372,8 @@ def reconcile(campaign, actor: str, control_observation_id: str, *, expected_cha
     chain = network_identity(campaign.core)
     if chain != initial_chain:
         reasons.append({"reason": "chain changed during lifecycle reconciliation; recheck required"})
-    if expected_chain is not None and chain != expected_chain:
+    depth_view_changed = expected_chain is not None and (initial_chain != expected_chain or chain != expected_chain)
+    if depth_view_changed:
         reasons.append({"reason": "chain changed since required-depth checks; recheck required"})
     result = {"kind": "S02_reconciliation", "case": "S02", "actor": actor, "chain": chain,
               "case_verdict": "INCOMPLETE", "stage": "WAITING_FOR_REAL_LIFECYCLE",
@@ -380,6 +381,8 @@ def reconcile(campaign, actor: str, control_observation_id: str, *, expected_cha
               "confirmed_recovered_payout_sat": recovered, "confirmed_payout_outpoints": sorted(payouts),
               "expiry_heights": sorted({coin["expiry_height"] for coin in frozen["coins"]}),
               "active_control": control_now, "rechecks": reasons}
+    if depth_view_changed:
+        result["stage"] = "WAITING_FOR_STABLE_CHAIN_VIEW"
     if covered == known and control_now["control_check"] == "PASS" and not reasons:
         if control_now["original_expiry_height"] > min(coin["expiry_height"] for coin in frozen["coins"]):
             raise ValueError("control did not span the abandoned cohort's first expiry")

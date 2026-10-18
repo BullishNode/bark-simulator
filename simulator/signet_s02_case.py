@@ -167,10 +167,15 @@ class S02:
             from .signet_repair import _fee_child
             chain = network_identity(campaign.core)
             payout_chain = chain
-            fees = [_fee_child(campaign, payout, chain) for _, payout in payouts]
+            try:
+                fees = [_fee_child(campaign, payout, chain) for _, payout in payouts]
+            except ValueError:
+                if network_identity(campaign.core) != chain:
+                    return self._progress("WAITING_FOR_STABLE_CHAIN_VIEW")
+                raise
             if (any(payout["chain"] != chain for _, payout in payouts)
                     or network_identity(campaign.core) != chain):
-                raise ValueError("chain changed during production S02 payout/fee observation")
+                return self._progress("WAITING_FOR_STABLE_CHAIN_VIEW")
             if (any(payout["confirmations"] < 6 for _, payout in payouts)
                     or any(fee is None or fee["confirmations"] < 6 for fee in fees)):
                 return self._progress("WAITING_FOR_SIX_CONFIRMED_PARENTS_AND_CHILDREN", fee_children=fees)
@@ -195,11 +200,16 @@ class S02:
         if self.production_profile:
             chain = network_identity(campaign.core)
             txid = recovery[0]["spend_txid"]
-            transaction, _ = _confirmed_transaction(campaign, txid, chain)
+            try:
+                transaction, _ = _confirmed_transaction(campaign, txid, chain)
+            except ValueError:
+                if network_identity(campaign.core) != chain:
+                    return self._progress("WAITING_FOR_STABLE_CHAIN_VIEW")
+                raise
             if (chain != payout_chain
                     or any(item["chain"] != chain or item["spend_txid"] != txid for item in recovery)
                     or network_identity(campaign.core) != chain):
-                raise ValueError("chain changed during production S02 recovery observation")
+                return self._progress("WAITING_FOR_STABLE_CHAIN_VIEW")
             if transaction["confirmations"] < 6:
                 return self._progress("WAITING_FOR_SIX_CONFIRMED_RECOVERY_SPEND", recovery=recovery,
                                       confirmations=transaction["confirmations"])
