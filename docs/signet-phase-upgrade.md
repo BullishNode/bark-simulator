@@ -163,3 +163,20 @@ original intent. Do not restore an old financial database or wallet snapshot
 after new actions and thereby forget spending or payout decisions. The
 coordinator chooses a checked recovery or forward fix from the retained state;
 an old source bundle alone is not a safe financial-state rollback.
+
+## Observed ordinary maintenance fees
+
+[Read-only native wallet accounting at height 326843](evidence/ordinary-maintenance-fees-20261018.json)
+explains the original ordinary cohort's change from 59,340 to 58,751 sat.
+Three successful native round refreshes charged 190, 190 and 209 sat. The
+stored movement input/output amounts independently match those charges:
+5,000→4,810 twice, then (2,335+3,668+1,332)→7,126. The cohort's most recent
+transfer has zero observed fee and reconciles its opening and closing value.
+The 589-sat difference is accounted maintenance expense.
+
+The original two 330-sat native board deductions were already excluded from
+59,340 sat. They are not charged again as maintenance or described as new
+operator revenue. This receipt reports native round fees, separately from
+onchain miner cash costs and other profiles. No wallet opening, refresh command
+or financial action was used to collect it. The ordinary profile remains on its
+original 7055 source and continues independently.
