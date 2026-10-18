@@ -132,6 +132,35 @@ class ExistingSenderTests(unittest.TestCase):
                 refresh_existing_sender(self.campaign)
         native.assert_not_called()
 
+    def test_locked_original_inputs_wait_then_complete_without_another_refresh(self):
+        self.prepare()
+        self.new_coin()
+        observed = [{**self.coins[0], 'state': 'locked'}]
+        def pending(campaign, intent, actor, operation, args=None):
+            reply = self.native(campaign, intent, actor, operation, args)
+            return observed if intent.startswith('existing-source-after-') else reply
+        with patch('simulator.signet_existing_ln._native', side_effect=pending):
+            result = refresh_existing_sender(self.campaign)
+        self.assertEqual(result['stage'], 'WAITING_FOR_NATIVE_REFRESH_COMPLETION')
+        self.assertEqual(result['case_verdict'], 'INCOMPLETE')
+        self.assertEqual(result['locked_input_ids'], [self.coins[0]['id']])
+        self.assertFalse(self.campaign.db.execute("SELECT 1 FROM result WHERE json_extract(payload,'$.kind')='failed_send_ready'").fetchone())
+        self.assertEqual(self.refresh()['stage'], 'ACTUAL_NATIVE_SOURCE_READY_NO_INVOICE')
+        self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action WHERE operation='refresh'").fetchone()[0], 1)
+
+    def test_locked_inputs_with_changed_value_or_unrecognized_state_do_not_wait(self):
+        self.prepare()
+        self.new_coin()
+        for changed in [{'state': 'locked', 'amount_sat': 1}, {'state': 'unrecognized'},
+                        {'state': 'locked', 'id': 'f' * 64 + ':0'}]:
+            with self.subTest(changed=changed):
+                def invalid(campaign, intent, actor, operation, args=None):
+                    reply = self.native(campaign, intent, actor, operation, args)
+                    return [{**self.coins[0], **changed}] if intent.startswith('existing-source-after-') else reply
+                with patch('simulator.signet_existing_ln._native', side_effect=invalid):
+                    with self.assertRaisesRegex(ValueError, 'completed refreshed'):
+                        refresh_existing_sender(self.campaign)
+
     def test_long_or_missing_original_coin_never_becomes_short_source(self):
         self.prepare()
         self.new_coin()

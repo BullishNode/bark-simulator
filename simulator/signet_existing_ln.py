@@ -168,6 +168,21 @@ def refresh_existing_sender(campaign):
     coins = _native(campaign, f'existing-source-after-{n}', 'absent', 'sync_vtxos')
     live = [c for c in coins if c['state'] == 'spendable']
     old_ids = {c['id'] for c in spec['prior_coins'] if c['state'] == 'spendable'}
+    prior = {c['id']: c for c in spec['prior_coins']}
+    # The native refresh ACK can precede round completion. Keep observing the
+    # original locked inputs; an ACK is neither a new coin nor permission to
+    # submit another refresh. Only exact unchanged input bodies may wait here.
+    if (len(coins) == len(prior) and {c['id'] for c in coins} == set(prior)
+            and any(c['state'] == 'locked' for c in coins)
+            and all({k: v for k, v in c.items() if k != 'state'} ==
+                    {k: v for k, v in prior[c['id']].items() if k != 'state'}
+                    and (c['state'] in {'spendable', 'locked', 'spent'}
+                         if c['id'] in old_ids else c['state'] == prior[c['id']]['state'])
+                    for c in coins)):
+        return _save(campaign, 'existing-source-pending', {
+            'kind': 'existing_failed_sender', 'stage': 'WAITING_FOR_NATIVE_REFRESH_COMPLETION',
+            'chain': chain, 'locked_input_ids': sorted(c['id'] for c in coins if c['state'] == 'locked'),
+            'native_refresh_ack_retained': True, 'case_verdict': 'INCOMPLETE'})
     if (any(c['state'] not in {'spent', 'spendable'} for c in coins)
             or len(live) != 1 or live[0]['id'] in old_ids
             or not old_ids.issubset({c['id'] for c in coins})
