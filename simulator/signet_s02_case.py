@@ -10,17 +10,29 @@ import json
 from .model import canonical, integer
 from .signet import network_identity
 from .signet_discovery import discover_payouts
-from .signet_s02 import _freeze, observe_payout, check_control, check_recovery, reconcile
+from .signet_s02 import _confirmed_transaction, _freeze, observe_payout, check_control, check_recovery, reconcile
 
 
 class S02:
     def __init__(self, campaign, *, board_sat: int, maximum_control_fee_sat: int,
-                 recovery_destination: str):
+                 recovery_destination: str, profile: str = "short"):
+        if profile not in ("short", "production"):
+            raise ValueError("explicit short or production S02 profile required")
         self.campaign = campaign
+        self.production_profile = profile == "production"
+        self.target_profile = {"vtxo_lifetime": 12, "vtxo_exit_delta": 3,
+                               "required_board_confirmations": 3}
         self.params = {"board_sat": integer(board_sat, "board amount", 1),
                        "maximum_control_fee_sat": integer(maximum_control_fee_sat, "maximum control fee"),
                        "recovery_destination": recovery_destination,
                        "wallet_profile": {"vtxo_refresh_expiry_threshold": 4, "vtxo_exit_margin": 2}}
+        if self.production_profile:
+            self.target_profile.update(network="signet", vtxo_lifetime=4320, vtxo_exit_delta=144)
+            self.params.update(target_profile=dict(self.target_profile), required_confirmations=6,
+                               wallet_profile={"vtxo_refresh_expiry_threshold": 144, "vtxo_exit_margin": 12})
+            if (not campaign.db.execute("SELECT 1 FROM meta WHERE key='s02_parameters'").fetchone()
+                    and campaign.db.execute("SELECT 1 FROM action").fetchone()):
+                raise ValueError("production S02 profile must be selected before actor actions")
         from .signet import command
         command("onchain_drain", {"destination": recovery_destination}, campaign.config)
         destination = campaign.core.call("validateaddress", recovery_destination)
@@ -30,6 +42,11 @@ class S02:
         campaign.db.execute("INSERT OR IGNORE INTO meta VALUES ('s02_parameters',?)", (encoded,))
         if campaign.db.execute("SELECT value FROM meta WHERE key='s02_parameters'").fetchone()[0] != encoded:
             raise ValueError("S02 parameters are immutable within this campaign")
+
+    def _check_target(self, target):
+        if any(target.get(key) != expected or type(target.get(key)) is not type(expected)
+               for key, expected in self.target_profile.items()):
+            raise ValueError("declared S02 server profile differs")
 
     def _native(self, intent, actor, operation, args=None):
         row = self.campaign.execute(intent, actor, operation, args or {})
@@ -58,9 +75,7 @@ class S02:
                     or registration["payout_address"] == addresses[actor]):
                 raise ValueError("authenticated reserved payout script differs from native funding address")
         target = self._native("s02-target-info", "control", "ark_info")
-        if any(target[key] != expected for key, expected in
-               {"vtxo_lifetime": 12, "vtxo_exit_delta": 3, "required_board_confirmations": 3}.items()):
-            raise ValueError("declared short-profile server parameters differ")
+        self._check_target(target)
         if self.params["board_sat"] < target["min_board_amount_sat"]:
             raise ValueError("declared S02 board is below the real server minimum")
         funding = [json.loads(row[0]) for row in campaign.db.execute(
@@ -124,6 +139,12 @@ class S02:
         chain = network_identity(campaign.core)
         if not campaign.db.execute("SELECT 1 FROM meta WHERE key='s02_absent:absent'").fetchone():
             return self.prepare()
+        if self.production_profile:
+            target = campaign.db.execute("""SELECT reply FROM action WHERE id='s02-target-info'
+                AND actor='control' AND operation='ark_info' AND state='acknowledged'""").fetchone()
+            if not target:
+                raise ValueError("original production S02 target admission required")
+            self._check_target(json.loads(target[0]))
         frozen = _freeze(campaign, "absent")
         before = campaign.db.execute("SELECT value FROM meta WHERE key='s02_control_before'").fetchone()
         if not before:
@@ -142,6 +163,17 @@ class S02:
         if not complete:
             return self._progress("WAITING_FOR_CANONICAL_PAYOUTS", discovery=discovery,
                                   expiry_heights=sorted({coin["expiry_height"] for coin in frozen["coins"]}))
+        if self.production_profile:
+            from .signet_repair import _fee_child
+            chain = network_identity(campaign.core)
+            payout_chain = chain
+            fees = [_fee_child(campaign, payout, chain) for _, payout in payouts]
+            if (any(payout["chain"] != chain for _, payout in payouts)
+                    or network_identity(campaign.core) != chain):
+                raise ValueError("chain changed during production S02 payout/fee observation")
+            if (any(payout["confirmations"] < 6 for _, payout in payouts)
+                    or any(fee is None or fee["confirmations"] < 6 for fee in fees)):
+                return self._progress("WAITING_FOR_SIX_CONFIRMED_PARENTS_AND_CHILDREN", fee_children=fees)
         created = campaign.db.execute("SELECT chain FROM action WHERE id='s02-absent-create'").fetchone()
         if not created:
             raise ValueError("original native wallet creation height required")
@@ -160,8 +192,21 @@ class S02:
                                    self.params["recovery_destination"]) for payout_id, _ in payouts]
         if any(item["recovery_check"] != "PASS" for item in recovery):
             return self._progress("WAITING_FOR_CONFIRMED_RECOVERY_SPEND", recovery=recovery)
+        if self.production_profile:
+            chain = network_identity(campaign.core)
+            txid = recovery[0]["spend_txid"]
+            transaction, _ = _confirmed_transaction(campaign, txid, chain)
+            if (chain != payout_chain
+                    or any(item["chain"] != chain or item["spend_txid"] != txid for item in recovery)
+                    or network_identity(campaign.core) != chain):
+                raise ValueError("chain changed during production S02 recovery observation")
+            if transaction["confirmations"] < 6:
+                return self._progress("WAITING_FOR_SIX_CONFIRMED_RECOVERY_SPEND", recovery=recovery,
+                                      confirmations=transaction["confirmations"])
         if control_id is None:
             return self._progress("WAITING_FOR_REFRESHED_ACTIVE_CONTROL", recovery=recovery)
+        if self.production_profile:
+            return reconcile(campaign, "absent", control_id, expected_chain=chain)
         return reconcile(campaign, "absent", control_id)
 
     def _snapshot_onchain(self):

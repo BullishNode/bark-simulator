@@ -103,6 +103,23 @@ native outcomes still hold first. Continued chain/reorg observation is separate
 read-only work; a historical PASS is not a new assertion about today's chain.
 This fixes future controller behavior and does not repin earlier live campaigns.
 
+For a **new** S02 lifecycle on the production timing profile, construct
+`S02(..., profile="production")` before creating any actor. It requires the actual
+native target to advertise public Signet, lifetime 4,320 blocks, exit delta 144
+and three board confirmations. Both original and seed-restored wallets use an
+explicit refresh threshold 144 and exit margin 12. These parameters are immutable;
+an archived short-profile campaign cannot be relabelled or resumed as production.
+The default `profile="short"` retains the original 12/3 target, 4/2 wallet profile
+and original journal encoding.
+
+The production path reuses normal control maintenance and existing signed-path,
+fee-child, payout and seed-recovery checks. It waits for six canonical confirmations
+of every payout parent and fee child before restoration, then six confirmations
+of the exact recovery spend before PASS. Expiry follows recorded public-chain
+heights: the 4,320-block lifetime is not accelerated or counted as active throughput.
+This admission support does not deploy a candidate, fund actors, qualify a run,
+or change the separate Lightning wrappers' short-profile restrictions.
+
 ## First two-wallet observations
 
 Use `sync_vtxos` while wallets are active to collect current native state. This

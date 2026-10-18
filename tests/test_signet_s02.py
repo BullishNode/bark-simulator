@@ -199,6 +199,11 @@ class S02Tests(unittest.TestCase):
             complete = reconcile(self.campaign, "absent", "s02-control-control-0")
             self.assertEqual(complete["case_verdict"], "PASS")
             self.assertEqual(complete["confirmed_recovered_payout_sat"], 9000)
+            earlier_depth_check = {**complete["chain"], "hash": "0" * 64}
+            changed = reconcile(self.campaign, "absent", "s02-control-control-0",
+                                expected_chain=earlier_depth_check)
+            self.assertEqual(changed["case_verdict"], "INCOMPLETE")
+            self.assertIn("since required-depth checks", changed["rechecks"][-1]["reason"])
             self.campaign.core.transactions[RECOVERY]["confirmations"] = 0
             undone = reconcile(self.campaign, "absent", "s02-control-control-0")
             self.assertEqual(undone["case_verdict"], "INCOMPLETE")

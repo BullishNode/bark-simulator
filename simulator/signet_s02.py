@@ -331,7 +331,7 @@ def check_control(campaign, actor: str, before_intent: str, after_intent: str,
     return _save(campaign, "s02-control-" + actor, result)
 
 
-def reconcile(campaign, actor: str, control_observation_id: str) -> dict:
+def reconcile(campaign, actor: str, control_observation_id: str, *, expected_chain=None) -> dict:
     """Recheck present chain evidence before issuing this narrow case verdict."""
     frozen = _freeze(campaign, actor)
     row = campaign.db.execute("SELECT payload FROM result WHERE id=?", (control_observation_id,)).fetchone()
@@ -372,6 +372,8 @@ def reconcile(campaign, actor: str, control_observation_id: str) -> dict:
     chain = network_identity(campaign.core)
     if chain != initial_chain:
         reasons.append({"reason": "chain changed during lifecycle reconciliation; recheck required"})
+    if expected_chain is not None and chain != expected_chain:
+        reasons.append({"reason": "chain changed since required-depth checks; recheck required"})
     result = {"kind": "S02_reconciliation", "case": "S02", "actor": actor, "chain": chain,
               "case_verdict": "INCOMPLETE", "stage": "WAITING_FOR_REAL_LIFECYCLE",
               "pending_coin_ids": sorted(known - covered), "recovered_coin_ids": sorted(covered),
