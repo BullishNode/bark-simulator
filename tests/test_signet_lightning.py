@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from simulator.model import canonical
 from simulator.signet import Campaign
-from simulator.signet_lightning import (PROFILE, stage, issue_invoice, pay_invoice,
+from simulator.signet_lightning import (PROFILE, PRODUCTION_PROFILE, stage, issue_invoice, pay_invoice,
     validate_invoice, public_vtxo, _once, _private_call, _attempt, freeze_claim,
     observe_receive, advance_recovery, signed_public_coin, _loopback_open, _NoRedirect)
 from tests import test_signet, test_signet_phase, test_signet_s02
@@ -28,7 +28,7 @@ class ReceiveTests(unittest.TestCase):
     setUp=test_signet.SignetTests.setUp
     tearDown=test_signet.SignetTests.tearDown
 
-    def prepare(self):
+    def prepare(self, profile=PROFILE, *, config_profile=None, bind_pins=True, pool_targets=True):
         self.invoice_created_at = int(time.time())
         test_signet_phase.PhaseTests.fixture(self)
         self.campaign.close()
@@ -44,6 +44,25 @@ vtxo_targets=["10000sat:1"]
 base_fee_sat=100
 ppm=2000
 ''')
+        actual=profile if config_profile is None else config_profile
+        if profile==PRODUCTION_PROFILE:
+            config_path.write_text('''network="signet"
+vtxo_lifetime={vtxo_lifetime}
+vtxo_exit_delta={vtxo_exit_delta}
+htlc_expiry_delta={htlc_expiry_delta}
+htlc_send_expiry_delta=258
+max_htlc_expiry_delta=288
+required_board_confirmations=3
+[postgres]
+name="fresh_signet_native_ln"
+[vtxopool]
+vtxo_lifetime={pool_lifetime}
+vtxo_pre_expiry={pool_pre_expiry}
+vtxo_targets={targets}
+[fees.lightning_receive]
+base_fee_sat=100
+ppm=2000
+'''.format(**actual, targets='["10000sat:1"]' if pool_targets else '[]'))
         self.runtime_pins['config_hashes']['captaind']=hashlib.sha256(config_path.read_bytes()).hexdigest()
         self.new_config['product_config_sha256']=hashlib.sha256(canonical(self.runtime_pins['config_hashes']).encode()).hexdigest()
         self.campaign=Campaign(self.new_directory,self.new_config)
@@ -52,8 +71,11 @@ ppm=2000
         self.source=self.root/'original-phrase';self.source.write_text('abandon '*11+'about');self.source.chmod(0o600)
         self.token=self.root/'auth_token';self.token.write_text('private-fixture-bearer');self.token.chmod(0o600)
         self.admission=self.root/'coordinator-admission.json'
-        self.admission.write_text(canonical({'network':'signet','server_pubkey':PUB}))
-        self.spec={'profile':PROFILE,'amount_sat':5000,'max_payment_fee_msat':1000,
+        admission={'network':'signet','server_pubkey':PUB}
+        if profile==PRODUCTION_PROFILE and bind_pins:
+            admission['runtime_pins_sha256']=hashlib.sha256(canonical(self.runtime_pins).encode()).hexdigest()
+        self.admission.write_text(canonical(admission))
+        self.spec={'profile':profile,'amount_sat':5000,'max_payment_fee_msat':1000,
             'provider_url':'http://127.0.0.1:3000','provider_token_file':str(self.token),
             'cln_binary':str(self.root/'cln'),'cln_binary_sha256':hashlib.sha256(b'cln fixture').hexdigest(),
             'cln_directory':str(self.root/'payer'),'payer_pubkey':'03'+'4'*64,'invoice_payee':PUB,
@@ -67,7 +89,8 @@ ppm=2000
     def decoded(self):
         return {'type':'bolt11 invoice','valid':True,'currency':'tbs','amount_msat':5000000,
                 'payee':PUB,'payment_hash':HASH,'created_at':self.invoice_created_at,'expiry':3600,
-                'min_final_cltv_expiry':56,'payment_secret':'never public'}
+                'min_final_cltv_expiry':256 if self.spec['profile']==PRODUCTION_PROFILE else 56,
+                'payment_secret':'never public'}
 
     def cln(self,campaign,spec,intent,kind,*args):
         if args[0]=='getinfo':return {'id':self.spec['payer_pubkey'],'network':'signet'}
@@ -89,6 +112,46 @@ ppm=2000
         self.assertEqual(recovery_source(self.campaign,'absent').read_bytes(),self.source.read_bytes())
         with self.assertRaisesRegex(ValueError,'absent actor'):
             self.campaign.execute('no-open','absent','vtxos',{})
+
+    def test_production_stage_binds_current_pins_without_opening_absent_recipient(self):
+        with patch('simulator.signet_lightning.subprocess.run') as native:
+            result=self.prepare(PRODUCTION_PROFILE)
+        native.assert_not_called()
+        self.assertEqual(result['stage'],'STAGED_NO_INVOICE')
+        self.assertFalse(self.campaign.actor_path('absent').exists())
+        from simulator.signet_s02 import recovery_source
+        self.assertEqual(recovery_source(self.campaign,'absent').read_bytes(),self.source.read_bytes())
+        with self.assertRaisesRegex(ValueError,'new empty|already staged'):
+            stage(self.campaign,self.spec,self.runtime_pins,self.registration,self.source)
+
+    def test_production_requires_admission_bound_to_exact_runtime_manifest_sources_and_configs(self):
+        with patch('simulator.signet_lightning.subprocess.run') as native, \
+             self.assertRaisesRegex(ValueError,'exact paired runtime pins'):
+            self.prepare(PRODUCTION_PROFILE,bind_pins=False)
+        native.assert_not_called()
+        self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM actor').fetchone()[0],0)
+
+    def test_production_cannot_substitute_backend_source_inside_retained_runtime_pins(self):
+        self.prepare(PRODUCTION_PROFILE)
+        pins=json.loads(self.campaign.db.execute("SELECT value FROM meta WHERE key='phase_runtime_pins'").fetchone()[0])
+        pins['elf_source']['captaind']='e'*40
+        self.campaign.db.execute("UPDATE meta SET value=? WHERE key='phase_runtime_pins'",(canonical(pins),))
+        with patch('simulator.signet_lightning._cln') as payer, \
+             self.assertRaisesRegex(ValueError,'exact paired runtime pins'):
+            issue_invoice(self.campaign)
+        payer.assert_not_called()
+        self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM action').fetchone()[0],0)
+
+    def test_production_rejects_coherently_pinned_short_pool_geometry(self):
+        with self.assertRaisesRegex(ValueError,'configuration differs'):
+            self.prepare(PRODUCTION_PROFILE,config_profile=PROFILE)
+        self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM actor').fetchone()[0],0)
+
+    def test_production_requires_real_nonempty_pool_without_reconfiguring_it(self):
+        with self.assertRaisesRegex(ValueError,'configuration differs'):
+            self.prepare(PRODUCTION_PROFILE,pool_targets=False)
+        self.assertIn('vtxo_targets=[]',(self.root/'service-config/captaind.toml').read_text())
+        self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM actor').fetchone()[0],0)
 
     def test_invoice_checks_exact_amount_network_signature_payee_and_expiry(self):
         self.prepare();decoded=self.decoded()
@@ -124,6 +187,51 @@ ppm=2000
         self.assertEqual(paid['routing_fee_msat'],123)
         replies=' '.join(r[0] for r in self.campaign.db.execute('SELECT reply FROM action'))
         self.assertNotIn('12'*32,replies);self.assertNotIn('payment_preimage',replies)
+
+    def test_production_keeps_original_invoice_payment_and_absent_recipient_lineage(self):
+        self.prepare(PRODUCTION_PROFILE);self.invoice()
+        with patch('simulator.signet_lightning._rest') as duplicate:
+            issue_invoice(self.campaign)
+        duplicate.assert_not_called()
+        with patch('simulator.signet_lightning._cln',side_effect=self.cln) as calls:
+            pay_invoice(self.campaign);pay_invoice(self.campaign)
+        self.assertEqual(sum(call.args[4]=='xpay' for call in calls.call_args_list),1)
+        state={'payment_hash':HASH,'amount_sat':5000,'state':'settled','htlc_vtxo_ids':[]}
+        history=[{'metadata':{'payment_hash':HASH,'htlc_vtxos':[GRANT],'payment_preimage':'12'*32}}]
+        grant={'coin':{'id':GRANT,'policy_type':'server-htlc-receive-v1','expiry_height':632},
+               'serialized_sha256':'8'*64}
+        terms=[{'grant_id':GRANT,'payment_hash':HASH,'direction':'outgoing','htlc_expiry':414}]
+        with patch('simulator.signet_lightning._rest',side_effect=[state,history]), \
+             patch('simulator.signet_lightning.signed_public_coin',return_value=grant), \
+             patch('simulator.signet_lightning._private_call',return_value=terms):
+            observation=observe_receive(self.campaign)
+        self.assertEqual(observation['grant_signed_proofs'][0]['tree_expiry'],632)
+        claim={'coin':{'id':CLAIM,'amount_sat':4890,'policy_type':'pubkey',
+                      'chain_anchor':test_signet_s02.ANCHOR+':0','expiry_height':632},
+               'path_outpoints':[test_signet_s02.ANCHOR+':0',GRANT,CLAIM]}
+        with patch('simulator.signet_lightning.signed_public_coin',return_value=claim) as proof:
+            frozen=freeze_claim(self.campaign,[CLAIM])
+        self.assertTrue(proof.call_args.kwargs['recipient'])
+        self.assertEqual(frozen['coins'][0]['amount_sat'],4890)
+        self.assertEqual(frozen['coins'][0]['expiry_height'],632)
+        self.assertFalse(self.campaign.actor_path('absent').exists())
+        self.assertNotIn('12'*32,canonical(frozen))
+
+    def test_production_lost_payment_reply_retains_hold_and_never_replays(self):
+        self.prepare(PRODUCTION_PROFILE);self.invoice()
+        def lost(*args):
+            if args[4]=='xpay':raise subprocess.TimeoutExpired('xpay',1)
+            return self.cln(*args)
+        with patch('simulator.signet_lightning._cln',side_effect=lost),self.assertRaises(subprocess.TimeoutExpired):
+            pay_invoice(self.campaign)
+        with patch('simulator.signet_lightning._cln') as replay, \
+             self.assertRaisesRegex(ValueError,'reconciliation'):
+            pay_invoice(self.campaign)
+        replay.assert_not_called()
+        with patch('simulator.signet_lightning._native') as native, \
+             self.assertRaisesRegex(ValueError,'reconciliation'):
+            advance_recovery(self.campaign)
+        native.assert_not_called()
 
     def test_existing_payer_hash_or_wrong_returned_preimage_holds_without_second_payment(self):
         for mode in ['existing','wrong-preimage']:
@@ -197,6 +305,66 @@ ppm=2000
              patch('simulator.signet_lightning._native') as native:
             result=advance_recovery(self.campaign)
         native.assert_not_called();self.assertEqual(result['case_verdict'],'INCOMPLETE')
+
+    def test_production_recovery_resumes_after_chain_movement_and_requires_drain_six(self):
+        from simulator.signet_s02 import observe_payout
+        self.prepare(PRODUCTION_PROFILE)
+        coin={'id':CLAIM,'amount_sat':4890,'chain_anchor':test_signet_s02.ANCHOR+':0',
+              'expiry_height':180}
+        frozen={'coins':[coin],'registration':self.registration,
+                'signature_proofs':[{'coin_id':CLAIM,'status':'PASS',
+                    'path_outpoints':[coin['chain_anchor'],GRANT,CLAIM]}]}
+        self.campaign.db.execute("INSERT INTO meta VALUES ('s02_absent:absent',?)",(canonical(frozen),))
+        transactions=self.campaign.core.transactions
+        transactions[test_signet_s02.PAYOUT]['vout'][0]=test_signet_s02.output(3890)
+        transactions[test_signet_s02.PAYOUT]['vout'][1]=test_signet_s02.output(16110,'0014'+'3'*40,1)
+        transactions[test_signet_s02.RECOVERY]['vout'][0]=test_signet_s02.output(12890,test_signet_s02.DESTINATION)
+        observation=observe_payout(self.campaign,'absent',test_signet_s02.PAYOUT,0,[CLAIM])
+        self.assertEqual(observation['payout_check'],'PASS')
+        def native(argv,**kwargs):
+            self.assertNotIn(str(self.campaign.actor_path('absent')),argv)
+            if 'create' in argv:
+                self.assertIn('--mnemonic-file',argv)
+                self.assertNotIn(str(self.source),argv)
+                return subprocess.CompletedProcess(argv,0)
+            if argv[-2:]==['onchain','utxos']:
+                reply=[{'outpoint':test_signet_s02.PAYOUT+':0','amount_sat':3890,'confirmation_height':190}]
+            else:
+                self.assertIn('drain',argv)
+                reply={'txid':test_signet_s02.RECOVERY}
+            kwargs['stdout'].write(json.dumps(reply).encode())
+            return subprocess.CompletedProcess(argv,0)
+        with patch('simulator.signet_lightning.discover_payouts'), \
+             patch('simulator.signet_lightning._fee_child',return_value={'confirmations':5}) as fee, \
+             patch('simulator.signet.subprocess.run',side_effect=native) as process:
+            self.assertEqual(advance_recovery(self.campaign)['stage'],'WAITING_FOR_SIX_CONFIRMED_PARENTS_AND_CHILDREN')
+            process.assert_not_called()
+            def next_block(*args):
+                self.campaign.core.info['blocks']+=1
+                for transaction in transactions.values():transaction['confirmations']+=1
+                return {'confirmations':6}
+            fee.side_effect=next_block
+            self.assertEqual(advance_recovery(self.campaign)['stage'],'WAITING_FOR_STABLE_CHAIN_VIEW')
+            process.assert_not_called()
+            fee.side_effect=None;fee.return_value={'confirmations':6}
+            waiting=advance_recovery(self.campaign)
+            self.assertEqual(waiting['stage'],'WAITING_FOR_SIX_CONFIRMED_RECOVERY')
+            self.assertEqual(waiting['case_verdict'],'INCOMPLETE')
+            self.assertEqual(waiting['confirmations'],2)
+            calls=process.call_count
+            increment=6-transactions[test_signet_s02.RECOVERY]['confirmations']
+            self.campaign.core.info['blocks']+=increment
+            for transaction in transactions.values():transaction['confirmations']+=increment
+            result=advance_recovery(self.campaign)
+            self.assertEqual(result['case_verdict'],'PASS')
+            self.assertEqual(result['recovery'][0]['recovered_payout_sat'],3890)
+            self.assertEqual(process.call_count,calls)
+            self.assertEqual(advance_recovery(self.campaign)['case_verdict'],'PASS')
+            self.assertEqual(process.call_count,calls)
+        for operation in ['restore','onchain_drain']:
+            self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM action WHERE operation=?',(operation,)).fetchone()[0],1)
+        restore=json.loads(self.campaign.db.execute("SELECT arguments FROM action WHERE id='native-ln-seed-restore'").fetchone()[0])
+        self.assertEqual(restore['wallet_profile'],{'vtxo_refresh_expiry_threshold':144,'vtxo_exit_margin':12})
 
     def test_actual_native_proof_contract_has_no_wallet_open_and_requires_payee(self):
         self.prepare()

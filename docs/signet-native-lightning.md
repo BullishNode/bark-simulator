@@ -88,6 +88,37 @@ Staging verifies actual 32/12/6/pool/fee configuration and exact runtime hashes.
 It does not replace the coordinator's genuine operational admission or send
 funds. The original birthday remains unchanged through recovery.
 
+### Explicit production-compatible profile
+
+New isolated operations may instead set the existing `spec.profile` field to
+the module's exact `PRODUCTION_PROFILE` mapping. Archived short-profile specs,
+action IDs and journals stay unchanged. Production admission requires a
+`runtime_pins_sha256` equal to SHA256 of the canonical JSON of the supplied
+paired-runtime pins. This binds the admission to its actual current client and
+server sources, ELF hashes, configuration hashes and runtime manifest; the
+existing verifier rechecks those files before each operation.
+
+The pinned configuration must be public Signet with main lifetime/exit delta
+4,320/144, send delta 258, receive HTLC delta 40, maximum HTLC delta 288 and three
+board confirmations. Its genuinely funded pool remains **nonempty**, with
+lifetime/pre-expiry 432/144, and its database must match the admitted operation.
+This path does not reset a pool or fund/configure a deployment. Ordinary
+coordinator admission must still prove actual usable pool, payer and watchman
+liquidity. The same 5,000-sat invoice, 110-sat receive fee, authenticated absent
+recipient and genuine grant-to-recipient signature paths remain required.
+
+Pool-derived proceeds retain their actual signed tree expiry, not the main
+server's 4,320-block lifetime. The controller records actual grant deadlines and
+tree expiries without changing receive admission policy. Expiry takes real
+public blocks; this is separate from measuring active throughput.
+
+After the payout and its actual fee child each reach six confirmations, recovery
+uses the original protected seed and birthday with refresh threshold/exit margin
+144/12. The original one-drain intent is retained, and production PASS also
+requires that exact drain to have six canonical confirmations. A moving chain
+view yields `WAITING_FOR_STABLE_CHAIN_VIEW` for normal revalidation. Unknown
+invoice, payment or drain outcomes continue to stop without replay.
+
 ## One invoice, one payment
 
 Only after the coordinator admits invoice/payment execution:

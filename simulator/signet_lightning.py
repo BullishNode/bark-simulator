@@ -32,6 +32,9 @@ PROFILE = {'vtxo_lifetime': 32, 'vtxo_exit_delta': 12,
            'pool_lifetime': 32, 'pool_pre_expiry': 12, 'htlc_expiry_delta': 6,
            'sdk_exit_margin': 12, 'sdk_claim_delta': 18,
            'receive_base_fee_sat': 100, 'receive_ppm': 2000}
+PRODUCTION_PROFILE = {**PROFILE, 'vtxo_lifetime': 4320, 'vtxo_exit_delta': 144,
+                      'pool_lifetime': 432, 'pool_pre_expiry': 144,
+                      'htlc_expiry_delta': 40, 'sdk_refresh_expiry_threshold': 144}
 POINT = re.compile(r'[0-9a-f]{64}:(0|[1-9][0-9]*)')
 
 
@@ -63,6 +66,10 @@ def _operation(campaign):
     if not row:
         raise ValueError('separately admitted native receive operation required')
     spec = json.loads(row[0])
+    profile = spec['profile']
+    if profile not in (PROFILE, PRODUCTION_PROFILE):
+        raise ValueError('exact admitted native receive profile required')
+    production = profile == PRODUCTION_PROFILE
     _verify_runtime(campaign)
     if digest(Path(spec['admission'])) != spec['admission_sha256']:
         raise ValueError('original coordinator admission changed')
@@ -70,10 +77,14 @@ def _operation(campaign):
         raise ValueError('payer binary changed')
     pins=json.loads(campaign.db.execute("SELECT value FROM meta WHERE key='phase_runtime_pins'").fetchone()[0])
     config=tomllib.loads((Path(pins['configuration_directory'])/'captaind.toml').read_text())
-    if ({k:config.get(k) for k in ['vtxo_lifetime','vtxo_exit_delta','htlc_expiry_delta']}
-            !={k:PROFILE[k] for k in ['vtxo_lifetime','vtxo_exit_delta','htlc_expiry_delta']}
-            or config.get('vtxopool',{}).get('vtxo_lifetime')!=32
-            or config.get('vtxopool',{}).get('vtxo_pre_expiry')!=12
+    expected = {k:profile[k] for k in ['vtxo_lifetime','vtxo_exit_delta','htlc_expiry_delta']}
+    if production:
+        expected.update(network='signet', htlc_send_expiry_delta=258, max_htlc_expiry_delta=288,
+                        required_board_confirmations=3)
+    if ({k:config.get(k) for k in expected} != expected
+            or (production and any(type(config.get(k)) is not type(v) for k,v in expected.items()))
+            or config.get('vtxopool',{}).get('vtxo_lifetime')!=profile['pool_lifetime']
+            or config.get('vtxopool',{}).get('vtxo_pre_expiry')!=profile['pool_pre_expiry']
             or not config.get('vtxopool',{}).get('vtxo_targets')
             or config.get('fees',{}).get('lightning_receive')!={'base_fee_sat':100,'ppm':2000}):
         raise ValueError('actual native receive configuration differs from admitted bounded profile')
@@ -81,6 +92,9 @@ def _operation(campaign):
     if (admission.get('network')!='signet'
             or not re.fullmatch('0[23][0-9a-f]{64}',admission.get('server_pubkey',''))):
         raise ValueError('actual public Signet server identity receipt required')
+    if production and (admission.get('runtime_pins_sha256') != hashlib.sha256(canonical(pins).encode()).hexdigest()
+                       or config.get('postgres',{}).get('name') != spec['database']):
+        raise ValueError('production admission must bind exact paired runtime pins and database')
     if not campaign.db.execute("SELECT 1 FROM actor WHERE id='absent' AND absent=1").fetchone():
         raise ValueError('recipient absence fence required')
     return spec
@@ -100,7 +114,7 @@ def stage(campaign, spec, runtime_pins, registration, source):
                 'cln_binary','cln_binary_sha256','cln_directory','payer_pubkey','invoice_payee',
                 'recipient_address','recipient_registration_sha256','birthday_height',
                 'recovery_destination','admission','admission_sha256','database'}
-    if set(spec) != required or spec['profile'] != PROFILE or spec['amount_sat'] != 5000:
+    if set(spec) != required or spec['profile'] not in (PROFILE, PRODUCTION_PROFILE) or spec['amount_sat'] != 5000:
         raise ValueError('exact bounded native receive profile required')
     if not re.fullmatch(r'http://127\.0\.0\.1:[0-9]+', spec['provider_url']):
         raise ValueError('owned loopback provider required')
@@ -460,6 +474,7 @@ def freeze_claim(campaign,coin_ids):
 
 def advance_recovery(campaign):
     spec=_operation(campaign);_quiescent(campaign);frozen=_freeze(campaign,'absent')
+    production=spec['profile']==PRODUCTION_PROFILE
     discover_payouts(campaign,'absent')
     payouts={}
     for row in campaign.db.execute("SELECT id,payload FROM result WHERE json_extract(payload,'$.kind')='S02_payout_observation' AND json_extract(payload,'$.payout_check')='PASS' ORDER BY observed").fetchall():
@@ -472,22 +487,53 @@ def advance_recovery(campaign):
             'stage':'WAITING_FOR_RIGHTFUL_FALLBACK'}
     ids=[coin_id for _,p in payouts.values() for coin_id in p['coin_ids']]
     if sorted(ids)!=sorted(c['id'] for c in frozen['coins']):return _save(campaign,'native-ln-recovery',result)
-    chain=network_identity(campaign.core);fees=[_fee_child(campaign,p,chain) for _,p in payouts.values()]
-    if network_identity(campaign.core)!=chain:raise ValueError('chain changed during payout/fee observation')
+    chain=network_identity(campaign.core)
+    if production and any(p['chain']!=chain for _,p in payouts.values()):
+        return _save(campaign,'native-ln-recovery',{**result,'stage':'WAITING_FOR_STABLE_CHAIN_VIEW'})
+    try:
+        fees=[_fee_child(campaign,p,chain) for _,p in payouts.values()]
+    except ValueError:
+        if production and network_identity(campaign.core)!=chain:
+            return _save(campaign,'native-ln-recovery',{**result,'stage':'WAITING_FOR_STABLE_CHAIN_VIEW'})
+        raise
+    if network_identity(campaign.core)!=chain:
+        if production:
+            return _save(campaign,'native-ln-recovery',{**result,'stage':'WAITING_FOR_STABLE_CHAIN_VIEW'})
+        raise ValueError('chain changed during payout/fee observation')
     if any(f is None for f in fees) or any(p['confirmations']<6 for _,p in payouts.values()) or any(f['confirmations']<6 for f in fees):
         return _save(campaign,'native-ln-recovery',{**result,'stage':'WAITING_FOR_SIX_CONFIRMED_PARENTS_AND_CHILDREN','fee_children':fees})
-    _native(campaign,'native-ln-seed-restore','restored','restore',{'source_actor':'absent','birthday_height':spec['birthday_height']})
+    restore={'source_actor':'absent','birthday_height':spec['birthday_height']}
+    if production:
+        restore['wallet_profile']={'vtxo_refresh_expiry_threshold':144,'vtxo_exit_margin':12}
+    _native(campaign,'native-ln-seed-restore','restored','restore',restore)
     if not campaign.db.execute("SELECT 1 FROM action WHERE id='native-ln-drain'").fetchone():
         n=campaign.db.execute("SELECT count(*) FROM action WHERE operation='onchain_utxos'").fetchone()[0]
         utxos=_native(campaign,f'native-ln-utxos-{n}','restored','onchain_utxos')
         found={u['outpoint']:u for u in utxos if u['confirmation_height'] is not None}
         if any(point not in found or found[point]['amount_sat']!=p['amount_sat'] for point,(_,p) in payouts.items()):
             return _save(campaign,'native-ln-recovery',{**result,'stage':'WAITING_FOR_SEED_ONLY_DISCOVERY'})
-        if network_identity(campaign.core)!=chain:raise ValueError('chain changed before single drain')
+        if network_identity(campaign.core)!=chain:
+            if production:
+                return _save(campaign,'native-ln-recovery',{**result,'stage':'WAITING_FOR_STABLE_CHAIN_VIEW'})
+            raise ValueError('chain changed before single drain')
     _native(campaign,'native-ln-drain','restored','onchain_drain',{'destination':spec['recovery_destination']})
     recovery=[check_recovery(campaign,'absent','restored','native-ln-drain',row,spec['recovery_destination']) for row,_ in payouts.values()]
     current=network_identity(campaign.core)
     complete=all(r['recovery_check']=='PASS' and r['chain']==current for r in recovery)
+    if production and complete:
+        txid=recovery[0]['spend_txid']
+        try:
+            transaction,_=_confirmed_transaction(campaign,txid,current)
+        except ValueError:
+            if network_identity(campaign.core)!=current:
+                return _save(campaign,'native-ln-recovery',{**result,'stage':'WAITING_FOR_STABLE_CHAIN_VIEW'})
+            raise
+        if (chain!=current or network_identity(campaign.core)!=current
+                or any(r['spend_txid']!=txid for r in recovery)):
+            return _save(campaign,'native-ln-recovery',{**result,'stage':'WAITING_FOR_STABLE_CHAIN_VIEW'})
+        if transaction['confirmations']<6:
+            return _save(campaign,'native-ln-recovery',{**result,'stage':'WAITING_FOR_SIX_CONFIRMED_RECOVERY',
+                'recovery':recovery,'physical_recovery_spend':txid,'confirmations':transaction['confirmations']})
     return _save(campaign,'native-ln-recovery',{**result,'stage':'RECOVERY_CONFIRMED' if complete else 'WAITING_FOR_CONFIRMED_RECOVERY',
         'case_verdict':'PASS' if complete else 'INCOMPLETE','payouts':[p for _,p in payouts.values()],
         'fee_children':fees,'recovery':recovery,'physical_recovery_spend':recovery[0].get('spend_txid'),
