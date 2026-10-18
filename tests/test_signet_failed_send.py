@@ -38,7 +38,9 @@ class FailedSendTests(unittest.TestCase):
     setUp = test_signet.SignetTests.setUp
     tearDown = test_signet.SignetTests.tearDown
 
-    def prepare(self, *, execute_stage=True):
+    def prepare(self, *, execute_stage=True, profile='short', production_lifetime=4320,
+                production_pool_targets=None):
+        self.lifecycle_profile = profile
         test_signet_phase.PhaseTests.fixture(self)
         self.campaign.close()
         cfg = self.root / 'service-config/captaind.toml'
@@ -52,19 +54,34 @@ vtxo_targets=[]
 [postgres]
 name='fresh_owned_failed_send'
 ''')
+        if profile == 'production':
+            cfg.write_text("network='signet'\nrequired_board_confirmations=3\n" + cfg.read_text()
+                .replace('vtxo_lifetime=32', f'vtxo_lifetime={production_lifetime}')
+                .replace('vtxo_exit_delta=12', 'vtxo_exit_delta=144')
+                .replace('htlc_send_expiry_delta=18', 'htlc_send_expiry_delta=258')
+                .replace('htlc_expiry_delta=6', 'htlc_expiry_delta=40')
+                .replace('vtxo_targets=[]', 'vtxo_targets=' + json.dumps(production_pool_targets or [])
+                         + '\nvtxo_lifetime=432\nvtxo_pre_expiry=144'))
+            watch = self.root / 'service-config/watchmand.toml'
+            watch.write_text("admin_address='127.0.0.1:4596'\n[postgres]\nname='fresh_owned_failed_send'\n")
+            self.runtime_pins['config_hashes']['watchmand'] = hashlib.sha256(watch.read_bytes()).hexdigest()
         self.runtime_pins['config_hashes']['captaind'] = hashlib.sha256(cfg.read_bytes()).hexdigest()
         self.new_config['product_config_sha256'] = hashlib.sha256(canonical(self.runtime_pins['config_hashes']).encode()).hexdigest()
         self.campaign = FailedSendCampaign(self.new_directory, self.new_config)
         self.campaign.core = FundingCore()
         manifest = Path(self.runtime_pins['runtime_manifest'])
-        manifest.write_text(canonical({'server_pubkey': PUB,
-            'source_manifest_sha256': 'c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b'}))
+        source_manifest = ('e' * 64 if profile == 'production' else
+                           'c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b')
+        manifest.write_text(canonical({'server_pubkey': PUB, 'source_manifest_sha256': source_manifest}))
         self.runtime_pins['runtime_manifest_sha256'] = hashlib.sha256(manifest.read_bytes()).hexdigest()
         self.sender = self.root / 'real-owned-native-sender'
         self.sender.mkdir(mode=0o700)
         config = self.sender / 'config.toml'
         config.write_text('server_address=' + json.dumps(self.new_config['ark_url']) + '\n'
                           'vtxo_refresh_expiry_threshold=12\nvtxo_exit_margin=12\nhtlc_recv_claim_delta=18\n')
+        if profile == 'production':
+            config.write_text(config.read_text().replace('vtxo_refresh_expiry_threshold=12',
+                                                        'vtxo_refresh_expiry_threshold=144'))
         config.chmod(0o600)
         (self.sender / 'actual-wallet.sqlite').write_bytes(b'original DB must stay in place')
         self.source = self.root / 'original-phrase'
@@ -74,7 +91,7 @@ name='fresh_owned_failed_send'
         self.registration_path = self.root / 'actual-registration.json'
         self.registration_path.write_text(canonical(self.registration))
         self.request = {'allocation_sat': 100000, 'funding_dispatched': False, 'network': 'signet',
-            'source_manifest_sha256': 'c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b',
+            'source_manifest_sha256': source_manifest,
             'outputs': {role: {'amount_sat': amount, 'script': script}
                 for role, amount, script in zip(['sender', 'watchman_fee_0', 'watchman_fee_1'],
                                                [60000, 20000, 20000], SCRIPTS)},
@@ -86,6 +103,8 @@ name='fresh_owned_failed_send'
             'database': 'fresh_owned_failed_send', 'server_pubkey': PUB,
             'runtime_manifest_sha256': self.runtime_pins['runtime_manifest_sha256'],
             'config_sha256': self.runtime_pins['config_hashes'], 'elf_sha256': self.runtime_pins['elf_sha256']}
+        if profile == 'production':
+            self.request.update(lifecycle_profile='production', watchman_admin='http://127.0.0.1:4596')
         self.request_path = self.root / 'root-request.json'
         self.request_path.write_text(canonical(self.request))
         self.receipt_path = self.root / 'root-receipt.json'
@@ -98,7 +117,8 @@ name='fresh_owned_failed_send'
 
     def stage(self):
         return stage(self.campaign, self.request_path, self.receipt_path, self.admission_path,
-                     self.runtime_pins, self.registration_path, self.source, 'tb1qrecovered')
+                     self.runtime_pins, self.registration_path, self.source, 'tb1qrecovered',
+                     profile=self.lifecycle_profile)
 
     def wallet(self, *args):
         return {'watchman': {'trusted_balance': 40000,
@@ -243,6 +263,106 @@ name='fresh_owned_failed_send'
                 self.campaign.execute('forbidden-after-fence', 'absent', 'vtxos', {})
         native.assert_not_called()
 
+    def test_production_staging_binds_current_source_and_configured_watchman(self):
+        with patch('simulator.signet.subprocess.run') as native:
+            self.prepare(profile='production')
+        native.assert_not_called()
+        original = self.campaign.db.execute("SELECT value FROM meta WHERE key='failed_send'").fetchone()[0]
+        spec = json.loads(original)
+        self.assertEqual(spec['lifecycle_profile'], 'production')
+        self.assertEqual(spec['watchman_admin'], 'http://127.0.0.1:4596')
+        with patch('simulator.signet_failed_send._private_call', side_effect=self.wallet) as wallet:
+            self.assertEqual(funding_admission(self.campaign)['stage'], 'ACTUAL_FUNDING_CONFIRMED')
+        self.assertEqual(wallet.call_args.args[-1][-2:], ['http://127.0.0.1:4596', 'wallet'])
+        self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM action').fetchone()[0], 0)
+        self.assertEqual(self.campaign.db.execute("SELECT value FROM meta WHERE key='failed_send'").fetchone()[0], original)
+        with self.assertRaisesRegex(ValueError, 'new empty'):
+            self.stage()
+
+    def test_production_request_cannot_use_legacy_staging_or_another_source(self):
+        self.prepare(execute_stage=False, profile='production')
+        with self.assertRaisesRegex(ValueError, 'explicit production staging'):
+            stage(self.campaign, self.request_path, self.receipt_path, self.admission_path,
+                  self.runtime_pins, self.registration_path, self.source, 'tb1qrecovered')
+        self.request['source_manifest_sha256'] = 'f' * 64
+        self.request_path.write_text(canonical(self.request))
+        receipt = json.loads(self.receipt_path.read_text())
+        receipt['request_sha256'] = hashlib.sha256(self.request_path.read_bytes()).hexdigest()
+        self.receipt_path.write_text(canonical(receipt))
+        with self.assertRaisesRegex(ValueError, 'paired runtime'):
+            self.stage()
+        self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM actor').fetchone()[0], 0)
+
+    def test_production_watchman_request_must_match_immutable_configuration(self):
+        self.prepare(execute_stage=False, profile='production')
+        self.request['watchman_admin'] = 'http://127.0.0.1:4597'
+        self.request_path.write_text(canonical(self.request))
+        receipt = json.loads(self.receipt_path.read_text())
+        receipt['request_sha256'] = hashlib.sha256(self.request_path.read_bytes()).hexdigest()
+        self.receipt_path.write_text(canonical(receipt))
+        with self.assertRaisesRegex(ValueError, 'pinned production watchman endpoint'):
+            self.stage()
+        self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM actor').fetchone()[0], 0)
+
+    def test_production_staging_rejects_coherently_pinned_short_lifetime(self):
+        self.prepare(execute_stage=False, profile='production', production_lifetime=32)
+        with self.assertRaisesRegex(ValueError, 'production4320/144'):
+            self.stage()
+        self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM actor').fetchone()[0], 0)
+
+    def test_production_staging_refuses_active_pool_without_modifying_it(self):
+        self.prepare(execute_stage=False, profile='production', production_pool_targets=['10000sat:1'])
+        config = self.root / 'service-config/captaind.toml'
+        original = config.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'empty-pool'):
+            self.stage()
+        self.assertEqual(config.read_bytes(), original)
+        self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM actor').fetchone()[0], 0)
+
+    def test_production_source_requires_actual_258_block_headroom_and_handshake(self):
+        from simulator.signet_failed_send import _ready_source
+        self.prepare(profile='production')
+        self.receipt({'funding_txid': TXID})
+        self.campaign.core.transactions[TXID].update(confirmations=3, blockhash='f' * 64)
+        coin = {'id': '7' * 64 + ':0', 'amount_sat': 29670, 'state': 'spendable',
+                'chain_anchor': TXID + ':0', 'expiry_height': 4520}
+        info = {'network': 'signet', 'server_pubkey': PUB, 'htlc_send_expiry_delta': 258,
+                'vtxo_lifetime': 4320, 'vtxo_exit_delta': 144, 'required_board_confirmations': 3}
+        def native(campaign, intent, actor, operation, *args):
+            return info if operation == 'ark_info' else [coin]
+        proof = {'status': 'PASS', 'path_outpoints': [TXID + ':0', coin['id']]}
+        with patch('simulator.signet_failed_send._native', side_effect=native), \
+             patch('simulator.signet_failed_send.verify_coin', return_value=proof):
+            self.assertEqual(board_ready(self.campaign)['provisional_send_deadline_if_dispatched_now'], 458)
+            with patch.dict(info, htlc_send_expiry_delta=18), self.assertRaisesRegex(ValueError, 'handshake'):
+                board_ready(self.campaign)
+            coin['expiry_height'] = 458
+            with self.assertRaisesRegex(ValueError, 'headroom'):
+                board_ready(self.campaign)
+        original_call = self.campaign.core.call
+        def core(method, *args):
+            return {'confirmations': 3} if method == 'gettxout' else original_call(method, *args)
+        with patch.object(self.campaign.core, 'call', side_effect=core), \
+             patch('simulator.signet_failed_send._native') as native:
+            self.assertEqual(_ready_source(self.campaign)['actual_tree_expiry'], 4520)
+            self.campaign.core.info['blocks'] = 4262
+            with self.assertRaisesRegex(ValueError, 'headroom'):
+                _ready_source(self.campaign)
+        native.assert_not_called()
+
+    def test_production_unknown_board_holds_recovery_without_any_replay(self):
+        from simulator.signet_failed_send import advance_recovery
+        self.prepare(profile='production')
+        with patch('simulator.signet_failed_send._private_call', side_effect=self.wallet), \
+             patch('simulator.signet.subprocess.run', side_effect=subprocess.TimeoutExpired('board', 1)):
+            with self.assertRaisesRegex(ValueError, 'requires reconciliation'):
+                board_once(self.campaign)
+        with patch('simulator.signet.subprocess.run') as replay:
+            with self.assertRaisesRegex(ValueError, 'unknown action'):
+                advance_recovery(self.campaign)
+        replay.assert_not_called()
+        self.assertEqual(self.campaign.db.execute("SELECT state FROM action WHERE id='failed-send-board'").fetchone()[0], 'unknown')
+
     def test_exact_existing_hold_wire_overrides_default_cltv_without_effect(self):
         frame = hold_invoice_frame('12' * 32)
         self.assertEqual(frame[0], 0)
@@ -259,10 +379,10 @@ class FailedSendLightningTests(unittest.TestCase):
     prepare = FailedSendTests.prepare
     stage = FailedSendTests.stage
 
-    def transport(self):
+    def transport(self, profile='short'):
         from simulator.signet_failed_send import prepare_lightning
         self.invoice_created_at = int(time.time())
-        self.prepare()
+        self.prepare(profile=profile)
         self.cli = self.root / 'lightning-cli'
         self.cli.write_bytes(b'original cli')
         self.tls = self.root / 'ln/external/signet/hold'
@@ -590,8 +710,8 @@ class FailedSendLightningTests(unittest.TestCase):
                 if enabled:
                     gc.enable()
 
-    def failed_source(self):
-        self.transport(); self.invoice()
+    def failed_source(self, profile='short'):
+        self.transport(profile=profile); self.invoice()
         payment_hash = self.decoded()['payment_hash']
         grant = '8' * 64 + ':0'
         frozen = {'payment_hash': payment_hash, 'grant_ids': [grant], 'htlc_expiry': 180,
@@ -655,6 +775,56 @@ class FailedSendLightningTests(unittest.TestCase):
             result = advance_recovery(self.campaign)
         self.assertEqual(result['stage'], 'WAITING_FOR_SOURCE_SPECIFIC_FAILURE')
         native.assert_not_called()
+
+    def test_production_recovery_requires_real_drain_six_and_retains_original_intents(self):
+        from simulator.signet_failed_send import advance_recovery
+        from simulator.signet_s02 import observe_payout
+        frozen, _, _ = self.failed_source(profile='production')
+        observe_payout(self.campaign, 'absent', test_signet_s02.PAYOUT, 0,
+                       [coin['id'] for coin in frozen['coins']])
+        def native(argv, **kwargs):
+            self.assertNotIn(str(self.sender), argv)
+            if 'create' in argv:
+                return subprocess.CompletedProcess(argv, 0)
+            if argv[-2:] == ['onchain', 'utxos']:
+                reply = [{'outpoint': test_signet_s02.PAYOUT + ':0', 'amount_sat': 9000,
+                          'confirmation_height': 190}]
+            else:
+                self.assertIn('drain', argv)
+                reply = {'txid': test_signet_s02.RECOVERY}
+            kwargs['stdout'].write(json.dumps(reply).encode())
+            return subprocess.CompletedProcess(argv, 0)
+        with patch('simulator.signet_failed_send.observe_failure', return_value={'source_check': 'PASS'}), \
+             patch('simulator.signet_failed_send.discover_payouts'), \
+             patch('simulator.signet_failed_send._fee_child', return_value={'confirmations': 5}) as fee, \
+             patch('simulator.signet.subprocess.run', side_effect=native) as process:
+            self.assertEqual(advance_recovery(self.campaign)['stage'], 'WAITING_FOR_SIX_CONFIRMED_PARENT_AND_CHILD')
+            process.assert_not_called()
+            fee.return_value = {'confirmations': 6}
+            def block_arrives_during_fee_proof(*args):
+                self.campaign.core.info['blocks'] += 1
+                for transaction in self.campaign.core.transactions.values():
+                    transaction['confirmations'] += 1
+                return {'confirmations': 6}
+            fee.side_effect = block_arrives_during_fee_proof
+            self.assertEqual(advance_recovery(self.campaign)['stage'], 'WAITING_FOR_STABLE_CHAIN_VIEW')
+            process.assert_not_called()
+            fee.side_effect = None
+            waiting = advance_recovery(self.campaign)
+            self.assertEqual(waiting['stage'], 'WAITING_FOR_SIX_CONFIRMED_RECOVERY')
+            self.assertEqual(waiting['case_verdict'], 'INCOMPLETE')
+            self.assertEqual(waiting['confirmations'], 2)
+            calls = process.call_count
+            increment = 6 - self.campaign.core.transactions[test_signet_s02.RECOVERY]['confirmations']
+            self.campaign.core.info['blocks'] += increment
+            for transaction in self.campaign.core.transactions.values():
+                transaction['confirmations'] += increment
+            self.assertEqual(advance_recovery(self.campaign)['case_verdict'], 'PASS')
+            self.assertEqual(process.call_count, calls)
+        for operation in ['restore', 'onchain_drain']:
+            self.assertEqual(self.campaign.db.execute('SELECT count(*) FROM action WHERE operation=?', (operation,)).fetchone()[0], 1)
+        restore = json.loads(self.campaign.db.execute("SELECT arguments FROM action WHERE id='failed-send-seed-restore'").fetchone()[0])
+        self.assertEqual(restore['wallet_profile'], {'vtxo_refresh_expiry_threshold': 144, 'vtxo_exit_margin': 12})
 
     def test_cancellation_requires_fence_and_never_retries_lost_reply(self):
         from simulator.signet_failed_send import cancel_hold_once

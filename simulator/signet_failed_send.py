@@ -25,7 +25,7 @@ from .model import btc_to_sat, canonical, public_payload
 from .signet import Campaign, digest, network_identity
 from .signet_phase import _native, _quiescent, _verify_runtime
 from .signet_proof import verify_coin
-from .signet_s02 import _save, _freeze, observe_payout, check_recovery
+from .signet_s02 import _confirmed_transaction, _save, _freeze, observe_payout, check_recovery
 from .signet_discovery import discover_payouts
 from .signet_repair import _fee_child
 from .signet_lightning import (_protected, _private_call, _attempt, _varint,
@@ -147,6 +147,11 @@ def _profile(campaign):
     if not row:
         raise ValueError('separate failed-send staging required')
     spec = json.loads(row[0])
+    if spec.get('lifecycle_profile') not in (None, 'production'):
+        raise ValueError('unknown failed-send lifecycle profile')
+    production = spec.get('lifecycle_profile') == 'production'
+    if production and spec.get('source_kind') is not None:
+        raise ValueError('production failed-send requires its original staged board')
     _verify_runtime(campaign)
     if spec.get('source_kind') == 'existing_native_refresh':
         from .signet_existing_ln import failed_profile
@@ -169,16 +174,33 @@ def _profile(campaign):
     cfg = tomllib.loads((Path(pins['configuration_directory']) / 'captaind.toml').read_text())
     expected = {'vtxo_lifetime': 32, 'vtxo_exit_delta': 12, 'htlc_send_expiry_delta': 18,
                 'max_htlc_expiry_delta': 288, 'htlc_expiry_delta': 6}
+    if production:
+        if request.get('lifecycle_profile') != 'production' or request.get('watchman_admin') != spec['watchman_admin']:
+            raise ValueError('original production profile/endpoint request changed')
+        expected.update(network='signet', vtxo_lifetime=4320, vtxo_exit_delta=144,
+                        htlc_send_expiry_delta=258, htlc_expiry_delta=40, required_board_confirmations=3)
+        watch = tomllib.loads((Path(pins['configuration_directory']) / 'watchmand.toml').read_text())
+        endpoint = (re.fullmatch(r'http://127\.0\.0\.1:([0-9]{1,5})', spec['watchman_admin'])
+                    if isinstance(spec['watchman_admin'], str) else None)
+        if (not endpoint or not 1 <= int(endpoint[1]) <= 65535
+                or watch.get('admin_address') != spec['watchman_admin'].removeprefix('http://')
+                or watch.get('postgres', {}).get('name') != spec['database']
+                or cfg.get('vtxopool', {}).get('vtxo_lifetime') != 432
+                or cfg.get('vtxopool', {}).get('vtxo_pre_expiry') != 144):
+            raise ValueError('pinned production watchman endpoint and pool geometry required')
     if ({k: cfg.get(k) for k in expected} != expected
+            or any(type(cfg.get(k)) is not type(v) for k, v in expected.items())
             or cfg.get('vtxopool', {}).get('vtxo_targets') != []
             or cfg.get('postgres', {}).get('name') != spec['database']):
+        if production:
+            raise ValueError('actual production4320/144 empty-pool configuration required')
         raise ValueError('actual separate18/32 empty-pool configuration required')
     path = campaign.actor_path('absent')
     if digest(path / 'config.toml') != spec['sender_config_sha256']:
         raise ValueError('original sender configuration changed')
     actual = tomllib.loads((path / 'config.toml').read_text())
     if (actual.get('server_address') != campaign.config['ark_url']
-            or actual.get('vtxo_refresh_expiry_threshold') != 12
+            or actual.get('vtxo_refresh_expiry_threshold') != (144 if production else 12)
             or actual.get('vtxo_exit_margin') != 12
             or actual.get('htlc_recv_claim_delta') != 18):
         raise ValueError('actual original manual-sync sender profile required')
@@ -186,17 +208,26 @@ def _profile(campaign):
 
 
 def stage(campaign, request_path, receipt_path, admission_path, runtime_pins,
-          registration_path, source_path, recovery_destination):
+          registration_path, source_path, recovery_destination, *, profile='short'):
     """Import actual cached registration/source, without any native wallet open."""
     if campaign.db.execute('SELECT 1 FROM actor UNION SELECT 1 FROM action UNION SELECT 1 FROM result').fetchone():
         raise ValueError('new empty failed-send campaign required')
+    if profile not in {'short', 'production'}:
+        raise ValueError('explicit short or production failed-send profile required')
     request = json.loads(Path(request_path).read_text())
     receipt = json.loads(Path(receipt_path).read_text())
     registration = json.loads(Path(registration_path).read_text())
     source = _protected(source_path)
+    selected_source = request.get('source_manifest_sha256') == 'c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b'
+    if profile == 'production':
+        selected_source = (request.get('lifecycle_profile') == 'production'
+                           and isinstance(request.get('source_manifest_sha256'), str)
+                           and re.fullmatch('[0-9a-f]{64}', request['source_manifest_sha256']) is not None)
+    elif request.get('lifecycle_profile') is not None:
+        raise ValueError('production request needs explicit production staging')
     if (request.get('allocation_sat') != 100000 or request.get('funding_dispatched') is not False
             or request.get('network') != 'signet' or receipt.get('network') not in {'signet', 'public signet'}
-            or request['source_manifest_sha256'] != 'c60c5cd4c9d8cc0fbeaa8f8f6a71ba4102a46075cd2d9515fb505d9ba2dc882b'):
+            or not selected_source):
         raise ValueError('original selected funding/source proposal required')
     if (receipt.get('request_sha256') != digest(Path(request_path))
             or not re.fullmatch('[0-9a-f]{64}', receipt.get('txid', ''))):
@@ -227,6 +258,8 @@ def stage(campaign, request_path, receipt_path, admission_path, runtime_pins,
             **{key: str(Path(value).absolute()) for key, value in
                [('funding_request', request_path), ('funding_receipt', receipt_path),
                 ('financial_admission', admission_path)]}}
+    if profile == 'production':
+        spec.update(lifecycle_profile='production', watchman_admin=request.get('watchman_admin'))
     spec.update({key + '_sha256': digest(Path(spec[key]))
                  for key in ['funding_request', 'funding_receipt', 'financial_admission']})
     campaign.db.execute('BEGIN IMMEDIATE')
@@ -291,7 +324,8 @@ def funding_admission(campaign):
     n = _attempt(campaign, 'failed-funding')
     wallet = _private_call(campaign, f'failed-funding-{n}', 'watch-wallet',
         [str(Path(pins['binary_directory']) / 'captaind'), 'rpc', '--addr',
-         'http://127.0.0.1:4586', 'wallet'])['watchman']
+         (spec['watchman_admin'] if spec.get('lifecycle_profile') == 'production'
+          else 'http://127.0.0.1:4586'), 'wallet'])['watchman']
     if (wallet['trusted_balance'] < 40000
             or not set(watchpoints).issubset(wallet['confirmed_utxos'])):
         raise ValueError('actual native watchman wallet lacks selected confirmed fee funds')
@@ -335,15 +369,21 @@ def board_ready(campaign):
         raise ValueError('original board must be canonical before original wallet opens')
     n = _attempt(campaign, 'failed-board-ready')
     info = _native(campaign, f'failed-board-info-{n}', 'absent', 'ark_info')
-    if info['server_pubkey'] != spec['server_pubkey'] or info['htlc_send_expiry_delta'] != 18:
+    delta = 258 if spec.get('lifecycle_profile') == 'production' else 18
+    if info['server_pubkey'] != spec['server_pubkey'] or info['htlc_send_expiry_delta'] != delta:
         raise ValueError('actual sender SDK handshake differs from new profile')
+    if spec.get('lifecycle_profile') == 'production' and any(
+            info.get(k) != v or type(info.get(k)) is not type(v) for k, v in {
+            'network': 'signet', 'vtxo_lifetime': 4320, 'vtxo_exit_delta': 144,
+            'required_board_confirmations': 3, 'htlc_send_expiry_delta': 258}.items()):
+        raise ValueError('actual native production handshake required')
     coins = _native(campaign, f'failed-board-coins-{n}', 'absent', 'sync_vtxos')
     spendable = [c for c in coins if c['state'] == 'spendable']
     if len(spendable) != 1 or any(c['state'] not in ['spendable', 'spent'] for c in coins):
         raise ValueError('one actual settled source coin required')
     coin = spendable[0]
-    if coin['chain_anchor'].split(':')[0] != board['funding_txid'] or coin['expiry_height'] - chain['height'] <= 18:
-        raise ValueError('actual board backing and D<E short-profile headroom required')
+    if coin['chain_anchor'].split(':')[0] != board['funding_txid'] or coin['expiry_height'] - chain['height'] <= delta:
+        raise ValueError('actual board backing and D<E headroom required')
     proof = verify_coin(campaign, 'absent', coin)
     if proof.get('status') != 'PASS' or not proof.get('path_outpoints'):
         raise ValueError('authentic full board signature/backing proof required')
@@ -351,7 +391,7 @@ def board_ready(campaign):
         raise ValueError('chain changed during actual board readiness')
     result = {'kind': 'failed_send_ready', 'stage': 'ACTUAL_NATIVE_SOURCE_READY_NO_INVOICE',
               'case_verdict': 'INCOMPLETE', 'chain': chain, 'coin': coin, 'signature_proof': proof,
-              'actual_tree_expiry': coin['expiry_height'], 'provisional_send_deadline_if_dispatched_now': chain['height'] + 18,
+              'actual_tree_expiry': coin['expiry_height'], 'provisional_send_deadline_if_dispatched_now': chain['height'] + delta,
               'scope': 'Actual native admitted board; no Lightning send, held HTLC or failed refund yet.'}
     if spec.get('source_kind') == 'fresh_short_board':
         from .signet_fresh_ln import board_accounting
@@ -465,8 +505,9 @@ def _ready_source(campaign):
     txid, index = coin['chain_anchor'].split(':')
     output = campaign.core.call('gettxout', txid, int(index), True)
     minimum = 1 if ready.get('source_kind') == 'existing_native_refresh' else 3
+    delta = 258 if spec.get('lifecycle_profile') == 'production' else 18
     if (not output or output['confirmations'] < minimum
-            or coin['expiry_height'] - chain['height'] <= 18):
+            or coin['expiry_height'] - chain['height'] <= delta):
         raise ValueError('real source backing and D<E headroom no longer available')
     return ready
 
@@ -854,6 +895,7 @@ def observe_failure(campaign):
 
 def advance_recovery(campaign):
     spec = _profile(campaign)
+    production = spec.get('lifecycle_profile') == 'production'
     _quiescent(campaign)
     frozen = _freeze(campaign, 'absent')
     failure = observe_failure(campaign)
@@ -883,15 +925,26 @@ def advance_recovery(campaign):
             != sorted(c['id'] for c in frozen['coins'])):
         return _save(campaign, 'failed-recovery', result)
     chain = network_identity(campaign.core)
-    fees = [_fee_child(campaign, p, chain) for _, p in payouts.values()]
+    if production and any(p['chain'] != chain for _, p in payouts.values()):
+        return _save(campaign, 'failed-recovery', {**result, 'stage': 'WAITING_FOR_STABLE_CHAIN_VIEW'})
+    try:
+        fees = [_fee_child(campaign, p, chain) for _, p in payouts.values()]
+    except ValueError:
+        if production and network_identity(campaign.core) != chain:
+            return _save(campaign, 'failed-recovery', {**result, 'stage': 'WAITING_FOR_STABLE_CHAIN_VIEW'})
+        raise
     if network_identity(campaign.core) != chain:
+        if production:
+            return _save(campaign, 'failed-recovery', {**result, 'stage': 'WAITING_FOR_STABLE_CHAIN_VIEW'})
         raise ValueError('chain changed during actual payout/child proof')
     if (any(f is None for f in fees) or any(p['confirmations'] < 6 for _, p in payouts.values())
             or any(f['confirmations'] < 6 for f in fees)):
         return _save(campaign, 'failed-recovery', {**result, 'stage': 'WAITING_FOR_SIX_CONFIRMED_PARENT_AND_CHILD',
                                                 'fee_children': fees})
-    _native(campaign, 'failed-send-seed-restore', 'restored', 'restore',
-            {'source_actor': 'absent', 'birthday_height': spec['birthday_height']})
+    restore = {'source_actor': 'absent', 'birthday_height': spec['birthday_height']}
+    if production:
+        restore['wallet_profile'] = {'vtxo_refresh_expiry_threshold': 144, 'vtxo_exit_margin': 12}
+    _native(campaign, 'failed-send-seed-restore', 'restored', 'restore', restore)
     if not campaign.db.execute("SELECT 1 FROM action WHERE id='failed-send-drain'").fetchone():
         n = _attempt(campaign, 'failed-recovery-utxos')
         utxos = _native(campaign, f'failed-recovery-utxos-{n}', 'restored', 'onchain_utxos')
@@ -900,6 +953,8 @@ def advance_recovery(campaign):
                for point, (_, p) in payouts.items()):
             return _save(campaign, 'failed-recovery', {**result, 'stage': 'WAITING_FOR_ORIGINAL_SEED_ONLY_DISCOVERY'})
         if network_identity(campaign.core) != chain:
+            if production:
+                return _save(campaign, 'failed-recovery', {**result, 'stage': 'WAITING_FOR_STABLE_CHAIN_VIEW'})
             raise ValueError('chain changed before single recovery drain')
     _native(campaign, 'failed-send-drain', 'restored', 'onchain_drain',
             {'destination': spec['recovery_destination']})
@@ -907,6 +962,21 @@ def advance_recovery(campaign):
                               spec['recovery_destination']) for row, _ in payouts.values()]
     current = network_identity(campaign.core)
     complete = all(r['recovery_check'] == 'PASS' and r['chain'] == current for r in recovery)
+    if production and complete:
+        txid = recovery[0]['spend_txid']
+        try:
+            transaction, _ = _confirmed_transaction(campaign, txid, current)
+        except ValueError:
+            if network_identity(campaign.core) != current:
+                return _save(campaign, 'failed-recovery', {**result, 'stage': 'WAITING_FOR_STABLE_CHAIN_VIEW'})
+            raise
+        if (chain != current or network_identity(campaign.core) != current
+                or any(r['spend_txid'] != txid for r in recovery)):
+            return _save(campaign, 'failed-recovery', {**result, 'stage': 'WAITING_FOR_STABLE_CHAIN_VIEW'})
+        if transaction['confirmations'] < 6:
+            return _save(campaign, 'failed-recovery', {**result,
+                'stage': 'WAITING_FOR_SIX_CONFIRMED_RECOVERY', 'recovery': recovery,
+                'physical_recovery_spend': txid, 'confirmations': transaction['confirmations']})
     return _save(campaign, 'failed-recovery', {**result,
         'stage': 'RECOVERY_CONFIRMED' if complete else 'WAITING_FOR_CONFIRMED_RECOVERY',
         'case_verdict': 'PASS' if complete else 'INCOMPLETE',
@@ -922,6 +992,7 @@ def main():
     parser.add_argument('--config', type=Path, required=True)
     commands = parser.add_subparsers(dest='operation', required=True)
     start = commands.add_parser('stage')
+    start.add_argument('--profile', choices=['short', 'production'], default='short')
     for name in ['funding-request', 'funding-receipt', 'financial-admission', 'runtime-pins', 'registration', 'source']:
         start.add_argument('--' + name, type=Path, required=True)
     start.add_argument('--recovery-destination', required=True)
@@ -946,7 +1017,7 @@ def main():
             if args.operation == 'stage':
                 result = stage(campaign, args.funding_request, args.funding_receipt, args.financial_admission,
                                json.loads(args.runtime_pins.read_text()), args.registration, args.source,
-                               args.recovery_destination)
+                               args.recovery_destination, profile=args.profile)
             elif args.operation == 'stage-existing':
                 from .signet_existing_ln import stage_failed_sender
                 result = stage_failed_sender(campaign, json.loads(args.runtime_pins.read_text()),

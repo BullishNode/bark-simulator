@@ -380,3 +380,28 @@ exactly one invoice, send, cancellation, seed-only restore and drain, with no
 unknown action. This completes the normal native attempted-failure lifecycle on
 the recorded 18/32 profile. Noah/LNURL, default 258-block admission, legacy sources,
 unfinished refreshes and complete money-loss fault scenarios remain unproved.
+
+## Explicit production-timing staging
+
+A new empty campaign may use `stage --profile production`. Its original funding
+request must include `"lifecycle_profile":"production"`, the exact current
+`source_manifest_sha256`, and `"watchman_admin":"http://127.0.0.1:PORT"` matching
+the pinned watchman configuration and database. The existing paired binary,
+configuration, manifest, registration, source and funding receipts remain mandatory.
+Legacy staging still requires its original c60c source and fixed 4586 endpoint;
+existing journals are never relabelled.
+
+Production staging requires server lifetime 4,320, exit delta 144, send delta 258,
+HTLC delta 40, maximum HTLC delta 288, three board confirmations, and an original
+wallet refresh threshold 144 / exit margin 12. The isolated pool remains empty,
+with configured lifetime 432 / pre-expiry 144: this case does not qualify active
+pool/receive operation. Never empty or reconfigure a live pool to fit this recipe.
+The original 100,000-sat allocation, 5,000-sat CLTV6 hold invoice, sender fence,
+source-specific failure proof, original intents and strict actual D<E checks remain.
+
+Recovery uses the same explicit wallet profile. Parent and fee child must each
+reach six canonical confirmations before seed restoration; the exact single drain
+must also reach six before PASS. A changing view returns an incomplete observation
+for a later stable check, while unknown financial outcomes continue to stop all
+dispatch. These are real public-block waits, including the original 4,320-block
+tree lifetime, rather than active-throughput time or accelerated expiry.
