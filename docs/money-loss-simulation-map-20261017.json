@@ -45,6 +45,10 @@
       "reference": "docs/evidence/public-signet-load50-20261017.json",
       "scope": "Actual50 funded wallets/200 reconciled1000sat sends; source7055; no attribution search or lifetime history stress"
     },
+    "LOAD50_V10": {
+      "reference": "docs/evidence/public-signet-scale-v10-window-result-20261018.json",
+      "scope": "Actual same-candidate v10 50-wallet fixed900-second offer;720/900 ordinary sends independently reconciled,180neverdispatched,0unknown; exact1,483,500sat conserved with180signedpaths/50confirmedanchors. Partial throughput/resource/storage observation only; all whole-ID contribution counts unchanged."
+    },
     "NATIVE_RECEIVE": {
       "broadcast_reference": "docs/evidence/native-ln-receive-fallback-broadcast-20261017.json",
       "broadcast_scope": "Additive actual3890sat registered-script fallback+363sat feechild broadcast atE326816,0conf; recipientclosed/no recovery yet. Original invoice/grant/claim evidence remains immutable. No whole-scenario or Noah/LNURL credit.",
