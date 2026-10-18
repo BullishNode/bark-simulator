@@ -4,7 +4,9 @@ Updated 2026-10-18. The scale-only v10 service upgrade completed at 05:51:40 UTC
 with native health, identity, migration and usable-funds checks. Its exact dirty
 source and receipts are recorded in [the upgrade evidence](evidence/public-signet-scale-v10-upgrade-20261018.json).
 No new workload, actor import/open, funding, invoice or payment was dispatched
-by that upgrade; the next workload still requires its own operational admission.
+by that upgrade. Root then separately admitted the existing50 cold handoff and
+the bounded ordinary workload. It started at 06:05:02 UTC; the [running checkpoint](evidence/public-signet-scale-v10-window-start-20261018.json)
+is not a final workload or production result.
 
 ## Proposed useful next workload
 
@@ -221,8 +223,9 @@ pacing. Do not add a metrics platform, generic scheduler or framework gate.
 ## Remaining blockers
 
 * Controlled v10 upgrade, full off-VM backups, V13/V14 and native funds admission
-  are complete. The new 900-transfer workload wrapper and explicit incomplete-window import
-  still require root operational admission before any actor is opened.
+  are complete. The new 900-transfer workload and explicit incomplete-window import
+  were separately admitted and are running. Final whole-cohort money proof remains
+  required; the historical 580/600 window is still incomplete.
 * Bounded summaries/timing are peer-reviewed at df193c8; 43 focused tests and all CI
   jobs passed. These source checks are not a new Signet workload result.
 * Explicit reused-inventory Lightning stage and pool-aware failed-send validator,
