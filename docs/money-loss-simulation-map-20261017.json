@@ -20,6 +20,13 @@
     "sender_refresh": "FAILED_SETUP_GEOMETRY: original144-block exit inputs cannot satisfy tip+2*12+144 minimum in32-block replacement tree; native signer refused before forfeits. Originalone-refresh journal frozen, no failedinvoice/send; no cancellation/retry performed.",
     "whole_scenario_pass_claims": 0
   },
+  "current_native_campaign_checkpoint": {
+    "case_verdict": "INCOMPLETE",
+    "observed_height": 326892,
+    "receipt": "evidence/public-signet-p09-v18-failed-send-cancel-20261018.json",
+    "scope": "Actual one-source failed send cancelled with sender absent; payout/recovery pending. Original receive claimV11c/recoveryV18 observer remains independent; original002locked.",
+    "whole_scenario_passes_added": 0
+  },
   "evidence": {
     "ATTR_NEW": {
       "reference": "docs/evidence/attribution-scale-scope-review-20261017.json",
