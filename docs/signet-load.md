@@ -171,6 +171,12 @@ whole-cohort conservation, signed-path and Core-backing checks as `finish()` but
 returns `INCOMPLETE`, preserving the original hold, requested count and deadline.
 It neither resumes traffic nor qualifies the unfinished workload. Deployment of
 this source and actual execution of the audit are separate recorded events.
+The snapshots invoke ordinary native `vtxos --all` and therefore `Wallet::sync`:
+this may progress pending native operations, claim receives or start local exit
+state. It requires explicit admission for active synchronization of the original
+nonabsent cohort. It is not a money-state read-only operation. Missing/extra or
+absent actors and prior partially recorded final-audit actions reject before
+another wallet opens.
 
 Separate actual preparation-controller and execution-controller commits remain
 part of the trace. Source availability, stubbed Python tests, registrations,

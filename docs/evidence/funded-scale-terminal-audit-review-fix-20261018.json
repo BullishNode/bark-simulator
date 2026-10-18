@@ -1,0 +1,16 @@
+{
+  "kind": "source_review_correction",
+  "prior_source": "1b4addffea7bed24088337f6a8872b04ef9dbbf7",
+  "finding": "Native vtxos --all runs Wallet::sync and may progress known obligations. It is active synchronization, not a money-state read-only operation.",
+  "reviewer_receipt_sha256": "ea221e1fe7499aedf75484f9f76983ea06eb7ed96c51c16f3ecac42ce7237f95",
+  "corrections": [
+    "Explicit active-sync scope requiring admission",
+    "Exact original nonabsent actor set before native sync",
+    "Reject any prior final-audit intent, including acknowledged cached observation; partial audit must be reconciled"
+  ],
+  "command": "python3 -m unittest tests.test_signet_load_window_audit -v",
+  "tests_passed": 3,
+  "elapsed_seconds": 8.045,
+  "log_sha256": "8966f1edfb1f4c480f8a2ca0219fdaa26b4171e7746da394349ffd2c837a6f1b",
+  "scope": "Real controller/SQLite with stub native/Core. No live audit execution or completed-workload claim. Original FIRST50 window and 580/600 HOLD remain unchanged."
+}

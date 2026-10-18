@@ -60,6 +60,30 @@ class ClosedWindowAuditTests(unittest.TestCase):
                 phase.audit_closed_window()
             native.assert_not_called()
 
+    def test_changed_actor_set_absence_or_partial_audit_rejects_before_native_sync(self):
+        phase = self.worker_fixture(transfers=2)
+        self.campaign.db.execute("INSERT INTO meta VALUES ('load_hold',?)", (json.dumps({
+            "stage": "LOAD_WINDOW_LIMIT_REACHED", "successful_reconciled_transfers": 1,
+            "intended_transfers": 2}),))
+        with patch.object(phase, "native") as native:
+            self.campaign.db.execute("DELETE FROM actor WHERE id='load-011'")
+            with self.assertRaisesRegex(ValueError, "exact original active"):
+                phase.audit_closed_window()
+            self.campaign.db.execute("INSERT INTO actor VALUES ('load-011',0)")
+            self.campaign.db.execute("INSERT INTO actor VALUES ('unrelated',0)")
+            with self.assertRaisesRegex(ValueError, "exact original active"):
+                phase.audit_closed_window()
+            self.campaign.db.execute("DELETE FROM actor WHERE id='unrelated'")
+            self.campaign.db.execute("UPDATE actor SET absent=1 WHERE id='load-011'")
+            with self.assertRaisesRegex(ValueError, "exact original active"):
+                phase.audit_closed_window()
+            self.campaign.db.execute("UPDATE actor SET absent=0 WHERE id='load-011'")
+            self.campaign.db.execute("INSERT INTO action VALUES (?,?,?,?,?,?,?,?,?,?)", (
+                "load-final-load-000", "load-000", "sync_vtxos", "{}", "acknowledged", 0, 0, None, "[]", None))
+            with self.assertRaisesRegex(ValueError, "prior final audit"):
+                phase.audit_closed_window()
+            native.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

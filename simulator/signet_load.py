@@ -408,8 +408,9 @@ class Load:
         """Audit a known terminal window shortfall without clearing its HOLD.
 
         The caller must first verify the original writer exited and acquire its
-        released lock. This performs native observations/proofs only; it cannot
-        resume transfers or qualify the unfinished requested workload.
+        released lock. Native snapshots run normal Wallet::sync, which may
+        progress existing operations; that effect requires operational admission.
+        This cannot resume transfers or qualify the unfinished requested workload.
         """
         c = self.campaign
         if c.db.execute("SELECT 1 FROM action WHERE state IN ('unknown','dispatched')").fetchone():
@@ -418,6 +419,11 @@ class Load:
         hold = json.loads(row[0]) if row else {}
         if hold.get("stage") != "LOAD_WINDOW_LIMIT_REACHED":
             raise ValueError("only a terminal dispatch-window shortfall can be audited")
+        actors = list(c.db.execute("SELECT id,absent FROM actor"))
+        if {row[0] for row in actors} != set(self.actors) or any(row[1] for row in actors):
+            raise ValueError("exact original active load cohort required before native sync")
+        if c.db.execute("SELECT 1 FROM action WHERE id LIKE 'load-final-%'").fetchone():
+            raise ValueError("prior final audit observations require reconciliation; no cached retry")
         completed = [(row[0], json.loads(row[1])) for row in c.db.execute(
             "SELECT observed,payload FROM result WHERE id LIKE 'load-transfer-%-complete'")]
         acknowledged = c.db.execute("SELECT count(*) FROM action WHERE operation='send' AND state='acknowledged'").fetchone()[0]
