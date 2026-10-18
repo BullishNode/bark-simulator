@@ -1,7 +1,8 @@
 # Independent short-exit failed-send source
 
 This is preparation for one public-Signet native Lightning lifecycle on the
-existing V11c deployment. It is not an executed case or Noah/LNURL evidence.
+[upgraded V18 deployment](signet-v18-upgrade-20261018.md). It is not an executed
+failed-send case or Noah/LNURL evidence.
 The prior load-002 refresh remains `FAILED_SETUP_GEOMETRY`, with its old inputs
 locked and its one refresh acknowledged. There is no second refresh, forced
 forfeit, cancellation, or release of those inputs.
@@ -61,3 +62,15 @@ one-shot wrapper and exact allocation are reviewed separately before execution.
 Local Python tests use explicit native/Core stubs. They cover funding ancestry
 and change, confirmations, usable fee funds, exact board accounting and wrong
 exit geometry; passing them does not constitute a public-Signet lifecycle.
+
+Setup completed at 11:03:20 UTC on 18 October: one fresh native wallet was
+created and registered at birthday height 326879, with exactly three setup
+acknowledgements and no board, invoice or send. Its full five-file wallet
+archive was independently verified off the VM, including SQLite integrity,
+and the verified bytes and proof were fsynced. The frozen funding request is
+`ccde1dcac87197c6e8c1d7086c93a6db9c22320d21f868a8c517e7d05bf25b4a`;
+the off-VM proof is
+`158e7d48b7a30c41c0b5b370ecf2459a4a9095a519d46abba8aaf251f6c5b720`.
+Funding and the financial lifecycle remain separately allocated actions.
+The original prepare-only capsule stays immutable; future run authority must
+bind it, the original request, actual funding receipt and backup proof.
