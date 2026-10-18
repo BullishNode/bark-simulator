@@ -199,6 +199,60 @@ class FundedScaleTests(unittest.TestCase):
             with self.assertRaises(ValueError):import_load_window(old,new,**args)
         finally:new.close()
 
+    def audited_shortfall_fixture(self):
+        old,new,args=self.completed_fixture()
+        previous=json.loads(old.db.execute("SELECT value FROM meta WHERE key='load_parameters'").fetchone()[0])
+        previous['window_seconds']=1200
+        old.db.execute("UPDATE meta SET value=? WHERE key='load_parameters'",(canonical(previous),))
+        old.db.execute("DELETE FROM result WHERE id='load-transfer-000199-complete'")
+        for i in range(199):
+            old.db.execute('INSERT INTO action VALUES (?,?,?,?,?,?,?,?,?,?)',(
+                f'load-transfer-{i:06d}-send',f'load-{2*(i%25):03d}','send','{}','acknowledged',0,0,'{}','{}',None))
+        for i in range(50):old.db.execute('INSERT INTO actor VALUES (?,0)',(f'load-{i:03d}',))
+        hold={'stage':'LOAD_WINDOW_LIMIT_REACHED','money_dispatched':False,
+              'successful_reconciled_transfers':199,'intended_transfers':200}
+        old.db.execute("INSERT INTO meta VALUES ('load_hold',?)",(canonical(hold),))
+        result={'stage':'LOAD_INCOMPLETE_WINDOW_FINANCIALLY_AUDITED','case_verdict':'INCOMPLETE',
+            'workload_complete':False,'active_sync':True,'parameters':previous,'original_hold':hold,
+            'successful_reconciled_transfers':199,'intended_transfers':200,'not_dispatched_transfers':1,
+            'failed_or_unknown_transfers':0,'opening_coin_sat':500000,'closing_coin_sat':500000,
+            'observed_offchain_fee_sat':0,'backing':{'backing':'PASS'},'signature_proofs':[{'status':'PASS'}]}
+        args['result_file'].write_text(canonical(result))
+        return old,new,args,result
+
+    def test_audited_shortfall_requires_explicit_choice_and_keeps_old_incomplete_hold(self):
+        old,new,args,result=self.audited_shortfall_fixture()
+        try:
+            original=old.db.execute("SELECT value FROM meta WHERE key='load_hold'").fetchone()[0]
+            with self.assertRaisesRegex(ValueError,'held'):import_load_window(old,new,**args)
+            provenance=import_load_window(old,new,allow_audited_shortfall=True,**args)
+            self.assertFalse(provenance['previous_workload_complete'])
+            self.assertEqual((provenance['previous_reconciled_transfers'],provenance['previous_requested_transfers']),(199,200))
+            self.assertEqual(provenance['previous_hold'],result['original_hold'])
+            self.assertEqual(old.db.execute("SELECT value FROM meta WHERE key='load_hold'").fetchone()[0],original)
+            self.assertEqual(new.db.execute('SELECT count(*) FROM action').fetchone()[0],0)
+            self.assertEqual(new.db.execute("SELECT count(*) FROM meta WHERE key LIKE 'load_existing:%'").fetchone()[0],50)
+        finally:new.close()
+
+    def test_partial_handoff_rejects_wrong_verdict_proof_acks_or_actor_set_without_copy(self):
+        old,new,args,result=self.audited_shortfall_fixture()
+        try:
+            for field,value in [('case_verdict','PASS'),('active_sync',False),('backing',{'backing':'UNAVAILABLE'}),
+                                ('signature_proofs',[]),('not_dispatched_transfers',0),('closing_coin_sat',499999)]:
+                with self.subTest(field=field):
+                    args['result_file'].write_text(canonical({**result,field:value}))
+                    with self.assertRaises(ValueError):import_load_window(old,new,allow_audited_shortfall=True,**args)
+            args['result_file'].write_text(canonical(result))
+            old.db.execute("UPDATE action SET state='failed' WHERE id='load-transfer-000000-send'")
+            with self.assertRaisesRegex(ValueError,'clean audited'):import_load_window(old,new,allow_audited_shortfall=True,**args)
+            old.db.execute("UPDATE action SET state='acknowledged' WHERE id='load-transfer-000000-send'")
+            old.db.execute("DELETE FROM actor WHERE id='load-049'")
+            with self.assertRaisesRegex(ValueError,'clean audited'):import_load_window(old,new,allow_audited_shortfall=True,**args)
+            self.assertFalse(args['archive'].exists())
+            self.assertFalse((new.root/'wallets').exists())
+            self.assertEqual(new.db.execute('SELECT count(*) FROM action').fetchone()[0],0)
+        finally:new.close()
+
     def test_live_or_unknown_or_absent_predecessor_is_never_copied(self):
         old,new,args=self.completed_fixture()
         try:

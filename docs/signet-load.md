@@ -218,3 +218,22 @@ maximum TPS. PostgreSQL sampling observed no deadlock increase or lock waiters;
 rollback counters are not failed payments, and WAL includes other profiles.
 The receipt records real 5,760 sat treasury and 22,900 sat board miner fees separately
 from carried tree residual, unchanged principal and unspent operator allocations.
+
+## Explicit reuse after an audited window shortfall
+
+The cold-handoff helper keeps rejecting an old `HOLD` by default. A separately
+reviewed caller may select `allow_audited_shortfall=True` only for a genuine
+`LOAD_WINDOW_LIMIT_REACHED` predecessor with its exact active-sync financial
+audit. The original requested/completed counts, incomplete verdict and hold must
+match. Every acknowledged send must have its corresponding completion; the exact
+active actor set, signed-path proofs, backing and final inventories must match.
+The old hold is retained in both its archived journal and new-phase provenance.
+No acknowledgements, funding credit or completed-workload claim are manufactured.
+[The focused source checks](evidence/audited-shortfall-handoff-checks-20261018.json)
+cover those guards and the original strict handoff behavior.
+
+This source has not imported the actual FIRST50 wallets or launched a campaign.
+A future meaningful capacity/Lightning phase still requires coordinator review,
+exclusive cold ownership, a new journal and actual candidate admission. The
+580-of-600 outcome is preserved; repeating a whole phase merely to make the
+requested count green is not the objective.

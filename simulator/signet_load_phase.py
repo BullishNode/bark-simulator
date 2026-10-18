@@ -13,13 +13,16 @@ from .model import canonical
 from .signet_phase import _private_tree, _quiescent, _secure_tree, _sha
 
 
-def import_load_window(old, new, *, stop_file, lock_file, pid_file, result_file, archive):
-    """Copy only genuinely completed, non-absent actors after the old writer exits.
+def import_load_window(old, new, *, stop_file, lock_file, pid_file, result_file, archive,
+                       allow_audited_shortfall=False):
+    """Cold-copy financially reconciled actors after the old writer exits.
 
     Coordinator admits services/configuration and the new paired runtime separately.
     This function never creates actors through the SDK or copies acknowledgements
     into the new journal. New admission must observe the actual registration/coins.
     """
+    if type(allow_audited_shortfall) is not bool:
+        raise ValueError("explicit boolean audited-shortfall choice required")
     archive = Path(archive).absolute()
     paths = [old.root.absolute(), new.root.absolute(), archive]
     if any(a == b or a in b.parents or b in a.parents for n, a in enumerate(paths) for b in paths[n + 1:]):
@@ -45,8 +48,8 @@ def import_load_window(old, new, *, stop_file, lock_file, pid_file, result_file,
     with Path(lock_file).open("r+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         _quiescent(old)
-        if old.db.execute("SELECT 1 FROM actor WHERE absent=1").fetchone() or old.db.execute(
-                "SELECT 1 FROM meta WHERE key='load_hold'").fetchone():
+        hold_row = old.db.execute("SELECT value FROM meta WHERE key='load_hold'").fetchone()
+        if old.db.execute("SELECT 1 FROM actor WHERE absent=1").fetchone() or (hold_row and not allow_audited_shortfall):
             raise ValueError("held or absent original actors cannot be reused")
         previous = json.loads(old.db.execute("SELECT value FROM meta WHERE key='load_parameters'").fetchone()[0])
         current = json.loads(new.db.execute("SELECT value FROM meta WHERE key='load_parameters'").fetchone()[0])
@@ -54,9 +57,30 @@ def import_load_window(old, new, *, stop_file, lock_file, pid_file, result_file,
             raise ValueError("only explicit 50 to 50/200 or 200 to 500 handoff supported")
         result = json.loads(Path(result_file).read_text())
         count = old.db.execute("SELECT count(*) FROM result WHERE id LIKE 'load-transfer-%-complete'").fetchone()[0]
-        if (result.get("stage") != "LOAD_WORKLOAD_FINANCIALLY_RECONCILED"
-                or result.get("parameters") != previous or count != previous["transfers"]
-                or result.get("successful_reconciled_transfers") != count
+        if allow_audited_shortfall:
+            hold = json.loads(hold_row[0]) if hold_row else {}
+            expected_actors = {f"load-{n:03d}" for n in range(previous["wallets"])}
+            sends = {(row[0], row[1]) for row in old.db.execute("SELECT id,state FROM action WHERE operation='send'")}
+            complete_ids = {row[0] for row in old.db.execute("SELECT id FROM result WHERE id LIKE 'load-transfer-%-complete'")}
+            if (hold.get("stage") != "LOAD_WINDOW_LIMIT_REACHED" or hold.get("money_dispatched") is not False
+                    or not previous.get("window_seconds") or result.get("active_sync") is not True
+                    or result.get("stage") != "LOAD_INCOMPLETE_WINDOW_FINANCIALLY_AUDITED"
+                    or result.get("case_verdict") != "INCOMPLETE" or result.get("workload_complete") is not False
+                    or result.get("original_hold") != hold or not 0 < count < previous["transfers"]
+                    or result.get("intended_transfers") != previous["transfers"]
+                    or result.get("not_dispatched_transfers") != previous["transfers"] - count
+                    or hold.get("successful_reconciled_transfers") != count
+                    or hold.get("intended_transfers") != previous["transfers"]
+                    or result.get("backing", {}).get("backing") != "PASS"
+                    or not result.get("signature_proofs")
+                    or any(proof.get("status") != "PASS" for proof in result["signature_proofs"])
+                    or {row[0] for row in old.db.execute("SELECT id FROM actor")} != expected_actors
+                    or sends != {(f"load-transfer-{n:06d}-send", "acknowledged") for n in range(count)}
+                    or complete_ids != {f"load-transfer-{n:06d}-complete" for n in range(count)}):
+                raise ValueError("explicit clean audited window shortfall required; original HOLD remains incomplete")
+        elif result.get("stage") != "LOAD_WORKLOAD_FINANCIALLY_RECONCILED" or count != previous["transfers"]:
+            raise ValueError("actual completed previous load result and conservation required")
+        if (result.get("parameters") != previous or result.get("successful_reconciled_transfers") != count
                 or result.get("failed_or_unknown_transfers") != 0
                 or result.get("closing_coin_sat", -1) + result.get("observed_offchain_fee_sat", -1) != result.get("opening_coin_sat")):
             raise ValueError("actual completed previous load result and conservation required")
@@ -104,6 +128,9 @@ def import_load_window(old, new, *, stop_file, lock_file, pid_file, result_file,
         provenance = {"server_pubkey": server, "reused_wallets": len(actors),
             "old_product_source": old.config["source_commit"], "new_product_source": new.config["source_commit"],
             "previous_result_sha256": _sha(result_file), "archived_journal_sha256": _sha(archive / "signet.sqlite"),
-            "scope": "Cold copied real completed wallets; actual new-runtime native admission still required."}
+            "previous_workload_complete": not allow_audited_shortfall,
+            "previous_reconciled_transfers": count, "previous_requested_transfers": previous["transfers"],
+            "previous_hold": json.loads(hold_row[0]) if hold_row else None,
+            "scope": "Cold copied real financially reconciled wallets; original outcome unchanged. Actual new-runtime native admission still required."}
         new.db.execute("INSERT INTO meta VALUES ('load_import_complete',?)", (canonical(provenance),))
         return provenance
