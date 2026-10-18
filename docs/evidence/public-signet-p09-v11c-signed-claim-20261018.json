@@ -1,0 +1,42 @@
+{
+  "absent_since_height": 326864,
+  "actual_grant_terms": [
+    {
+      "direction": "outgoing",
+      "grant_id": "0829564748f3e660c03cb062b891fe28b6698cdaef79f60d331fb53227af5f01:0",
+      "htlc_expiry": 326912,
+      "payment_hash": "68f9223726122aca9ce375a1aa2826ac7c906c43803a35b7ec21d9ea7deb2ca4"
+    }
+  ],
+  "at": "2026-10-18T08:28:20.460581+00:00",
+  "case_verdict": "INCOMPLETE",
+  "coins": [
+    {
+      "amount_sat": 4890,
+      "chain_anchor": "b6da22ca986949df8347da1581de2544685a9def213012ae17ed873fadf7d1cb:0",
+      "expiry_height": 326894,
+      "id": "be9db05bdf01b879bf0a09d434014a38d0e80e57c50769092ee3323a49e0dab8:0"
+    }
+  ],
+  "expected_payout_sat_if_one_output": 3890,
+  "receive_fee_sat": 110,
+  "recipient_wallet_opened": false,
+  "registered_payout_address": "tb1q028mvzfxlrv55unaqdrvsnpuxx54lzkjy7y77c",
+  "registered_payout_script": "00147a8fb60926f8d94a727d0346c84c3c31a95f8ad2",
+  "signed_claim_lineage": [
+    {
+      "coin_id": "be9db05bdf01b879bf0a09d434014a38d0e80e57c50769092ee3323a49e0dab8:0",
+      "path_outpoints": [
+        "b6da22ca986949df8347da1581de2544685a9def213012ae17ed873fadf7d1cb:0",
+        "ed8452e2f1e2c53f94c27f32af3486d1b8f352578b54a69f1c2a52aceaf51bb4:1",
+        "037c27ac68dd48384edbed64ceedfe729caede328435518f9ad0c045b016d0be:0",
+        "6711d9987f75792783216581cf03c90e144e48323bb42312239a950b0346c811:0",
+        "0829564748f3e660c03cb062b891fe28b6698cdaef79f60d331fb53227af5f01:0",
+        "2ad9dfe1d541c790aebe4f0776b8a2a4423d29901af3a64eb47ce5a0a007690b:0",
+        "be9db05bdf01b879bf0a09d434014a38d0e80e57c50769092ee3323a49e0dab8:0"
+      ],
+      "status": "PASS"
+    }
+  ],
+  "stage": "PUBLIC_SIGNED_RECIPIENT_CLAIM_ABSENT_PENDING_FALLBACK"
+}
