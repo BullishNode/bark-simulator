@@ -11,7 +11,7 @@ import tempfile
 import time
 
 from .model import canonical, public_payload
-from .signet import digest, network_identity
+from .signet import digest, measure, network_identity
 from .signet_checks import ChainObservationChanged
 
 
@@ -68,16 +68,19 @@ def verify_coin(campaign, actor: str, coin: dict, *, expected_address: str | Non
         funding = campaign.core.call("getrawtransaction", txid, False)
         if not isinstance(funding, str) or not re.fullmatch(r"(?:[0-9a-f]{2})+", funding):
             raise ValueError("raw funding transaction required from independent Core")
-        if digest(Path(campaign.config["binary"])) != campaign.config["binary_sha256"]:
+        with measure(campaign.timings, "verifier_binary_hash"):
+            binary_hash = digest(Path(campaign.config["binary"]))
+        if binary_hash != campaign.config["binary_sha256"]:
             raise ValueError("native executable changed")
         environment = {key: value for key, value in os.environ.items() if not key.startswith("BARK_")}
         with tempfile.TemporaryFile(dir=campaign.root) as stdout, tempfile.TemporaryFile(dir=campaign.root) as stderr:
             try:
-                process = subprocess.run([
-                    campaign.config["binary"], "--quiet", "--no-logfile", "dev", "vtxo", "verify",
-                    serialized, funding, *(["--address", expected_address] if expected_address is not None else []),
-                ], stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
-                    env=environment, timeout=60, check=False)
+                with measure(campaign.timings, "verifier_subprocess"):
+                    process = subprocess.run([
+                        campaign.config["binary"], "--quiet", "--no-logfile", "dev", "vtxo", "verify",
+                        serialized, funding, *(["--address", expected_address] if expected_address is not None else []),
+                    ], stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
+                        env=environment, timeout=60, check=False)
             finally:
                 campaign._retain_private(proof_id, "stdout", stdout)
                 campaign._retain_private(proof_id, "stderr", stderr)

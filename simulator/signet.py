@@ -15,6 +15,7 @@ import sqlite3
 import subprocess
 import tempfile
 import time
+from contextlib import contextmanager
 
 from .chain import ChainReader
 from .model import SIGNET_GENESIS, canonical, integer, public_payload
@@ -30,6 +31,17 @@ OPERATIONS = OBSERVATIONS | {"create", "restore", "address", "onchain_address", 
 def digest(path: Path) -> str:
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+@contextmanager
+def measure(timings: dict, name: str):
+    """Elapsed time, including failed calls; counters never classify money outcomes."""
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        timings[name + "_seconds"] = timings.get(name + "_seconds", 0) + time.perf_counter() - started
+        timings[name + "_calls"] = timings.get(name + "_calls", 0) + 1
 
 
 def network_identity(core) -> dict:
@@ -244,6 +256,7 @@ class Campaign:
         os.chmod(directory, 0o700)
         self.root = directory
         self.config = config
+        self.timings = {}
         # Linux process identity survives object recreation but changes on a
         # real controller restart, including PID reuse after reboot.
         start_ticks = Path("/proc/self/stat").read_text().rsplit(")", 1)[1].split()[19]
@@ -353,7 +366,9 @@ class Campaign:
                 raise ValueError("native wallet profile configuration changed; new cohort required")
         # Potentially slow file hashing and Core reads happen before the short
         # SQLite write transaction. Actor exclusion is rechecked atomically below.
-        if digest(Path(self.config["binary"])) != self.config["binary_sha256"]:
+        with measure(self.timings, "wallet_binary_hash"):
+            binary_hash = digest(Path(self.config["binary"]))
+        if binary_hash != self.config["binary_sha256"]:
             raise ValueError("native executable hash changed")
         chain = network_identity(self.core)
         self.db.execute("BEGIN IMMEDIATE")
@@ -412,10 +427,11 @@ class Campaign:
             # stdout in memory or retaining raw potential secrets on disk.
             with tempfile.TemporaryFile(dir=self.root) as output, tempfile.TemporaryFile(dir=self.root) as errors:
                 try:
-                    result = subprocess.run([
-                        self.config["binary"], "--quiet", "--no-logfile", "--datadir", str(path), *native_args,
-                    ], stdin=subprocess.DEVNULL, stdout=output, stderr=errors,
-                        env=environment, timeout=timeout, check=False)
+                    with measure(self.timings, "wallet_subprocess"):
+                        result = subprocess.run([
+                            self.config["binary"], "--quiet", "--no-logfile", "--datadir", str(path), *native_args,
+                        ], stdin=subprocess.DEVNULL, stdout=output, stderr=errors,
+                            env=environment, timeout=timeout, check=False)
                 finally:
                     self._retain_private(intent, "stdout", output)
                     self._retain_private(intent, "stderr", errors)

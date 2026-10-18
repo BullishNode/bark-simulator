@@ -96,8 +96,39 @@ progress = load.advance_batch(
     wait_until_due=True,
     stop_requested=lambda: owned_stop_file.exists(),
 )
-# Persist this result and its report. Do not add the previous fixed outer sleep.
+# Keep the original journal/proofs and persist this bounded progress projection.
+report_cost = load.write_observation(private_progress_path, batch=progress)
+# Retain report_cost in the runner's private event log. No fixed outer sleep.
+# At phase start/end only:
+# full_report_cost = load.write_observation(private_full_report_path, full=True)
 ```
+
+`Load.write_observation()` atomically writes a private0600 file and returns
+projection, serialization, durable-write, wall and controller-CPU costs. Use
+`full=True` once at start and once at terminal audit; full report contents remain
+unchanged. The bounded default reads action-state counts and reconciled-transfer
+count plus the latest batch's count/pacing/timing projection. It never expands
+historic actions, native replies or signature proofs. Complete monetary/proof
+records stay in the durable journal. The caller must keep returned costs in its
+existing event log; the helper does not itself launch or resume a campaign.
+
+Successful transfer receipts separately record runtime verification, executable
+hashing, wallet subprocesses, native verifier subprocesses and independent-proof
+wall time. Runtime/config/hash checks still read the same full actual files.
+Counters include attempted subprocess duration even on exceptions inside the
+Campaign object, but the successful-batch projection does not claim exhaustive
+failed-worker timing. Worker sums overlap under concurrency; proof time includes
+nested raw-receipt/hash/verifier work, so these figures are not additive CPU or
+backend latency. Report CPU is controller-only; existing resource samples still
+separate native child CPU and backend CPU.
+
+On the same stopped actual FIRST50 journal (4,035 actions/2,135 results), three
+read-only comparisons measured full20,658,567-byte reports at0.592–0.612s including
+private durable writes, versus280-byte count-only progress at0.0087–0.0092s. The
+benchmark opened no wallet/native process and left both table counts unchanged.
+Actual future latest-batch projections add bounded pacing/timing fields; the old
+receipts contain no new timing counters. This measures report generation, not
+new backend throughput. See [the measured receipt](evidence/bounded-load-report-profile-20261018.json).
 
 The `batch --wait-until-due` CLI option uses the same path. Remaining delay is
 computed from the durable previous **actual** start; completed reporting/work

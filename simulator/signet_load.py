@@ -9,10 +9,11 @@ import math
 import os
 import threading
 import hashlib
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .model import btc_to_sat, canonical, integer
-from .signet import network_identity
+from .signet import measure, network_identity
 from .signet_checks import ChainObservationChanged, confirmed_backing
 from .signet_proof import verify_coin
 
@@ -323,6 +324,61 @@ class Load:
         if not c.db.execute("SELECT 1 FROM meta WHERE key='load_admitted'").fetchone():
             raise ValueError("actual native load cohort admission required")
 
+    def progress(self, batch=None):
+        """Bounded projection; the complete monetary/proof journal stays intact."""
+        c = self.campaign
+        counts = {row[0]: row[1] for row in c.db.execute(
+            "SELECT state,count(*) FROM action GROUP BY state")}
+        complete = c.db.execute("SELECT count(*) FROM result WHERE id LIKE 'load-transfer-%-complete'").fetchone()[0]
+        hold = c.db.execute("SELECT 1 FROM meta WHERE key='load_hold'").fetchone() is not None
+        result = {"kind": "load_progress", "intended_transfers": self.parameters["transfers"],
+                  "successful_reconciled_transfers": complete, "action_counts": counts,
+                  "held": hold, "source_commit": c.config["source_commit"],
+                  "scope": "Progress only; counts and native ACKs do not qualify payment or capacity."}
+        if batch is not None:
+            result["latest_batch"] = {"stage": batch["stage"],
+                "reconciled_count": len(batch.get("results", [])),
+                "failure_count": len(batch.get("failures", [])),
+                "pacing": batch.get("pacing"), "timings": {}}
+            totals = result["latest_batch"]["timings"]
+            for transfer in batch.get("results", []):
+                for name, value in transfer.get("timings", {}).items():
+                    totals[name] = totals.get(name, 0) + value
+            result["latest_batch"]["timing_scope"] = (
+                "Successful transfers only; worker sums overlap under concurrency. "
+                "Independent-proof wall time includes nested verifier/hash/native receipt work; do not add it twice.")
+        return result
+
+    def write_observation(self, destination: Path, *, full=False, batch=None):
+        """Use full at start/end, bounded progress between batches; no wallet opens."""
+        started, cpu = time.perf_counter(), time.process_time()
+        value = self.campaign.report() if full else self.progress(batch)
+        projected = time.perf_counter()
+        encoded = canonical(value).encode()
+        serialized = time.perf_counter()
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as output:
+                temporary = Path(output.name)
+                output.write(encoded)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, destination)
+            directory = os.open(destination.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        return {"kind": "load_report_cost", "full": full, "bytes": len(encoded),
+                "projection_seconds": projected - started,
+                "serialization_seconds": serialized - projected,
+                "write_seconds": time.perf_counter() - serialized,
+                "wall_seconds": time.perf_counter() - started,
+                "controller_cpu_seconds": time.process_time() - cpu}
+
     def advance_batch(self, monitor_pids=None, *, wait_until_due=False, stop_requested=None):
         """One disjoint batch; optional pacing starts after the caller's reporting.
 
@@ -574,7 +630,8 @@ def _transfer(directory, config, parameters, index):
     from .signet_phase import _verify_runtime
     c = Campaign(directory, config)
     try:
-        _verify_runtime(c)
+        with measure(c.timings, "runtime_verification"):
+            _verify_runtime(c)
         if not c.db.execute("SELECT 1 FROM meta WHERE key='load_admitted'").fetchone():
             raise ValueError("actual native load cohort admission required")
         if integer(index, "load transfer index") >= parameters["transfers"]:
@@ -600,7 +657,8 @@ def _transfer(directory, config, parameters, index):
         if (any(coin["state"] not in {"spent", "spendable"} for coin in sb + rb)
                 or sum(coin["amount_sat"] for coin in sb if coin["state"] == "spendable") < parameters["transfer_sat"] + parameters["maximum_offchain_fee_sat"]):
             raise ValueError("settled native pair and bounded fee headroom required")
-        _observed_backing(c, [sb, rb], prefix + "-before-backing")
+        with measure(c.timings, "independent_proof"):
+            _observed_backing(c, [sb, rb], prefix + "-before-backing")
         if c.db.execute("SELECT 1 FROM action WHERE state='unknown'").fetchone():
             raise ValueError("another load outcome became unknown; no new send")
         native(prefix + "-send", sender, "send", {"destination": address, "amount_sat": parameters["transfer_sat"]})
@@ -611,20 +669,24 @@ def _transfer(directory, config, parameters, index):
             after_s, after_r = prefix + f"-sender-after-{attempt}", prefix + f"-receiver-after-{attempt}"
             sa = native(after_s, sender, "sync_vtxos")
             ra = native(after_r, receiver, "sync_vtxos")
-            check = c.check_transfer(prefix + f"-check-{attempt}", prefix + "-send",
-                                     prefix + "-sender-before", after_s, prefix + "-receiver-before", after_r,
-                                     parameters["maximum_offchain_fee_sat"])
+            with measure(c.timings, "independent_proof"):
+                check = c.check_transfer(prefix + f"-check-{attempt}", prefix + "-send",
+                                         prefix + "-sender-before", after_s, prefix + "-receiver-before", after_r,
+                                         parameters["maximum_offchain_fee_sat"])
             if check.get("arithmetic") == "PASS" and check.get("backing") == "PASS":
-                proofs = [_verified_coin(c, actor, coin, expected_address=(address if actor == receiver and coin["id"] in check["new_receiver_coins"] else None), deadline=deadline)
-                          for actor, snapshot in [(sender, sa), (receiver, ra)] for coin in snapshot if coin["state"] == "spendable"]
+                with measure(c.timings, "independent_proof"):
+                    proofs = [_verified_coin(c, actor, coin, expected_address=(address if actor == receiver and coin["id"] in check["new_receiver_coins"] else None), deadline=deadline)
+                              for actor, snapshot in [(sender, sa), (receiver, ra)] for coin in snapshot if coin["state"] == "spendable"]
                 if not proofs or any(proof["status"] != "PASS" for proof in proofs):
                     raise ValueError("load signed-path reconciliation failed")
-                backing = _observed_backing(c, [sa, ra], prefix + "-after-backing", deadline=deadline)
+                with measure(c.timings, "independent_proof"):
+                    backing = _observed_backing(c, [sa, ra], prefix + "-after-backing", deadline=deadline)
                 result = {"kind": "load_transfer_observation", "index": index, "sender": sender, "receiver": receiver,
                           "amount_sat": parameters["transfer_sat"], "status": "RECONCILED",
                           "native_ack_seconds": payment["updated"] - payment["created"],
                           "observed_receiver_available_seconds": c.db.execute("SELECT updated FROM action WHERE id=?", (after_r,)).fetchone()[0] - payment["created"],
                           "reconciliation_seconds": time.time() - payment["created"],
+                          "timings": dict(c.timings),
                           "check": check, "backing": backing, "signature_proofs": proofs,
                           "scope": "Actual isolated pair send, native invocation timing and independent financial reconciliation; no claimed maximum TPS."}
                 c.db.execute("INSERT INTO result VALUES (?,?,?)", (prefix + "-complete", time.time(), canonical(result)))
