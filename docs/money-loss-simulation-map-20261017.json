@@ -10,12 +10,14 @@
   },
   "current_execution": {
     "controller_commit": "88032220de1e463d5647de99bed593064a313722",
+    "geometry_failure_reference": "docs/evidence/public-signet-p09-failed-setup-geometry-20261018.json",
     "independent_receive_observation": true,
     "new_treasury_principal_sat": 0,
     "product_build_manifest_sha256": "42c0642e6fedbeb04ae7273a05df482ed6e6bef3c52d7a76eee0f964d4f15abc",
     "provider_remains_closed_after_forwarding": true,
     "receive_expiry_height": 326894,
-    "sender_refresh": "One original ACK; real round5e2e2d74 unconfirmed at326864; observe without replay before any allocated held invoice/send.",
+    "receive_observer": "Separate receive-only observer reuses controller8803222 libraries; original recipient remains absent. New failed-send actions held.",
+    "sender_refresh": "FAILED_SETUP_GEOMETRY: original144-block exit inputs cannot satisfy tip+2*12+144 minimum in32-block replacement tree; native signer refused before forfeits. Originalone-refresh journal frozen, no failedinvoice/send; no cancellation/retry performed.",
     "whole_scenario_pass_claims": 0
   },
   "evidence": {

@@ -1,0 +1,53 @@
+{
+  "actual_input_exit_delta": 144,
+  "actual_tip_at_refusal": 326865,
+  "case": "P09_V11c_reused_long_source_failed_send",
+  "case_verdict": "FAILED_SETUP_GEOMETRY",
+  "client_phase": "Finished",
+  "client_sent_forfeit_sigs": false,
+  "closure_status": "Pending exact native abort/adoption/timeout analysis; no loss or discharge claim",
+  "expiry_formula": "tip + 2*wallet_exit_margin + max_input_exit_delta",
+  "expiry_rebuild_diagnostic": {
+    "actual_completed_generation": 8,
+    "actual_invalid_after": false,
+    "causal_relation_to_signer_refusal": "None established; separate resolved scheduling barrier",
+    "grpc_ack_status": 0,
+    "ledger_count": 13,
+    "ledger_revision": 17,
+    "new_public_mempool_txids": [],
+    "one_operator_trigger": true,
+    "rebuilt_height": 326865
+  },
+  "failed_send_count": 0,
+  "failed_send_invoice_count": 0,
+  "hold_cancel_count": 0,
+  "independent_paid_receive": {
+    "case_verdict": "INCOMPLETE",
+    "coin_sat": 4890,
+    "expiry_height": 326894,
+    "recipient_remains_absent": true
+  },
+  "native_cancellation_or_second_refresh_performed": false,
+  "native_refresh_count": 1,
+  "new_failed_send_HOLD": true,
+  "old_and_new_not_both_customer_payments": true,
+  "old_customer_entitlement_sat": 28670,
+  "old_input_expiry": 331133,
+  "pending_output_expiry": 326896,
+  "pending_replacement_sat": 28290,
+  "pending_round_funding_output_sat": 28620,
+  "profile_not_relaxed": true,
+  "replacement_difference_is_not_completed_customer_debit": true,
+  "required_output_expiry": 327033,
+  "root_cause": "Reused source exit_delta144 cannot safely hArk-refresh into a32-block tree with wallet_exit_margin12. The native signer refused before transmitting forfeits.",
+  "round_funding_miner_fee_sat": 173,
+  "server_forfeited_at": null,
+  "server_participation_id": 1,
+  "server_signed_forfeit_stored_count": 0,
+  "source_evidence": {
+    "actual_captured_round_source_sha256": "17107d519a33f67620d8b00ef58aadfc240217fbd089ccbc4cfe880573cd4ee6",
+    "actual_input_signature_proof_sha256": "9bdd1b3a9f6dd3e545524e5c564f245b6ac3ee250ad29a11e2f6eebc230c608b",
+    "server_commit_boundary_sha256": "330fb14798740d0f1d1e99f35324f79ad98c5de543cd14ced1e8b071e53de06a"
+  },
+  "wallet_exit_margin": 12
+}
