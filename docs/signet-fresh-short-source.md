@@ -124,3 +124,23 @@ second corrected attempt. Focused controller tests exercise preservation,
 existing-invoice refusal, changed artifacts, stale headroom, concurrent unknowns
 and corrected-attempt failure. This is source-level coverage, not a live
 reconciliation or payment result.
+
+The allocated continuation subsequently recorded the proven loader failure as
+`failed_before_execution`, created one invoice using the original hash, and
+initiated one native send. At height 326891 the owned external hold was
+Accepted, and the full signed cut was frozen: a 5,075-sat HTLC grant plus
+7,298 and 7,297 sat of ordinary change, totalling the original 19,670 sat.
+The signed grant deadline is 326909 and its tree expiry is 326913. The sender
+was marked absent; it has not been reopened.
+
+A process-exclusion check then stopped the controller before the cancellation
+function was evaluated. The original HOLD and traceback remain. The captured
+trace identifies the check, but does not retain its particular failed assertion
+or PID. A separate local reproduction found that the read-only checkpoint
+connection was left open until garbage collection: two reads retained two
+wallet file descriptors. Explicit connection closing and a GC-disabled
+regression correct that defect. This establishes a source bug, without proving
+which process caused the original check to fail. A separately reviewed
+continuation permits only the existing cancellation and recovery sequence,
+subject to fresh exclusivity, original Accepted/fenced receipts and actual
+future deadlines. No cancellation, refund or fallback success is inferred.

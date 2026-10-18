@@ -554,6 +554,42 @@ class FailedSendLightningTests(unittest.TestCase):
                 self.campaign.execute('forbidden-reopen', 'absent', 'vtxos', {})
         forbidden.assert_not_called()
 
+    def test_sender_checkpoint_closes_readonly_wallet_fds_without_gc(self):
+        import gc
+        import sqlite3
+        import tempfile
+        from types import SimpleNamespace
+        from simulator.signet_failed_send import _sender_checkpoint
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / 'db.sqlite'
+            db = sqlite3.connect(path)
+            try:
+                db.execute('CREATE TABLE bark_wallet_action_checkpoint(id TEXT PRIMARY KEY,payload BLOB)')
+                db.execute('INSERT INTO bark_wallet_action_checkpoint VALUES (?,?)',
+                    ('ln_pay.' + '1' * 64, canonical({'LightningSend': {'htlc_expiry': 218,
+                        'progress': {'PaymentInitiated': {'vtxo_ids': ['2' * 64 + ':0']}}}})))
+                db.commit()
+            finally:
+                db.close()
+            campaign = SimpleNamespace(actor_path=lambda actor: root)
+            def wallet_fds():
+                return sum(os.path.realpath('/proc/self/fd/' + n) == str(path)
+                           for n in os.listdir('/proc/self/fd'))
+            enabled = gc.isenabled()
+            gc.disable()
+            try:
+                for _ in range(2):
+                    self.assertEqual(_sender_checkpoint(campaign, '1' * 64)['htlc_expiry'], 218)
+                    self.assertEqual(wallet_fds(), 0)
+                with self.assertRaisesRegex(ValueError, 'checkpoint required'):
+                    _sender_checkpoint(campaign, '3' * 64)
+                self.assertEqual(wallet_fds(), 0)
+            finally:
+                gc.collect()
+                if enabled:
+                    gc.enable()
+
     def failed_source(self):
         self.transport(); self.invoice()
         payment_hash = self.decoded()['payment_hash']

@@ -7,6 +7,7 @@ evidence only, not Noah or LNURL compatibility.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import fcntl
 import hashlib
 import io
@@ -647,7 +648,7 @@ def _sender_checkpoint(campaign, payment_hash):
     # This is a read-only projection of the original native SDK checkpoint.
     # Opening this SQLite connection does not instantiate a wallet or drive it.
     path = campaign.actor_path('absent') / 'db.sqlite'
-    with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as db:
+    with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as db:
         row = db.execute('SELECT payload FROM bark_wallet_action_checkpoint WHERE id=?',
                          ('ln_pay.' + payment_hash,)).fetchone()
     if not row:
