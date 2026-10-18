@@ -18,7 +18,7 @@ from .signet_phase import _native, _quiescent, _verify_runtime
 from .signet_checks import confirmed_backing
 from .signet_proof import verify_coin
 from .signet_s02 import _save
-from .signet_lightning import _attempt, _protected
+from .signet_lightning import _attempt, _protected, _private_call
 
 KIND = 'existing_native_refresh'
 SHORT = {'vtxo_lifetime': 32, 'vtxo_exit_delta': 12, 'htlc_expiry_delta': 6,
@@ -146,6 +146,69 @@ def stage_failed_sender(campaign, runtime_pins, admission_path, terminal_result_
         'new_actor_principal_sat': 0, 'native_create_or_board': False})
 
 
+
+def _preflight_refresh_window(campaign, coins, spec):
+    """Reject a known incompatible profile before the first refresh intent.
+
+    This necessary window check does not replace the native check against the
+    actual signed replacement after confirmation, including elapsed round time.
+    """
+    chain = network_identity(campaign.core)
+    info = _native(campaign, 'existing-refresh-compatibility-info', 'absent', 'ark_info')
+    lifetime = info.get('vtxo_lifetime')
+    wallet = tomllib.loads((campaign.actor_path('absent') / 'config.toml').read_text())
+    margin = wallet.get('vtxo_exit_margin')
+    if (info.get('server_pubkey') != spec['server_pubkey']
+            or type(lifetime) is not int or lifetime <= 0
+            or type(margin) is not int or not 0 <= margin <= 65535):
+        raise ValueError('actual server lifetime and unchanged native wallet margin required')
+    live = [coin for coin in coins if coin['state'] == 'spendable']
+    if not live:
+        raise ValueError('actual signed refresh inputs required before first intent')
+    deltas = []
+    for coin in live:
+        proof = verify_coin(campaign, 'absent', coin)
+        if proof.get('status') != 'PASS' or not proof.get('path_outpoints'):
+            raise ValueError('full signed original input proof required before refresh')
+        token = hashlib.sha256(('absent:' + coin['id']).encode()).hexdigest()
+        artifact = campaign.db.execute("SELECT * FROM native_artifact WHERE intent=? AND kind='stdout'",
+                                      ('coin-raw-' + token,)).fetchone()
+        if not artifact or artifact['truncated']:
+            raise ValueError('complete verified original input body required before refresh')
+        raw = campaign.root / artifact['relative_path']
+        if digest(raw) != artifact['sha256']:
+            raise ValueError('verified original input body changed before refresh')
+        decoded = _private_call(campaign, 'refresh-geometry-' + token, 'decode',
+            [campaign.config['binary'], '--quiet', '--no-logfile', 'dev', 'vtxo', 'decode',
+             raw.read_text().strip()])
+        delta = decoded.get('exit_delta')
+        if (decoded.get('server_pubkey') != spec['server_pubkey']
+                or any(decoded.get(k) != coin[k] for k in
+                       ['id', 'amount_sat', 'user_pubkey', 'chain_anchor', 'expiry_height'])
+                or type(delta) is not int or not 0 <= delta <= 65535):
+            raise ValueError('actual signed input identity and CSV required before refresh')
+        deltas.append(delta)
+    maximum = max(deltas)
+    required = 2 * margin + maximum
+    # Match upstream: if ANY input is unexpired, MAX includes ALL inputs.
+    unexpired = any(coin['expiry_height'] > chain['height'] for coin in live)
+    compatible = not unexpired or lifetime >= required
+    if network_identity(campaign.core) != chain:
+        raise ValueError('chain changed during pre-refresh compatibility observation')
+    result = _save(campaign, 'existing-refresh-compatibility', {
+        'kind': 'existing_refresh_compatibility', 'case_verdict': 'INCOMPLETE',
+        'chain': chain, 'compatible': compatible,
+        'advertised_lifetime_blocks': lifetime, 'wallet_exit_margin_blocks': margin,
+        'maximum_actual_input_csv_blocks': maximum,
+        'minimum_output_window_blocks': required, 'any_unexpired_input': unexpired,
+        'scope': 'Necessary pre-intent check only; native signed-output/confirmation guard remains authoritative.'})
+    if not compatible:
+        raise ValueError(f'cannot refresh before intent: advertised lifetime {lifetime} < '
+                         f'2 * wallet exit margin {margin} + maximum actual input CSV {maximum} '
+                         f'= {required}; no refresh submitted')
+    return result
+
+
 def refresh_existing_sender(campaign):
     """One genuine native refresh; an unconfirmed round only needs observation."""
     from .signet_failed_send import _profile
@@ -160,6 +223,8 @@ def refresh_existing_sender(campaign):
     expected = json.loads(campaign.db.execute("SELECT value FROM meta WHERE key='failed_sender_registration'").fetchone()[0])
     if record != expected:
         raise ValueError('original authenticated registration changed')
+    if not campaign.db.execute("SELECT 1 FROM action WHERE id='existing-source-refresh'").fetchone():
+        _preflight_refresh_window(campaign, before, spec)
     # Campaign never replays any dispatched/unknown native intent, including
     # a refresh whose reply was lost after the actual forfeit was accepted.
     _native(campaign, 'existing-source-refresh', 'absent', 'refresh')

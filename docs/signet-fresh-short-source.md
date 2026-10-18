@@ -6,6 +6,14 @@ The prior load-002 refresh remains `FAILED_SETUP_GEOMETRY`, with its old inputs
 locked and its one refresh acknowledged. There is no second refresh, forced
 forfeit, cancellation, or release of those inputs.
 
+Future reused-input refreshes now check actual signature-verified input exit
+deltas, advertised round lifetime and wallet exit margin before their first
+refresh intent. The necessary window is `2 * margin + max(input exit delta)`
+while any input is unexpired. Thus the observed 144/12 inputs are rejected
+against a 32-block round before a refresh is submitted. The native signed
+replacement and confirmation checks remain authoritative. This added preflight
+does not release or retry the already acknowledged load-002 refresh.
+
 `simulator/signet_fresh_ln.py` adds an explicit `fresh_short_board` source to
 the existing failed-send controller. It creates one native wallet with recorded
 pre-funding birthday, authenticated registration and privately retained original

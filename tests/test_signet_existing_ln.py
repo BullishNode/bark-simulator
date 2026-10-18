@@ -7,14 +7,23 @@ from unittest.mock import patch
 
 from simulator.model import canonical
 from simulator.signet import digest
-from simulator.signet_existing_ln import stage_failed_sender, refresh_existing_sender
+from simulator.signet_existing_ln import (stage_failed_sender, refresh_existing_sender,
+    _preflight_refresh_window)
 from simulator.signet_failed_send import _ready_source, board_once, funding_admission
 from tests import test_signet_failed_send as funded
 PUB = funded.PUB
 
 
 class ExistingSenderTests(unittest.TestCase):
-    setUp = funded.FailedSendTests.setUp
+    def setUp(self):
+        funded.FailedSendTests.setUp(self)
+        # These existing flow tests isolate round completion/replay behavior.
+        # The real new preflight is exercised separately below with explicit
+        # native/Core/signature stubs, not counted as native financial proof.
+        self.compatibility = patch('simulator.signet_existing_ln._preflight_refresh_window')
+        self.compatibility_mock = self.compatibility.start()
+        self.addCleanup(self.compatibility.stop)
+
     tearDown = funded.FailedSendTests.tearDown
 
     def prepare(self, stage=True):
@@ -193,3 +202,125 @@ class ExistingSenderTests(unittest.TestCase):
         with patch('simulator.signet_existing_ln._native', side_effect=missing):
             with self.assertRaisesRegex(ValueError, 'completed refreshed'):
                 refresh_existing_sender(self.campaign)
+
+
+class RefreshCompatibilityTests(unittest.TestCase):
+    setUp = funded.FailedSendTests.setUp
+    tearDown = funded.FailedSendTests.tearDown
+    prepare = ExistingSenderTests.prepare
+    stage_existing = ExistingSenderTests.stage_existing
+    native = ExistingSenderTests.native
+    new_coin = ExistingSenderTests.new_coin
+
+    def geometry(self, delta=144, lifetime=32):
+        self.prepare()
+        self.new_coin()
+        self.delta, self.lifetime = delta, lifetime
+        self.info = {'server_pubkey': PUB, 'vtxo_lifetime': lifetime}
+        self.spec = json.loads(self.campaign.db.execute(
+            "SELECT value FROM meta WHERE key='failed_send'").fetchone()[0])
+        self.add_body(self.coins[0])
+
+    def add_body(self, coin):
+        import io
+        token = hashlib.sha256(('absent:' + coin['id']).encode()).hexdigest()
+        self.campaign._retain_private('coin-raw-' + token, 'stdout', io.BytesIO(b'cafe\n'))
+
+    def io(self, campaign, intent, actor, operation, args=None):
+        if operation == 'ark_info':
+            return self.info
+        if intent.startswith('existing-source-after-'):
+            return [{**self.coins[0], 'state': 'locked'}]
+        return self.native(campaign, intent, actor, operation, args)
+
+    def decode(self, *args):
+        return {**self.coins[0], 'server_pubkey': PUB, 'exit_delta': self.delta}
+
+    def proof(self, *args):
+        return {'status': 'PASS', 'path_outpoints': [self.coins[0]['chain_anchor'], self.coins[0]['id']]}
+
+    def test_actual144_csv_cannot_refresh_into32_before_any_refresh_intent(self):
+        self.geometry()
+        with patch('simulator.signet_existing_ln._native', side_effect=self.io), \
+             patch('simulator.signet_existing_ln.verify_coin', side_effect=self.proof), \
+             patch('simulator.signet_existing_ln._private_call', side_effect=self.decode):
+            with self.assertRaisesRegex(ValueError, 'lifetime 32.*CSV 144.*168; no refresh submitted'):
+                refresh_existing_sender(self.campaign)
+        self.assertEqual(self.campaign.db.execute(
+            "SELECT count(*) FROM action WHERE operation='refresh'").fetchone()[0], 0)
+        result = json.loads(self.campaign.db.execute(
+            "SELECT payload FROM result WHERE json_extract(payload,'$.kind')='existing_refresh_compatibility'").fetchone()[0])
+        self.assertFalse(result['compatible'])
+        self.assertEqual(result['maximum_actual_input_csv_blocks'], 144)
+        self.assertEqual(result['wallet_exit_margin_blocks'], 12)
+        self.assertEqual(result['minimum_output_window_blocks'], 168)
+
+    def test_compatible_window_is_only_a_necessary_preflight_not_ready(self):
+        # The mathematical control uses an explicitly advertised64-block
+        # window; the existing strict32-block campaign profile is unchanged.
+        self.geometry(delta=12, lifetime=64)
+        with patch('simulator.signet_existing_ln._native', side_effect=self.io), \
+             patch('simulator.signet_existing_ln.verify_coin', side_effect=self.proof), \
+             patch('simulator.signet_existing_ln._private_call', side_effect=self.decode):
+            result = _preflight_refresh_window(self.campaign, self.coins, self.spec)
+        self.assertTrue(result['compatible'])
+        self.assertEqual(result['minimum_output_window_blocks'], 36)
+        self.assertEqual(result['case_verdict'], 'INCOMPLETE')
+        self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action WHERE operation='refresh'").fetchone()[0], 0)
+        self.assertFalse(self.campaign.db.execute("SELECT 1 FROM result WHERE json_extract(payload,'$.kind')='failed_send_ready'").fetchone())
+
+    def test_failed_signature_or_changed_decoded_input_cannot_authorize_refresh(self):
+        self.geometry()
+        with patch('simulator.signet_existing_ln._native', side_effect=self.io), \
+             patch('simulator.signet_existing_ln.verify_coin', return_value={'status': 'FAILED'}), \
+             patch('simulator.signet_existing_ln._private_call') as decoder:
+            with self.assertRaisesRegex(ValueError, 'full signed original'):
+                refresh_existing_sender(self.campaign)
+            decoder.assert_not_called()
+        decoded = self.decode()
+        decoded['amount_sat'] -= 1
+        with patch('simulator.signet_existing_ln._native', side_effect=self.io), \
+             patch('simulator.signet_existing_ln.verify_coin', side_effect=self.proof), \
+             patch('simulator.signet_existing_ln._private_call', return_value=decoded):
+            with self.assertRaisesRegex(ValueError, 'signed input identity'):
+                refresh_existing_sender(self.campaign)
+        self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action WHERE operation='refresh'").fetchone()[0], 0)
+
+    def test_existing_ack_observes_pending_without_a_new_compatibility_open(self):
+        self.geometry()
+        self.campaign.db.execute('INSERT INTO action VALUES (?,?,?,?,?,?,?,?,?,?)',
+            ('existing-source-refresh', 'absent', 'refresh', '{}', 'acknowledged', 1, 1, '{}', '{}', None))
+        with patch('simulator.signet_existing_ln._native', side_effect=self.io) as native, \
+             patch('simulator.signet_existing_ln.verify_coin') as proof, \
+             patch('simulator.signet_existing_ln._private_call') as decoder:
+            result = refresh_existing_sender(self.campaign)
+        self.assertEqual(result['stage'], 'WAITING_FOR_NATIVE_REFRESH_COMPLETION')
+        self.assertFalse(any(call.args[3] == 'ark_info' for call in native.call_args_list))
+        proof.assert_not_called()
+        decoder.assert_not_called()
+        self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action WHERE operation='refresh'").fetchone()[0], 1)
+
+    def test_all_expired_inputs_keep_upstream_window_exception(self):
+        self.geometry()
+        coins = [{**self.coins[0], 'expiry_height': 1}]
+        decoded = {**coins[0], 'server_pubkey': PUB, 'exit_delta': 144}
+        with patch('simulator.signet_existing_ln._native', side_effect=self.io), \
+             patch('simulator.signet_existing_ln.verify_coin', side_effect=self.proof), \
+             patch('simulator.signet_existing_ln._private_call', return_value=decoded):
+            result = _preflight_refresh_window(self.campaign, coins, self.spec)
+        self.assertTrue(result['compatible'])
+        self.assertFalse(result['any_unexpired_input'])
+
+    def test_one_unexpired_input_uses_maximum_csv_of_all_inputs(self):
+        self.geometry(lifetime=64)
+        old = {**self.coins[0], 'expiry_height': 1}
+        current = {**self.coins[0], 'id': 'e' * 64 + ':0'}
+        self.add_body(current)
+        decoded = [{**old, 'server_pubkey': PUB, 'exit_delta': 144},
+                   {**current, 'server_pubkey': PUB, 'exit_delta': 12}]
+        with patch('simulator.signet_existing_ln._native', side_effect=self.io), \
+             patch('simulator.signet_existing_ln.verify_coin', side_effect=self.proof), \
+             patch('simulator.signet_existing_ln._private_call', side_effect=decoded):
+            with self.assertRaisesRegex(ValueError, 'maximum actual input CSV 144'):
+                _preflight_refresh_window(self.campaign, [old, current], self.spec)
+        self.assertEqual(self.campaign.db.execute("SELECT count(*) FROM action WHERE operation='refresh'").fetchone()[0], 0)
