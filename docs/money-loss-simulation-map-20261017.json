@@ -8,6 +8,16 @@
     "NOT_RUN": 13,
     "PARTIAL": 22
   },
+  "current_execution": {
+    "controller_commit": "88032220de1e463d5647de99bed593064a313722",
+    "independent_receive_observation": true,
+    "new_treasury_principal_sat": 0,
+    "product_build_manifest_sha256": "42c0642e6fedbeb04ae7273a05df482ed6e6bef3c52d7a76eee0f964d4f15abc",
+    "provider_remains_closed_after_forwarding": true,
+    "receive_expiry_height": 326894,
+    "sender_refresh": "One original ACK; real round5e2e2d74 unconfirmed at326864; observe without replay before any allocated held invoice/send.",
+    "whole_scenario_pass_claims": 0
+  },
   "evidence": {
     "ATTR_NEW": {
       "reference": "docs/evidence/attribution-scale-scope-review-20261017.json",
@@ -76,6 +86,11 @@
       "run_id": "63a761b8-7f82-4f73-9bd5-3433e6912403",
       "scope": "Native regtest327realowners/635path/twolevels,1308000sat customeroutputs>=7conf; not arbitrary shareddepth or productioncapacity",
       "source_manifest_sha256": "704179331e4f672ac09f5dad6dc564d42fa36707dc32bad5b6889c831848cf06"
+    },
+    "V11C_RECEIVE_STARTED": {
+      "initial_checkpoint_reference": "docs/evidence/public-signet-p09-v11c-receive-start-20261018.json",
+      "reference": "docs/evidence/public-signet-p09-v11c-signed-claim-20261018.json",
+      "scope": "Exact candidate42c064 native5000 paid at326864,4890 signed recipient Pubkey/path withD326912/E326894; recipientabsent, fallback/recovery stillpending. No Noah/LNURL or whole-money-loss-ID credit."
     }
   },
   "rows": [
