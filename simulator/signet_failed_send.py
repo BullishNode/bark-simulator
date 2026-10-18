@@ -67,6 +67,9 @@ def _profile(campaign):
     if spec.get('source_kind') == 'existing_native_refresh':
         from .signet_existing_ln import failed_profile
         return failed_profile(campaign, spec)
+    if spec.get('source_kind') == 'fresh_short_board':
+        from .signet_fresh_ln import profile
+        return profile(campaign, spec)
     for field in ['funding_request', 'funding_receipt', 'financial_admission']:
         if digest(Path(spec[field])) != spec[field + '_sha256']:
             raise ValueError('retained original admission/funding receipt changed')
@@ -164,6 +167,9 @@ def stage(campaign, request_path, receipt_path, admission_path, runtime_pins,
 
 def funding_admission(campaign):
     spec = _profile(campaign)
+    if spec.get('source_kind') == 'fresh_short_board':
+        from .signet_fresh_ln import funding
+        return funding(campaign, spec)
     if spec.get('source_kind') == 'existing_native_refresh':
         raise ValueError('existing funded inventory requires native refresh; no new funding or board')
     request = json.loads(Path(spec['funding_request']).read_text())
@@ -218,7 +224,9 @@ def board_once(campaign):
     funding = funding_admission(campaign)
     if funding['stage'] != 'ACTUAL_FUNDING_CONFIRMED':
         return funding
-    reply = _native(campaign, 'failed-send-board', 'absent', 'board', {'amount_sat': 30000})
+    spec = _profile(campaign)
+    reply = _native(campaign, 'failed-send-board', 'absent', 'board',
+                    {'amount_sat': spec.get('board_amount_sat', 30000)})
     return _save(campaign, 'failed-send-board', {'kind': 'failed_send_board',
         'stage': 'BOARD_ACK_WAITING_FOR_THREE_CONFIRMATIONS', 'case_verdict': 'INCOMPLETE',
         'receipt': reply, 'chain': network_identity(campaign.core)})
@@ -261,6 +269,12 @@ def board_ready(campaign):
               'case_verdict': 'INCOMPLETE', 'chain': chain, 'coin': coin, 'signature_proof': proof,
               'actual_tree_expiry': coin['expiry_height'], 'provisional_send_deadline_if_dispatched_now': chain['height'] + 18,
               'scope': 'Actual native admitted board; no Lightning send, held HTLC or failed refund yet.'}
+    if spec.get('source_kind') == 'fresh_short_board':
+        from .signet_fresh_ln import board_accounting
+        result.update(source_kind=spec['source_kind'],
+                      board_accounting=board_accounting(campaign, spec, board, tx, coin))
+        if network_identity(campaign.core) != chain:
+            raise ValueError('chain changed during genuine short-board accounting')
     public_payload(result)
     return _save(campaign, 'failed-send-ready', result)
 
