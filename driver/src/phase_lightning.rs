@@ -249,9 +249,9 @@ async fn prepare(
         );
         let (htlcs,revocation_key)=match &cp.progress {
             pay::Progress::HtlcReceived(htlcs)|pay::Progress::PaymentInitiated(htlcs)=>
-                (htlcs,cp.revocation_key.context("pending legacy checkpoint has no prederived revocation key; no derivation permitted")?),
+                (htlcs,cp.revocation_key),
             pay::Progress::RevocableHtlcs{htlcs,revocation}=>{
-                ensure!(cp.revocation_key.is_none_or(|key|key==revocation.key),"existing revocation key differs from frozen derivation");
+                ensure!(cp.revocation_key == revocation.key,"existing revocation key differs from frozen derivation");
                 (htlcs,revocation.key)
             },
             _=>anyhow::bail!("actual unused prepared sender checkpoint required; no fabricated failure or stuck-attempt retry"),

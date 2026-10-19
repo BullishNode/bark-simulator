@@ -251,6 +251,7 @@ pub async fn execute(
             && req.operation == format!("raw_protocol_{}", scenario.to_lowercase()),
         "probe scenario/operation differs"
     );
+    ensure!(scenario != "D15", "the obsolete account-origin request field is absent from this SDK; this probe is unsupported");
     ensure!(
         req.args["probe_intent"]["actor"] == actor
             && req.args["probe_intent"]["server_pubkey"] == req.expected_server_pubkey,
@@ -661,8 +662,6 @@ pub async fn execute(
                 user_pubkey: key.serialize().to_vec(),
                 htlc_recv_expiry: expiry,
                 lightning_receive_anti_dos: Some(anti),
-                #[cfg(not(feature = "two-step"))]
-                origin: if scenario == "D15" { None } else { Some(wallet.fallback_child_hint(key).await?.into()) },
             };
             request_hash = stage(
                 &path,

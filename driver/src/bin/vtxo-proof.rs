@@ -6,7 +6,7 @@ use ark::{
     vtxo::Full,
 };
 #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
-use ark::fallback::{AccountChild, FallbackRecord};
+use ark::fallback::FallbackRecord;
 #[cfg(feature = "two-step")]
 use ark::attestations::{FallbackRecordAttestation, KeyLinkAttestation};
 #[cfg(feature = "two-step")]
@@ -68,8 +68,9 @@ fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Valu
             .as_u64()
             .context("missing ordinary account child")?,
     )?;
-    let child = AccountChild::new(mailbox, child_index)?;
-    child.verify_pubkey(&record.account_xpub, coin_pk)?;
+    let child = bitcoin::bip32::ChildNumber::from_normal_idx(child_index)?;
+    let derived = record.account_xpub.derive_pub(&ark::SECP, &[child])?;
+    ensure!(derived.public_key == coin_pk, "record account child differs from full policy key");
     let stored_admission = request["origin_kind"].as_str() == Some("trusted_server_admission");
     ensure!(
         !stored_admission || request.get("signed_vtxo").is_none(),
@@ -81,10 +82,10 @@ fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Valu
             "server admission must not fabricate original B"
         );
         Value::Null
-    } else {
-        let original = request["blinded_mailbox_id"]
-            .as_str()
-            .context("missing original blinded mailbox")?;
+    } else if let Some(original) = request.get("blinded_mailbox_id") {
+        // Optional legacy descriptive evidence; never required or synthesized
+        // by the current no-hint SDK and never an authorization substitute.
+        let original = original.as_str().context("invalid legacy blinded mailbox")?;
         ensure!(original.len() == 66, "compressed blinded mailbox required");
         let blinded = PublicKey::from_str(original)?;
         ensure!(
@@ -92,13 +93,15 @@ fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Valu
             "canonical blinded mailbox encoding required"
         );
         Value::String(original.to_owned())
+    } else {
+        Value::Null
     };
     Ok(
         json!({"mailbox_pk":mailbox.to_string(),"spk":record.spk.to_hex_string(),
         "account_xpub":record.account_xpub.to_string(),"fallback_record":b["fallback_record"],
         "child_index":child_index,"policy_pubkey_full":coin_pk.to_string(),"blinded_mailbox_id":original_blinded,
-        "record_signature_valid":true,"account_child_verified":true,"origin_kind":if stored_admission {"trusted_server_admission"}else{"original_client_hint"},
-        "validation_scope":if stored_admission {"record signatures and exact full account child; supplied trusted DB mailbox/index must be checked against the consistent bridge separately; no original B or funded coin asserted"}else{"both immutable record signatures and exact full compressed account child verified; original B retained but not publicly unblinded; trusted server admission MB/index, seed/index0 ownership, arbitration and settlement remain separate"}}),
+        "record_signature_valid":true,"account_child_verified":true,"origin_kind":if stored_admission {"trusted_server_admission"}else{"account_child_derivation"},
+        "validation_scope":if stored_admission {"record signatures and exact full account child; supplied trusted DB mailbox/index must be checked against the consistent bridge separately; no original B or funded coin asserted"}else{"both immutable record signatures and exact full compressed account child verified; optional legacy B is not publicly unblinded or required; current server admission, seed/index0 ownership, arbitration and settlement remain separate"}}),
     )
 }
 #[cfg(feature = "two-step")]
@@ -251,6 +254,15 @@ mod tests {
         assert_eq!(valid["account_child_verified"], true);
         assert!(valid.get("key_link_signature_valid").is_none());
         assert_eq!(valid["record_signature_valid"], true);
+    }
+    #[test]
+    fn current_sdk_account_child_proof_needs_no_blinded_origin() {
+        let (mut request, coin) = fixture();
+        request.as_object_mut().unwrap().remove("blinded_mailbox_id");
+        let proof = binding(&request, coin, Network::Regtest).unwrap();
+        assert_eq!(proof["account_child_verified"], true);
+        assert_eq!(proof["origin_kind"], "account_child_derivation");
+        assert!(proof["blinded_mailbox_id"].is_null());
     }
     #[test]
     fn rejects_wrong_coin_mailbox_and_network() {
@@ -421,6 +433,15 @@ mod two_step_tests {
         let valid = binding(&r, c, Network::Regtest).unwrap();
         assert_eq!(valid["key_link_signature_valid"], true);
         assert_eq!(valid["record_signature_valid"], true);
+    }
+    #[test]
+    fn current_sdk_account_child_proof_needs_no_blinded_origin() {
+        let (mut request, coin) = fixture();
+        request.as_object_mut().unwrap().remove("blinded_mailbox_id");
+        let proof = binding(&request, coin, Network::Regtest).unwrap();
+        assert_eq!(proof["account_child_verified"], true);
+        assert_eq!(proof["origin_kind"], "account_child_derivation");
+        assert!(proof["blinded_mailbox_id"].is_null());
     }
     #[test]
     fn rejects_wrong_coin_mailbox_and_network() {

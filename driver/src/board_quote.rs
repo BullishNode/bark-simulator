@@ -58,7 +58,7 @@ mod tests {
         }
         async fn chain(&self) -> ChainSource {
             ChainSource::new(ChainSourceSpec::Esplora{url:self.url.clone()},Network::Signet,
-                Some(FeeRate::BROADCAST_MIN)).await.unwrap()
+                Some(FeeRate::BROADCAST_MIN),None).await.unwrap()
         }
     }
     impl Drop for Backend {

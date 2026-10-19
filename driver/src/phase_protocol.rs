@@ -653,7 +653,7 @@ pub async fn register_saved(
                 &json!({"utc_unix_ms":now(),"code":format!("{:?}",status.code()),"message":status.message(),"details_hex":hex(status.details()),"metadata":metadata(status.metadata())}),
             )?;
             save(&directory.join("error.json"), &bytes)?;
-            json!({"kind":if status.is_expiry_settled(){"expiry_settled_refusal"}else if status.is_rejection(){"generic_refusal"}else{"transport_unknown"},"wire_sha256":hash(&wire),"response_sha256":hash(&bytes),"code":format!("{:?}",status.code()),"message_sha256":hash(status.message().as_bytes())})
+            json!({"kind":if bark::FallbackRefusal::from_status(&status) == Some(bark::FallbackRefusal::DecidedForFallback){"expiry_settled_refusal"}else if status.is_rejection(){"generic_refusal"}else{"transport_unknown"},"wire_sha256":hash(&wire),"response_sha256":hash(&bytes),"code":format!("{:?}",status.code()),"message_sha256":hash(status.message().as_bytes())})
         }
     };
     save(

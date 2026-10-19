@@ -623,6 +623,6 @@ mod tests {
         };
         let error = body.frame().await.unwrap().unwrap_err();
         assert_eq!(error.code(), tonic::Code::Internal);
-        assert!(!server_rpc::StatusExt::is_expiry_settled(&error));
+        assert!(bark::FallbackRefusal::from_status(&error).is_none());
     }
 }
