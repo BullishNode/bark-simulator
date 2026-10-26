@@ -5,14 +5,16 @@ use ark::{
     ProtocolEncoding, Vtxo,
     vtxo::Full,
 };
-#[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+#[cfg(not(any(feature = "two-step", feature = "direct-per-key", feature = "signature-link")))]
 use ark::fallback::{AccountChild, FallbackRecord};
 #[cfg(feature = "two-step")]
 use ark::attestations::{FallbackRecordAttestation, KeyLinkAttestation};
 #[cfg(feature = "two-step")]
 use bitcoin::constants::ChainHash;
 use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client, RpcApi};
-use bitcoin::{Network, ScriptBuf, constants::genesis_block, secp256k1::PublicKey};
+use bitcoin::{Network, constants::genesis_block, secp256k1::PublicKey};
+#[cfg(not(feature = "signature-link"))]
+use bitcoin::ScriptBuf;
 use serde_json::{Value, json};
 use std::{io::Read, str::FromStr};
 fn hex(raw: &str) -> Result<Vec<u8>> {
@@ -25,11 +27,21 @@ fn hex(raw: &str) -> Result<Vec<u8>> {
         .map(|i| u8::from_str_radix(&raw[i..i + 2], 16))
         .collect::<Result<Vec<_>, _>>()?)
 }
+#[cfg(feature = "signature-link")]
+fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Value> {
+    if let Some(value) = request.get("address") {
+        let address = ark::Address::from_str(value.as_str().context("address required")?)?;
+        let server = PublicKey::from_str(&std::env::args().nth(3).context("server pin required")?)?;
+        ensure!(address.is_for_server(server), "address names a different server");
+    }
+    bark_sim_driver::signature_link::verify_binding(request, coin_pk, network,
+        PublicKey::from_str(&std::env::args().nth(4).context("pinned server mailbox required")?)?)
+}
 #[cfg(feature = "direct-per-key")]
 fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Value> {
     bark_sim_driver::per_key::verify_binding(request,coin_pk,network)
 }
-#[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+#[cfg(not(any(feature = "two-step", feature = "direct-per-key", feature = "signature-link")))]
 fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Value> {
     let b = &request["binding"];
     ensure!(
@@ -132,7 +144,7 @@ fn binding(request: &Value, coin_pk: PublicKey, network: Network) -> Result<Valu
 }
 fn verify() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
-    ensure!(args.len() == 4, "invalid verifier arguments");
+    ensure!(args.len() == if cfg!(feature = "signature-link") { 5 } else { 4 }, "invalid verifier arguments");
     let client = Client::new(&args[1], Auth::CookieFile((&args[2]).into()))?;
     let genesis = client.get_block_hash(0)?;
     let network = [Network::Signet, Network::Regtest]
@@ -159,7 +171,9 @@ fn verify() -> Result<()> {
             println!(
                 "{}",
                 json!({"user_pubkey":key.to_string(),"genesis":genesis.to_string(),"binding":bound,
-                "validation_scope":if cfg!(feature="direct-per-key") {
+                "validation_scope":if cfg!(feature="signature-link") {
+                    "SDK signature-link proof and pinned server mailbox; no server admission or blinded mailbox unblinding asserted"
+                } else if cfg!(feature="direct-per-key") {
                     "independent immutable record and exact per-key signature verification; no funded coin, current server admission or backing asserted"
                 } else if cfg!(feature="two-step") {
                     "public per-key link and fallback record signature verification; no funded coin, server admission or backing asserted"
@@ -206,7 +220,9 @@ fn verify() -> Result<()> {
       "hashlock_satisfaction_disclosed":conditional_steps==0,"conditional_steps":conditional_steps,
       "proof_encoding":if public_projection {"ark-public-authorization-v1"} else {"historical-full-vtxo"},"genesis":genesis.to_string(),"binding":bound,
       "ancestor_ids":ancestor_ids,"path":path,
-      "validation_scope":if cfg!(feature="direct-per-key") {
+      "validation_scope":if cfg!(feature="signature-link") {
+                    "SDK signature-link proof and pinned server mailbox; no server admission or blinded mailbox unblinding asserted"
+                } else if cfg!(feature="direct-per-key") {
           "exact public path signature authority, committed hashlock script if present, independently verified per-key/immutable record and confirmed anchor; omitted hashlock satisfaction, current economic ownership, spend arbitration and seed recovery remain separate"
       } else {"exact public path signature authority, committed hashlock script if present, account-child/immutable record and confirmed anchor; omitted hashlock satisfaction, current spend arbitration and seed recovery are separate"}}),
     )?;
@@ -221,7 +237,7 @@ fn main() {
     }
 }
 
-#[cfg(all(test, not(any(feature = "two-step", feature = "direct-per-key"))))]
+#[cfg(all(test, not(any(feature = "two-step", feature = "direct-per-key", feature = "signature-link"))))]
 mod tests {
     use super::*;
     use bitcoin::bip32::{ChildNumber, Xpriv};

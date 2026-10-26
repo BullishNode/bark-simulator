@@ -38,6 +38,9 @@ CARGO_TARGET_DIR="$PWD/target" cargo test --manifest-path driver/Cargo.toml --lo
 
 This builds `bark-sim-driver`, `vtxo-proof`, `seed-restore`, `server-policy-proof`, `noah-private`, `sweep-proof-trial`, and the offline `noah-public-proof` invoice verifier. The native driver accepts signet and local regtest configurations; it refuses mainnet. Helper availability does not qualify a live scenario; Noah payments require the independently checked readiness described in [Owned Noah journeys](docs/noah.md).
 
+The focused current-fork adapter is documented in [signature-link client path](docs/signature-link.md).
+It has a separate SDK pin/build feature and uses fresh campaign directories.
+
 ## Configuration and execution
 
 Copy `config.example.toml`, `config.driver.example.json`, and `config.wallet.example.toml` into private local configuration files. Replace their placeholders with measured server identity, endpoints, wallet paths, and executable hashes. The example configuration intentionally cannot dispatch real actions.

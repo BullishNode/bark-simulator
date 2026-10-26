@@ -50,6 +50,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - track: current
+            sdk: 8b356f8ae966e206204301b169f1d1169520d554
+            feature: signature-link
+            profile: signature_link
           - track: A
             sdk: cccc3f5747ad11b07b4742df1a25fb7b3ebe29c9
             feature: two-step
@@ -96,6 +100,12 @@ jobs:
           set -euo pipefail
           mkdir ci-results
           test "$(git -C source rev-parse HEAD)" = "$SDK_COMMIT"
+          # Path crates have different package versions in the retained SDK profiles.
+          # Resolve only against that exact checkout, then freeze the resulting lock.
+          if [[ "$DRIVER_PROFILE" != signature_link ]]; then
+            cargo metadata --manifest-path driver/Cargo.toml --format-version 1 > ci-results/dependencies.json
+          fi
+          cp driver/Cargo.lock ci-results/selected-Cargo.lock
           python3 - <<'PY'
           import hashlib, json, os, subprocess
           from pathlib import Path
@@ -131,9 +141,13 @@ jobs:
           if [[ -n "$DRIVER_FEATURE" ]]; then
             feature_args=(--features "$DRIVER_FEATURE")
           fi
-          /usr/bin/time -v cargo build --manifest-path driver/Cargo.toml --locked --bins "${feature_args[@]}" 2>&1 | tee ci-results/build.log
-          /usr/bin/time -v cargo test --manifest-path driver/Cargo.toml --locked --lib --bins "${feature_args[@]}" 2>&1 | tee ci-results/pure-tests.log
-          git diff --exit-code -- driver/Cargo.lock
+          binary_args=(--bins)
+          if [[ "$DRIVER_PROFILE" == signature_link ]]; then
+            binary_args=(--bin bark-sim-driver --bin vtxo-proof)
+          fi
+          /usr/bin/time -v cargo build --manifest-path driver/Cargo.toml --locked "${binary_args[@]}" "${feature_args[@]}" 2>&1 | tee ci-results/build.log
+          /usr/bin/time -v cargo test --manifest-path driver/Cargo.toml --locked --lib "${binary_args[@]}" "${feature_args[@]}" 2>&1 | tee ci-results/pure-tests.log
+          cmp driver/Cargo.lock ci-results/selected-Cargo.lock
           df -B1 . > ci-results/disk-after.txt
       - name: Retain each actual SDK result, including failures
         if: always()

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from simulator.architecture import PROFILES
+from simulator.architecture import PROFILES, SIGNATURE_LINK
 from simulator.engine import catalog, initialize
 from simulator.report import coverage
 from simulator.store import Store
@@ -25,7 +25,7 @@ class ScenarioProfileContractsTests(unittest.TestCase):
             self.assertEqual(selected.keys(), original.keys())
             for identifier, case in selected.items():
                 self.assertEqual(case['driver'], original[identifier]['driver'])
-                if identifier in {'H25', 'H27', 'H29', 'H32'}:
+                if identifier in {'H25', 'H27', 'H29', 'H32'} and profile != SIGNATURE_LINK:
                     self.assertEqual(case['profile_contract']['profile'], profile)
                 else:
                     self.assertEqual(case, original[identifier])

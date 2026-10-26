@@ -2,25 +2,33 @@ mod exit;
 mod onchain_inventory;
 mod board_quote;
 mod native_intent;
-#[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+#[cfg(not(any(feature = "two-step", feature = "direct-per-key", feature = "signature-link")))]
 mod immutable_record;
 #[cfg(feature = "two-step")]
 mod fallback_rotation;
-#[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+#[cfg(not(any(feature = "two-step", feature = "direct-per-key", feature = "signature-link")))]
 mod account_probes;
 mod scheduled_refresh;
 mod raw_guard;
 #[cfg(test)]
 mod raw_guard_tests;
-#[cfg(not(feature = "direct-per-key"))]
+#[cfg(not(any(feature = "direct-per-key", feature = "signature-link")))]
 mod raw_protocol;
+#[cfg(not(feature = "signature-link"))]
 mod phase_protocol;
+#[cfg(not(feature = "signature-link"))]
 mod phase_transport;
+#[cfg(not(feature = "signature-link"))]
 mod phase_round;
+#[cfg(not(feature = "signature-link"))]
 mod phase_offboard;
+#[cfg(not(feature = "signature-link"))]
 mod phase_delegated;
+#[cfg(not(feature = "signature-link"))]
 mod phase_replay;
+#[cfg(not(feature = "signature-link"))]
 mod phase_lightning;
+#[cfg(not(feature = "signature-link"))]
 mod phase_exit;
 
 use std::{
@@ -38,7 +46,9 @@ use ark::attestations::{FallbackRecordAttestation, KeyLinkAttestation};
 #[cfg(feature = "two-step")]
 use bitcoin::constants::ChainHash;
 use ark::lightning::Bolt11InvoiceExt;
-use ark::{ProtocolEncoding, SECP};
+use ark::ProtocolEncoding;
+#[cfg(not(feature = "signature-link"))]
+use ark::SECP;
 use bark::actions::{
     DriveMode,
     offboard::{Offboard, OffboardKind, Progress as OffboardProgress},
@@ -49,10 +59,13 @@ use bark::persist::sqlite::SqliteClient;
 use bark::subsystem::RoundMovement;
 use bark::{Config, OpenWalletArgs, Wallet, WalletSeed};
 use bitcoin::hashes::{Hash, sha256};
-use bitcoin::secp256k1::{Keypair, PublicKey, rand};
+use bitcoin::secp256k1::rand;
+#[cfg(not(feature = "signature-link"))]
+use bitcoin::secp256k1::{Keypair, PublicKey};
 use bitcoin::{Address, Amount, FeeRate, Network};
 use serde::Deserialize;
 use serde_json::{Value, json};
+#[cfg(not(feature = "signature-link"))]
 use server_rpc::RequestExt;
 use server_rpc::protos::{self, ark_service_client::ArkServiceClient};
 use tonic::transport::Endpoint;
@@ -100,11 +113,11 @@ fn allowed_network(name: &str, endpoint: &str) -> Result<Network> {
     Ok(network)
 }
 
-#[cfg(not(feature = "two-step"))]
+#[cfg(not(any(feature = "two-step", feature = "signature-link")))]
 async fn fallback_binding(wallet: &Wallet) -> Result<Value> {
     #[cfg(feature = "direct-per-key")]
     { return bark_sim_driver::per_key::wallet_binding(wallet).await; }
-    #[cfg(not(feature = "direct-per-key"))]
+    #[cfg(not(any(feature = "direct-per-key", feature = "signature-link")))]
     {
     let record = wallet.fallback_destination().await?;
     let mailbox = wallet.mailbox_identifier().as_pubkey();
@@ -134,6 +147,11 @@ async fn fallback_binding(wallet: &Wallet) -> Result<Value> {
     )
 }
 
+#[cfg(feature = "signature-link")]
+async fn fallback_binding(wallet: &Wallet) -> Result<Value> {
+    bark_sim_driver::signature_link::wallet_binding(wallet).await
+}
+
 async fn coin_evidence(wallet: &Wallet) -> Result<Value> {
     let coins = wallet.all_vtxos().await?;
     ensure!(
@@ -160,12 +178,14 @@ async fn coin_evidence(wallet: &Wallet) -> Result<Value> {
             value["key_link_attestation"] = json!(hex(&KeyLinkAttestation::new(
                 wallet.mailbox_keypair().public_key(), &key).serialize()));
         }
-        #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+        #[cfg(not(any(feature = "two-step", feature = "direct-per-key", feature = "signature-link")))]
         {
             let hint = wallet.fallback_child_hint(full.user_pubkey()).await?;
             value["child_index"] = json!(hint.child_index());
             value["blinded_mailbox_id"] = json!(hex(hint.blinded_mailbox_id().as_ref()));
         }
+        #[cfg(feature = "signature-link")]
+        { value["owner_link"] = json!(hex(&wallet.owner_link(full.user_pubkey()).await?.serialize())); }
         public.push(value);
     }
     let movements = wallet.history().await?;
@@ -267,6 +287,7 @@ fn verify_recycle_input(psbt:&bitcoin::Psbt,source:&Value)->Result<()> {
     Ok(())
 }
 
+#[cfg(not(feature = "signature-link"))]
 fn public_payment_status(
     hash: sha256::Hash,
     status: protos::LightningPaymentStatus,
@@ -354,6 +375,9 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         ensure!(!req.operation.starts_with("raw_") && req.operation!="fallback_record_check"
             && req.operation!="fallback_record_query", "C raw/probe adapter not yet qualified; no legacy alias");
     }
+    #[cfg(feature = "signature-link")]
+    ensure!(matches!(req.operation.as_str(), "info"|"create"|"snapshot"|"address"|"sync"|"board"|"send_arkoor"|"refresh"|"refresh_delegated"|"offboard_all"),
+        "operation outside focused signature-link path");
     let network = allowed_network(&cfg.network, &cfg.ark_endpoint)?;
     let channel = Endpoint::from_shared(cfg.ark_endpoint.clone())?
         .connect_timeout(std::time::Duration::from_secs(10))
@@ -371,6 +395,13 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         "server identity mismatch"
     );
     if req.operation == "info" {
+        #[cfg(feature = "signature-link")]
+        return Ok(json!({"network":info.network,"server_pubkey":hex(&info.server_pubkey),
+            "server_mailbox_pubkey":hex(&info.mailbox_pubkey),
+            "round_interval_secs":info.round_interval_secs,"vtxo_lifetime":info.vtxo_lifetime,
+            "required_board_confirmations":info.required_board_confirmations,
+            "sdk_commit":"8b356f8ae966e206204301b169f1d1169520d554"}));
+        #[cfg(not(feature = "signature-link"))]
         return Ok(
             json!({"network": info.network, "server_pubkey": hex(&info.server_pubkey),
                          "round_interval_secs": info.round_interval_secs,
@@ -378,7 +409,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                          "required_board_confirmations": info.required_board_confirmations}),
         );
     }
-    #[cfg(not(feature = "direct-per-key"))]
+    #[cfg(not(any(feature = "direct-per-key", feature = "signature-link")))]
     if req.operation == "fallback_record_query" {
         let mailbox = PublicKey::from_str(
             req.args["mailbox_pk"]
@@ -419,6 +450,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         return Ok(json!({"payment_hash":hash.to_string(),"state":format!("{:?}",status),
             "read_only":true,"actual_fee_sat":0}));
     }
+    #[cfg(not(feature = "signature-link"))]
     if req.operation == "lightning_payment_status" {
         let hash = sha256::Hash::from_str(
             req.args["payment_hash"]
@@ -459,9 +491,29 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
     }
 
     let mnemonic_file = path.join("mnemonic");
+    #[cfg(feature = "signature-link")]
+    let current_marker = path.join("signature-link-sdk");
+    #[cfg(feature = "signature-link")]
+    let needs_marker = if current_marker.exists() {
+        ensure!(fs::read_to_string(&current_marker)?.trim() == "8b356f8ae966e206204301b169f1d1169520d554",
+            "wallet directory belongs to a different SDK campaign");
+        false
+    } else {
+        ensure!(req.operation == "create" && !path.join("db.sqlite").exists()
+            && (!mnemonic_file.exists() || req.args["restore_from_seed"].as_bool() == Some(true)),
+            "current profile requires fresh wallets or explicit seed-only recovery; existing databases stay unopened");
+        true
+    };
+
     if req.operation == "create" {
         fs::create_dir_all(path)?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    }
+    #[cfg(feature = "signature-link")]
+    if needs_marker {
+        let mut marker = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(current_marker)?;
+        marker.write_all(b"8b356f8ae966e206204301b169f1d1169520d554\n")?;
+        marker.sync_all()?;
     }
     let _actor_lock = fs::OpenOptions::new()
         .read(true)
@@ -477,9 +529,17 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         return Ok(json!({"blocked":true,"reason":"frozen native intent requires exact independent reconciliation",
             "original_action_id":original_action_id,"actual_fee_sat":0,"wallet_opened":false}));
     }
+    #[cfg(not(feature = "signature-link"))]
     if req.operation=="phase_register_saved" {
         ensure!(req.args["phase_intent"]["context"]["courier_actor"]==actor,"delayed registration must use its declared online courier");
         return phase_protocol::register_saved(&mut rpc,req,&path.join("private-phases"),network).await;
+    }
+    #[cfg(feature = "signature-link")]
+    let restore_from_seed = req.operation == "create" && req.args["restore_from_seed"].as_bool() == Some(true);
+    #[cfg(feature = "signature-link")]
+    if restore_from_seed {
+        ensure!(mnemonic_file.is_file() && !path.join("db.sqlite").exists(),
+            "seed recovery requires an original private mnemonic and a separate unused database directory");
     }
     let generated_mnemonic = req.operation == "create"
         && generate_mnemonic_if_missing(&mnemonic_file)?;
@@ -494,6 +554,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         config.server_address == cfg.ark_endpoint,
         "wallet config endpoint differs from pinned endpoint"
     );
+    #[cfg(not(feature = "signature-link"))]
     let phase_round_invocation=if matches!(req.operation.as_str(),"phase_execute_d18"|"phase_execute_d19") {
         let invocation=phase_round::setup(channel.clone(),req,&path.join("private-phases")).await?;
         if invocation.is_none(){return Ok(json!({"phase_unknown":true,"actual_fee_sat":Value::Null,"reason":"existing once-only phase fence; no SDK restart/re-sign/retry"}));}
@@ -516,18 +577,44 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             .await?;
         fs::write(path.join("birthday-height"), height.to_string())?;
     }
+    #[cfg(feature = "signature-link")]
+    let fallback_spk = Some(onchain_wallet.fallback_script());
     let onchain = Arc::new(tokio::sync::RwLock::new(onchain_wallet));
+    #[cfg(feature = "signature-link")]
+    let recovery = Arc::new(std::sync::Mutex::new(Value::Null));
+    #[cfg(feature = "signature-link")]
+    let recovery_result = recovery.clone();
     let wallet = Wallet::open(
         network,
         WalletSeed::new_from_mnemonic(network, &mnemonic),
         config,
         OpenWalletArgs {
+            #[cfg(feature = "signature-link")]
+            fallback_spk,
             run_daemon: false,
             datadir: Some(path.clone()),
             persister: Some(db.clone()),
             onchain: Some(onchain),
             create_if_not_exists: req.operation == "create",
+            #[cfg(not(feature = "signature-link"))]
             skip_recovery: true,
+            #[cfg(feature = "signature-link")]
+            skip_recovery: !restore_from_seed,
+            #[cfg(feature = "signature-link")]
+            on_recovery_finished: Some(Box::new(move |status| {
+                let summary = match status {
+                    bark::RecoveryStatus::NotRun => json!({"status":"not_run"}),
+                    bark::RecoveryStatus::Failed(_) => json!({"status":"failed","verified":false}),
+                    bark::RecoveryStatus::Completed(report) => json!({"status":"observed", "sdk_complete":report.is_complete(),
+                        "verified":false,
+                        "recovered":report.recovered().ids().map(|id|id.to_string()).collect::<Vec<_>>(),
+                        "skipped":report.skipped().ids().map(|id|id.to_string()).collect::<Vec<_>>(),
+                        "failed":report.failed().ids().map(|id|id.to_string()).collect::<Vec<_>>(),
+                        "foreign":report.foreign().ids().map(|id|id.to_string()).collect::<Vec<_>>(),
+                        "not_found":report.not_found().ids().map(|id|id.to_string()).collect::<Vec<_>>()})
+                };
+                *recovery_result.lock().expect("recovery callback lock") = summary;
+            })),
             ..Default::default()
         },
     )
@@ -557,13 +644,15 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
         return Ok(json!({"blocked":true,"reason":"original exit intent owns this wallet; only explicit same-intent continuation or snapshot allowed","actual_fee_sat":0}));
     }
     match req.operation.as_str() {
+        #[cfg(not(feature = "signature-link"))]
         "phase_execute_d17"=>phase_protocol::race_arkoor(&wallet,&mut rpc,req,&path.join("private-phases"),actor).await,
+        #[cfg(not(feature = "signature-link"))]
         "phase_execute_d18"|"phase_execute_d19"=>phase_round::execute(&wallet,&mut rpc,req,phase_round_invocation.as_ref().context("missing one-process round transport")?,actor).await,
-        #[cfg(not(feature = "direct-per-key"))]
+        #[cfg(not(any(feature = "direct-per-key", feature = "signature-link")))]
         operation if operation.starts_with("raw_protocol_")=>raw_protocol::execute(&wallet,&db,&mut rpc,req,path,actor).await,
 
         "exit" => exit::execute(&wallet,&mut rpc,path,req,network).await,
-        #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+        #[cfg(not(any(feature = "two-step", feature = "direct-per-key", feature = "signature-link")))]
         "fallback_record_check" => immutable_record::execute(&wallet,&mut rpc,path,req,network).await,
         #[cfg(feature = "two-step")]
         "fallback_rotate" => fallback_rotation::execute(&wallet,&mut rpc,path,req,network).await,
@@ -581,7 +670,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             drop(guard);
             let mut result = json!({"funding_address": receive.to_string(), "fallback_script": hex(fallback.spk.as_bytes()),
                 "binding":fallback_binding(&wallet).await?,"onchain_inventory":inventory});
-            #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+            #[cfg(not(any(feature = "two-step", feature = "direct-per-key", feature = "signature-link")))]
             { result["account_xpub"] = json!(fallback.account_xpub.to_string()); }
             #[cfg(feature = "direct-per-key")]
             {
@@ -595,6 +684,8 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 }
                 result["initial_key_links"] = json!(links);
             }
+            #[cfg(feature = "signature-link")]
+            { result["recovery"] = recovery.lock().expect("recovery callback lock").clone(); }
             Ok(result)
         }
         "snapshot" => {
@@ -614,10 +705,22 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
             let onchain_balance = bark_json::cli::onchain::OnchainBalance::from(bdk.balance());
             let inventory = onchain_inventory::collect(bdk)?;
             drop(guard);
+            #[cfg(feature = "signature-link")]
+            let pending = db.get_fallback_snapshot().await?;
             let mut result = json!({"balance": balance, "onchain": onchain_balance, "vtxos": vtxos,
                 "fallback_script": hex(fallback.spk.as_bytes()), "evidence":coin_evidence(&wallet).await?,"onchain_inventory":inventory});
-            #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+            #[cfg(not(any(feature = "two-step", feature = "direct-per-key", feature = "signature-link")))]
             { result["account_xpub"] = json!(fallback.account_xpub.to_string()); }
+            #[cfg(feature = "signature-link")]
+            {
+              result["pending_operations"] = json!({
+                "arkoor":wallet.pending_arkoor_sends().await?.iter().map(|a|a.id.clone()).collect::<Vec<_>>(),
+                "offboard":wallet.pending_offboards().await?.iter().map(|a|a.id.clone()).collect::<Vec<_>>(),
+                "round":wallet.pending_round_state_ids().await?.iter().map(|id|id.to_string()).collect::<Vec<_>>(),
+                "board":wallet.pending_boards().await?.iter().map(|b|json!({"txid":b.funding_tx.compute_txid().to_string(),"vtxos":b.vtxos})).collect::<Vec<_>>()});
+              result["fallback_pending"] = json!({"awaiting_settlement":pending.awaiting_settlement,
+                "adopted_payout_vtxos":pending.adopted_payout_vtxos,"quarantined_vtxos":pending.quarantined_vtxos,
+                "unproven_spent_vtxos":pending.unproven_spent_vtxos}); }
             Ok(result)
         }
         "sync" | "claim_lightning" => {
@@ -692,6 +795,8 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 }
             }
             if !bounded_receive_sync {wallet.sync().await;}
+            #[cfg(feature = "signature-link")]
+            wallet.sync_fallback_payouts().await?;
             // A short-lived adapter has no daemon driving unfinished rounds.
             // Lightweight sync only handles completed rounds' confirmations;
             // reuse the SDK's maintenance progression for existing intents.
@@ -734,6 +839,13 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 result["address"] = json!(address.to_string());
                 Ok(result)
             }
+            #[cfg(feature = "signature-link")]
+            {
+                let info = wallet.require_ark_info().await?;
+                let link = address.owner_link(info.mailbox_pubkey)?.context("unsigned Ark address")?;
+                Ok(json!({"address":address.to_string(),"user_pubkey":pk.to_string(),
+                    "owner_link":hex(&link.serialize()),"binding":fallback_binding(&wallet).await?}))
+            }
             #[cfg(feature = "two-step")]
             {
                 let (_, key) = wallet.pubkey_keypair(&pk).await?
@@ -743,7 +855,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                         wallet.mailbox_keypair().public_key(), &key).serialize()),
                     "binding":fallback_binding(&wallet).await?}))
             }
-            #[cfg(not(any(feature = "two-step", feature = "direct-per-key")))]
+            #[cfg(not(any(feature = "two-step", feature = "direct-per-key", feature = "signature-link")))]
             {
             let hint = address.account_child()?.context("advertised address lacks account child origin")?;
             ark::fallback::AccountChild::new(wallet.mailbox_identifier().as_pubkey(),hint.child_index())?
@@ -1094,7 +1206,7 @@ async fn execute(cfg: DriverConfig, req: &Request) -> Result<Value> {
                 "note":"await chain confirmation; pending checkpoints are not automatically retried by supervisor"}),
             )
         }
-        #[cfg(not(feature = "direct-per-key"))]
+        #[cfg(not(any(feature = "direct-per-key", feature = "signature-link")))]
         operation if operation.starts_with("raw_") => {
             #[cfg(not(feature = "two-step"))]
             { account_probes::execute(&wallet,&mut rpc,req,path,network,operation).await }
@@ -1162,7 +1274,7 @@ mod response_tests {
 
 #[tokio::main]
 async fn main() {
-    if std::env::var("BARK_SIM_LOG").as_deref() == Ok("debug") {
+    if !cfg!(feature = "signature-link") && std::env::var("BARK_SIM_LOG").as_deref() == Ok("debug") {
         let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).try_init();
     }
     let mut input = String::new();
@@ -1193,12 +1305,12 @@ async fn main() {
                 } else {
                     "error"
                 };
-                println!(
-                    "{}",
-                    json!({"action_id": req.action_id, "status": status,
-                    "reason": if status == "incident" { "protocol invariant violated; preserve evidence and pause" }
-                              else { "driver operation failed; outcome must be reconciled" }})
-                );
+                let mut response = json!({"action_id":req.action_id,"status":status,
+                    "reason":if status == "incident" { "protocol invariant violated; preserve evidence and pause" }
+                        else { "driver operation failed; outcome must be reconciled" }});
+                #[cfg(feature = "signature-link")]
+                { response["refusal_code"] = json!(bark::FallbackRefusal::from_error(&error).map(|r|r.code())); }
+                println!("{response}");
             }
         },
         Err(_) => {
@@ -1321,6 +1433,7 @@ mod tests {
         psbt.unsigned_tx.input.pop();psbt.inputs[0].witness_utxo=None;assert!(verify_recycle_input(&psbt,&source).is_err());
     }
 
+    #[cfg(not(feature = "signature-link"))]
     #[test]
     fn payment_success_requires_matching_preimage_without_exporting_it() {
         use protos::lightning_payment_status::PaymentStatus;
@@ -1340,6 +1453,7 @@ mod tests {
         assert!(public_payment_status(hash, success(vec![7; 31])).is_err());
     }
 
+    #[cfg(not(feature = "signature-link"))]
     #[test]
     fn pending_failed_and_missing_status_never_count_as_success() {
         use protos::lightning_payment_status::PaymentStatus;
@@ -1371,10 +1485,10 @@ mod tests {
 
     #[test]
     fn native_adapter_rejects_every_other_architecture_before_rpc() {
-        let expected = if cfg!(feature = "two-step") { "two_step_per_key" }
+        let expected = if cfg!(feature = "signature-link") { "signature_link" } else if cfg!(feature = "two-step") { "two_step_per_key" }
             else if cfg!(feature = "direct-per-key") { "direct_per_key" }
             else { "direct_xpub" };
-        for profile in ["direct_xpub", "two_step_per_key", "direct_per_key", "unknown"] {
+        for profile in ["signature_link", "direct_xpub", "two_step_per_key", "direct_per_key", "unknown"] {
             assert_eq!(validate_architecture(Some(profile)).is_ok(), profile == expected);
         }
         assert_eq!(validate_architecture(None).is_ok(), expected == "direct_xpub");

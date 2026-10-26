@@ -9,7 +9,7 @@ import hashlib,json,time
 from contextlib import nullcontext
 from .model import InvariantError,canonical,integer,public_payload
 from .process import json_command, public_command_capture
-from .architecture import profile, TWO_STEP, DIRECT_PER_KEY
+from .architecture import profile, TWO_STEP, DIRECT_PER_KEY, SIGNATURE_LINK
 
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS client_coin_candidate(id TEXT NOT NULL, actor TEXT NOT NULL REFERENCES actor(id), action_id TEXT NOT NULL REFERENCES action(id), digest TEXT NOT NULL, payload TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(id,digest));
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS server_item_version(kind TEXT NOT NULL, id TEXT NOT N
 
 def initialize(store):
     legacy = profile(store) == TWO_STEP
-    per_key = profile(store) == DIRECT_PER_KEY
+    per_key = profile(store) in {DIRECT_PER_KEY, SIGNATURE_LINK}
     columns={row[1] for row in store.db.execute('PRAGMA table_info(owner_record)')}
     if columns and ('seq' if legacy else 'record_version' if per_key else 'account_xpub') not in columns:
         raise ValueError('ownership schema differs from campaign profile; no historical database migration')
@@ -40,6 +40,9 @@ def initialize(store):
     store.db.executescript(schema)
 
 def binding_matches(bound, source, *, legacy=False, per_key=False):
+    if "server_mailbox_pubkey" in bound or "server_mailbox_pubkey" in source:
+        from .signature_link import binding_matches as matches
+        return matches(bound, source)
     if per_key:
         from .per_key import binding_matches as matches
         return matches(bound, source)
@@ -60,6 +63,9 @@ def proof_matches_profile(store, proof, source):
     Per-key proof flags describe record and key-link signatures, never account
     derivation. Cryptographic checks run in the pinned native verifier, not here.
     """
+    if profile(store) == SIGNATURE_LINK:
+        from .signature_link import proof_matches
+        return proof_matches(proof, source)
     if profile(store) == DIRECT_PER_KEY:
         from .per_key import proof_matches
         return proof_matches(proof, source)
@@ -79,7 +85,7 @@ def digest(value):return hashlib.sha256(canonical(value).encode()).hexdigest()
 def has_owner_record(store, actor, bound):
     """Match already independently verified owner evidence; never create it."""
     selected = profile(store)
-    if selected == DIRECT_PER_KEY:
+    if selected in {DIRECT_PER_KEY, SIGNATURE_LINK}:
         row = store.db.execute('SELECT script,proof FROM owner_record WHERE actor=? AND mailbox=? AND record_version=4',
             (actor,bound.get('mailbox_pk'))).fetchone()
         return bool(row and row['script']==bound.get('spk')
@@ -95,7 +101,7 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
     establish current registration, absence of a competing spend, or settlement.
     """
     legacy = profile(store) == TWO_STEP
-    per_key = profile(store) == DIRECT_PER_KEY
+    per_key = profile(store) in {DIRECT_PER_KEY, SIGNATURE_LINK}
     from .target_epochs import active_runtime_manifest
     runtime_transition=active_runtime_manifest(store)
     if not proof_command:
@@ -107,7 +113,7 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
     if not isinstance(binding,dict):return None
     verified=[]
     original_context=store.financial_context()
-    if per_key and (operation == 'create' or 'c_key_links' in data):
+    if profile(store) == DIRECT_PER_KEY and (operation == 'create' or 'c_key_links' in data):
         from .per_key import initial_origins,retained_origins
         origins=initial_origins(data) if operation=='create' else retained_origins(data['c_key_links'])
         for request in origins:
@@ -120,6 +126,7 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
             verified.append({'kind':'key','proof':proof,'request_origin':request})
     if operation=='address':
         fields = ('user_pubkey','key_link_attestation','binding') if legacy or per_key else ('user_pubkey','child_index','blinded_mailbox_id','binding')
+        if profile(store) == SIGNATURE_LINK: fields = ('user_pubkey','owner_link','binding','address')
         request={k:data[k] for k in fields}
         proof=await json_command(list(proof_command),request,timeout=30,**public_command_capture(store,'proof.verify',request,actor=actor))
         if proof['user_pubkey']!=data['user_pubkey']:raise InvariantError('advertised key verification mismatch')
@@ -151,7 +158,7 @@ async def verify_client_evidence(store, actor, operation, data, proof_command):
 
 def record_verified(store, actor, action_id, verified):
     legacy = profile(store) == TWO_STEP
-    per_key = profile(store) == DIRECT_PER_KEY
+    per_key = profile(store) in {DIRECT_PER_KEY, SIGNATURE_LINK}
     from .target_epochs import active_runtime_manifest
     runtime_transition=active_runtime_manifest(store)
     if verified is None:return
@@ -247,7 +254,7 @@ def expiry_owner(store, coin_id, pre_state):
 
 def record_candidates(store, actor, action_id, data, verification_failed=False):
     legacy = profile(store) == TWO_STEP
-    per_key = profile(store) == DIRECT_PER_KEY
+    per_key = profile(store) in {DIRECT_PER_KEY, SIGNATURE_LINK}
     evidence=data.get('evidence',{});binding=evidence.get('binding',data.get('binding'))
     if not isinstance(binding,dict):return
     action=store.db.execute('SELECT actor_id FROM action WHERE id=?',(action_id,)).fetchone()

@@ -7,7 +7,7 @@ Reconciliation preserves the original activity time and client online state.
 import asyncio,base64,datetime,hashlib,json,re,sqlite3
 from .model import InvariantError,canonical,integer,public_payload,transaction_fee
 from .ownership import EvidenceGap, binding_matches, proof_matches_profile
-from .architecture import profile, TWO_STEP, DIRECT_PER_KEY
+from .architecture import profile, TWO_STEP, DIRECT_PER_KEY, SIGNATURE_LINK
 from .fees import movement_fee,board_fee,offboard_fee,_proposal
 from .campaign import _receipt_origin
 from .process import json_command
@@ -23,7 +23,7 @@ def _intent(store,action):
 
 
 def _owner_record_matches(store,actor,binding):
-    if profile(store)==DIRECT_PER_KEY:
+    if profile(store) in {DIRECT_PER_KEY, SIGNATURE_LINK}:
         from .ownership import has_owner_record
         return has_owner_record(store,actor,binding)
     legacy=profile(store)==TWO_STEP
@@ -326,7 +326,7 @@ def resolve(store,action_id,chain_transactions=None,payment_status=None):
         detail.update(needs_sync=True,snapshot_at=0)
         if action['operation']=='board':detail['board_submitted']=True
         if action['operation']=='create':
-            fields=('funding_address','fallback_script','binding') if profile(store)==TWO_STEP else ('funding_address','fallback_script','account_xpub')
+            fields=('funding_address','fallback_script','binding') if profile(store) in {TWO_STEP,SIGNATURE_LINK} else ('funding_address','fallback_script','account_xpub')
             detail.update(created=True,**{k:data[k] for k in fields if k in data})
         if action['operation']=='address':detail['ark_address']=data['address']
         if action['operation']=='invoice':detail.update(latest_invoice=data['invoice'],invoice_action_id=action_id,invoice_at=action['updated_at'])

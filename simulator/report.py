@@ -143,6 +143,9 @@ def coverage(store):
     # Engine imports report, so resolve its actual dispatch allowlist only after
     # module initialization. Catalogue flags alone covered only the raw cases.
     from .engine import OPERATIONS, catalog
+    from .architecture import profile, SIGNATURE_LINK
+    if profile(store) == SIGNATURE_LINK:
+        from .signature_link import OPERATIONS
     catalogue = {case['id']:case for case in catalog()}
     aggregates = {}
     for row in store.db.execute(COVERAGE_QUERY):
@@ -313,6 +316,18 @@ def generate(store: Store, full: bool = False, evaluate: bool = True) -> dict:
                         "No minimum capital or thousands-user capacity is established by these observations.",
                         "Live payout-source qualification and seed-only restore are separate evidence gates."],
     }
+    from .architecture import profile, SIGNATURE_LINK
+    if profile(store) == SIGNATURE_LINK:
+        from .signature_link import SDK_COMMIT
+        result['client_qualification'] = {
+            'sdk_commit':SDK_COMMIT,
+            'principal_budget_sat':int(store.get_meta('client_principal_budget_sat') or 0),
+            'verified_ark_actions':[json.loads(r[0])['action_id'] for r in store.db.execute(
+                "SELECT payload FROM event WHERE kind='ark_transfer_verified' ORDER BY sequence")],
+            'unresolved_actions':[a['id'] for a in actions if a['state'] in {'dispatched','outcome_unknown'}],
+            'scope':'client outcomes only; no operator-capital qualification or release clock',
+            'lightning':'unrun','expiry_payout_deadlines':'unresolved'}
+        result['limitations'].append('Current profile: queued two-wallet path first; sustained and recovery scenarios require actual campaign evidence.')
     atomic_text(store.root / "report.json", json.dumps(result, indent=2) + "\n")
     atomic_text(store.root / "observations.json", json.dumps(result["observations"], indent=2) + "\n")
     mode = "SYNTHETIC DEMONSTRATION — NOT SIGNET EVIDENCE" if result["mode"] == "synthetic" else "LIVE OBSERVATIONS — QUALIFICATION INCOMPLETE"

@@ -92,6 +92,7 @@ class Config:
     architecture_profile: str | None = None
     expected_sdk_commit: str | None = None
     closed_frontier_schema: int = 1
+    principal_budget_sat: int = 0
     normal_source_profile: Path | None = None
     normal_source_profile_sha256: str | None = None
 
@@ -114,6 +115,17 @@ class Config:
                 raise ValueError('explicit architecture requires the actual qualified SDK commit')
         elif self.expected_sdk_commit is not None:
             raise ValueError('SDK pin requires an explicit campaign architecture profile')
+        from .architecture import SIGNATURE_LINK
+        if self.architecture_profile == SIGNATURE_LINK:
+            from .signature_link import SDK_COMMIT
+            if self.expected_sdk_commit != SDK_COMMIT:
+                raise ValueError('current signature-link SDK pin required')
+            if (self.workload != 'none' or self.funding_wallet or self.inventory_command
+                    or self.proof_bundles or self.server_policy_command or self.recovery_command or self.phase_enabled):
+                raise ValueError('prove queued client path first; no legacy scheduler, funding or server inventory')
+            integer(self.principal_budget_sat, 'assigned principal budget')
+            if self.active and (not self.principal_budget_sat or len(self.proof_command) != 5):
+                raise ValueError('active client campaign needs assigned principal budget and pinned independent verifier')
         if type(self.phase_enabled) is not bool:raise ValueError('phase enablement must be boolean')
         if self.phase_manifest_sha256 is not None and (not isinstance(self.phase_manifest_sha256,str) or len(self.phase_manifest_sha256)!=64 or any(c not in '0123456789abcdef' for c in self.phase_manifest_sha256)):
             raise ValueError('phase qualification requires an exact manifest SHA256')
@@ -214,7 +226,7 @@ class Config:
         operator_descriptors = declaration_paths(operator.get('descriptors', []), paths[1])
         if operator.get('bridge', False) and (not operator_descriptors or not runtime.get('inventory_command') or not trace.get('enabled', True)):
             raise ValueError('operator bridge requires public descriptors, inventory command and trace')
-        return cls(closed_frontier_schema=runtime.get('closed_frontier_schema',1),normal_source_profile=Path(normal['profile']).expanduser()if normal is not None else None,
+        return cls(principal_budget_sat=integer(runtime.get('principal_budget_sat',0),'assigned principal budget'),closed_frontier_schema=runtime.get('closed_frontier_schema',1),normal_source_profile=Path(normal['profile']).expanduser()if normal is not None else None,
                    normal_source_profile_sha256=normal['sha256']if normal is not None else None,
                    architecture_profile=target.get('architecture_profile'),expected_sdk_commit=target.get('sdk_commit'),phase_enabled=runtime.get('phase_enabled',False),phase_manifest_sha256=runtime.get('phase_manifest_sha256'),log_target_enabled=logs.get('target',False),log_local_sources=tuple(local_sources),log_since_us=since_us,log_rows_per_page=log_rows,log_maximum_bytes=log_bytes,server_policy_command=tuple(policy), state_dir=paths[0], observer_command=tuple(runtime["observer_command"]),
                    driver_command=tuple(runtime.get("driver_command", [])), wallet_root=paths[1],

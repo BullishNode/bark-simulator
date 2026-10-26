@@ -19,7 +19,7 @@ from .model import InvariantError,canonical
 from .chain import ChainReader
 from .direct_settlements import collect as collect_direct_settlements
 from .settlements import collect_settlements as collect_two_step_settlements
-from .architecture import profile as campaign_profile, validate as validate_profile, TWO_STEP, DIRECT
+from .architecture import profile as campaign_profile, validate as validate_profile, TWO_STEP, DIRECT, SIGNATURE_LINK
 from .campaign import CampaignClock,RampPlan,traffic_ready,collect_ark_receipts
 from .continuous import schedule as schedule_continuous
 from .funding import fund,WalletRpc
@@ -48,7 +48,7 @@ OPERATIONS = {"create", "snapshot", "sync", "address", "board", "send_arkoor", "
 def catalog(profile=None):
     validate_profile(profile)
     cases = json.loads(Path(__file__).with_name("scenarios.json").read_text())
-    if profile is not None:
+    if profile is not None and profile != SIGNATURE_LINK:
         contracts = json.loads(Path(__file__).with_name("scenario_profiles.json").read_text())
         for case in cases:
             if case['id'] in contracts['cases']:
@@ -64,10 +64,11 @@ def catalog(profile=None):
 def initialize(store: Store):
     selected = campaign_profile(store)
     store.register_catalog(catalog(selected if store.get_meta('architecture_profile') else None),
-                           set(RAW_CASES.values()))
+                           set() if selected == SIGNATURE_LINK else set(RAW_CASES.values()))
     roles = ["daily wallet", "spender", "merchant", "saver", "Lightning sender", "Lightning recipient",
              "intermittent phone", "delegated wallet", "absent wallet A", "absent wallet B",
              "adversarial A", "adversarial B"]
+    if selected == SIGNATURE_LINK: roles = roles[:10]
     for index, role in enumerate(roles, 1):
         store.actor(f"actor-{index:02}", role)
 
@@ -86,7 +87,7 @@ class Engine:
         if (selected!=(declared or DIRECT)
                 or bool(store.get_meta('architecture_profile'))!=(declared is not None)):
             raise ValueError('configured architecture differs from original campaign profile')
-        if declared is not None:
+        if declared is not None and declared != SIGNATURE_LINK:
             if store.get_meta('final_financial_epoch') is not None:
                 from .final_campaign import epoch
                 if epoch(store)['pins']['sdk_commit']!=config.expected_sdk_commit:
@@ -97,6 +98,14 @@ class Engine:
         if self._requires_financial_qualification():
             from .normal_financial import KEY
             store.db.execute('INSERT OR IGNORE INTO meta VALUES (?,?)', (KEY, 'true'))
+        if declared == SIGNATURE_LINK and config.principal_budget_sat:
+            saved = store.get_meta('client_principal_budget_sat')
+            if saved is not None and saved != str(config.principal_budget_sat):
+                raise ValueError('original assigned client principal budget changed')
+            if saved is None:
+                store.db.execute("INSERT INTO meta VALUES ('client_principal_budget_sat',?)", (str(config.principal_budget_sat),))
+                store.event('client_campaign_budget', {'principal_budget_sat':config.principal_budget_sat,
+                    'fee_budget_sat':config.fee_budget_sat,'operator_capital_qualified':False})
         self.phases=PhaseController(store,config)
         if config.trace_enabled:
             store.attach_trace(config.trace_retention_days)
@@ -112,11 +121,16 @@ class Engine:
         self.recovery=RecoveryController(store,config) if config.recovery_command else None
 
     def _requires_financial_qualification(self):
+        if campaign_profile(self.store) == SIGNATURE_LINK:
+            # This profile measures client outcomes, with externally assigned funds.
+            # It earns no operator-capital or release-gate qualification.
+            return self.store.get_meta('final_financial_epoch') is not None
         return (getattr(self.config,'architecture_profile',None) is not None
                 or self.store.get_meta('final_financial_epoch') is not None
                 or self.store.get_meta('financial_qualification_required') is not None)
 
     async def collect_settlement_evidence(self,chain):
+        if campaign_profile(self.store)==SIGNATURE_LINK:return
         if campaign_profile(self.store)==TWO_STEP:
             await collect_two_step_settlements(self.store,chain)
         else:
@@ -353,6 +367,14 @@ class Engine:
         if action['operation'].startswith('phase_') and (not getattr(self.config,'phase_enabled',False) or not getattr(self.config,'phase_manifest_sha256',None) or action['args'].get('qualification_manifest_sha256')!=self.config.phase_manifest_sha256):
             self.store.finish(action['id'],'blocked',{'reason':'compiled phase package has not been explicitly qualified for this invocation; no native call'},0)
             return True
+        if campaign_profile(self.store) == SIGNATURE_LINK:
+            from .signature_link import OPERATIONS as focused_operations
+            principal = sum(json.loads(row['args']).get('amount_sat', 0) for row in self.store.db.execute(
+                "SELECT args FROM action WHERE operation='board' AND state NOT IN ('failed','blocked')"))
+            if (action['operation'] not in focused_operations
+                    or principal > self.config.principal_budget_sat):
+                self.store.finish(action['id'], 'blocked', {'reason':'focused operation or assigned principal budget exceeded'}, 0)
+                return True
         actor_dir = self.config.wallet_root / action["actor_id"]
         if actor_dir.parent.resolve() != self.config.wallet_root or actor_dir.is_symlink():
             self.store.finish(action["id"], "failed", {"reason": "unsafe actor directory"})
@@ -585,6 +607,7 @@ class Engine:
             self.store.db.execute("INSERT OR REPLACE INTO meta VALUES (?,?)",("funding_check_"+batch,str(time.time())))
 
     async def collect_inventory(self):
+        if campaign_profile(self.store)==SIGNATURE_LINK:return
         if not self.config.inventory_command:return
         kinds=["coins","pending","links","records"]
         if campaign_profile(self.store)==TWO_STEP:kinds += ['settlements','nursery']
@@ -664,8 +687,9 @@ class Engine:
                 await collect_negative_checks(self.store,self.config.inventory_command,self.config.proof_command)
                 await collect_protocol_checks(self.store,self.config.inventory_command,self.config.proof_command)
                 await retry_public_candidates(self.store,self.config.proof_command)
+                if campaign_profile(self.store)==SIGNATURE_LINK:collect_ark_receipts(self.store)
                 chain=None
-                if len(self.config.proof_command)==4:
+                if len(self.config.proof_command) in {4,5}:
                     chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],self.config.expected_genesis,capture=self.store.trace_sample)
                     if self.config.server_policy_command:
                         try:
@@ -718,7 +742,7 @@ class Engine:
             fee_latest=self.store.db.execute('SELECT id FROM snapshot ORDER BY id DESC LIMIT 1').fetchone()
             if fee_latest:
                 try:
-                    if len(self.config.proof_command)!=4:
+                    if len(self.config.proof_command) not in {4,5}:
                         raise ValueError('independent Core observer unavailable')
                     fee_chain=ChainReader(self.config.proof_command[1],self.config.proof_command[2],
                         self.config.expected_genesis,capture=self.store.trace_sample,consumer='payout-fee-watch')
