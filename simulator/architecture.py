@@ -12,7 +12,8 @@ KEY = 'architecture_profile'
 DIRECT = 'direct_xpub'
 TWO_STEP = 'two_step_per_key'
 DIRECT_PER_KEY = 'direct_per_key'
-PROFILES = frozenset({DIRECT, TWO_STEP, DIRECT_PER_KEY})
+SIGNATURE_LINK = 'signature_link'
+PROFILES = frozenset({DIRECT, TWO_STEP, DIRECT_PER_KEY, SIGNATURE_LINK})
 
 
 def validate(requested):

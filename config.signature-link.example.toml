@@ -1,0 +1,31 @@
+# Fresh, private campaign only. Every placeholder deliberately prevents dispatch.
+[target]
+network = "signet"
+genesis = "00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6"
+architecture_profile = "signature_link"
+sdk_commit = "8b356f8ae966e206204301b169f1d1169520d554"
+container = "abandon-signet-fallback-REPLACE_CURRENT_CONTAINER"
+image_digest = "sha256:REPLACE_WITH_MEASURED_IMAGE_HASH"
+server_pubkey = "REPLACE_WITH_MEASURED_COMPRESSED_SERVER_KEY"
+
+[runtime]
+state_dir = "/ABSOLUTE/PRIVATE/campaign"
+wallet_root = "/ABSOLUTE/PRIVATE/wallets"
+active = false
+workload = "none"
+# Operator assigns BOTH amounts before active=true; these are not funding grants.
+principal_budget_sat = 0
+fee_budget_sat = 0
+board_amount_sat = 12000
+action_fee_reserve_sat = 2000
+campaign_seed = "signature-link-two-wallet-001"
+interval_seconds = 30
+dispatch_per_tick = 2
+action_timeout_seconds = 180
+observer_command = ["python3", "-m", "simulator.vm_observer", "--client-config", "/ABSOLUTE/PRIVATE/config.local.toml"]
+driver_command = ["/ABSOLUTE/BUILD/target/debug/bark-sim-driver"]
+proof_command = ["/ABSOLUTE/BUILD/target/debug/vtxo-proof", "http://127.0.0.1:REPLACE_CORE_PORT", "/ABSOLUTE/PRIVATE/core.cookie", "REPLACE_SERVER_KEY", "REPLACE_SERVER_MAILBOX_KEY"]
+
+[executables]
+"/ABSOLUTE/BUILD/target/debug/bark-sim-driver" = "REPLACE_DRIVER_SHA256"
+"/ABSOLUTE/BUILD/target/debug/vtxo-proof" = "REPLACE_VERIFIER_SHA256"

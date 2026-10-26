@@ -9,6 +9,10 @@ default = []
 # Build the same driver against the declared track SDK at source/.
 two-step = []
 direct-per-key = []
+signature-link = []
+
+[package.metadata.signature-link]
+sdk-revision = "8b356f8ae966e206204301b169f1d1169520d554"
 
 [[bin]]
 name = "noah-public-proof"

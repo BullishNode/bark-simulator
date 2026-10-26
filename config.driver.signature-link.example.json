@@ -1,0 +1,7 @@
+{
+  "architecture_profile": "signature_link",
+  "network": "signet",
+  "ark_endpoint": "http://127.0.0.1:REPLACE_RPC_PORT",
+  "wallet_config": "/ABSOLUTE/PRIVATE/config.wallet.toml",
+  "wallet_root": "/ABSOLUTE/PRIVATE/wallets"
+}

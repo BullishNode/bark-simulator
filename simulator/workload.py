@@ -9,7 +9,7 @@ from .config import Config
 from .model import integer
 from .store import Store
 from .raw_cases import next_case
-from .architecture import profile, DIRECT_PER_KEY, TWO_STEP
+from .architecture import profile, DIRECT_PER_KEY, TWO_STEP, SIGNATURE_LINK
 
 
 def schedule_pilot(store: Store, config: Config):
@@ -95,7 +95,7 @@ def schedule_pilot(store: Store, config: Config):
 
 def record_actor_result(store: Store, actor: str, operation: str, data: dict):
     architecture = profile(store)
-    per_key = architecture == DIRECT_PER_KEY
+    per_key = architecture in {DIRECT_PER_KEY, SIGNATURE_LINK}
     two_step = architecture == TWO_STEP
     with (nullcontext() if store.db.in_transaction else store.transaction()):
         row = store.db.execute("SELECT details FROM actor WHERE id=?", (actor,)).fetchone()
@@ -106,6 +106,8 @@ def record_actor_result(store: Store, actor: str, operation: str, data: dict):
                     raise ValueError("missing wallet identity evidence")
             if per_key:
                 from .per_key import binding_matches, record_envelope
+                if architecture == SIGNATURE_LINK:
+                    from .signature_link import binding_matches, record_envelope
                 binding = data.get('binding',{})
                 if (not binding_matches(binding,binding) or 'account_xpub' in data
                         or not record_envelope(binding)
@@ -129,6 +131,7 @@ def record_actor_result(store: Store, actor: str, operation: str, data: dict):
             details["ark_address"] = data["address"]
             if "binding" in data:
                 fields = ('user_pubkey','key_link_attestation','binding') if per_key or two_step else ('user_pubkey','child_index','blinded_mailbox_id','binding')
+                if architecture == SIGNATURE_LINK: fields = ("user_pubkey","owner_link","binding","address")
                 details["advertised_key_proof"]={k:data[k] for k in fields}
         elif operation == "snapshot":
             details["snapshot_at"] = time.time()
@@ -137,6 +140,10 @@ def record_actor_result(store: Store, actor: str, operation: str, data: dict):
             details["pending_in_round_sat"] = integer(data["balance"].get("pending_in_round_sat", 0), "client pending round balance")
             details["onchain_confirmed_sat"] = integer(data["onchain"]["confirmed_sat"], "client confirmed balance")
             details["coin_ids"] = [v["id"] for v in data["vtxos"]]
+            if architecture == SIGNATURE_LINK:
+                details['awaiting_settlement_sat'] = integer(data['balance'].get('awaiting_settlement_sat',0), 'client awaiting settlement')
+                details['pending_operations'] = data.get('pending_operations', {})
+                details['fallback_pending'] = data.get('fallback_pending', {})
             if any(not isinstance(coin, str) or not coin for coin in details["coin_ids"]):
                 raise ValueError("invalid coin identity evidence")
             # A read-only snapshot must not invent another synchronization debt.

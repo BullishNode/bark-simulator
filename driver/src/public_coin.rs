@@ -195,8 +195,10 @@ mod tests {
         let coin=builder.build_vtxo(&cosign,&user).unwrap();coin.validate(&funding).unwrap();
         let participation=RoundParticipation {inputs:vec![coin.clone()],
             outputs:vec![VtxoRequest {policy:VtxoPolicy::new_pubkey(user.public_key()),amount:Amount::from_sat(19_700)}],
-            #[cfg(not(any(feature="two-step",feature="direct-per-key")))]
+            #[cfg(not(any(feature="two-step",feature="direct-per-key",feature="signature-link")))]
             output_origins:Default::default(),
+            #[cfg(feature="signature-link")]
+            owner_proofs:Default::default(),
             unblinded_mailbox_id:Some(ark::mailbox::MailboxIdentifier::from_pubkey(user.public_key()))};
         let evidence=hex(&encode(&coin).unwrap());
         let legacy=serde_json::to_value(&participation).unwrap();
@@ -230,8 +232,10 @@ mod tests {
         assert_eq!(proof.conditional_steps,0,"fixture must be ordinary and contain no undisclosed hashlock");
         let participation=bark::round::RoundParticipation {inputs:vec![coin.clone()],
             outputs:vec![ark::VtxoRequest {policy:coin.policy().clone(),amount:coin.amount()}],
-            #[cfg(not(any(feature="two-step",feature="direct-per-key")))]
+            #[cfg(not(any(feature="two-step",feature="direct-per-key",feature="signature-link")))]
             output_origins:Default::default(),
+            #[cfg(feature="signature-link")]
+            owner_proofs:Default::default(),
             unblinded_mailbox_id:None};
         let public=round_participation(&participation).unwrap();
         assert_eq!(public["inputs"],json!([hex(&safe)]));
